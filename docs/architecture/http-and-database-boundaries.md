@@ -63,12 +63,21 @@ passed as bindings.
 
 The reviewed boundaries are:
 
+- `AnalyticsContentQuery` for Analytics → Site engagement, which counts the
+  posts a period's visits opened: conditional `COUNT(DISTINCT CASE WHEN … THEN
+  visitor_hash END)` and sums over the rows each visit keeps of its posts — in
+  all, per source, and per post, only the posts opened at all (`HAVING`), the
+  most opened first — and the different browsers of the accounts whose session
+  first opened each post, through a `NOT EXISTS` on an earlier post of the
+  session.
 - `AnalyticsVisitsQuery` for Growth → Analytics, which counts people rather
   than visits: conditional `COUNT(DISTINCT CASE WHEN … THEN visitor_hash END)`
   and sums over a period's visits — in all, per dimension of the visit with
   the people past the top groups, or too few to list, counted together and
   those of no value counted apart or left out when asked, per value asked for,
-  per pair of two dimensions' values, per day, or per hour or block of days
+  per group of a dimension's columns among values of its first — the five
+  campaign tags of the sessions of some campaigns, which tell tracking links
+  apart — per pair of two dimensions' values, per day, or per hour or block of days
   between bound boundaries — ordered by the people of each group; the values of a dimension ordered by their people, for the page's
   filters; the people who came back, through an `EXISTS` on an earlier visit of
   the browser; the sums of what the paid clicks cost, their pages run or not,
@@ -106,6 +115,8 @@ The reviewed boundaries are:
   over their authors' usernames, display names and names.
 - `StudioActionsQuery` for literal LIKE searches over the Action queue: the
   publication's title and its Persona's username, display name and name.
+- `TrackingLinksQuery` for literal LIKE searches over tracking links' names,
+  sources, campaigns, contents and terms.
 - `TrafficChanceSampleQuery` for the chances of an account: conditional counts
   of the matured visits that reached each step and of those that became
   accounts, per game, source, channel, device, country and rounds answered.

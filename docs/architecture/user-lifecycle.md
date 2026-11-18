@@ -269,6 +269,7 @@ row. `AnonymizeUserAccountAction` turns it into an irreversible tombstone:
 | What the tracker credited the account to (`account_attributions`) | retain, without the browser's hash: it is already an anonymous count |
 | The days the account did something on the site (`user_activity_days`) | retain, as the anonymous history the account's cohort is counted from; gone after 400 days (`traffic:purge-expired`) |
 | The segments of a paid source an administrator made or last changed (`traffic_segments`) | retain, naming the tombstone |
+| The tracking links an administrator made or last changed (`tracking_links`) | retain, naming the tombstone |
 | Received notifications | delete |
 | Other users' notifications referencing this identity | delete |
 

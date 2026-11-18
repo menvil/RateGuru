@@ -8,11 +8,13 @@ use App\Exceptions\Traffic\CannotManageTrafficException;
 use App\Filament\Pages\Analytics\AnalyticsTab;
 use App\Filament\Pages\Analytics\AnalyticsView;
 use App\Filament\Pages\Analytics\CampaignsTab;
+use App\Filament\Pages\Analytics\EngagementTab;
 use App\Filament\Pages\Analytics\ExperimentsTab;
 use App\Filament\Pages\Analytics\GamesTab;
 use App\Filament\Pages\Analytics\GeographyTab;
 use App\Filament\Pages\Analytics\LandingsTab;
 use App\Filament\Pages\Analytics\OverviewTab;
+use App\Filament\Pages\Analytics\TrackingLinksTab;
 use App\Filament\Resources\Games\Analytics\ReadsGameAnalytics;
 use App\Filament\Support\AdminNavigationGroup;
 use App\Models\TrafficSegment;
@@ -37,21 +39,27 @@ use UnitEnum;
  * site, counted by RateGuru itself from the visits it records — people, not
  * visits. A period of whole days (its presets, or a range up to the longest
  * Analytics reads at a time), a device, a source and a campaign narrow every
- * figure of the tab open that reads visits — Overview, Campaigns, Landings
- * and Geography; Experiments reads who each traffic period assigned to which
- * version instead, and none of them applies to it; Games is a game's own
- * analytics, of the period and the device with the game's own filters
- * (ReadsGameAnalytics), the source and campaign said not to apply. The strip
- * lists only the tabs built so far.
+ * figure of the tab open that reads visits — Overview, Site engagement,
+ * Campaigns, Landings and Geography; Experiments reads who each traffic
+ * period assigned to which version instead, and none of them applies to it;
+ * Games is a game's own analytics, of the period and the device with the
+ * game's own filters (ReadsGameAnalytics), the source and campaign said not
+ * to apply. Tracking links lists the administrator's tagged addresses with
+ * what each brought, and is drawn before any visit is recorded, since links
+ * come first. The strip lists only the tabs built so far.
  *
  * Everything on screen is in the address — the tab, the period, the device,
- * the source and campaign, a tab's own sorting, the creative Campaigns
- * opens and the paid source's segment whose drawer is open, the comparison
- * Experiments shows, the game Games shows and its filters, the country
- * Geography opens — and anything it can't read is the default; only the
- * rows of the Campaigns tree opened or closed by hand stay with the page
- * alone. A segment is saved, deleted and brought back by Undo through its
- * drawer (TrafficSegmentEditor) and the toast it leaves. Asking for the page reads no visits: the open tab's
+ * the source and campaign, a tab's own sorting, the two sources Site
+ * engagement compares, the creative Campaigns opens, the tracking link it
+ * was opened from and the paid source's segment whose drawer is open, the
+ * search of Tracking links and the link whose drawer or details are open,
+ * the comparison Experiments shows, the game Games shows and its filters,
+ * the country Geography opens — and anything it can't read is the default;
+ * only the rows of the Campaigns tree opened or closed by hand stay with the
+ * page alone. A segment is saved, deleted and brought back by Undo through
+ * its drawer (TrafficSegmentEditor) and the toast it leaves; a tracking link
+ * is made and edited through its own (TrackingLinkEditor), whose save opens
+ * the link's details. Asking for the page reads no visits: the open tab's
  * figures are read once the page is in a browser (wire:init), and only the
  * open tab's. A source chosen whose campaign isn't one of its own drops the
  * campaign, and another campaign the creative chosen of the last. The page,
@@ -63,10 +71,10 @@ final class GrowthAnalyticsPage extends Page
     use ReadsGameAnalytics;
 
     /** @var array<string, string> the tabs built so far, in the reference's order: the strip lists these and no other */
-    public const array TABS = ['overview' => 'Overview', 'campaigns' => 'Campaigns', 'landings' => 'Landings', 'games' => 'Games', 'experiments' => 'Experiments', 'geo' => 'Geography'];
+    public const array TABS = ['overview' => 'Overview', 'engagement' => 'Site engagement', 'campaigns' => 'Campaigns', 'links' => 'Tracking links', 'landings' => 'Landings', 'games' => 'Games', 'experiments' => 'Experiments', 'geo' => 'Geography'];
 
     /** @var array<string, class-string<AnalyticsTab>> what each tab of the strip reads */
-    public const array TAB_DATA = ['overview' => OverviewTab::class, 'campaigns' => CampaignsTab::class, 'landings' => LandingsTab::class, 'games' => GamesTab::class, 'experiments' => ExperimentsTab::class, 'geo' => GeographyTab::class];
+    public const array TAB_DATA = ['overview' => OverviewTab::class, 'engagement' => EngagementTab::class, 'campaigns' => CampaignsTab::class, 'links' => TrackingLinksTab::class, 'landings' => LandingsTab::class, 'games' => GamesTab::class, 'experiments' => ExperimentsTab::class, 'geo' => GeographyTab::class];
 
     /**
      * @var list<string> the tabs not counted from the visits Analytics
@@ -77,6 +85,22 @@ final class GrowthAnalyticsPage extends Page
      *                   for none, don't apply to them
      */
     public const array OWN_STATES = ['games', 'experiments'];
+
+    /**
+     * @var list<string> the tabs drawn before any visit was recorded, or in
+     *                   days before the first: Tracking links makes the links
+     *                   visits will come through, so it never waits for them,
+     *                   though what the page says about recording holds
+     */
+    public const array DRAWN_WITHOUT_VISITS = ['links'];
+
+    /**
+     * @var list<string> the tabs that say themselves that Record site visits
+     *                   is off, drawing what the game visits and paid clicks
+     *                   still record: the page's own word about it would only
+     *                   repeat theirs
+     */
+    public const array OWN_SITE_STATE = ['engagement'];
 
     /** @var list<string> the tabs the source and campaign filters don't apply to: each says so while one is chosen */
     public const array WITHOUT_SOURCE = ['games'];
@@ -130,6 +154,14 @@ final class GrowthAnalyticsPage extends Page
     #[Url(except: 'visitors')]
     public mixed $sort = 'visitors';
 
+    /** Site engagement: the source compared on side A, by its key (AnalyticsSource); the biggest not on side B while none is named or the one named isn't offered. */
+    #[Url(except: '')]
+    public mixed $a = '';
+
+    /** Site engagement: the source compared on side B, by its key; the biggest not on side A while none is named or the one named isn't offered. */
+    #[Url(except: '')]
+    public mixed $b = '';
+
     /** Campaigns: what its campaigns and creatives are sorted by, one of CampaignsTab::SORTS. */
     #[Url(except: 'visitors')]
     public mixed $csort = 'visitors';
@@ -147,6 +179,22 @@ final class GrowthAnalyticsPage extends Page
      */
     #[Locked]
     public array $toggled = [];
+
+    /** Campaigns: the tracking link whose campaign and creative are shown, by its id, with the banner that says so; none when the campaigns weren't opened from a link. */
+    #[Url(except: '')]
+    public mixed $link = '';
+
+    /** Tracking links: what the list is searched for. */
+    #[Url(except: '')]
+    public mixed $q = '';
+
+    /** Tracking links: the link whose drawer is open — `new` for one being made, its id, or `copy-{id}` for a copy of one — or none. */
+    #[Url(except: '')]
+    public mixed $edit = '';
+
+    /** Tracking links: the link whose details are open, by its id, or none. */
+    #[Url(except: '')]
+    public mixed $show = '';
 
     /** Campaigns: the segment of the paid source chosen whose drawer is open — `new` for one being made, or its id — or none. */
     #[Url(except: '')]
@@ -213,9 +261,10 @@ final class GrowthAnalyticsPage extends Page
             $this->segment = '';
         }
 
-        // A creative is chosen of its campaign: another campaign, or none, drops it.
+        // A creative is chosen of its campaign, and a tracking link names both: another campaign, or none, drops them.
         if ($property === 'campaign' || $this->campaign === '') {
             $this->creative = '';
+            $this->link = '';
         }
 
         if ($this->ready && in_array($property, ['tab', 'exp'], true)) {
@@ -364,7 +413,73 @@ final class GrowthAnalyticsPage extends Page
         $this->source = '';
         $this->campaign = '';
         $this->creative = '';
+        $this->link = '';
         $this->segment = '';
+    }
+
+    /** Campaigns opened from a tracking link: back to the links, the link's campaign no longer chosen. */
+    public function backToLinks(): void
+    {
+        $this->tab = 'links';
+        $this->campaign = '';
+        $this->creative = '';
+        $this->link = '';
+        $this->normalize();
+    }
+
+    /** Create tracking link: the drawer of a new one. */
+    public function createLink(): void
+    {
+        $this->edit = 'new';
+        $this->show = '';
+        $this->normalize();
+    }
+
+    /** A link's Edit or Rename: its drawer, its details closed. */
+    public function editLink(mixed $id): void
+    {
+        $this->edit = is_int($id) || is_string($id) ? (string) $id : '';
+        $this->show = '';
+        $this->normalize();
+    }
+
+    /** A link's Duplicate: the drawer of a new link made from its fields. */
+    public function duplicateLink(mixed $id): void
+    {
+        $this->edit = is_int($id) || (is_string($id) && ctype_digit($id)) ? 'copy-'.$id : '';
+        $this->show = '';
+        $this->normalize();
+    }
+
+    /** A link's row: its details. */
+    public function showLink(mixed $id): void
+    {
+        $this->show = is_int($id) || is_string($id) ? (string) $id : '';
+        $this->edit = '';
+        $this->normalize();
+    }
+
+    /** The details' close, Escape or scrim. */
+    public function closeLinkDetails(): void
+    {
+        $this->show = '';
+    }
+
+    /** The drawer's Cancel, Escape or scrim: closed, nothing saved. */
+    #[On('close-tracking-link')]
+    public function closeLinkEditor(): void
+    {
+        $this->edit = '';
+    }
+
+    /** Saved in the drawer: it closes, the link's details open, and the page says so. */
+    #[On('tracking-link-saved')]
+    public function linkSaved(mixed $id = null, mixed $message = ''): void
+    {
+        $this->edit = '';
+        $this->show = is_int($id) || (is_string($id) && ctype_digit($id)) ? (string) $id : '';
+        $this->normalize();
+        $this->dispatch('rg-admin-toast', message: is_string($message) && $message !== '' ? $message : 'Link saved', tone: 'success');
     }
 
     /** @return array<string, mixed> */
@@ -379,7 +494,7 @@ final class GrowthAnalyticsPage extends Page
         // Nothing to read yet when no visit was ever recorded, or none until after the period.
         $state = match (true) {
             ! $this->ready => 'loading',
-            $ownStates => 'ready',
+            $ownStates, in_array($this->tab, self::DRAWN_WITHOUT_VISITS, true) => 'ready',
             $recordedSince === null => 'nothing',
             $period->toDay < $recordedSince->toDateString() => 'early',
             default => 'ready',
@@ -389,8 +504,8 @@ final class GrowthAnalyticsPage extends Page
         return [
             ...$shell,
             'notices' => [
-                // Whether visits are recorded is nothing to a tab not counted from them.
-                ...($ownStates ? [] : $shell['notices']),
+                // Whether visits are recorded is nothing to a tab not counted from them; a tab drawn that says itself Record site visits is off says it alone.
+                ...($ownStates ? [] : array_values(array_filter($shell['notices'], fn (array $notice): bool => $state !== 'ready' || ! in_array($this->tab, self::OWN_SITE_STATE, true) || $notice['text'] !== AnalyticsView::SITE_OFF))),
                 ...(in_array($this->tab, self::WITHOUT_SOURCE, true) && $filter->narrowsSource()
                     ? [['tone' => 'info', 'text' => 'The source and campaign filters don’t apply on this tab.', 'action' => null]]
                     : []),
@@ -476,6 +591,12 @@ final class GrowthAnalyticsPage extends Page
         }
     }
 
+    /** Whether an address names a record by its id. */
+    private static function isId(mixed $value): bool
+    {
+        return (is_int($value) || is_string($value)) && preg_match('/^[1-9]\d{0,17}$/', (string) $value) === 1;
+    }
+
     /** Puts back in the address what it says as read: anything the page can't read is the default. */
     private function normalize(): void
     {
@@ -496,10 +617,20 @@ final class GrowthAnalyticsPage extends Page
         // The sorting, the creative and the rows toggled are the Campaigns tab's alone; a creative only of a campaign chosen.
         $this->csort = $this->tab === 'campaigns' && is_string($this->csort) && array_key_exists($this->csort, CampaignsTab::SORTS) ? $this->csort : 'visitors';
         $this->creative = $this->tab === 'campaigns' && $this->campaign !== '' ? CampaignsTab::readCreative($this->creative) : '';
+        $this->link = $this->tab === 'campaigns' && $this->campaign !== '' && self::isId($this->link) ? (string) $this->link : '';
         $this->toggled = $this->tab === 'campaigns' ? $this->toggled : [];
         // A segment's drawer opens over a paid source's segments alone: the tab says which of them it is.
         $this->segment = $this->tab === 'campaigns' && AnalyticsSource::paidSourceId((string) $this->source) !== null
             && (is_int($this->segment) || is_string($this->segment)) && preg_match('/^(new|[1-9]\d{0,17})$/', (string) $this->segment) === 1 ? (string) $this->segment : '';
+
+        // The search, the drawer and the details are the Tracking links tab's alone.
+        $this->q = $this->tab === 'links' && is_string($this->q) ? mb_substr(trim((string) preg_replace('/[\x00-\x1F\x7F]/u', '', $this->q)), 0, 120) : '';
+        $this->edit = $this->tab === 'links' && (is_int($this->edit) || is_string($this->edit)) && preg_match('/^(new|(copy-)?[1-9]\d{0,17})$/', (string) $this->edit) === 1 ? (string) $this->edit : '';
+        $this->show = $this->tab === 'links' && $this->edit === '' && self::isId($this->show) ? (string) $this->show : '';
+
+        // The two sources compared are the Site engagement tab's alone.
+        $this->a = $this->tab === 'engagement' ? (AnalyticsSource::read($this->a) ?? '') : '';
+        $this->b = $this->tab === 'engagement' ? (AnalyticsSource::read($this->b) ?? '') : '';
 
         // The sorting and the open country are the Geography tab's alone.
         $this->gsort = $this->tab === 'geo' && is_string($this->gsort) && array_key_exists($this->gsort, GeographyTab::SORTS) ? $this->gsort : 'visitors';

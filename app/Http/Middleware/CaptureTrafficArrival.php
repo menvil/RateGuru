@@ -17,6 +17,7 @@ use App\Support\Traffic\Capture\TrafficArrival;
 use Carbon\CarbonImmutable;
 use Closure;
 use Illuminate\Http\Request;
+use Illuminate\Routing\Route as RoutingRoute;
 use Illuminate\Support\Facades\Cookie;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\Route;
@@ -227,8 +228,16 @@ final class CaptureTrafficArrival
             return null;
         }
 
+        $probe = Request::create((string) parse_url($referrer, PHP_URL_PATH) ?: '/');
+
         try {
-            return Route::getRoutes()->match(Request::create((string) parse_url($referrer, PHP_URL_PATH) ?: '/'))->getName();
+            // Each route is asked whether it matches, fallbacks last, rather than through the collection's match(),
+            // which binds the route it finds: the very route this request is on when the referrer is a page of the
+            // same kind — a post's page opened from another's — whose parameters would become the referrer's, so the
+            // page drawn would be the referrer's post.
+            [$fallbacks, $routes] = collect(Route::getRoutes()->get('GET'))->partition(fn (RoutingRoute $route): bool => $route->isFallback);
+
+            return $routes->values()->merge($fallbacks->values())->first(fn (RoutingRoute $route): bool => $route->matches($probe))?->getName();
         } catch (Throwable) {
             return null;
         }

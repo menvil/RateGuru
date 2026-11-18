@@ -12,9 +12,19 @@
      * sorted as chosen. A campaign or creative row opens or closes; a game's
      * row leads to the game's analytics on the Games tab. The tables scroll
      * sideways inside their cards where a card is narrower. Nobody matching
-     * the filters is said once, with nothing else drawn.
+     * the filters is said once, with nothing else drawn. Opened from a
+     * tracking link, a banner above it all says so, with the way back.
      */
 @endphp
+
+@if ($data['link'] !== null)
+    <x-admin.ui.inline-notice tone="info" icon="link-2" class="rg-admin-analytics__link-banner" data-testid="analytics-link-banner">
+        {{ $data['link']['text'] }}
+        <x-slot:actions>
+            <x-admin.ui.button size="sm" icon="arrow-left" wire:click="backToLinks" data-testid="analytics-link-back">Back to tracking links</x-admin.ui.button>
+        </x-slot:actions>
+    </x-admin.ui.inline-notice>
+@endif
 
 @if ($data['empty'])
     @include('filament.pages.analytics.elements.no-visitors', ['range' => $data['range'], 'filtered' => $data['filtered']])

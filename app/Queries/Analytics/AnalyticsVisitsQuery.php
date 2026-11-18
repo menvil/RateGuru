@@ -49,6 +49,9 @@ use InvalidArgumentException;
  *  - top()           the values a dimension's people came through, the most
  *                    first, with nothing counted: what a filter offers;
  *  - of()            the figures of each of the values given of a dimension;
+ *  - among()         the figures of each group of a dimension's columns
+ *                    among the values given of its first — the tags of the
+ *                    sessions of some campaigns;
  *  - pairs()         the people of each pair of values two dimensions held
  *                    together — the sources of each campaign;
  *  - spend()         what the paid clicks cost, their pages run or not,
@@ -338,6 +341,60 @@ final class AnalyticsVisitsQuery implements RawSqlPersistenceBoundary
         }
 
         return $groups;
+    }
+
+    /**
+     * The figures of each group of a dimension's columns among the visits the
+     * filter admits whose first column holds one of the values given — every
+     * set of tags the sessions of some campaigns came by, say — a column
+     * holding no value grouped as none. The most people first, then by the
+     * values — where a group of none falls among them is the engine's own;
+     * at most MOST_GROUPS. Given groups to read only — each by its columns'
+     * values, a null one by being null — no other group is read, so a group
+     * asked for is never crowded out by bigger ones it wasn't.
+     *
+     * @param  list<int|string>  $firstValues
+     * @param  list<array<string, int|string|null>>  $only
+     * @return list<array{keys: array<string, int|string|null>, figures: VisitorFigures, visits: int, tagged: int}>
+     */
+    public function among(AnalyticsFilter $filter, AnalyticsDimension $dimension, array $firstValues, array $only = []): array
+    {
+        $columns = $dimension->columns();
+
+        if ($firstValues === []) {
+            return [];
+        }
+
+        [$metrics, $bindings] = self::metrics($filter);
+
+        $query = $this->visits($filter)
+            ->whereIn($columns[0], $firstValues)
+            ->when($only !== [], fn (Builder $asked) => $asked->where(function (Builder $any) use ($columns, $only): void {
+                foreach ($only as $keys) {
+                    $any->orWhere(function (Builder $same) use ($columns, $keys): void {
+                        foreach ($columns as $column) {
+                            $value = $keys[$column] ?? null;
+                            $value === null ? $same->whereNull($column) : $same->where($column, $value);
+                        }
+                    });
+                }
+            }))
+            ->groupBy(...$columns)
+            ->select($columns)
+            ->selectRaw($metrics, $bindings)
+            ->orderByRaw('COUNT(DISTINCT visitor_hash) DESC', []);
+
+        foreach ($columns as $column) {
+            $query->orderBy($column);
+        }
+
+        return $query
+            ->limit(self::MOST_GROUPS)
+            ->toBase()
+            ->get()
+            ->map(fn (object $row): array => ['keys' => self::keys((array) $row, $columns), ...self::counted((array) $row)])
+            ->values()
+            ->all();
     }
 
     /**

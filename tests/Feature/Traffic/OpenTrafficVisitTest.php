@@ -58,34 +58,6 @@ afterEach(function () {
     CarbonImmutable::setTestNow();
 });
 
-/**
- * The browser holding the token (OPEN_TOKEN unless another is given) asks for
- * a page with only the given headers, and the page runs: a game's page makes
- * its first call with the token it was drawn with, any other page sends its
- * script's signal. Returns the visit a game's steps go to.
- */
-function pageRuns(string $path, array $headers = [], string $token = OPEN_TOKEN): ?int
-{
-    test()->flushHeaders();
-    $page = clickOn($path, $token, $headers)->assertOk();
-    test()->flushHeaders();
-
-    if (preg_match('/<meta name="rg-arrival" content="([^"]+)">/', (string) $page->getContent(), $meta) === 1) {
-        test()->withCookie((string) config('games.visitor_cookie.name'), $token)
-            ->withHeaders(['User-Agent' => DESKTOP_CHROME_USER_AGENT, 'Accept-Language' => 'en'])
-            ->post(route('traffic.signal'), ['signal' => 'opened', 'arrival' => html_entity_decode($meta[1])])
-            ->assertNoContent();
-
-        return null;
-    }
-
-    return Livewire::withCookie((string) config('games.visitor_cookie.name'), $token)
-        ->withHeaders(['User-Agent' => DESKTOP_CHROME_USER_AGENT, 'Accept-Language' => 'en'])
-        ->test(PlayGame::class, ['slug' => explode('/', trim((string) parse_url($path, PHP_URL_PATH), '/'))[1]])
-        ->call('init')
-        ->get('visitId');
-}
-
 /** The address of a game's shared result, as a share link gives it. */
 function sharedResultOf(Game $game): string
 {

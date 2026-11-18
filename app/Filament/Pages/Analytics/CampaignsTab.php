@@ -13,9 +13,11 @@ use App\Enums\TrafficSpendMode;
 use App\Filament\Pages\GrowthAnalyticsPage;
 use App\Filament\Pages\TrafficSourcesPage;
 use App\Models\Game;
+use App\Models\TrackingLink;
 use App\Models\TrafficCampaign;
 use App\Models\TrafficSource;
 use App\Queries\Analytics\AnalyticsVisitsQuery;
+use App\Queries\Analytics\TrackingLinksQuery;
 use App\Queries\Analytics\TrafficSegmentsQuery;
 use App\Queries\Traffic\TrafficSpendQuery;
 use App\Support\Analytics\ActivityDay;
@@ -63,7 +65,13 @@ use Illuminate\Database\Eloquent\Collection;
  * marked with its campaign — and any row can be opened or closed. Every
  * filter of the page applies to the tree; the paid sources read the period
  * and device. Nobody matching the filters is said once, with nothing else
- * drawn. Reads only.
+ * drawn.
+ *
+ * Opened from a tracking link — its campaign chosen, its creative named —
+ * the tab says so in a banner above everything, with the way back to the
+ * links, and marks the campaign's row as well as the creative's; a link no
+ * visit came through yet says that, and whether its campaign already came
+ * by other links. Reads only.
  */
 final class CampaignsTab implements AnalyticsTab
 {
@@ -101,6 +109,7 @@ final class CampaignsTab implements AnalyticsTab
         private readonly AnalyticsView $view,
         private readonly TrafficSpendQuery $spend,
         private readonly TrafficSegmentsQuery $segments,
+        private readonly TrackingLinksQuery $links,
     ) {}
 
     /**
@@ -133,9 +142,11 @@ final class CampaignsTab implements AnalyticsTab
     public function data(GrowthAnalyticsPage $page, AnalyticsFilter $filter): array
     {
         $period = $filter->period;
+        $has = $this->visits->has($filter);
+        $link = $this->linkBanner($page, $filter, $has);
 
-        if (! $this->visits->has($filter)) {
-            return ['empty' => true, 'range' => $period->range(), 'filtered' => $filter->device !== null || $filter->narrowsSource()];
+        if (! $has) {
+            return ['empty' => true, 'link' => $link, 'range' => $period->range(), 'filtered' => $filter->device !== null || $filter->narrowsSource()];
         }
 
         $sources = TrafficSource::query()->with('apiConnection:id,source_id,status')->withCount(['campaigns', 'segments'])->orderBy('name')->orderBy('id')
@@ -144,10 +155,44 @@ final class CampaignsTab implements AnalyticsTab
 
         return [
             'empty' => false,
+            'link' => $link,
             'spendOrigin' => $this->spendOrigin($sources),
             'paidSources' => $this->paidSources($sources, $filter),
             'segments' => $this->segmentsOf($page, $filter, $sources),
-            ...$this->tree($page, $filter, $minimum),
+            ...$this->tree($page, $filter, $minimum, $link !== null && $link['visits']),
+        ];
+    }
+
+    /**
+     * What the banner of the tracking link the tab was opened from says —
+     * the link by its number and tags, and that its row is marked; or, while
+     * no visit came through it yet, that it will appear after its first, or
+     * that the campaign below already came by the same utm_campaign — and
+     * whether any visit came through it. None while no link is named, the
+     * one named is gone, or the campaign chosen isn't the link's.
+     *
+     * @param  bool  $has  whether anyone matches the filters
+     * @return array{text: string, visits: bool}|null
+     */
+    private function linkBanner(GrowthAnalyticsPage $page, AnalyticsFilter $filter, bool $has): ?array
+    {
+        $link = $page->link === '' ? null : TrackingLink::query()->find((int) $page->link);
+
+        if (! $link instanceof TrackingLink || $filter->campaignKey !== CampaignKey::tag($link->utm_campaign)) {
+            return null;
+        }
+
+        $named = $link->reference().' ('.implode(' · ', array_filter([$link->utm_source, $link->utm_medium, $link->utm_campaign, $link->utm_content], fn (string $tag): bool => $tag !== '')).')';
+
+        if ($this->links->hasVisits($link)) {
+            return ['text' => 'Showing campaign performance for '.$named.'. '.($has ? 'Its row is marked.' : 'Nobody came through it in '.$filter->period->range().'.'), 'visits' => true];
+        }
+
+        return [
+            'text' => 'No visits have arrived through '.$named.' yet. '.($has
+                ? 'Below is the existing campaign '.$link->utm_campaign.', which uses the same utm_campaign.'
+                : 'It will appear here after its first visit.'),
+            'visits' => false,
         ];
     }
 
@@ -289,11 +334,13 @@ final class CampaignsTab implements AnalyticsTab
     /**
      * Campaign performance: the campaigns, the open ones' creatives and the
      * open creatives' games, in the order the sorting asks, with the rows
-     * that count the rest — and what the card says around them.
+     * that count the rest — and what the card says around them. The campaign
+     * chosen is marked once a creative of it is named, or a tracking link
+     * visits came through.
      *
      * @return array<string, mixed>
      */
-    private function tree(GrowthAnalyticsPage $page, AnalyticsFilter $filter, int $minimum): array
+    private function tree(GrowthAnalyticsPage $page, AnalyticsFilter $filter, int $minimum, bool $linked = false): array
     {
         $period = $filter->period;
         $table = $this->visits->by($filter, AnalyticsDimension::Campaign, self::CAMPAIGNS, unnamed: AnalyticsVisitsQuery::UNNAMED_LEFT_OUT);
@@ -448,7 +495,7 @@ final class CampaignsTab implements AnalyticsTab
                 'open' => $campaignOpen,
                 'toggle' => ['campaign' => $key, 'creative' => ''],
                 'url' => null,
-                'marked' => $marked !== null && $key === $filter->campaignKey,
+                'marked' => ($marked !== null || $linked) && $key === $filter->campaignKey,
             ]);
             $early = $early || $line['tooEarly'];
             $rows[] = $line;

@@ -89,6 +89,7 @@ use App\Models\TrafficSetting;
 use App\Models\TrafficSource;
 use App\Models\TrafficStepChance;
 use App\Models\TrafficVisit;
+use App\Models\TrafficVisitPost;
 use App\Models\TranslationAiProviderCall;
 use App\Models\User;
 use App\Queries\Games\GameTrafficQuery;
@@ -14857,6 +14858,34 @@ function browserHashOf(string $token): string
 const OPEN_TOKEN = 'openTokenopenTokenopenTokenopenTokenopen';
 
 /**
+ * The browser holding the token (OPEN_TOKEN unless another is given) asks for
+ * a page with only the given headers, and the page runs: a game's page makes
+ * its first call with the token it was drawn with, any other page sends its
+ * script's signal. Returns the visit a game's steps go to.
+ */
+function pageRuns(string $path, array $headers = [], string $token = OPEN_TOKEN): ?int
+{
+    test()->flushHeaders();
+    $page = clickOn($path, $token, $headers)->assertOk();
+    test()->flushHeaders();
+
+    if (preg_match('/<meta name="rg-arrival" content="([^"]+)">/', (string) $page->getContent(), $meta) === 1) {
+        test()->withCookie((string) config('games.visitor_cookie.name'), $token)
+            ->withHeaders(['User-Agent' => DESKTOP_CHROME_USER_AGENT, 'Accept-Language' => 'en'])
+            ->post(route('traffic.signal'), ['signal' => 'opened', 'arrival' => html_entity_decode($meta[1])])
+            ->assertNoContent();
+
+        return null;
+    }
+
+    return Livewire::withCookie((string) config('games.visitor_cookie.name'), $token)
+        ->withHeaders(['User-Agent' => DESKTOP_CHROME_USER_AGENT, 'Accept-Language' => 'en'])
+        ->test(PlayGame::class, ['slug' => explode('/', trim((string) parse_url($path, PHP_URL_PATH), '/'))[1]])
+        ->call('init')
+        ->get('visitId');
+}
+
+/**
  * The game page as drawn with the given arrival — a paid click's visit, or
  * an unpaid arrival's channel and page — played by the browser holding the
  * token (OPEN_TOKEN unless another is given).
@@ -14935,6 +14964,33 @@ function analyticsVisit(string $browser, array $attributes = []): TrafficVisit
         'last_seen_at' => $at,
         'opened_at' => $at,
         'source_key' => AnalyticsSource::DIRECT,
+        ...$attributes,
+    ]);
+}
+
+/** The visits given as one session: each sharing the first's entry, as a later visit of the session goes on from it. */
+function analyticsSession(TrafficVisit ...$visits): void
+{
+    foreach ($visits as $visit) {
+        $visit->forceFill(['entry_visit_id' => $visits[0]->id])->save();
+    }
+}
+
+/**
+ * A visit's row of a post: opened once there unless the attributes say
+ * otherwise, voted on, commented on or shared as they say, beginning as the
+ * visit arrived unless they give another moment.
+ */
+function analyticsVisitPost(TrafficVisit $visit, int $postId, array $attributes = []): TrafficVisitPost
+{
+    return TrafficVisitPost::query()->create([
+        'visit_id' => $visit->id,
+        'post_id' => $postId,
+        'views' => 1,
+        'shared_at' => null,
+        'voted' => false,
+        'commented' => false,
+        'first_at' => $visit->arrived_at,
         ...$attributes,
     ]);
 }

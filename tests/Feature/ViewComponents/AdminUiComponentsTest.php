@@ -52,6 +52,9 @@ it('draws the icons Growth → Analytics uses with the reference’s Lucide geom
     'plug' => ['plug', '<path d="M18 8v5a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8Z"/>'],
     'unplug' => ['unplug', '<path d="m12 6 6 6 2.3-2.3a2.4 2.4 0 0 0 0-3.4l-2.6-2.6a2.4 2.4 0 0 0-3.4 0Z"/>'],
     'filter' => ['filter', '<path d="M10 20a1 1 0 0 0 .553.895l2 1A1 1 0 0 0 14 21v-7a2 2 0 0 1 .517-1.341L21.74 4.67A1 1 0 0 0 21 3H3a1 1 0 0 0-.742 1.67l7.225 7.989A2 2 0 0 1 10 14z"/>'],
+    'link-2' => ['link-2', '<path d="M15 7h2a5 5 0 1 1 0 10h-2"/>'],
+    'radio' => ['radio', '<circle cx="12" cy="12" r="2"/>'],
+    'copy-plus' => ['copy-plus', '<path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/>'],
 ]);
 
 it('fails loudly on an icon it does not have', function () {

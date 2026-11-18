@@ -20,11 +20,14 @@ enum AnalyticsDimension: string
     case City = 'city';
     case Game = 'game';
     case Version = 'version';
+    case Tags = 'tags';
 
     /** @return list<string> the columns a split groups on, the first naming it */
     public function columns(): array
     {
         return match ($this) {
+            // The five campaign tags a session came by: a tracking link is one set of them.
+            self::Tags => ['utm_campaign', 'utm_source', 'utm_medium', 'utm_content', 'utm_term'],
             self::Source => ['source_key'],
             self::Campaign => ['campaign_key'],
             self::Creative => ['creative_key'],
@@ -61,6 +64,7 @@ enum AnalyticsDimension: string
             self::City => 'City',
             self::Game => 'Game',
             self::Version => 'Game version',
+            self::Tags => 'Campaign tags',
         };
     }
 }

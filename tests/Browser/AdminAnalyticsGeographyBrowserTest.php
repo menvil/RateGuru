@@ -53,7 +53,7 @@ function geographyRowNames(mixed $page): array
 it('draws the tab at every width, the countries and cities scrolling inside their card, never the page', function (int $width) {
     $page = visitAnalyticsGeography('/admin/analytics?tab=geo', $width);
 
-    expect($page->script("[...document.querySelectorAll('.rg-admin-analytics__tabs .rg-admin-tab')].map((tab) => tab.textContent.trim())"))->toBe(['Overview', 'Campaigns', 'Landings', 'Games', 'Experiments', 'Geography'])
+    expect($page->script("[...document.querySelectorAll('.rg-admin-analytics__tabs .rg-admin-tab')].map((tab) => tab.textContent.trim())"))->toBe(['Overview', 'Site engagement', 'Campaigns', 'Tracking links', 'Landings', 'Games', 'Experiments', 'Geography'])
         ->and(geographyRowNames($page))->toBe(['Germany', 'Berlin', 'Other cities', 'United States', 'Location unknown'])
         ->and($page->script("document.querySelector('[data-testid=\"analytics-geo-banner\"]')?.textContent.includes('Cities with fewer than 20 visitors are grouped into “Other cities”')"))->toBeTrue()
         ->and($page->script(<<<'JS'

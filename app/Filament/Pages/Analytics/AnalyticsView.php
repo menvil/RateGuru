@@ -24,6 +24,9 @@ use Carbon\CarbonImmutable;
  */
 final class AnalyticsView
 {
+    /** What the page says while visits are recorded but not those of the site's own pages. */
+    public const string SITE_OFF = 'Only game visits and paid clicks are recorded. Switch on Record site visits to see the whole site.';
+
     /** How many sources the Source filter offers, besides the one chosen. */
     public const int SOURCE_OPTIONS = 30;
 
@@ -213,7 +216,7 @@ final class AnalyticsView
         if (! $flags['capture']) {
             $notices[] = ['tone' => 'warning', 'text' => 'Record visits is off, so Analytics has nothing new to count. Switch it on under Traffic sources → Sources → Tracking.', 'action' => $tracking];
         } elseif (! $flags['site']) {
-            $notices[] = ['tone' => 'info', 'text' => 'Only game visits and paid clicks are recorded. Switch on Record site visits to see the whole site.', 'action' => $tracking];
+            $notices[] = ['tone' => 'info', 'text' => self::SITE_OFF, 'action' => $tracking];
         }
 
         // Only for a period that reaches the first recorded day: one that ends before it says so as its own state.

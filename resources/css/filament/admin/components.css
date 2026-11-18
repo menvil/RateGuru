@@ -18342,6 +18342,280 @@
     }
 
     /*
+     * Site engagement: the tiles as Overview draws them, narrower so nine
+     * fit five to a row, each with the pill of what it counts — people and
+     * accounts on the quiet pill, actions on the warning one; the funnel's
+     * legend names its first column too.
+     */
+    @media (min-width: 640px) {
+        .rg-admin-analytics__kpis--engagement {
+            grid-template-columns: repeat(auto-fit, minmax(min(100%, 190px), 1fr));
+        }
+    }
+
+    .rg-admin-analytics__kpi-pill {
+        display: flex;
+        margin: 0;
+    }
+
+    .rg-admin-analytics__unit {
+        display: inline-flex;
+        align-items: center;
+        height: 20px;
+        padding: 0 6px;
+        border-radius: var(--rg-admin-radius-sm);
+        background: var(--rg-admin-surface-pill);
+        font-size: var(--rg-admin-text-overline);
+        line-height: var(--rg-admin-leading-overline);
+        font-weight: var(--rg-admin-weight-medium);
+        color: var(--rg-admin-text-secondary);
+    }
+
+    .rg-admin-analytics__unit--actions {
+        background: var(--rg-admin-status-warning-bg);
+    }
+
+    .rg-admin-analytics__step--legend > :first-child {
+        text-align: left;
+    }
+
+    /*
+     * Compare sources: a row of sources to pick for each side, its tag
+     * first, then the metrics side by side, the better figure of a row
+     * stronger, and the sentence that sums them up.
+     */
+    .rg-admin-analytics__versus-pickers {
+        display: flex;
+        flex-direction: column;
+        gap: var(--rg-admin-space-2);
+        padding: var(--rg-admin-space-3) var(--rg-admin-space-5);
+    }
+
+    .rg-admin-analytics__versus-picker {
+        display: flex;
+        align-items: flex-start;
+        gap: 6px;
+        min-width: 0;
+    }
+
+    .rg-admin-analytics__versus-tag {
+        display: grid;
+        flex-shrink: 0;
+        place-items: center;
+        width: 22px;
+        height: 22px;
+        margin-top: 3px;
+        border-radius: var(--rg-admin-radius-sm);
+        background: var(--rg-admin-surface-inverse);
+        color: var(--rg-admin-text-inverse);
+        font-size: var(--rg-admin-text-micro);
+        line-height: 1;
+        font-weight: var(--rg-admin-weight-semibold);
+    }
+
+    .rg-admin-analytics__versus-tag--b {
+        background: var(--rg-admin-gray-300);
+        color: var(--rg-admin-text-strong);
+    }
+
+    .rg-admin-analytics__versus-options {
+        display: flex;
+        flex: 1;
+        flex-wrap: wrap;
+        gap: 6px;
+        min-width: 0;
+    }
+
+    .rg-admin-analytics__versus-option {
+        max-width: 100%;
+        height: 28px;
+        overflow: hidden;
+        padding: 0 10px;
+        border: 1px solid var(--rg-admin-border-default);
+        border-radius: var(--rg-admin-radius-md);
+        background: var(--rg-admin-surface-card);
+        color: var(--rg-admin-text-strong);
+        font: inherit;
+        font-size: var(--rg-admin-text-caption);
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        cursor: pointer;
+    }
+
+    .rg-admin-analytics__versus-option:hover {
+        border-color: var(--rg-admin-border-strong);
+    }
+
+    .rg-admin-analytics__versus-option:focus-visible {
+        outline: 2px solid var(--rg-admin-focus-ring);
+        outline-offset: 2px;
+    }
+
+    .rg-admin-analytics__versus-option--on,
+    .rg-admin-analytics__versus-option--on:hover {
+        border-color: var(--rg-admin-surface-inverse);
+        box-shadow: 0 0 0 1px var(--rg-admin-surface-inverse);
+        font-weight: var(--rg-admin-weight-medium);
+    }
+
+    .rg-admin-analytics__versus {
+        --rg-admin-table-columns: minmax(0, 1fr) 104px 104px;
+        --rg-admin-table-row-height: 36px;
+        border-top: 1px solid var(--rg-admin-border-default);
+        border-bottom: 1px solid var(--rg-admin-border-default);
+    }
+
+    .rg-admin-analytics__versus .rg-admin-table__row--head .rg-admin-table__cell {
+        padding-block: var(--rg-admin-space-2);
+        overflow-wrap: break-word;
+    }
+
+    .rg-admin-analytics__versus .rg-admin-table__cell:first-child {
+        padding-left: var(--rg-admin-space-5);
+    }
+
+    .rg-admin-analytics__versus .rg-admin-table__cell:last-child {
+        padding-right: var(--rg-admin-space-5);
+    }
+
+    .rg-admin-analytics__versus-row,
+    .rg-admin-analytics__versus-row:not(.rg-admin-table__row--head):hover {
+        background: var(--rg-admin-surface-card);
+    }
+
+    .rg-admin-analytics__versus-label {
+        padding-block: 6px;
+        font-size: var(--rg-admin-text-caption);
+        line-height: var(--rg-admin-leading-caption);
+        color: var(--rg-admin-text-secondary);
+    }
+
+    .rg-admin-analytics__versus-figure {
+        font-size: var(--rg-admin-text-body);
+        line-height: var(--rg-admin-leading-ui);
+    }
+
+    .rg-admin-analytics__versus-figure--lead {
+        font-weight: var(--rg-admin-weight-semibold);
+    }
+
+    @media (max-width: 639.98px) {
+        .rg-admin-analytics__versus {
+            --rg-admin-table-columns: minmax(0, 1fr) 96px 96px;
+        }
+
+        .rg-admin-analytics__versus-pickers {
+            padding-inline: var(--rg-admin-space-4);
+        }
+
+        .rg-admin-analytics__versus .rg-admin-table__cell:first-child {
+            padding-left: var(--rg-admin-space-4);
+        }
+
+        .rg-admin-analytics__versus .rg-admin-table__cell:last-child {
+            padding-right: var(--rg-admin-space-4);
+        }
+    }
+
+    .rg-admin-analytics__versus-answer,
+    .rg-admin-analytics__versus-none {
+        margin: 0;
+        padding: var(--rg-admin-space-3) var(--rg-admin-space-5) var(--rg-admin-space-4);
+        font-size: var(--rg-admin-text-caption);
+        line-height: var(--rg-admin-leading-caption);
+        color: var(--rg-admin-text-strong);
+        text-wrap: pretty;
+    }
+
+    .rg-admin-analytics__versus-none {
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    /*
+     * Content engagement: a row per post opened most — its title over its id,
+     * the id a link to the post while it can be opened — scrolling sideways
+     * inside its card where the card is narrower.
+     */
+    .rg-admin-analytics__posts {
+        --rg-admin-table-columns: minmax(240px, 1.6fr) 96px 110px 104px 96px 110px 120px;
+        --rg-admin-table-min-width: 880px;
+        --rg-admin-table-row-height: 52px;
+    }
+
+    .rg-admin-analytics__posts .rg-admin-table__cell:first-child {
+        padding-left: var(--rg-admin-space-5);
+    }
+
+    .rg-admin-analytics__posts .rg-admin-table__cell:last-child {
+        padding-right: var(--rg-admin-space-5);
+    }
+
+    .rg-admin-analytics__post {
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+        padding-block: 6px;
+    }
+
+    .rg-admin-analytics__post-title {
+        overflow: hidden;
+        font-size: var(--rg-admin-text-body);
+        line-height: 20px;
+        font-weight: var(--rg-admin-weight-medium);
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .rg-admin-analytics__post-title--removed {
+        font-weight: var(--rg-admin-weight-regular);
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-analytics__post-id {
+        align-self: flex-start;
+        font-size: var(--rg-admin-text-micro);
+        line-height: var(--rg-admin-leading-micro);
+        color: var(--rg-admin-text-tertiary);
+        font-variant-numeric: tabular-nums;
+    }
+
+    .rg-admin-analytics__post-id--link {
+        text-decoration: underline;
+        text-underline-offset: 2px;
+    }
+
+    .rg-admin-analytics__post-id--link:hover {
+        color: var(--rg-admin-text-strong);
+    }
+
+    .rg-admin-analytics__post-id--link:focus-visible {
+        outline: 2px solid var(--rg-admin-focus-ring);
+        outline-offset: 1px;
+        border-radius: var(--rg-admin-radius-xs);
+    }
+
+    .rg-admin-analytics__post-figure {
+        display: flex;
+        flex-direction: column;
+        font-size: var(--rg-admin-text-body);
+        line-height: 20px;
+    }
+
+    .rg-admin-analytics__post-figure--strong {
+        font-weight: var(--rg-admin-weight-medium);
+    }
+
+    .rg-admin-analytics__post-figure--quiet {
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-analytics__post-sub {
+        font-size: var(--rg-admin-text-overline);
+        line-height: var(--rg-admin-leading-overline);
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    /*
      * Landings: a row per page a session began on — where it is over what
      * its version had of the traffic, both wrapping rather than cut, so a
      * shared result's marker is never lost — a game's row leading to the
@@ -19324,6 +19598,470 @@
 
     .rg-admin-analytics__segment-spacer {
         flex: 1;
+    }
+
+    /*
+     * Analytics → Campaigns opened from a tracking link: the banner says so
+     * above the cards, its way back wrapping under the text where it is narrow.
+     */
+    .rg-admin-analytics__link-banner {
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 10px 14px;
+        padding: var(--rg-admin-space-3) 14px;
+        border-radius: var(--rg-admin-radius-lg);
+    }
+
+    .rg-admin-analytics__link-banner .rg-admin-notice__icon {
+        padding-top: 0;
+    }
+
+    .rg-admin-analytics__link-banner .rg-admin-notice__body {
+        flex: 1 1 240px;
+        text-wrap: pretty;
+    }
+
+    .rg-admin-analytics__link-banner .rg-admin-notice__actions {
+        margin: 0;
+    }
+
+    /*
+     * Analytics → Tracking links: the heading with Create tracking link
+     * beside it, then the card of links — its search and count, the table
+     * scrolling sideways inside it, each row's name and destination, tags
+     * in the monospaced face, figures right-aligned, actions last.
+     */
+    .rg-admin-analytics__links-head {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: flex-start;
+        gap: var(--rg-admin-space-3) var(--rg-admin-space-5);
+    }
+
+    .rg-admin-analytics__links-heading {
+        flex: 1 1 420px;
+        min-width: 0;
+    }
+
+    .rg-admin-analytics__links-title {
+        margin: 0;
+        font-size: var(--rg-admin-text-ui);
+        line-height: var(--rg-admin-leading-ui);
+        font-weight: var(--rg-admin-weight-medium);
+        color: var(--rg-admin-text-strong);
+    }
+
+    .rg-admin-analytics__links-description {
+        margin: 2px 0 0;
+        font-size: var(--rg-admin-text-caption);
+        line-height: var(--rg-admin-leading-caption);
+        color: var(--rg-admin-text-tertiary);
+        text-wrap: pretty;
+    }
+
+    .rg-admin-analytics__links-toolbar {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 10px;
+        padding: 14px var(--rg-admin-space-4);
+        border-bottom: 1px solid var(--rg-admin-border-default);
+    }
+
+    .rg-admin-analytics__links-search {
+        flex: 0 1 320px;
+        min-width: 220px;
+    }
+
+    .rg-admin-analytics__links-count {
+        margin-left: auto;
+        font-size: var(--rg-admin-text-caption);
+        line-height: var(--rg-admin-leading-caption);
+        color: var(--rg-admin-text-tertiary);
+        white-space: nowrap;
+    }
+
+    .rg-admin-analytics__links-none {
+        margin: 0;
+        padding: 48px var(--rg-admin-space-6);
+        font-size: var(--rg-admin-text-caption);
+        line-height: var(--rg-admin-leading-caption);
+        color: var(--rg-admin-text-tertiary);
+        text-align: center;
+        text-wrap: pretty;
+    }
+
+    .rg-admin-analytics__links {
+        --rg-admin-table-columns: minmax(240px, 1.5fr) 150px minmax(180px, 1fr) 96px 120px 120px 110px 150px;
+        /* The columns' least widths together: never squeezed past them, the card scrolls instead. */
+        --rg-admin-table-min-width: 1166px;
+        --rg-admin-table-row-height: 60px;
+    }
+
+    .rg-admin-analytics__links .rg-admin-table__cell:first-child {
+        padding-left: var(--rg-admin-space-4);
+    }
+
+    .rg-admin-analytics__links .rg-admin-table__cell:last-child {
+        padding-right: var(--rg-admin-space-4);
+    }
+
+    .rg-admin-analytics__link-row {
+        cursor: pointer;
+    }
+
+    .rg-admin-analytics__link-row--selected,
+    .rg-admin-analytics__link-row--selected:not(.rg-admin-table__row--head):hover {
+        background: var(--rg-admin-surface-sunken);
+    }
+
+    .rg-admin-analytics__link-cell {
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+        padding-block: var(--rg-admin-space-2);
+    }
+
+    .rg-admin-analytics__link-cell--numeric {
+        align-items: flex-end;
+    }
+
+    .rg-admin-analytics__link-line {
+        display: flex;
+        align-items: center;
+        gap: var(--rg-admin-space-2);
+        min-width: 0;
+    }
+
+    .rg-admin-analytics__link-name {
+        min-width: 0;
+        overflow: hidden;
+        padding: 0;
+        border: 0;
+        background: transparent;
+        color: var(--rg-admin-text-strong);
+        font: inherit;
+        font-size: var(--rg-admin-text-body);
+        line-height: 20px;
+        font-weight: var(--rg-admin-weight-medium);
+        text-align: left;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        cursor: pointer;
+    }
+
+    .rg-admin-analytics__link-name:focus-visible {
+        outline: 2px solid var(--rg-admin-focus-ring);
+        outline-offset: 2px;
+    }
+
+    .rg-admin-analytics__link-text {
+        overflow: hidden;
+        font-size: var(--rg-admin-text-body);
+        line-height: 20px;
+        color: var(--rg-admin-text-strong);
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .rg-admin-analytics__link-text--mono {
+        font-family: var(--rg-admin-font-mono);
+        font-size: var(--rg-admin-text-caption);
+        line-height: var(--rg-admin-leading-caption);
+    }
+
+    .rg-admin-analytics__link-sub {
+        overflow: hidden;
+        font-size: var(--rg-admin-text-micro);
+        line-height: var(--rg-admin-leading-micro);
+        color: var(--rg-admin-text-tertiary);
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .rg-admin-analytics__link-sub--mono {
+        font-family: var(--rg-admin-font-mono);
+    }
+
+    /* A rate of new visitors under its count: it wraps rather than run into the next column. */
+    .rg-admin-analytics__link-rate {
+        font-size: var(--rg-admin-text-micro);
+        line-height: var(--rg-admin-leading-micro);
+        color: var(--rg-admin-text-tertiary);
+        font-variant-numeric: tabular-nums;
+        text-align: right;
+        text-wrap: balance;
+    }
+
+    .rg-admin-analytics__link-new {
+        flex-shrink: 0;
+    }
+
+    .rg-admin-analytics__link-figure {
+        font-size: var(--rg-admin-text-body);
+        line-height: 20px;
+        color: var(--rg-admin-text-strong);
+        font-variant-numeric: tabular-nums;
+        white-space: nowrap;
+    }
+
+    .rg-admin-analytics__link-figure--strong {
+        font-weight: var(--rg-admin-weight-medium);
+    }
+
+    .rg-admin-analytics__link-figure--quiet {
+        font-weight: var(--rg-admin-weight-regular);
+        color: var(--rg-admin-text-tertiary);
+        white-space: normal;
+    }
+
+    .rg-admin-analytics__link-date {
+        font-size: var(--rg-admin-text-caption);
+        line-height: var(--rg-admin-leading-caption);
+        color: var(--rg-admin-text-strong);
+        white-space: nowrap;
+    }
+
+    .rg-admin-analytics__link-actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 2px;
+    }
+
+    .rg-admin-analytics__links-foot {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px var(--rg-admin-space-4);
+        font-size: var(--rg-admin-text-micro);
+        line-height: var(--rg-admin-leading-micro);
+        color: var(--rg-admin-text-tertiary);
+        text-wrap: pretty;
+    }
+
+    /*
+     * A tracking link's drawers: its form in three sections — destination,
+     * campaign parameters, the address they make — and its details: the
+     * address, the figures as a grid of tiles or the state of no visits, then
+     * its tags as detail rows.
+     */
+    .rg-admin-analytics__link-form,
+    .rg-admin-analytics__link-detail {
+        display: flex;
+        flex-direction: column;
+        gap: 20px;
+        min-width: 0;
+        padding: 18px var(--rg-admin-space-5) var(--rg-admin-space-6);
+    }
+
+    .rg-admin-analytics__link-detail {
+        gap: 18px;
+    }
+
+    .rg-admin-analytics__link-section {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        min-width: 0;
+    }
+
+    /* The destination switch scrolls rather than spilling past its track; on a phone its options narrow so all three fit. */
+    .rg-admin-analytics__link-destinations {
+        max-width: 100%;
+        overflow-x: auto;
+    }
+
+    @media (max-width: 639.98px) {
+        .rg-admin-analytics__link-destinations > .rg-admin-segmented__option {
+            padding: 0 var(--rg-admin-space-2);
+        }
+    }
+
+    .rg-admin-analytics__link-group {
+        display: flex;
+        flex-direction: column;
+        gap: var(--rg-admin-space-2);
+        min-width: 0;
+    }
+
+    .rg-admin-analytics__link-label {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: baseline;
+        gap: 2px var(--rg-admin-space-2);
+    }
+
+    .rg-admin-analytics__link-chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        min-width: 0;
+    }
+
+    .rg-admin-analytics__link-chip {
+        height: 32px;
+        padding: 0 var(--rg-admin-space-3);
+        border: 1px solid var(--rg-admin-border-default);
+        border-radius: var(--rg-admin-radius-md);
+        background: var(--rg-admin-surface-card);
+        color: var(--rg-admin-text-strong);
+        font: inherit;
+        font-size: var(--rg-admin-text-caption);
+        white-space: nowrap;
+        cursor: pointer;
+    }
+
+    .rg-admin-analytics__link-chip--mono {
+        padding: 0 10px;
+        font-family: var(--rg-admin-font-mono);
+        font-size: var(--rg-admin-text-micro);
+    }
+
+    .rg-admin-analytics__link-chip:hover:not(:disabled) {
+        border-color: var(--rg-admin-border-strong);
+    }
+
+    .rg-admin-analytics__link-chip:focus-visible {
+        outline: 2px solid var(--rg-admin-focus-ring);
+        outline-offset: 2px;
+    }
+
+    .rg-admin-analytics__link-chip:disabled {
+        color: var(--rg-admin-text-secondary);
+        cursor: default;
+    }
+
+    .rg-admin-analytics__link-chip--on,
+    .rg-admin-analytics__link-chip--on:hover:not(:disabled) {
+        border-color: var(--rg-admin-surface-inverse);
+        box-shadow: 0 0 0 1px var(--rg-admin-surface-inverse);
+        font-weight: var(--rg-admin-weight-medium);
+    }
+
+    .rg-admin-analytics__link-chip--on:disabled {
+        color: var(--rg-admin-text-strong);
+    }
+
+    .rg-admin-analytics__link-other {
+        margin-top: 2px;
+    }
+
+    .rg-admin-analytics__link-locked-value {
+        display: flex;
+        align-items: center;
+        min-height: 40px;
+        padding: 0 var(--rg-admin-space-3);
+        overflow-wrap: anywhere;
+        border: 1px solid var(--rg-admin-border-default);
+        border-radius: var(--rg-admin-radius-md);
+        background: var(--rg-admin-surface-sunken);
+        color: var(--rg-admin-text-secondary);
+        font-family: var(--rg-admin-font-mono);
+        font-size: var(--rg-admin-text-caption);
+    }
+
+    .rg-admin-analytics__link-url {
+        padding: var(--rg-admin-space-3);
+        border: 1px solid var(--rg-admin-border-default);
+        border-radius: var(--rg-admin-radius-md);
+        background: var(--rg-admin-surface-sunken);
+        color: var(--rg-admin-text-strong);
+        font-family: var(--rg-admin-font-mono);
+        font-size: var(--rg-admin-text-micro);
+        line-height: var(--rg-admin-leading-caption);
+        word-break: break-all;
+    }
+
+    .rg-admin-analytics__link-url--empty {
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-analytics__link-buttons {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--rg-admin-space-2);
+    }
+
+    .rg-admin-analytics__link-help,
+    .rg-admin-analytics__link-period {
+        margin: 0;
+        font-size: var(--rg-admin-text-micro);
+        line-height: var(--rg-admin-leading-micro);
+        color: var(--rg-admin-text-tertiary);
+        text-wrap: pretty;
+    }
+
+    .rg-admin-analytics__link-foot {
+        flex: 1;
+        min-width: 0;
+        font-size: var(--rg-admin-text-micro);
+        line-height: var(--rg-admin-leading-micro);
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-analytics__link-foot--wrong {
+        color: var(--rg-admin-status-danger-fg);
+    }
+
+    .rg-admin-analytics__link-empty {
+        border: 1px dashed var(--rg-admin-border-strong);
+        border-radius: var(--rg-admin-radius-lg);
+    }
+
+    .rg-admin-analytics__link-metrics {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+        overflow: hidden;
+        border: 1px solid var(--rg-admin-border-default);
+        border-radius: var(--rg-admin-radius-lg);
+    }
+
+    .rg-admin-analytics__link-metric {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        margin: -1px 0 0 -1px;
+        padding: var(--rg-admin-space-3) 14px;
+        border-top: 1px solid var(--rg-admin-border-default);
+        border-left: 1px solid var(--rg-admin-border-default);
+    }
+
+    .rg-admin-analytics__link-metric-label {
+        font-size: var(--rg-admin-text-overline);
+        line-height: var(--rg-admin-leading-overline);
+        font-weight: var(--rg-admin-weight-medium);
+        letter-spacing: var(--rg-admin-tracking-overline);
+        text-transform: uppercase;
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-analytics__link-metric-value {
+        font-size: var(--rg-admin-text-stat);
+        line-height: var(--rg-admin-leading-stat);
+        font-weight: var(--rg-admin-weight-medium);
+        color: var(--rg-admin-text-strong);
+        font-variant-numeric: tabular-nums;
+    }
+
+    .rg-admin-analytics__link-metric-note {
+        font-size: var(--rg-admin-text-micro);
+        line-height: var(--rg-admin-leading-micro);
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-analytics__link-meta .rg-admin-detail-row__label {
+        flex-shrink: 0;
+    }
+
+    /* A long destination wraps under itself rather than lose its start where the drawer is narrow. */
+    .rg-admin-analytics__link-meta-value {
+        min-width: 0;
+        overflow-wrap: anywhere;
+        white-space: normal;
+    }
+
+    /* View in Campaigns keeps to the right, on the actions' row or, wrapped, on its own. */
+    .rg-admin-analytics__link-detail-primary {
+        margin-left: auto;
     }
 
     /*

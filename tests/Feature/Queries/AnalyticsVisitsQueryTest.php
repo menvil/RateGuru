@@ -25,8 +25,9 @@ use Carbon\CarbonImmutable;
  * leave out; the attempts and result shares of the visits; what the
  * page's filters offer, whether a filter admits anyone, and when the first
  * visit was recorded; the figures of the values asked for, the people of
- * pairs of values, what the paid clicks cost by one dimension or more, and
- * the first day each value came on. The same on every database engine.
+ * pairs of values, what the paid clicks cost by one dimension or more, the
+ * first day each value came on, and the people of each set of campaign tags
+ * the sessions of some campaigns came by. The same on every database engine.
  */
 
 beforeEach(function () {
@@ -505,4 +506,32 @@ it('tells whether a filter admits anyone, and when the first visit of all was re
         ->and(analyticsQuery()->has(analyticsFilter(source: 'reddit:organic', campaign: 'tag:launch')))->toBeTrue()
         ->and(analyticsQuery()->has(analyticsFilter(source: 'google:organic', campaign: 'tag:launch')))->toBeFalse()
         ->and(analyticsQuery()->has(analyticsFilter('yesterday')))->toBeFalse();
+});
+
+it('counts the people of each set of tags the sessions of the campaigns asked for came by, a tag none of them carried as none', function () {
+    $tags = fn (string $campaign, ?string $content, string $source = 'reddit'): array => ['utm_campaign' => $campaign, 'utm_source' => $source, 'utm_medium' => 'organic_social', 'utm_content' => $content, 'utm_term' => null, 'campaign_key' => 'tag:'.$campaign];
+
+    analyticsVisit('a', $tags('launch', 'post_01'));
+    analyticsVisit('a', [...$tags('launch', 'post_01'), 'started_at' => '2026-11-15 10:01:00']);
+    analyticsVisit('b', $tags('launch', 'post_01'));
+    analyticsVisit('c', [...$tags('launch', null), 'account_at' => '2026-11-15 11:00:00', 'signup_at' => '2026-11-15 11:00:00']);
+    analyticsVisit('d', $tags('launch', 'post_01', 'instagram'));
+    analyticsVisit('e', $tags('weekly', 'hero'));
+    // A campaign not asked for, and a visit whose page never ran.
+    analyticsVisit('f', $tags('other', 'x'));
+    analyticsVisit('g', [...$tags('launch', 'post_01'), 'opened_at' => null]);
+
+    $groups = analyticsQuery()->among(analyticsFilter(), AnalyticsDimension::Tags, ['launch', 'weekly']);
+    $read = collect($groups)->mapWithKeys(fn (array $group): array => [implode('|', array_map(fn (mixed $value): string => $value ?? '-', $group['keys'])) => [$group['figures']->visitors, $group['figures']->starters, $group['figures']->accounts]])->all();
+
+    // The most people first; where a group of none falls among equals is the engine's own.
+    expect(array_keys($read)[0])->toBe('launch|reddit|organic_social|post_01|-')
+        ->and(array_keys($groups[0]['keys']))->toBe(['utm_campaign', 'utm_source', 'utm_medium', 'utm_content', 'utm_term'])
+        ->and(collect($read)->sortKeys()->all())->toBe([
+            'launch|instagram|organic_social|post_01|-' => [1, 0, 0],
+            'launch|reddit|organic_social|-|-' => [1, 0, 1],
+            'launch|reddit|organic_social|post_01|-' => [2, 1, 0],
+            'weekly|reddit|organic_social|hero|-' => [1, 0, 0],
+        ])
+        ->and(analyticsQuery()->among(analyticsFilter(), AnalyticsDimension::Tags, []))->toBe([]);
 });

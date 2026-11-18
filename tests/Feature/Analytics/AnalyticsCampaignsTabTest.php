@@ -400,7 +400,7 @@ it('reads every filter of the page in the tree, says when no campaign matches, a
 
     $empty = Livewire::withQueryParams(['tab' => 'campaigns', 'source' => 'bing:organic', 'device' => 'mobile'])->test(GrowthAnalyticsPage::class)->call('load');
 
-    expect($empty->viewData('data'))->toBe(['empty' => true, 'range' => '20 Oct — 18 Nov 2026', 'filtered' => true]);
+    expect($empty->viewData('data'))->toBe(['empty' => true, 'link' => null, 'range' => '20 Oct — 18 Nov 2026', 'filtered' => true]);
 
     $empty->assertSee('No visitors for these filters')
         ->assertDontSee('Campaign performance')

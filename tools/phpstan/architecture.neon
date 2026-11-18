@@ -162,9 +162,16 @@ parameters:
             -
                 class: App\Queries\Analytics\AnalyticsVisitsQuery
                 methods: [selectRaw, orderByRaw]
-                reason: 'Growth → Analytics counts people, not visits: conditional COUNT(DISTINCT CASE WHEN … THEN visitor_hash END) and sums over a period''s visits — per source, campaign, creative, landing, device, country, city, game or version with the people past the top groups, or too few to list, counted together and those of no value counted apart or left out when asked, per value asked for, per pair of two dimensions'' values, per day, per hour or per block of days between bound boundaries — ordered by the people of each group; the sums of what the paid clicks cost per dimension or nested dimensions; the first day each value came on; and the result shares of the attempts played on them, without hydrating up to millions of visit rows; every value is bound and every grouping column comes from AnalyticsDimension.'
+                reason: 'Growth → Analytics counts people, not visits: conditional COUNT(DISTINCT CASE WHEN … THEN visitor_hash END) and sums over a period''s visits — per source, campaign, creative, landing, device, country, city, game or version with the people past the top groups, or too few to list, counted together and those of no value counted apart or left out when asked, per value asked for, per group of a dimension''s columns among values of its first — the five campaign tags of the sessions of some campaigns —, per pair of two dimensions'' values, per day, per hour or per block of days between bound boundaries — ordered by the people of each group; the sums of what the paid clicks cost per dimension or nested dimensions; the first day each value came on; and the result shares of the attempts played on them, without hydrating up to millions of visit rows; every value is bound and every grouping column comes from AnalyticsDimension.'
                 bindings: required
                 behaviorTests: [tests/Feature/Queries/AnalyticsVisitsQueryTest.php]
+                status: approved
+            -
+                class: App\Queries\Analytics\AnalyticsContentQuery
+                methods: [selectRaw, havingRaw, orderByRaw]
+                reason: 'Site engagement counts the posts a period''s visits opened: conditional COUNT(DISTINCT CASE WHEN … THEN visitor_hash END) and sums over the rows each visit keeps of its posts — in all, per source, and per post with only the posts opened at all, the most opened first — and the different browsers of the accounts whose session first opened each post, without hydrating up to millions of rows; every value is bound and every column of the visit comes from AnalyticsDimension.'
+                bindings: required
+                behaviorTests: [tests/Feature/Queries/AnalyticsContentQueryTest.php]
                 status: approved
             -
                 class: App\Queries\Analytics\TrafficSegmentsQuery
@@ -172,6 +179,13 @@ parameters:
                 reason: 'A paid source''s segments are conditions on its clicks'' parameters: which segment each click is in, every segment''s conditions bound once in a CASE, then all the source''s people, each segment''s and those of no segment as conditional COUNT(DISTINCT CASE WHEN … THEN visitor_hash END) and sums over those flags in one read, and the people a draft''s conditions catch — without hydrating up to millions of visit rows; every value is bound and every column comes from SegmentParameter or AnalyticsDimension.'
                 bindings: required
                 behaviorTests: [tests/Feature/Queries/TrafficSegmentsQueryTest.php]
+                status: approved
+            -
+                class: App\Queries\Analytics\TrackingLinksQuery
+                methods: [whereRaw, orWhereRaw]
+                reason: 'Literal search over tracking links'' names, sources, campaigns, contents and terms requires an explicit ESCAPE clause and separately bound patterns.'
+                bindings: required
+                behaviorTests: [tests/Feature/Queries/TrackingLinksQueryTest.php]
                 status: approved
             -
                 class: App\Queries\Translations\TranslationAiUsageQuery

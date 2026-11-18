@@ -259,6 +259,17 @@ it('hands the site’s own pages their unpaid arrival while Record site visits i
         ->and(TrafficVisit::query()->count())->toBe(0);
 });
 
+it('draws the post asked for, and hands its arrival that post, when the page came from another post', function () {
+    recordTraffic(site: true);
+    $from = Post::factory()->published()->create(['title' => 'Glacier Blue Water']);
+    $to = Post::factory()->published()->create(['title' => 'Foggy Hilltop Town']);
+
+    // Where the referrer points is read without taking the route of the page asked for: a post's page from another's is the same route.
+    $page = clickOn('/posts/'.$to->id, headers: ['Referer' => url('/posts/'.$from->id)])->assertOk()->assertSee('Foggy Hilltop Town')->assertDontSee('Glacier Blue Water');
+
+    expect(printedArrival($page))->toMatchArray(['channel' => 'internal', 'origin' => 'post', 'route' => 'posts.show', 'path' => '/posts/'.$to->id, 'post' => $to->id]);
+});
+
 it('takes back the cookie of a site page that turns out to be no page', function () {
     recordTraffic(site: true);
 
