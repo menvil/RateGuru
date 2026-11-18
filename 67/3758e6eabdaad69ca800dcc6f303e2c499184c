@@ -1,0 +1,187 @@
+tools/phpstan/architecture.neon
+  s_4b9dc6ab6b25d3::t_a6c36691434048 170-175
+  s_4b9dc6ab6b25d3::t_f265701b1ecae4 165
+tests/Browser/AdminAnalyticsGamesBrowserTest.php
+  s_4b9dc6ab6b25d3::t_c9db09aaf042a8 57
+tests/Unit/Support/Analytics/SegmentRulesTest.php
+  s_4b9dc6ab6b25d3::t_491ab559338f7b 1-160
+app/Livewire/Admin/TrafficSegmentEditor.php
+  s_4b9dc6ab6b25d3::t_a57d098f57f03e 242
+  s_4b9dc6ab6b25d3::t_adb4194849bdd9 1-233,237-241,243-246,248-343
+  s_4b9dc6ab6b25d3::t_6ff820357ee90f 247
+  s_4b9dc6ab6b25d3::t_fcf7059dedb2a8 234-236
+tests/Feature/Analytics/GrowthAnalyticsPageTest.php
+  s_4b9dc6ab6b25d3::t_c9db09aaf042a8 129
+app/Enums/SegmentParameter.php
+  s_4b9dc6ab6b25d3::t_96d183baaf9920 1-57
+app/Queries/Analytics/AnalyticsVisitsQuery.php
+  s_4b9dc6ab6b25d3::t_d36e19e878de46 18
+  s_4b9dc6ab6b25d3::t_39794571597103 75-77
+  s_4b9dc6ab6b25d3::t_d6f80e00892090 98-100,106
+  s_4b9dc6ab6b25d3::t_7ef955148de021 134
+  s_4b9dc6ab6b25d3::t_34fa5944fdbce9 313-457
+  s_4b9dc6ab6b25d3::t_ae3e51a5d35185 51-56
+  s_4b9dc6ab6b25d3::t_46e1b9008eecea 488-499
+tests/Feature/Queries/TrafficSegmentsQueryTest.php
+  s_4b9dc6ab6b25d3::t_ae6a99179de902 1-90,93-94,100-139,141-152
+  s_4b9dc6ab6b25d3::t_237cad823bd62c 91-92,95-99
+  s_4b9dc6ab6b25d3::t_43d1794bcecfaa 140
+tests/Browser/AdminAnalyticsExperimentsBrowserTest.php
+  s_4b9dc6ab6b25d3::t_c9db09aaf042a8 48
+app/Actions/Traffic/Concerns/LocksTrafficRecords.php
+  s_4b9dc6ab6b25d3::t_9983cb16cd625b 8
+  s_4b9dc6ab6b25d3::t_141f1af961c054 74-101
+  s_4b9dc6ab6b25d3::t_e7045590bc87a8 15-18
+docs/architecture/community-fk-safety.md
+  s_4b9dc6ab6b25d3::t_94a58dbe8f7406 73
+app/Queries/Analytics/TrafficSegmentsQuery.php
+  s_4b9dc6ab6b25d3::t_7b7f862d2f15f7 1-204
+tests/Feature/Database/ForeignKeyIndexesTest.php
+  s_4b9dc6ab6b25d3::t_a369be71fff18b 31-33
+app/Actions/Analytics/RestoreTrafficSegmentAction.php
+  s_4b9dc6ab6b25d3::t_e06ab3f41d319b 1-45
+app/Filament/Pages/Analytics/GamesTab.php
+  s_4b9dc6ab6b25d3::t_fa6bf1b1047c95 75-92
+docs/architecture/http-and-database-boundaries.md
+  s_4b9dc6ab6b25d3::t_f265701b1ecae4 70-72,74-76
+  s_4b9dc6ab6b25d3::t_4079b75299d4e4 117-123
+resources/views/filament/pages/analytics/campaigns.blade.php
+  s_4b9dc6ab6b25d3::t_420adb538fb1f4 6-10
+  s_4b9dc6ab6b25d3::t_eae5e92f5bc743 157
+  s_4b9dc6ab6b25d3::t_32b7add105f561 71
+  s_4b9dc6ab6b25d3::t_c4e7081c325ed1 1-5,16-68,73-83,180-266
+  s_4b9dc6ab6b25d3::t_6c6e0cb0c0973a 69-70,72
+  s_4b9dc6ab6b25d3::t_1f18befa635e4c 11-15
+  s_4b9dc6ab6b25d3::t_2f131077f46c1b 84-156,158-179
+app/Support/Analytics/SegmentRules.php
+  s_4b9dc6ab6b25d3::t_07f68a31b5f188 1-335,338,340,355,360-378
+  s_4b9dc6ab6b25d3::t_5d49550b791d9d 336-337,339,341-354,356-359
+tests/Browser/AdminAnalyticsLandingsBrowserTest.php
+  s_4b9dc6ab6b25d3::t_c9db09aaf042a8 58
+tests/Feature/ViewComponents/AdminUiComponentsTest.php
+  s_4b9dc6ab6b25d3::t_16d9bf9ea6a183 52-53
+  s_4b9dc6ab6b25d3::t_fa18df95491991 54
+database/factories/TrafficSegmentFactory.php
+  s_4b9dc6ab6b25d3::t_3c1dfb19622fe4 1-26
+app/Filament/Pages/GrowthAnalyticsPage.php
+  s_4b9dc6ab6b25d3::t_ab5108c33663fc 500-502
+  s_4b9dc6ab6b25d3::t_9a44d4c1828513 151-154
+  s_4b9dc6ab6b25d3::t_e4757f8fb5f99f 213
+  s_4b9dc6ab6b25d3::t_60aa2e82ee3547 425
+  s_4b9dc6ab6b25d3::t_2b34a6549edf73 252-266,270-306,308-330
+  s_4b9dc6ab6b25d3::t_3efef2e09c06bf 133-150
+  s_4b9dc6ab6b25d3::t_03db50923a7b8e 496-499,503
+  s_4b9dc6ab6b25d3::t_243ba5733bcaa2 10,30,66,69
+  s_4b9dc6ab6b25d3::t_666306f1191b7b 333-352
+  s_4b9dc6ab6b25d3::t_dac7328ed93743 49-54
+  s_4b9dc6ab6b25d3::t_c861380eedad41 357,367
+  s_4b9dc6ab6b25d3::t_68a86c356312dd 40-41,48
+  s_4b9dc6ab6b25d3::t_6490cb2b928f3f 31
+  s_4b9dc6ab6b25d3::t_998278ea9d5748 5,7
+  s_4b9dc6ab6b25d3::t_f51e1727339a7a 307
+  s_4b9dc6ab6b25d3::t_394fe59ef3db6d 18-19
+  s_4b9dc6ab6b25d3::t_d8acfb1cae450a 55-59,216-218,366
+app/Filament/Pages/Analytics/LandingsTab.php
+  s_4b9dc6ab6b25d3::t_9c2972297f46d9 119
+tests/Pest.php
+  s_4b9dc6ab6b25d3::t_204ca7c6cf97bc 41,85,103,14941-14955
+tests/Browser/AdminAnalyticsBrowserTest.php
+  s_4b9dc6ab6b25d3::t_c9db09aaf042a8 63
+app/Enums/SegmentOperator.php
+  s_4b9dc6ab6b25d3::t_cc379696c717ae 1-23
+app/Models/TrafficSegment.php
+  s_4b9dc6ab6b25d3::t_157508bbf90511 1-68
+composer.json
+  s_4b9dc6ab6b25d3::t_e7f988ee943526 84
+tests/Feature/Database/TrafficSegmentsTableTest.php
+  s_4b9dc6ab6b25d3::t_22c322466bb017 1-66
+app/Filament/Pages/Analytics/CampaignsTab.php
+  s_4b9dc6ab6b25d3::t_2069bd4a741f1f 900
+  s_4b9dc6ab6b25d3::t_c08e6e1b8032f6 850-852
+  s_4b9dc6ab6b25d3::t_795ecec0c06055 141,149,151-229,231-285
+  s_4b9dc6ab6b25d3::t_7f8bd1ef9b8e02 323,537-539
+  s_4b9dc6ab6b25d3::t_ba098a2849b831 748
+  s_4b9dc6ab6b25d3::t_6d285f9f9b2af3 462,464-471,473,475
+  s_4b9dc6ab6b25d3::t_87e919cd7d5a65 520-521,526
+  s_4b9dc6ab6b25d3::t_6781352e82644e 662,665,670
+  s_4b9dc6ab6b25d3::t_b6a345831aeeed 113-115
+  s_4b9dc6ab6b25d3::t_ea16d35cbc75ff 910,915
+  s_4b9dc6ab6b25d3::t_196b3fd380eb7a 230
+  s_4b9dc6ab6b25d3::t_e204d734a03a31 389
+  s_4b9dc6ab6b25d3::t_cfb50756b7d12a 19,25
+  s_4b9dc6ab6b25d3::t_426ac58104c50a 42-45
+  s_4b9dc6ab6b25d3::t_d8acfb1cae450a 377-378
+  s_4b9dc6ab6b25d3::t_37afb126fa9385 1-4,6-7,9-18,20-24,26-41,46-102,104-112,116-140,142-148,150,286-322,324-337,346-376,379-388,390-461,463,472,474,476-519,522-525,527-536,540-661,663-664,666-669,671-747,749-849,853-899,901-909,911-914,916-955
+  s_4b9dc6ab6b25d3::t_59e0339f98923d 5,8
+  s_4b9dc6ab6b25d3::t_0793c203e700a6 338-345
+  s_4b9dc6ab6b25d3::t_396924904b886f 103
+tests/Feature/Queries/AnalyticsVisitsQueryTest.php
+  s_4b9dc6ab6b25d3::t_37f102ddd64f18 25,27-29,242-246,251-339
+  s_4b9dc6ab6b25d3::t_c8d1bf28f677a6 247-250
+tests/Browser/AdminAnalyticsCampaignsBrowserTest.php
+  s_4b9dc6ab6b25d3::t_71ac38eb499848 1-81,83-105,107-117
+  s_4b9dc6ab6b25d3::t_e5021b597b5b7b 82
+  s_4b9dc6ab6b25d3::t_73bbb6b855a0a0 106
+docs/architecture/user-lifecycle.md
+  s_4b9dc6ab6b25d3::t_eacb4ed408d2f6 271
+resources/views/livewire/admin/traffic-segment-editor.blade.php
+  s_4b9dc6ab6b25d3::t_9c8f4ba0644c2c 1-135
+app/Support/Analytics/AnalyticsSource.php
+  s_4b9dc6ab6b25d3::t_d008c5e7c172c0 386-391
+resources/views/components/admin/ui/icon.blade.php
+  s_4b9dc6ab6b25d3::t_395d4fdf762a45 147
+  s_4b9dc6ab6b25d3::t_16d9bf9ea6a183 146,148
+tests/Browser/AdminAnalyticsGeographyBrowserTest.php
+  s_4b9dc6ab6b25d3::t_c9db09aaf042a8 56
+tests/Feature/Analytics/AnalyticsCampaignsTabTest.php
+  s_4b9dc6ab6b25d3::t_90e49e7cb60fed 1-148,150-151,153-160,162-165,167-169,171-172,174-272,274-284,295-298,309-377,379-463
+  s_4b9dc6ab6b25d3::t_044c6e21a32b0f 464-484
+  s_4b9dc6ab6b25d3::t_544db3c3ade5e4 149,152,161,166,170,173
+  s_4b9dc6ab6b25d3::t_426215a0bf2005 285,288
+  s_4b9dc6ab6b25d3::t_23995454e50e92 273,378
+  s_4b9dc6ab6b25d3::t_026f679758f8b0 286-287,289,299-308
+  s_4b9dc6ab6b25d3::t_537424538b7d8e 290-294
+app/Actions/Analytics/DeleteTrafficSegmentAction.php
+  s_4b9dc6ab6b25d3::t_eb485f45b95b5e 1-45
+tests/Feature/Analytics/AnalyticsSegmentsTest.php
+  s_4b9dc6ab6b25d3::t_1614ec151ecb20 1-63,66-178,180,182-399,402-406,409-418
+  s_4b9dc6ab6b25d3::t_4518ad0dbd42e6 179,181
+  s_4b9dc6ab6b25d3::t_da8ecf9c435566 64-65
+  s_4b9dc6ab6b25d3::t_80cbd288b5195c 400-401,407-408
+tests/Browser/AdminAnalyticsSegmentsBrowserTest.php
+  s_4b9dc6ab6b25d3::t_d9ad1ead68bea7 51-52,78,89
+  s_4b9dc6ab6b25d3::t_1b1d83dd801549 1-50,53-77,79-88,90-125
+database/migrations/2026_11_18_101000_create_traffic_segments_table.php
+  s_4b9dc6ab6b25d3::t_522401a3c606e7 1-43
+resources/css/filament/admin/components.css
+  s_4b9dc6ab6b25d3::t_efb6b7b3c6e3b4 18854
+  s_4b9dc6ab6b25d3::t_e8113c159c469d 18855-18860,18865-18866
+  s_4b9dc6ab6b25d3::t_3190c8b492c715 19040-19068,19071-19328
+  s_4b9dc6ab6b25d3::t_0e45a17a110a4b 18660-18853,18867-19039
+  s_4b9dc6ab6b25d3::t_e3d28707a1920a 18861-18864
+  s_4b9dc6ab6b25d3::t_e0e05035cea72f 19069-19070
+app/Models/TrafficSource.php
+  s_4b9dc6ab6b25d3::t_7b1b1a3a8eeb64 161-166
+config/analytics.php
+  s_4b9dc6ab6b25d3::t_44248998bb0435 33,36-37
+app/Actions/Analytics/SaveTrafficSegmentAction.php
+  s_4b9dc6ab6b25d3::t_307e37570b9d6d 1-103
+app/Enums/SegmentVerdict.php
+  s_4b9dc6ab6b25d3::t_878ad3006d93e6 1-25
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "673758e6eabdaad69ca800dcc6f303e2c499184c",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
