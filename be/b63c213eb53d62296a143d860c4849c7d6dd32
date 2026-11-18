@@ -1,0 +1,90 @@
+app/Support/Analytics/PeriodComparison.php
+  s_4b9dc6ab6b25d3::t_cc50e49220191c 198-247
+  s_4b9dc6ab6b25d3::t_08fc960ceefbd5 275-276
+  s_4b9dc6ab6b25d3::t_f4ee7df569e7b3 12-14,19-23
+app/Enums/ComparisonEvidence.php
+  s_4b9dc6ab6b25d3::t_08fc960ceefbd5 11-12,20,30
+app/Filament/Pages/Experiments/ExperimentsView.php
+  s_4b9dc6ab6b25d3::t_ca5382297d7f39 38-48,173,184,282
+  s_4b9dc6ab6b25d3::t_de7b619e823011 292
+  s_4b9dc6ab6b25d3::t_cc50e49220191c 290
+tests/Feature/Analytics/AnalyticsExperimentsTabTest.php
+  s_4b9dc6ab6b25d3::t_272b73e45c5a48 232
+  s_4b9dc6ab6b25d3::t_bede54a09692e9 96-100,260-265,330-340,360-366
+  s_4b9dc6ab6b25d3::t_26cc921980727d 1-95,101-175,177-187,189-213,215-217,219-228,231,233-239,242-259,266-328,341-359,367-405,409-410,414
+  s_4b9dc6ab6b25d3::t_9e7b8d7fbcd440 218,229-230,240-241
+  s_4b9dc6ab6b25d3::t_b12f7bc4fd4c1a 406-408,411-413
+  s_4b9dc6ab6b25d3::t_777c3afd72ae5f 214,329
+  s_4b9dc6ab6b25d3::t_59882729b1e5bc 176,188
+app/Support/Analytics/PeriodVersionFunnel.php
+  s_4b9dc6ab6b25d3::t_4b3a35972e8d0a 36
+app/Queries/Games/ComparisonPeriodsQuery.php
+  s_4b9dc6ab6b25d3::t_07ff8825bad3d2 21-22
+  s_4b9dc6ab6b25d3::t_9c8038c5407cb4 88-123
+tests/Browser/AdminAnalyticsExperimentsBrowserTest.php
+  s_4b9dc6ab6b25d3::t_9495ffb98d578a 1-85
+resources/views/components/admin/ui/icon.blade.php
+  s_4b9dc6ab6b25d3::t_9a3dc37d8e584b 122-124
+tests/Unit/Support/Analytics/SampleRatioCheckTest.php
+  s_4b9dc6ab6b25d3::t_d0bb7b2cdb969d 23,26-27,32-34
+  s_4b9dc6ab6b25d3::t_39b85a68d0ee1f 1-22,24-25,28-31,35-60
+app/Support/Analytics/SampleRatioCheck.php
+  s_4b9dc6ab6b25d3::t_8d0c6cbf055b0b 1-135
+resources/css/filament/admin/components.css
+  s_4b9dc6ab6b25d3::t_d9183c2dc8e905 18247,18309
+  s_4b9dc6ab6b25d3::t_3383667f87ec78 17977,18009,18011,18041,18047,18049,18324-18325
+  s_4b9dc6ab6b25d3::t_158fa3fc4d9b99 18026-18027,18029
+  s_4b9dc6ab6b25d3::t_c450ec26f817db 17970-17976,17978-18008,18010,18012-18025,18028,18030-18040,18042-18046,18048,18050-18177,18179-18246,18248-18308,18310-18323,18326-18332
+  s_4b9dc6ab6b25d3::t_272b73e45c5a48 18178
+app/Support/Analytics/ComparisonVerdict.php
+  s_4b9dc6ab6b25d3::t_87a7f17a7b46fe 68
+  s_4b9dc6ab6b25d3::t_ebff45d55d6ce1 75-78,82-93
+  s_4b9dc6ab6b25d3::t_33acee4e089312 1-67,69-74,79-81,94-193
+tests/Unit/Support/Analytics/PeriodComparisonTest.php
+  s_4b9dc6ab6b25d3::t_08fc960ceefbd5 122-126
+  s_4b9dc6ab6b25d3::t_00d2206029c7d0 144-169
+app/Filament/Pages/GrowthAnalyticsPage.php
+  s_4b9dc6ab6b25d3::t_755fdb75a21adb 8,11,34,45,48-56,107-110,144,154-157,209-210,215,220,223-225,292-298,321-322
+  s_4b9dc6ab6b25d3::t_95d589929b1008 29-31,35-40
+app/Filament/Pages/Analytics/ExperimentsTab.php
+  s_4b9dc6ab6b25d3::t_06148282ed28ff 241-242,244-245,247,250,289-294,304
+  s_4b9dc6ab6b25d3::t_08fc960ceefbd5 61
+  s_4b9dc6ab6b25d3::t_d6a69b198c2598 1-48,50-60,62-106,109-150,153-159,165,167-175,177-184,186-215,219,222-225,227-240,243,246,248-249,251-288,296-297,299-300,303,305-306,342-442
+  s_4b9dc6ab6b25d3::t_96b5f3fcdfb053 49,298,301
+  s_4b9dc6ab6b25d3::t_eed463a3ea86aa 107-108,151-152,160-164,166,176,185,217-218,220-221,295,302,307-341
+  s_4b9dc6ab6b25d3::t_59882729b1e5bc 226
+  s_4b9dc6ab6b25d3::t_5f636b05b1f551 216
+tests/Feature/Queries/ComparisonPeriodsQueryTest.php
+  s_4b9dc6ab6b25d3::t_7c98dc1fd7980e 15-17,121-152
+tests/Unit/Support/Analytics/ComparisonVerdictTest.php
+  s_4b9dc6ab6b25d3::t_1b733226bd3b92 1-105,115-120
+  s_4b9dc6ab6b25d3::t_7b57df929bd62d 106-114
+tests/Feature/Analytics/GrowthAnalyticsPageTest.php
+  s_4b9dc6ab6b25d3::t_e671e4b46dadab 126
+tests/Browser/AdminAnalyticsBrowserTest.php
+  s_4b9dc6ab6b25d3::t_707fc303ea3862 61
+resources/views/filament/pages/analytics/experiments.blade.php
+  s_4b9dc6ab6b25d3::t_f075da94a6f4fb 1-155,161-183
+  s_4b9dc6ab6b25d3::t_adff783d3d21d0 156-160
+tests/Feature/ViewComponents/AdminUiComponentsTest.php
+  s_4b9dc6ab6b25d3::t_9a3dc37d8e584b 47-49
+app/Enums/PeriodMetric.php
+  s_4b9dc6ab6b25d3::t_4b3a35972e8d0a 8-9,15,26
+  s_4b9dc6ab6b25d3::t_ca5382297d7f39 7
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "beb63c213eb53d62296a143d860c4849c7d6dd32",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
