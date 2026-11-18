@@ -1,0 +1,29 @@
+database/migrations/2026_11_18_101300_raise_block_bot_clicks_default.php
+  s_4b9dc6ab6b25d3::t_c9ab3b935c8c52 1-30
+tests/Feature/Traffic/TrafficReportPageTest.php
+  s_4b9dc6ab6b25d3::t_09b50d9c0bb28b 34-35,93-94,171-172,236
+app/Models/TrafficSetting.php
+  s_4b9dc6ab6b25d3::t_c9ab3b935c8c52 92
+tests/Browser/AdminTrafficSourcesBrowserTest.php
+  s_4b9dc6ab6b25d3::t_c9ab3b935c8c52 293
+tests/Feature/Console/TrafficBlockLosersCommandTest.php
+  s_4b9dc6ab6b25d3::t_699a40dceed45b 44-45
+tests/Feature/Models/TrafficModelsTest.php
+  s_4b9dc6ab6b25d3::t_09b50d9c0bb28b 44,52-53
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "30889ec8c4b02922d868c7aa975d694f88231c8b",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
