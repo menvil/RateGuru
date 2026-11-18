@@ -165,6 +165,46 @@ it('adds a step at the end of a flow, counts it as unsaved, and saves it in its 
     $page->assertNoJavaScriptErrors();
 });
 
+it('saves a flow from the foot of the selected step’s settings once something is unsaved', function () {
+    $page = visitAdminEditor(GameResource::getUrl('flow', ['record' => $this->draft['game']]), 1440);
+    $foot = "document.querySelector('[data-testid=\"game-flow-step-save\"]')";
+
+    expect($page->script($foot.'.disabled'))->toBeTrue();
+
+    $page->type('#rg-admin-step-title', 'Saved from below');
+    waitForScript($page, $foot.'.disabled', false, 10.0);
+
+    // Still enabled once the server drew the pane again around it.
+    expect($page->script("(() => { const id = {$foot}.closest('[wire\\\\:id]').getAttribute('wire:id'); return Livewire.find(id).\$refresh().then(() => ! {$foot}.disabled) })()"))->toBeTrue();
+
+    $page->click('[data-testid="game-flow-step-save"]');
+    waitForScript($page, 'Alpine.store("adminEditor").changes === 0 && '.$foot.'.disabled', true, 10.0);
+
+    expect(GameFlowStep::query()->where('flow_id', $this->draft['flow']->id)->where('type', 'landing')->sole()->title)->toBe('Saved from below');
+
+    $page->assertNoJavaScriptErrors();
+});
+
+it('opens every unpublished change from the keyboard, and keeps the list open while the page draws again', function () {
+    liveGame($this->draft);
+    $this->travel(1)->minutes();
+    $rounds = $this->draft['set']->rounds()->orderBy('position')->get();
+    $rounds[0]->forceFill(['question' => 'Which one, now?', 'description' => 'Go with your gut.', 'reveal_message' => 'Most picked this one.'])->save();
+    $rounds[1]->forceFill(['question' => 'And this one?'])->save();
+    $page = visitAdminEditor(GameResource::getUrl('content', ['record' => $this->draft['game']]), 1440);
+    $all = "document.querySelector('[data-testid=\"game-unpublished-all\"]')";
+
+    expect($page->script($all.'.open'))->toBeFalse();
+
+    $page->keys('.rg-admin-games__unpublished-toggle', 'Enter');
+    waitForScript($page, $all.'.open', true, 10.0);
+
+    expect($page->script("(() => { const id = {$all}.closest('[wire\\\\:id]').getAttribute('wire:id'); return Livewire.find(id).\$refresh().then(() => {$all}.open) })()"))->toBeTrue()
+        ->and($page->script($all.'.textContent'))->toContain('Round 2 · Question');
+
+    $page->assertNoJavaScriptErrors();
+});
+
 it('publishes a version from Versions after asking, and gives it every visitor in Traffic', function () {
     $page = visitAdminEditor(GameResource::getUrl('versions', ['record' => $this->draft['game']]), 1280);
 

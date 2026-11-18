@@ -167,8 +167,7 @@ final class GameVersions extends Page
             ? GamePublishReadiness::of($game, $chosenSet, $chosenFlow, $gameIds, app(GameFlowFactsQuery::class)->for($chosenFlow->steps->map(fn (GameFlowStep $step) => $step->draft())->values()->all()))
             : null;
         $latestFromPair = $versions->first(fn (GameVersion $version): bool => (int) $version->content_set_id === $this->publishSetId && (int) $version->flow_id === $this->publishFlowId);
-        $edits = app(GameUnpublishedChangesQuery::class);
-        $changedSince = $latestFromPair === null ? null : $edits->setEditedAfter($this->publishSetId, $latestFromPair->published_at) || $edits->flowEditedAfter($this->publishFlowId, $latestFromPair->published_at);
+        $changedSince = $latestFromPair === null ? null : app(GameUnpublishedChangesQuery::class)->sinceVersion($game, $latestFromPair, $this->publishSetId, $this->publishFlowId);
         $inTraffic = array_values(array_unique(array_merge(array_keys($shares['anonymous']), array_keys($shares['authenticated']))));
         $unplayable = $traffic->unplayableVersionIds($versions->modelKeys());
 
@@ -191,8 +190,8 @@ final class GameVersions extends Page
                 'valid' => GameFlowValidator::issues($flow->steps->map(fn (GameFlowStep $step) => $step->draft())->values()->all(), $flow->goal) === [],
             ])->all(),
             'readiness' => $readiness,
-            'changedSince' => $latestFromPair !== null && $changedSince === true ? $latestFromPair->label() : null,
-            'duplicateOf' => $latestFromPair !== null && $changedSince === false ? $latestFromPair->label() : null,
+            'changedSince' => $latestFromPair !== null && $changedSince !== null ? ['version' => $latestFromPair->label(), 'named' => $changedSince->named(), 'count' => $changedSince->count(), 'groups' => $changedSince->hasMore() ? $changedSince->groups : []] : null,
+            'duplicateOf' => $latestFromPair !== null && $changedSince === null ? $latestFromPair->label() : null,
             'takeOvers' => $versions->filter(fn (GameVersion $version): bool => in_array((int) $version->id, $inTraffic, true))->map(fn (GameVersion $version): array => ['id' => (int) $version->id, 'label' => $version->label()])->values()->all(),
             'versions' => $versions->filter(fn (GameVersion $version): bool => $this->showRetired || $version->isActive())->map(fn (GameVersion $version): array => [
                 'id' => (int) $version->id,

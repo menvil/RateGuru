@@ -57,7 +57,8 @@ use Livewire\Attributes\Url;
  * A game's Flow tab: the screens a visitor moves through around the game, as
  * named flows — made from a template or as a copy, renamed, archived,
  * restored, deleted while no version used them. The flow on screen is one
- * draft until Save in the top bar (SaveGameFlowAction): steps added where
+ * draft until Save — in the top bar, or again at the foot of the selected
+ * step's settings (SaveGameFlowAction): steps added where
  * they fit, moved, removed, set and worded. The flow's problems are listed as
  * it stands (GameFlowValidator); a step can be added only where it adds none.
  * The selected step's Preview plays it as a phone shows it, for the visitor

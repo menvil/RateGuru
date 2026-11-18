@@ -205,8 +205,9 @@ This section is the target design from the prototype. Production builds it as de
 - **Top bar (NAV-02):** padding 0 24 0 28, breadcrumb (section › page, last item current) on the left, page
   actions on the right with gap 10 and the primary action last. Meta text 13 tertiary (“Updated 09:41”); unsaved
   state 13 due-colour (“2 unsaved changes”) next to Save. Edit pages save from the top bar; there is no sticky
-  bottom save bar. A record edited in a drawer over its list — a persona, a person — saves from the drawer's
-  footer instead, which counts its own unsaved changes.
+  bottom save bar — a game's Flow tab repeats Save flow, enabled as the top bar's, at the foot of the selected
+  step's settings, where a long panel ends. A record edited in a drawer over its list — a persona, a person — saves
+  from the drawer's footer instead, which counts its own unsaved changes.
 - **Toasts (FBK-01):** bottom centre of the main column, 24 from the bottom, at most three stacked, 5.2 s.
 
 ### Production shell
@@ -1286,7 +1287,11 @@ games' actions (`docs/architecture/games.md`); the operator guide is `docs/admin
   the internal name, each behind its icon; the status menu (Go live, Pause,
   Resume, Archive, Restore — each asked first, Go live only with traffic) and the tabs (NAV-03): General, Content,
   Flow, Versions, Traffic, Analytics and Preview. Save, Discard and the unsaved count sit in the top bar on the tabs
-  that edit, and the browser asks before unsaved changes are left.
+  that edit, and the browser asks before unsaved changes are left. Under the tabs, edge to edge, a warning strip
+  (FBK-02) while a tab holds saved changes players don't see: “n changes since Vm:” in medium weight and the changes
+  as the editors name them — each while there are three at most, else the first three and “and n more” — then which
+  versions players play and Publish Vn…; past three, a native disclosure, “All n changes”, lists every change under
+  its flow or content set.
 - **General:** General information across the page: Title and Internal name side by side, Address (FRM-09, locked
   once first published), Description (FRM-03, 240) and the cover image as a row — its thumbnail, file name and
   size, Upload or Replace and Remove; stored the moment it is chosen. Beside it, 320 wide and below it under 1280,
@@ -1325,12 +1330,13 @@ games' actions (`docs/architecture/games.md`); the operator guide is `docs/admin
   published, and its steps as cards joined by a line (each its sign, name, audience, one-line summary and problems;
   Move up, Move down and Remove; the game on the sunken ground, “Same in every flow”), the + on the line between two
   cards opening the steps that fit there beside it; and the selected step (360) — its sign, name and place, Settings
-  (Show to with who skips it, Next pair as rows, the delay with − and +, sign-up as rows, the texts, Remove step) or
+  (Show to with who skips it, Next pair as rows, the delay with − and +, sign-up as rows, the texts, then Remove step
+  and Save flow at the far end of its foot) or
   Preview (Preview as Anonymous or Logged in; Theme Dark or Light, kept from step to step; the step in an iPhone from
   the flow as it stands, unsaved edits included; Open full preview).
 - **Versions:** a content set and a flow, the checks (rounds, results, flow) and Publish Vn — asked first, with
   “take over Vm's traffic” as an option; the note when the set or flow, or a translation of it, changed since the
-  newest version made from them; the versions with their set, flow, rounds, traffic, attempts, publisher and
+  newest version made from them, naming the changes as the notice under the tabs does; the versions with their set, flow, rounds, traffic, attempts, publisher and
   Preview, Retire and Restore (retired versions behind Show archived).
 - **Traffic:** per audience — anonymous visitors and logged-in players — the shares of the active versions (FRM-05,
   whole percentages adding up to 100), Add, Remove, Split evenly, Reset and Apply shares; the periods, newest

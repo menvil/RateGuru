@@ -115,9 +115,11 @@ trait InteractsWithGameEditor
     /**
      * The header band's data: the game, its status, the moves its status menu
      * offers — each with why it cannot be made now, if it cannot — the tabs,
-     * and, on a tab whose saved changes the players don't see yet, which
-     * versions they play instead and the Versions tab set to publish one that
-     * has them, taking over the newest one's traffic.
+     * and, on a tab whose saved changes the players don't see yet, what they
+     * are — each named while there are three at most, else the first three,
+     * how many more and the full list by group — which versions players play
+     * instead, and the Versions tab set to publish one that has them, taking
+     * over the newest one's traffic.
      *
      * @param  array<string, string|null>  $badges
      * @return array<string, mixed>
@@ -156,6 +158,10 @@ trait InteractsWithGameEditor
             'moves' => $moves,
             'tabs' => GameResource::editorTabs($game, $tab, $badges + ['value' => $this->visitorWorth($game)]),
             'unpublished' => $unpublished === null ? null : [
+                'headline' => $unpublished->headline(),
+                'named' => $unpublished->named(),
+                'groups' => $unpublished->hasMore() ? $unpublished->groups : [],
+                'count' => $unpublished->count(),
                 'versions' => Arr::join($unpublished->versions, ', ', ' and '),
                 'plural' => count($unpublished->versions) > 1,
                 'next' => 'V'.($game->last_version_number + 1),

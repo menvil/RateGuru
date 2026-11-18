@@ -151,6 +151,35 @@ it('saves the flow from the top bar', function () {
         ->and(GameFlowStep::query()->where('type', 'landing')->sole()->title)->toBe('Pick one');
 });
 
+it('offers Save flow again at the foot of the selected step’s settings, waiting as the top bar’s waits for an unsaved change', function () {
+    $html = (string) $this->get(GameResource::getUrl('flow', ['record' => $this->draft['game']]))->assertOk()->getContent();
+    $disabledWhen = fn (string $button): string => preg_match('/x-bind:disabled="([^"]+)"/', $button, $match) === 1 ? $match[1] : '';
+
+    // Each opening tag stands on a line of its own; the binding holds a “>”.
+    expect(preg_match('/<button[^\n]*save-game-flow[^\n]*>/', $html, $top))->toBe(1)
+        ->and(preg_match('/<button[^\n]*data-testid="game-flow-step-save"[^\n]*>/', $html, $foot))->toBe(1)
+        // Drawn disabled, enabled by the same unsaved changes as the top bar's.
+        ->and($foot[0])->toContain(' disabled ')
+        ->and($disabledWhen($foot[0]))->not->toBe('')->toBe($disabledWhen($top[0]))
+        ->and($foot[0])->toContain('wire:click="save"');
+
+    // The Game step has no Remove step, and still its Save.
+    Livewire::withQueryParams(['step' => 1])->test(EditGameFlow::class, ['record' => $this->draft['game']->id])
+        ->assertSeeHtml('data-testid="game-flow-step-save"')
+        ->assertDontSee('Remove step');
+});
+
+it('saves the flow from the foot of the selected step’s settings as from the top bar', function () {
+    $page = Livewire::test(EditGameFlow::class, ['record' => $this->draft['game']->id])
+        ->assertSeeHtml('wire:click="save" data-testid="game-flow-step-save"')
+        ->set('steps.0.texts.title', 'Saved from below')
+        ->call('save')
+        ->assertDispatched('rg-admin-toast', message: 'Flow saved', tone: 'success');
+
+    expect(GameFlowStep::query()->where('type', 'landing')->sole()->title)->toBe('Saved from below')
+        ->and($page->get('saved'))->toBe($page->get('steps'));
+});
+
 it('keeps the step on screen when a step above it is removed', function () {
     $page = Livewire::test(EditGameFlow::class, ['record' => $this->draft['game']->id])
         ->call('insertStep', 'share')

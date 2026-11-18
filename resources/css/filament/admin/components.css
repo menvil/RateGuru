@@ -11126,7 +11126,65 @@
 
     /* Under the tabs, edge to edge like them: saved changes the players don't see yet. */
     .rg-admin-games__unpublished {
+        align-items: flex-start;
         padding-inline: var(--rg-admin-page-gutter);
+    }
+
+    /* What changed, then what players play instead, then every change behind a disclosure. */
+    .rg-admin-games__unpublished-body {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+    }
+
+    .rg-admin-games__unpublished-all {
+        margin-top: var(--rg-admin-space-1);
+    }
+
+    .rg-admin-games__unpublished-toggle {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--rg-admin-space-1);
+        border-radius: var(--rg-admin-radius-item);
+        font-weight: var(--rg-admin-weight-medium);
+        list-style: none;
+        cursor: pointer;
+    }
+
+    .rg-admin-games__unpublished-toggle::-webkit-details-marker {
+        display: none;
+    }
+
+    .rg-admin-games__unpublished-toggle:hover {
+        text-decoration: underline;
+    }
+
+    .rg-admin-games__unpublished-toggle:focus-visible {
+        outline: 2px solid var(--rg-admin-focus-ring);
+        outline-offset: 2px;
+    }
+
+    .rg-admin-games__unpublished-chevron {
+        transition: transform 120ms ease;
+    }
+
+    .rg-admin-games__unpublished-all[open] .rg-admin-games__unpublished-chevron {
+        transform: rotate(90deg);
+    }
+
+    .rg-admin-games__unpublished-group {
+        margin-top: var(--rg-admin-space-2);
+        font-weight: var(--rg-admin-weight-medium);
+    }
+
+    .rg-admin-games__unpublished-list {
+        margin: 2px 0 0;
+        padding-left: 18px;
+        list-style: disc;
+    }
+
+    .rg-admin-games__unpublished-change {
+        padding-block: 1px;
     }
 
     /* A game's icon: its mechanic's, on a 40 tile in the library and a 44 tile in the editor's header band. */
@@ -13552,9 +13610,17 @@
         padding: 18px var(--rg-admin-space-5) var(--rg-admin-space-6);
     }
 
-    .rg-admin-games__step-remove {
+    /* The foot of a step's settings: Remove step, and Save flow at the far end. */
+    .rg-admin-games__step-foot {
+        display: flex;
+        align-items: center;
+        gap: var(--rg-admin-space-2);
         padding-top: var(--rg-admin-space-2);
         border-top: 1px solid var(--rg-admin-border-default);
+    }
+
+    .rg-admin-games__step-save {
+        margin-left: auto;
     }
 
     .rg-admin-games__radio-rows {

@@ -6,7 +6,7 @@
      * middle (up to 520), a + between two cards offering only the steps that
      * fit there, and the selected step (360): its settings, or the step
      * played as a phone shows it, light or dark. The flow is one draft until Save in the top
-     * bar; its problems are listed as it stands.
+     * bar, or at the foot of the selected step's settings; its problems are listed as it stands.
      */
     $draft = '{ steps: $wire.steps, goal: $wire.goal }';
     $saved = '{ steps: $wire.saved, goal: $wire.savedGoal }';

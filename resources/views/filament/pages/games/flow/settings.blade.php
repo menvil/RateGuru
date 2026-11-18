@@ -3,7 +3,8 @@
      * The selected step, as the reference draws it: its sign, name and place,
      * then Settings — who sees it (fixed for Email Capture and Registration,
      * which ask anonymous visitors only), what it does and what it says, each
-     * text labelled as its kind of step uses it — or Preview: the step played
+     * text labelled as its kind of step uses it, then Remove step and Save flow
+     * for whoever reached the end of them — or Preview: the step played
      * as a phone shows it, for an anonymous visitor or a logged-in player,
      * light or dark, unsaved edits included.
      */
@@ -198,11 +199,13 @@
                 @include('filament.pages.games.flow.texts', ['columns' => array_keys($stepTexts)])
             @endunless
 
-            @unless ($stepType->value === 'game')
-                <div class="rg-admin-games__step-remove">
+            {{-- Where the settings end, the top bar's Save again: the same save, waiting as it waits for an unsaved change. --}}
+            <div class="rg-admin-games__step-foot">
+                @unless ($stepType->value === 'game')
                     <x-admin.ui.button size="sm" icon="trash-2" wire:click="removeStep({{ $selected }})">Remove step</x-admin.ui.button>
-                </div>
-            @endunless
+                @endunless
+                <x-admin.ui.button size="sm" variant="primary" class="rg-admin-games__step-save" disabled x-bind:disabled="! ($store.adminEditor?.changes > 0) || $store.adminEditor?.blocked" wire:click="save" data-testid="game-flow-step-save">Save flow</x-admin.ui.button>
+            </div>
         </div>
         @endif
     </div>

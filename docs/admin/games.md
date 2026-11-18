@@ -59,9 +59,15 @@ version, give it traffic and set it live.
 
 - **Saving and publishing.** Saving changes the draft only; players keep
   playing the published version. While a tab holds saved changes they don't
-  see, a notice under the tabs says so and opens Versions ready to publish
-  them. If another administrator saved in between, renaming or restoring a set
-  or flow asks you to reload, like Save does.
+  see, a notice under the tabs names them — "2 changes since V2: Full Result ·
+  Way-on title, Round 2 · Question"; past three, the first three and how many
+  more, with every change listed behind "All n changes" — and opens Versions
+  ready to publish them. It compares what a new version would freeze with the
+  version players play, so a save that changed nothing they meet — a setting
+  the step's other choices hide, a text saved again as it was — shows no
+  notice. A flow saves from the top bar or from Save flow at the foot of the
+  selected step's settings. If another administrator saved in between,
+  renaming or restoring a set or flow asks you to reload, like Save does.
 - **Versions.** Pick a content set and a flow, read the checks, and publish.
   A version is frozen: today's votes, texts, results and translations stay as
   they were, whatever changes in the draft afterwards. Publishing gives the
