@@ -2,9 +2,12 @@
 
 namespace App\Filament\Pages;
 
+use App\Actions\Analytics\RestoreTrafficSegmentAction;
 use App\Enums\TrafficDevice;
+use App\Exceptions\Traffic\CannotManageTrafficException;
 use App\Filament\Pages\Analytics\AnalyticsTab;
 use App\Filament\Pages\Analytics\AnalyticsView;
+use App\Filament\Pages\Analytics\CampaignsTab;
 use App\Filament\Pages\Analytics\ExperimentsTab;
 use App\Filament\Pages\Analytics\GamesTab;
 use App\Filament\Pages\Analytics\GeographyTab;
@@ -12,6 +15,8 @@ use App\Filament\Pages\Analytics\LandingsTab;
 use App\Filament\Pages\Analytics\OverviewTab;
 use App\Filament\Resources\Games\Analytics\ReadsGameAnalytics;
 use App\Filament\Support\AdminNavigationGroup;
+use App\Models\TrafficSegment;
+use App\Models\User;
 use App\Queries\Games\ComparisonPeriodsQuery;
 use App\Support\Analytics\AnalyticsFilter;
 use App\Support\Analytics\AnalyticsPeriod;
@@ -22,6 +27,8 @@ use Filament\Pages\Page;
 use Filament\Support\Enums\Width;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
+use Livewire\Attributes\Locked;
+use Livewire\Attributes\On;
 use Livewire\Attributes\Url;
 use UnitEnum;
 
@@ -30,31 +37,36 @@ use UnitEnum;
  * site, counted by RateGuru itself from the visits it records — people, not
  * visits. A period of whole days (its presets, or a range up to the longest
  * Analytics reads at a time), a device, a source and a campaign narrow every
- * figure of the tab open that reads visits — Overview, Landings and
- * Geography; Experiments reads who each traffic period assigned to which
+ * figure of the tab open that reads visits — Overview, Campaigns, Landings
+ * and Geography; Experiments reads who each traffic period assigned to which
  * version instead, and none of them applies to it; Games is a game's own
  * analytics, of the period and the device with the game's own filters
  * (ReadsGameAnalytics), the source and campaign said not to apply. The strip
  * lists only the tabs built so far.
  *
  * Everything on screen is in the address — the tab, the period, the device,
- * the source and campaign, a tab's own sorting, the comparison Experiments
- * shows, the game Games shows and its filters, the country Geography opens —
- * and anything it can't read is the default. Asking for the page reads no
- * visits: the open tab's figures are read once the page is in a browser
- * (wire:init), and only the open tab's. A source chosen whose campaign isn't
- * one of its own drops the campaign. The page, and every request it answers,
- * is an active administrator's who may manage traffic sources.
+ * the source and campaign, a tab's own sorting, the creative Campaigns
+ * opens and the paid source's segment whose drawer is open, the comparison
+ * Experiments shows, the game Games shows and its filters, the country
+ * Geography opens — and anything it can't read is the default; only the
+ * rows of the Campaigns tree opened or closed by hand stay with the page
+ * alone. A segment is saved, deleted and brought back by Undo through its
+ * drawer (TrafficSegmentEditor) and the toast it leaves. Asking for the page reads no visits: the open tab's
+ * figures are read once the page is in a browser (wire:init), and only the
+ * open tab's. A source chosen whose campaign isn't one of its own drops the
+ * campaign, and another campaign the creative chosen of the last. The page,
+ * and every request it answers, is an active administrator's who may manage
+ * traffic sources.
  */
 final class GrowthAnalyticsPage extends Page
 {
     use ReadsGameAnalytics;
 
     /** @var array<string, string> the tabs built so far, in the reference's order: the strip lists these and no other */
-    public const array TABS = ['overview' => 'Overview', 'landings' => 'Landings', 'games' => 'Games', 'experiments' => 'Experiments', 'geo' => 'Geography'];
+    public const array TABS = ['overview' => 'Overview', 'campaigns' => 'Campaigns', 'landings' => 'Landings', 'games' => 'Games', 'experiments' => 'Experiments', 'geo' => 'Geography'];
 
     /** @var array<string, class-string<AnalyticsTab>> what each tab of the strip reads */
-    public const array TAB_DATA = ['overview' => OverviewTab::class, 'landings' => LandingsTab::class, 'games' => GamesTab::class, 'experiments' => ExperimentsTab::class, 'geo' => GeographyTab::class];
+    public const array TAB_DATA = ['overview' => OverviewTab::class, 'campaigns' => CampaignsTab::class, 'landings' => LandingsTab::class, 'games' => GamesTab::class, 'experiments' => ExperimentsTab::class, 'geo' => GeographyTab::class];
 
     /**
      * @var list<string> the tabs not counted from the visits Analytics
@@ -118,6 +130,28 @@ final class GrowthAnalyticsPage extends Page
     #[Url(except: 'visitors')]
     public mixed $sort = 'visitors';
 
+    /** Campaigns: what its campaigns and creatives are sorted by, one of CampaignsTab::SORTS. */
+    #[Url(except: 'visitors')]
+    public mixed $csort = 'visitors';
+
+    /** Campaigns: the creative of the campaign chosen to open and mark, as its row names it (CampaignsTab::readCreative()); none for the biggest. */
+    #[Url(except: '')]
+    public mixed $creative = '';
+
+    /**
+     * Campaigns: the rows of the tree opened or closed against how it opens
+     * to begin with, each as CampaignsTab::node() names it — the latest few,
+     * changed only by toggling one.
+     *
+     * @var list<string>
+     */
+    #[Locked]
+    public array $toggled = [];
+
+    /** Campaigns: the segment of the paid source chosen whose drawer is open — `new` for one being made, or its id — or none. */
+    #[Url(except: '')]
+    public mixed $segment = '';
+
     /** Experiments: the comparison shown, a traffic period's id; the latest while none is named. */
     #[Url(except: '')]
     public mixed $exp = '';
@@ -176,6 +210,12 @@ final class GrowthAnalyticsPage extends Page
 
         if ($property === 'source') {
             $this->dropForeignCampaign();
+            $this->segment = '';
+        }
+
+        // A creative is chosen of its campaign: another campaign, or none, drops it.
+        if ($property === 'campaign' || $this->campaign === '') {
+            $this->creative = '';
         }
 
         if ($this->ready && in_array($property, ['tab', 'exp'], true)) {
@@ -209,13 +249,112 @@ final class GrowthAnalyticsPage extends Page
         }
 
         $this->source = $this->source === $key ? '' : $key;
+        $this->segment = '';
         $this->dropForeignCampaign();
+    }
+
+    /** A paid source's Segments on the Campaigns tab: the page filtered by the source, its segments shown under the paid sources. */
+    public function openSegments(mixed $key): void
+    {
+        $key = AnalyticsSource::read($key);
+
+        if ($this->tab !== 'campaigns' || $key === null || AnalyticsSource::paidSourceId($key) === null) {
+            return;
+        }
+
+        $this->source = $key;
+        $this->segment = '';
+        $this->dropForeignCampaign();
+    }
+
+    /** Add segment: the drawer of a new segment of the paid source chosen. */
+    public function addSegment(): void
+    {
+        $this->segment = 'new';
+        $this->normalize();
+    }
+
+    /** A segment's pencil: its drawer. */
+    public function editSegment(mixed $id): void
+    {
+        $this->segment = is_int($id) || is_string($id) ? (string) $id : '';
+        $this->normalize();
+    }
+
+    /** The drawer's Cancel, Escape or scrim: closed, nothing saved. */
+    #[On('close-traffic-segment')]
+    public function closeSegment(): void
+    {
+        $this->segment = '';
+    }
+
+    /** Saved in the drawer: it closes, and the page says so. */
+    #[On('traffic-segment-saved')]
+    public function segmentSaved(mixed $message = ''): void
+    {
+        $this->segment = '';
+        $this->dispatch('rg-admin-toast', message: is_string($message) ? $message : 'Segment saved', tone: 'success');
+    }
+
+    /** Deleted in the drawer: it closes, and the page says so with Undo. */
+    #[On('traffic-segment-deleted')]
+    public function segmentDeleted(mixed $id = null, mixed $name = ''): void
+    {
+        $this->segment = '';
+        $this->dispatch('rg-admin-toast',
+            message: 'Segment “'.(is_string($name) ? $name : '').'” deleted',
+            tone: 'success',
+            action: is_int($id) || (is_string($id) && ctype_digit($id)) ? ['label' => 'Undo', 'event' => 'restore-traffic-segment', 'params' => ['id' => (int) $id]] : null,
+        );
+    }
+
+    /** Undo after a segment was deleted: it is back on its source's card. */
+    #[On('restore-traffic-segment')]
+    public function restoreSegment(mixed $id = null): void
+    {
+        $segment = is_int($id) || (is_string($id) && ctype_digit($id)) ? TrafficSegment::query()->withTrashed()->find((int) $id) : null;
+        $user = auth()->user();
+
+        if ($segment === null || ! $user instanceof User) {
+            return;
+        }
+
+        try {
+            app(RestoreTrafficSegmentAction::class)->handle($user, $segment);
+        } catch (CannotManageTrafficException $exception) {
+            $this->dispatch('rg-admin-toast', message: $exception->getMessage(), tone: 'error');
+
+            return;
+        }
+
+        $this->dispatch('rg-admin-toast', message: 'Segment “'.$segment->name.'” is back', tone: 'success');
+    }
+
+    /**
+     * A campaign's row of the Campaigns tree, or — with its creative as the
+     * row names it — a creative's: opened when closed, closed when open.
+     * Only the latest few rows toggled are kept, each open one read anew.
+     */
+    public function toggleCampaignRow(mixed $campaign, mixed $creative = ''): void
+    {
+        $campaign = CampaignKey::read($campaign);
+        $named = $creative === '' ? '' : CampaignsTab::readCreative($creative);
+
+        if ($this->tab !== 'campaigns' || $campaign === null || ($creative !== '' && $named === '')) {
+            return;
+        }
+
+        $node = CampaignsTab::node($campaign, $named === '' ? null : $named);
+        $this->toggled = in_array($node, $this->toggled, true)
+            ? array_values(array_filter($this->toggled, fn (string $each): bool => $each !== $node))
+            : array_slice([...$this->toggled, $node], -CampaignsTab::MOST_TOGGLED);
     }
 
     /** The chip's ×: every source again. */
     public function clearSource(): void
     {
         $this->source = '';
+        $this->segment = '';
     }
 
     /** Every device, source and campaign again, the period kept. */
@@ -224,6 +363,8 @@ final class GrowthAnalyticsPage extends Page
         $this->device = '';
         $this->source = '';
         $this->campaign = '';
+        $this->creative = '';
+        $this->segment = '';
     }
 
     /** @return array<string, mixed> */
@@ -281,7 +422,7 @@ final class GrowthAnalyticsPage extends Page
      * A period as the address names it, read for today: the longest range
      * read at a time is Analytics', the oldest day the visits'.
      */
-    private static function readPeriod(mixed $preset, mixed $from, mixed $to): AnalyticsPeriod
+    public static function readPeriod(mixed $preset, mixed $from, mixed $to): AnalyticsPeriod
     {
         return AnalyticsPeriod::read($preset, $from, $to, CarbonImmutable::now('UTC'), (int) config('traffic.retention_days.visits'), (int) config('analytics.max_range_days'));
     }
@@ -351,6 +492,14 @@ final class GrowthAnalyticsPage extends Page
         $this->sort = is_string($this->sort) && array_key_exists($this->sort, self::SORTS) ? $this->sort : 'visitors';
         // The comparison is the Experiments tab's alone.
         $this->exp = $this->tab === 'experiments' && (is_int($this->exp) || is_string($this->exp)) && preg_match('/^[1-9]\d{0,17}$/', (string) $this->exp) === 1 ? (string) $this->exp : '';
+
+        // The sorting, the creative and the rows toggled are the Campaigns tab's alone; a creative only of a campaign chosen.
+        $this->csort = $this->tab === 'campaigns' && is_string($this->csort) && array_key_exists($this->csort, CampaignsTab::SORTS) ? $this->csort : 'visitors';
+        $this->creative = $this->tab === 'campaigns' && $this->campaign !== '' ? CampaignsTab::readCreative($this->creative) : '';
+        $this->toggled = $this->tab === 'campaigns' ? $this->toggled : [];
+        // A segment's drawer opens over a paid source's segments alone: the tab says which of them it is.
+        $this->segment = $this->tab === 'campaigns' && AnalyticsSource::paidSourceId((string) $this->source) !== null
+            && (is_int($this->segment) || is_string($this->segment)) && preg_match('/^(new|[1-9]\d{0,17})$/', (string) $this->segment) === 1 ? (string) $this->segment : '';
 
         // The sorting and the open country are the Geography tab's alone.
         $this->gsort = $this->tab === 'geo' && is_string($this->gsort) && array_key_exists($this->gsort, GeographyTab::SORTS) ? $this->gsort : 'visitors';

@@ -15,6 +15,7 @@ use App\Support\Analytics\AnalyticsSource;
 use App\Support\Analytics\VisitorFigures;
 use App\Support\Traffic\Capture\BotSignals;
 use App\Support\Traffic\Money\TrafficMoney;
+use App\Support\Traffic\Reports\TrafficReportFilter;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Builder;
 use InvalidArgumentException;
@@ -47,6 +48,12 @@ use InvalidArgumentException;
  *  - resultShares()  the clicks on a result's share buttons, and the results;
  *  - top()           the values a dimension's people came through, the most
  *                    first, with nothing counted: what a filter offers;
+ *  - of()            the figures of each of the values given of a dimension;
+ *  - pairs()         the people of each pair of values two dimensions held
+ *                    together — the sources of each campaign;
+ *  - spend()         what the paid clicks cost, their pages run or not,
+ *                    split by one dimension or more in turn;
+ *  - firstDays()     the first day each value given came on;
  *  - has()           whether the filter admits any visit at all;
  *  - recordedSince() when the first visit of all was recorded.
  *
@@ -64,6 +71,9 @@ final class AnalyticsVisitsQuery implements RawSqlPersistenceBoundary
 
     /** A split lists the visits whose dimension holds no value neither as a group nor in the rest: their people count on their own. */
     public const string UNNAMED_APART = 'apart';
+
+    /** A split leaves the visits whose dimension holds no value out altogether: neither a group, nor in the rest, nor counted at all. */
+    public const string UNNAMED_LEFT_OUT = 'out';
 
     /** The figures of every visit the filter admits. */
     public function figures(AnalyticsFilter $filter): VisitorFigures
@@ -85,14 +95,15 @@ final class AnalyticsVisitsQuery implements RawSqlPersistenceBoundary
      * The visits whose dimension holds no value — its first column empty —
      * are a group like any other (UNNAMED_LISTED); or never one, their
      * people counted in the rest (UNNAMED_IN_REST); or in neither, their
-     * people counted on their own as `unnamed` (UNNAMED_APART). Only then is
-     * `unnamed` read; it is none otherwise, and when no one is left.
+     * people counted on their own as `unnamed` (UNNAMED_APART); or not
+     * counted at all (UNNAMED_LEFT_OUT). Only apart is `unnamed` read; it is
+     * none otherwise, and when no one is left.
      *
      * @return array{rows: list<array{keys: array<string, int|string|null>, figures: VisitorFigures, visits: int, tagged: int}>, rest: array{figures: VisitorFigures, visits: int, tagged: int}|null, unnamed: array{figures: VisitorFigures, visits: int, tagged: int}|null}
      */
     public function by(AnalyticsFilter $filter, AnalyticsDimension $dimension, ?int $limit = null, int $least = 1, string $unnamed = self::UNNAMED_LISTED): array
     {
-        if (! in_array($unnamed, [self::UNNAMED_LISTED, self::UNNAMED_IN_REST, self::UNNAMED_APART], true)) {
+        if (! in_array($unnamed, [self::UNNAMED_LISTED, self::UNNAMED_IN_REST, self::UNNAMED_APART, self::UNNAMED_LEFT_OUT], true)) {
             throw new InvalidArgumentException("No split treats the visits of no value as [{$unnamed}].");
         }
 
@@ -120,7 +131,7 @@ final class AnalyticsVisitsQuery implements RawSqlPersistenceBoundary
         $rest = null;
 
         if ($left) {
-            $rest = self::counted((array) self::excluding($unnamed === self::UNNAMED_APART ? $named($this->visits($filter)) : $this->visits($filter), $columns, array_column($rows, 'keys'))
+            $rest = self::counted((array) self::excluding(in_array($unnamed, [self::UNNAMED_APART, self::UNNAMED_LEFT_OUT], true) ? $named($this->visits($filter)) : $this->visits($filter), $columns, array_column($rows, 'keys'))
                 ->selectRaw($metrics, $bindings)
                 ->toBase()
                 ->first());
@@ -299,6 +310,151 @@ final class AnalyticsVisitsQuery implements RawSqlPersistenceBoundary
             ->all();
     }
 
+    /**
+     * The figures of each value given of a dimension of one column, among
+     * the visits the filter admits, by the value: a value no one came
+     * through is left out.
+     *
+     * @param  list<int|string>  $values
+     * @return array<int|string, array{figures: VisitorFigures, visits: int, tagged: int}>
+     */
+    public function of(AnalyticsFilter $filter, AnalyticsDimension $dimension, array $values): array
+    {
+        $column = self::single($dimension);
+
+        if ($values === []) {
+            return [];
+        }
+
+        [$metrics, $bindings] = self::metrics($filter);
+        $groups = [];
+
+        foreach ($this->visits($filter)->whereIn($column, $values)->groupBy($column)->select($column)->selectRaw($metrics, $bindings)->toBase()->get() as $row) {
+            $value = self::keys((array) $row, [$column])[$column];
+
+            if ($value !== null) {
+                $groups[$value] = self::counted((array) $row);
+            }
+        }
+
+        return $groups;
+    }
+
+    /**
+     * The people of each pair of values two dimensions of one column each
+     * held together on the visits the filter admits, among the values given
+     * of the first and with a value of both — the sources each campaign came
+     * through, say. The most people first, then by the values; at most
+     * MOST_GROUPS.
+     *
+     * @param  list<int|string>  $firstValues
+     * @return list<array{keys: array<string, int|string|null>, visitors: int}>
+     */
+    public function pairs(AnalyticsFilter $filter, AnalyticsDimension $first, AnalyticsDimension $second, array $firstValues): array
+    {
+        $columns = [self::single($first), self::single($second)];
+
+        if ($firstValues === []) {
+            return [];
+        }
+
+        return $this->visits($filter)
+            ->whereIn($columns[0], $firstValues)
+            ->whereNotNull($columns[1])
+            ->groupBy(...$columns)
+            ->select($columns)
+            ->selectRaw('COUNT(DISTINCT visitor_hash) AS visitors', [])
+            ->orderByRaw('COUNT(DISTINCT visitor_hash) DESC', [])
+            ->orderBy($columns[0])
+            ->orderBy($columns[1])
+            ->limit(self::MOST_GROUPS)
+            ->toBase()
+            ->get()
+            ->map(fn (object $row): array => ['keys' => self::keys((array) $row, $columns), 'visitors' => (int) ((array) $row)['visitors']])
+            ->values()
+            ->all();
+    }
+
+    /**
+     * What the paid clicks the filter admits cost — every one, its page run
+     * or not, as Traffic sources counts spend — split by the columns of the
+     * dimensions given (of one column each), in turn, among the values given
+     * of the first, or every value of it: sums, so the groups of a split add
+     * up to the whole, and the groups of a value of the first add up to its
+     * own. The visits whose first column holds no value are left out; how
+     * much of each sum was estimated comes with it.
+     *
+     * @param  non-empty-list<AnalyticsDimension>  $dimensions
+     * @param  list<int|string>|null  $firstValues
+     * @return list<array{keys: array<string, int|string|null>, spend: string, estimated: string}>
+     */
+    public function spend(AnalyticsFilter $filter, array $dimensions, ?array $firstValues = null): array
+    {
+        $columns = array_map(self::single(...), $dimensions);
+
+        if ($firstValues === []) {
+            return [];
+        }
+
+        return $this->visits($filter, openedOnly: false)
+            ->whereNotNull('source_id')
+            ->whereNotNull($columns[0])
+            ->when($firstValues !== null, fn (Builder $among) => $among->whereIn($columns[0], $firstValues))
+            ->groupBy(...$columns)
+            ->select($columns)
+            ->selectRaw('SUM(spend) AS spend, SUM(CASE WHEN spend_estimated THEN spend ELSE 0 END) AS spend_estimated', [])
+            ->toBase()
+            ->get()
+            ->map(fn (object $row): array => [
+                'keys' => self::keys((array) $row, $columns),
+                'spend' => TrafficMoney::stored(((array) $row)['spend'] ?? 0),
+                'estimated' => TrafficMoney::stored(((array) $row)['spend_estimated'] ?? 0),
+            ])
+            ->values()
+            ->all();
+    }
+
+    /**
+     * The first network day each value given of a dimension of one column
+     * came on, between the days given — when a campaign began, say — by any
+     * visit whose page ran, whatever else a filter would narrow; a value
+     * that never came in those days is left out.
+     *
+     * @param  list<int|string>  $values
+     * @return array<int|string, string>
+     */
+    public function firstDays(AnalyticsDimension $dimension, array $values, string $fromDay, string $toDay): array
+    {
+        $column = self::single($dimension);
+
+        if ($values === []) {
+            return [];
+        }
+
+        $window = new TrafficReportFilter($fromDay, $toDay);
+        $days = [];
+
+        foreach (TrafficVisit::query()
+            ->whereBetween('network_day', [$fromDay, $toDay])
+            ->where('arrived_at', '>=', $window->arrivedFrom())
+            ->where('arrived_at', '<', $window->arrivedBefore())
+            ->whereNotNull('opened_at')
+            ->whereIn($column, $values)
+            ->groupBy($column)
+            ->select($column)
+            ->selectRaw('MIN(network_day) AS first_day', [])
+            ->toBase()
+            ->get() as $row) {
+            $value = self::keys((array) $row, [$column])[$column];
+
+            if ($value !== null) {
+                $days[$value] = (string) ((array) $row)['first_day'];
+            }
+        }
+
+        return $days;
+    }
+
     /** Whether the filter admits any visit whose page ran. */
     public function has(AnalyticsFilter $filter): bool
     {
@@ -327,6 +483,18 @@ final class AnalyticsVisitsQuery implements RawSqlPersistenceBoundary
         }
 
         return $query;
+    }
+
+    /** The one column of a dimension a read takes one column of; a dimension of two is refused. */
+    private static function single(AnalyticsDimension $dimension): string
+    {
+        $columns = $dimension->columns();
+
+        if (count($columns) !== 1) {
+            throw new InvalidArgumentException("The {$dimension->value} dimension reads more than one column.");
+        }
+
+        return $columns[0];
     }
 
     /** @return Builder<TrafficVisit> the ids of the visits the filter admits */

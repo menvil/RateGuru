@@ -383,6 +383,12 @@ final class AnalyticsSource
         return $value === '' ? null : $value;
     }
 
+    /** The key of a paid source's clicks. */
+    public static function paid(int $sourceId): string
+    {
+        return self::PAID.':'.$sourceId;
+    }
+
     /** The paid source a key names; null for any other key. */
     public static function paidSourceId(string $key): ?int
     {

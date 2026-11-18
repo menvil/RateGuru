@@ -28,6 +28,9 @@ it('indexes the foreign keys that reads go through', function (string $table, ar
     'the posts a visit opened' => ['traffic_visit_posts', ['visit_id', 'post_id']],
     'a source’s splits of a game’s traffic' => ['game_traffic_periods', ['source_id']],
     'a campaign’s splits of a game’s traffic' => ['game_traffic_periods', ['campaign_id']],
+    'a source’s segments' => ['traffic_segments', ['source_id', 'deleted_at']],
+    'the segments an administrator made' => ['traffic_segments', ['created_by_user_id']],
+    'the segments an administrator changed last' => ['traffic_segments', ['updated_by_user_id']],
 ]);
 
 it('drops the indexes it made on the way down, and makes them again on the way up', function () {

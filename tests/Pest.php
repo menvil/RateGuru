@@ -38,6 +38,7 @@ use App\Enums\StudioActionType;
 use App\Enums\StudioDiscussionGenerationMode;
 use App\Enums\StudioPlanPublicationMode;
 use App\Enums\StudioPostTextTone;
+use App\Enums\TrafficChannel;
 use App\Enums\TrafficDevice;
 use App\Exceptions\Studio\CannotManageStudioPlanException;
 use App\Exceptions\Translations\CannotGenerateTranslationsException;
@@ -81,6 +82,7 @@ use App\Models\StudioPlanDiscussionGeneration;
 use App\Models\StudioPlanImageAnalysis;
 use App\Models\StudioPlanTextGeneration;
 use App\Models\Tag;
+use App\Models\TrafficCampaign;
 use App\Models\TrafficChanceRun;
 use App\Models\TrafficPriceSet;
 use App\Models\TrafficSetting;
@@ -98,6 +100,7 @@ use App\Services\Media\NormalizedImage;
 use App\Support\Analytics\AnalyticsFilter;
 use App\Support\Analytics\AnalyticsPeriod;
 use App\Support\Analytics\AnalyticsSource;
+use App\Support\Analytics\CampaignKey;
 use App\Support\Games\Flow\FlowStepDraft;
 use App\Support\Games\Flow\GameFlowValidator;
 use App\Support\Games\Results\ResultProfileCoverage;
@@ -14932,6 +14935,24 @@ function analyticsVisit(string $browser, array $attributes = []): TrafficVisit
         'last_seen_at' => $at,
         'opened_at' => $at,
         'source_key' => AnalyticsSource::DIRECT,
+        ...$attributes,
+    ]);
+}
+
+/**
+ * A paid click of a campaign by a browser (a name, hashed) whose page ran,
+ * on a network day of the last 7, its session's keys those of the click —
+ * costing, and doing, what the attributes say.
+ */
+function analyticsClick(string $browser, TrafficCampaign $campaign, array $attributes = []): TrafficVisit
+{
+    return analyticsVisit($browser, [
+        'channel' => TrafficChannel::Network,
+        'source_id' => $campaign->source_id,
+        'campaign_id' => $campaign->id,
+        'click_hash' => hash('sha256', fake()->unique()->uuid()),
+        'source_key' => AnalyticsSource::paid((int) $campaign->source_id),
+        'campaign_key' => CampaignKey::paid((int) $campaign->id),
         ...$attributes,
     ]);
 }

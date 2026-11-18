@@ -18657,6 +18657,676 @@
     }
 
     /*
+     * Campaigns: where spend comes from — a line per way of counting it, with
+     * the sources counting so — over a band saying what the networks' APIs
+     * report; the paid sources, a line each with its icon, name, medium and
+     * status over a note, its people and spend and its settings, wrapping on
+     * a narrow card; then the tree of campaigns, creatives and games, each
+     * level indented further, a game's row on a sunken band, a row the
+     * address names marked by a bar on its left edge.
+     */
+    .rg-admin-analytics__origin-card .rg-admin-card__header--aside,
+    .rg-admin-analytics__campaigns-card .rg-admin-card__header--aside {
+        flex-wrap: wrap;
+    }
+
+    .rg-admin-analytics__origin-card .rg-admin-card__heading,
+    .rg-admin-analytics__campaigns-card .rg-admin-card__heading {
+        flex: 1 1 320px;
+    }
+
+    .rg-admin-analytics__origins {
+        margin: 0;
+        padding: 0;
+        list-style: none;
+    }
+
+    .rg-admin-analytics__origin {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: var(--rg-admin-space-1) var(--rg-admin-space-4);
+        padding: 10px var(--rg-admin-space-5);
+        border-bottom: 1px solid var(--rg-admin-border-default);
+    }
+
+    .rg-admin-analytics__origin-text {
+        display: flex;
+        flex: 1 1 320px;
+        flex-direction: column;
+        min-width: 0;
+    }
+
+    .rg-admin-analytics__origin-mode {
+        font-size: var(--rg-admin-text-body);
+        line-height: 20px;
+        font-weight: var(--rg-admin-weight-medium);
+        color: var(--rg-admin-text-strong);
+    }
+
+    .rg-admin-analytics__origin-note {
+        font-size: var(--rg-admin-text-micro);
+        line-height: var(--rg-admin-leading-micro);
+        color: var(--rg-admin-text-tertiary);
+        text-wrap: pretty;
+    }
+
+    .rg-admin-analytics__origin-who {
+        flex: 0 1 auto;
+        max-width: 100%;
+        font-size: var(--rg-admin-text-caption);
+        line-height: var(--rg-admin-leading-caption);
+        color: var(--rg-admin-text-secondary);
+        text-wrap: pretty;
+    }
+
+    .rg-admin-analytics__origin-band {
+        display: flex;
+        gap: 10px;
+        padding: var(--rg-admin-space-3) var(--rg-admin-space-5);
+        background: var(--rg-admin-surface-sunken);
+        font-size: var(--rg-admin-text-caption);
+        line-height: var(--rg-admin-leading-caption);
+        color: var(--rg-admin-text-secondary);
+        text-wrap: pretty;
+    }
+
+    .rg-admin-analytics__origin-band--info {
+        background: var(--rg-admin-status-info-bg);
+        color: var(--rg-admin-status-info-fg);
+    }
+
+    .rg-admin-analytics__origin-band--warning {
+        background: var(--rg-admin-status-warning-bg);
+        color: var(--rg-admin-status-warning-fg);
+    }
+
+    .rg-admin-analytics__origin-icon {
+        flex-shrink: 0;
+        margin-top: 1px;
+    }
+
+    .rg-admin-analytics__origin-title {
+        font-weight: var(--rg-admin-weight-semibold);
+    }
+
+    .rg-admin-analytics__paid {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 10px 14px;
+        padding: var(--rg-admin-space-3) var(--rg-admin-space-5);
+        border-bottom: 1px solid var(--rg-admin-border-default);
+    }
+
+    .rg-admin-analytics__paid:last-child {
+        border-bottom: 0;
+    }
+
+    .rg-admin-analytics__paid--selected {
+        background: var(--rg-admin-surface-sunken);
+        box-shadow: inset 3px 0 0 var(--rg-admin-surface-inverse);
+    }
+
+    .rg-admin-analytics__paid-icon {
+        display: grid;
+        flex-shrink: 0;
+        place-items: center;
+        width: 36px;
+        height: 36px;
+        border: 1px solid var(--rg-admin-border-default);
+        border-radius: var(--rg-admin-radius-md);
+        background: var(--rg-admin-surface-sunken);
+        color: var(--rg-admin-text-secondary);
+    }
+
+    .rg-admin-analytics__paid-text {
+        flex: 1 1 260px;
+        min-width: 0;
+    }
+
+    .rg-admin-analytics__paid-head {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: var(--rg-admin-space-2);
+    }
+
+    .rg-admin-analytics__paid-name {
+        max-width: 100%;
+        overflow: hidden;
+        padding: 0;
+        border: 0;
+        background: transparent;
+        color: var(--rg-admin-text-strong);
+        font: inherit;
+        font-size: var(--rg-admin-text-body);
+        line-height: 20px;
+        font-weight: var(--rg-admin-weight-medium);
+        text-align: left;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        cursor: pointer;
+    }
+
+    .rg-admin-analytics__paid-name:hover {
+        text-decoration: underline;
+        text-underline-offset: 3px;
+    }
+
+    .rg-admin-analytics__paid-name:focus-visible {
+        outline: 2px solid var(--rg-admin-focus-ring);
+        outline-offset: 2px;
+        border-radius: var(--rg-admin-radius-xs);
+    }
+
+    .rg-admin-analytics__paid-medium {
+        font-family: var(--rg-admin-font-mono);
+        font-size: var(--rg-admin-text-micro);
+        line-height: var(--rg-admin-leading-micro);
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-analytics__paid-note {
+        font-size: var(--rg-admin-text-caption);
+        line-height: var(--rg-admin-leading-caption);
+        color: var(--rg-admin-text-secondary);
+        text-wrap: pretty;
+    }
+
+    .rg-admin-analytics__paid-figures {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+        font-size: var(--rg-admin-text-caption);
+        line-height: var(--rg-admin-leading-caption);
+        color: var(--rg-admin-text-secondary);
+        font-variant-numeric: tabular-nums;
+        white-space: nowrap;
+    }
+
+    .rg-admin-analytics__paid-spend {
+        font-size: var(--rg-admin-text-micro);
+        line-height: var(--rg-admin-leading-micro);
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    /* On a phone the figures wrap under the name, and the settings and segments under them: all lined up with it. */
+    @media (max-width: 639.98px) {
+        .rg-admin-analytics__paid-figures {
+            flex: 1 1 auto;
+            align-items: flex-start;
+            margin-left: 50px;
+        }
+
+        .rg-admin-analytics__paid-actions {
+            margin-left: 50px;
+        }
+    }
+
+    .rg-admin-analytics__campaigns-none {
+        margin: 0;
+        padding: 40px var(--rg-admin-space-5);
+        font-size: var(--rg-admin-text-caption);
+        line-height: var(--rg-admin-leading-caption);
+        color: var(--rg-admin-text-tertiary);
+        text-align: center;
+        text-wrap: pretty;
+    }
+
+    .rg-admin-analytics__campaigns {
+        --rg-admin-table-columns: minmax(250px, 1.6fr) 150px 104px 96px 100px 96px 92px 110px 112px 104px 112px;
+        --rg-admin-table-min-width: 1330px;
+        --rg-admin-table-row-height: 50px;
+    }
+
+    .rg-admin-analytics__campaigns .rg-admin-table__cell:first-child {
+        padding-left: var(--rg-admin-space-5);
+    }
+
+    .rg-admin-analytics__campaigns .rg-admin-table__cell:last-child {
+        padding-right: var(--rg-admin-space-5);
+    }
+
+    .rg-admin-analytics__campaign-row--level-0 {
+        min-height: 58px;
+    }
+
+    .rg-admin-analytics__campaign-row--action {
+        cursor: pointer;
+    }
+
+    .rg-admin-analytics__campaign-row--level-2,
+    .rg-admin-analytics__campaign-row--level-2:not(.rg-admin-table__row--head):hover {
+        background: var(--rg-admin-surface-sunken);
+    }
+
+    .rg-admin-analytics__campaign-row--marked {
+        box-shadow: inset 3px 0 0 var(--rg-admin-surface-inverse);
+    }
+
+    .rg-admin-analytics__campaign-name-cell {
+        display: flex;
+        align-items: center;
+        gap: var(--rg-admin-space-2);
+        padding-block: var(--rg-admin-space-2);
+    }
+
+    .rg-admin-analytics__campaigns .rg-admin-analytics__campaign-row--level-1 .rg-admin-analytics__campaign-name-cell {
+        padding-left: 44px;
+    }
+
+    .rg-admin-analytics__campaigns .rg-admin-analytics__campaign-row--level-2 .rg-admin-analytics__campaign-name-cell {
+        padding-left: 68px;
+    }
+
+    .rg-admin-analytics__campaign-chevron {
+        display: grid;
+        flex-shrink: 0;
+        place-items: center;
+        width: 16px;
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-analytics__campaign-text {
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+    }
+
+    .rg-admin-analytics__campaign-name {
+        max-width: 100%;
+        overflow: hidden;
+        padding: 0;
+        border: 0;
+        background: transparent;
+        color: var(--rg-admin-text-strong);
+        font: inherit;
+        font-size: var(--rg-admin-text-caption);
+        line-height: 20px;
+        text-align: left;
+        text-decoration: none;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        cursor: inherit;
+    }
+
+    .rg-admin-analytics__campaign-row--level-0 .rg-admin-analytics__campaign-name {
+        font-size: var(--rg-admin-text-body);
+        font-weight: var(--rg-admin-weight-medium);
+    }
+
+    .rg-admin-analytics__campaign-name--mono {
+        font-family: var(--rg-admin-font-mono);
+    }
+
+    .rg-admin-analytics__campaign-name--link:hover {
+        text-decoration: underline;
+        text-underline-offset: 3px;
+    }
+
+    .rg-admin-analytics__campaign-name:focus-visible {
+        outline: 2px solid var(--rg-admin-focus-ring);
+        outline-offset: 2px;
+        border-radius: var(--rg-admin-radius-xs);
+    }
+
+    .rg-admin-analytics__campaign-row--rest .rg-admin-analytics__campaign-name,
+    .rg-admin-analytics__campaign-row--idle .rg-admin-analytics__campaign-name {
+        color: var(--rg-admin-text-secondary);
+    }
+
+    .rg-admin-analytics__campaign-sub {
+        font-size: var(--rg-admin-text-micro);
+        line-height: var(--rg-admin-leading-micro);
+        color: var(--rg-admin-text-tertiary);
+        text-wrap: pretty;
+    }
+
+    .rg-admin-analytics__campaign-best {
+        flex-shrink: 0;
+    }
+
+    .rg-admin-analytics__campaign-source {
+        display: flex;
+        flex-direction: column;
+        font-size: var(--rg-admin-text-micro);
+        line-height: var(--rg-admin-leading-micro);
+        color: var(--rg-admin-text-secondary);
+        overflow-wrap: anywhere;
+    }
+
+    .rg-admin-analytics__campaign-source-more {
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-analytics__campaign-figure {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+        font-variant-numeric: tabular-nums;
+    }
+
+    .rg-admin-analytics__campaign-value {
+        font-size: var(--rg-admin-text-body);
+        line-height: 20px;
+        color: var(--rg-admin-text-strong);
+        white-space: nowrap;
+    }
+
+    .rg-admin-analytics__campaign-value--strong {
+        font-weight: var(--rg-admin-weight-medium);
+    }
+
+    .rg-admin-analytics__campaign-value--quiet {
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-analytics__campaign-value--small {
+        font-size: var(--rg-admin-text-micro);
+    }
+
+    .rg-admin-analytics__campaign-rate {
+        font-size: var(--rg-admin-text-overline);
+        line-height: 14px;
+        color: var(--rg-admin-text-tertiary);
+        white-space: nowrap;
+    }
+
+    .rg-admin-analytics__campaign-rate--tag {
+        color: var(--rg-admin-status-warning-fg);
+    }
+
+    /* A paid source's row: its settings and its segments side by side, wrapping under the figures on a phone. */
+    .rg-admin-analytics__paid-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--rg-admin-space-2);
+    }
+
+    /*
+     * A paid source's segments: the header's actions wrap under the title
+     * where the card is narrow; the table scrolls sideways inside the card;
+     * All on a sunken row, the segments with their rule as chips and their
+     * verdict, and the visits of no segment last.
+     */
+    .rg-admin-analytics__segments-card > .rg-admin-card__header--aside {
+        flex-wrap: wrap;
+    }
+
+    .rg-admin-analytics__segments-card > .rg-admin-card__header--aside > .rg-admin-card__heading {
+        flex: 1 1 320px;
+    }
+
+    .rg-admin-analytics__segments-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--rg-admin-space-2);
+    }
+
+    .rg-admin-analytics__segments {
+        --rg-admin-table-columns: minmax(200px, 1.4fr) minmax(170px, 1fr) 84px 92px 104px 84px 84px 104px 130px 52px;
+        /* The columns' least widths together: never squeezed past them, the card scrolls instead. */
+        --rg-admin-table-min-width: 1104px;
+        --rg-admin-table-row-height: 52px;
+    }
+
+    .rg-admin-analytics__segments .rg-admin-table__cell:first-child {
+        padding-left: var(--rg-admin-space-5);
+    }
+
+    .rg-admin-analytics__segment-row--all,
+    .rg-admin-analytics__segment-row--all:not(.rg-admin-table__row--head):hover {
+        background: var(--rg-admin-surface-sunken);
+    }
+
+    .rg-admin-analytics__segment-name-cell {
+        display: flex;
+        flex-direction: column;
+        padding-block: var(--rg-admin-space-2);
+    }
+
+    .rg-admin-analytics__segment-name {
+        overflow: hidden;
+        font-size: var(--rg-admin-text-body);
+        line-height: 20px;
+        font-weight: var(--rg-admin-weight-medium);
+        color: var(--rg-admin-text-strong);
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .rg-admin-analytics__segment-row--all .rg-admin-analytics__segment-name {
+        font-weight: var(--rg-admin-weight-semibold);
+    }
+
+    .rg-admin-analytics__segment-row--rest .rg-admin-analytics__segment-name {
+        font-weight: var(--rg-admin-weight-regular);
+        color: var(--rg-admin-text-secondary);
+    }
+
+    .rg-admin-analytics__segment-meta {
+        font-size: var(--rg-admin-text-micro);
+        line-height: var(--rg-admin-leading-micro);
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-analytics__segment-rule {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--rg-admin-space-1);
+        padding-block: 6px;
+    }
+
+    .rg-admin-analytics__segment-chip {
+        display: inline-flex;
+        max-width: 100%;
+        align-items: center;
+        min-height: 22px;
+        padding: 0 var(--rg-admin-space-2);
+        border: 1px solid var(--rg-admin-border-default);
+        border-radius: var(--rg-admin-radius-sm);
+        background: var(--rg-admin-surface-pill);
+        font-size: var(--rg-admin-text-micro);
+        line-height: var(--rg-admin-leading-micro);
+        color: var(--rg-admin-text-secondary);
+        overflow-wrap: anywhere;
+    }
+
+    .rg-admin-analytics__segment-figure {
+        font-size: var(--rg-admin-text-body);
+        line-height: 20px;
+        color: var(--rg-admin-text-strong);
+        font-variant-numeric: tabular-nums;
+        white-space: nowrap;
+    }
+
+    .rg-admin-analytics__segment-figure--quiet {
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-analytics__segment-rate {
+        font-weight: var(--rg-admin-weight-medium);
+    }
+
+    .rg-admin-analytics__segment-rate--success {
+        color: var(--rg-admin-status-success-fg);
+    }
+
+    .rg-admin-analytics__segment-rate--danger {
+        color: var(--rg-admin-status-danger-fg);
+    }
+
+    .rg-admin-analytics__segments-none {
+        margin: 0;
+        padding: var(--rg-admin-space-4) var(--rg-admin-space-5);
+        border-top: 1px solid var(--rg-admin-border-default);
+        font-size: var(--rg-admin-text-caption);
+        line-height: var(--rg-admin-leading-caption);
+        color: var(--rg-admin-text-tertiary);
+        text-wrap: pretty;
+    }
+
+    .rg-admin-analytics__segments-foot {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px var(--rg-admin-space-4);
+        font-size: var(--rg-admin-text-micro);
+        line-height: var(--rg-admin-leading-micro);
+        color: var(--rg-admin-text-tertiary);
+        text-wrap: pretty;
+    }
+
+    .rg-admin-analytics__segments-report {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--rg-admin-space-1);
+        color: var(--rg-admin-text-secondary);
+        text-decoration: underline;
+        text-underline-offset: 3px;
+    }
+
+    .rg-admin-analytics__segments-report:hover {
+        color: var(--rg-admin-text-strong);
+    }
+
+    /* A segment's drawer: the name, the conditions as cards, the preview of what they catch. */
+    .rg-admin-analytics__segment-form {
+        display: flex;
+        flex-direction: column;
+        gap: 18px;
+        min-width: 0;
+        padding: 18px var(--rg-admin-space-5);
+    }
+
+    .rg-admin-analytics__segment-conditions {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        min-width: 0;
+        margin: 0;
+        padding: 0;
+        border: 0;
+    }
+
+    .rg-admin-analytics__segment-legend {
+        margin-bottom: 10px;
+        padding: 0;
+        font-size: var(--rg-admin-text-caption);
+        line-height: var(--rg-admin-leading-caption);
+        font-weight: var(--rg-admin-weight-medium);
+        color: var(--rg-admin-text-strong);
+    }
+
+    .rg-admin-analytics__segment-legend-note {
+        font-weight: var(--rg-admin-weight-regular);
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-analytics__segment-condition {
+        display: flex;
+        flex-direction: column;
+        gap: var(--rg-admin-space-2);
+        min-width: 0;
+        padding: var(--rg-admin-space-3);
+        border: 1px solid var(--rg-admin-border-default);
+        border-radius: var(--rg-admin-radius-lg);
+    }
+
+    .rg-admin-analytics__segment-condition-head {
+        display: flex;
+        align-items: flex-start;
+        gap: var(--rg-admin-space-2);
+    }
+
+    .rg-admin-analytics__segment-parameters,
+    .rg-admin-analytics__segment-devices {
+        display: flex;
+        flex: 1;
+        flex-wrap: wrap;
+        gap: var(--rg-admin-space-1);
+        min-width: 0;
+    }
+
+    .rg-admin-analytics__segment-devices {
+        gap: 6px;
+    }
+
+    .rg-admin-analytics__segment-parameter,
+    .rg-admin-analytics__segment-device {
+        height: 28px;
+        padding: 0 10px;
+        border: 1px solid var(--rg-admin-border-default);
+        border-radius: var(--rg-admin-radius-md);
+        background: var(--rg-admin-surface-card);
+        color: var(--rg-admin-text-secondary);
+        font: inherit;
+        font-size: var(--rg-admin-text-micro);
+        white-space: nowrap;
+        cursor: pointer;
+    }
+
+    .rg-admin-analytics__segment-device {
+        height: 32px;
+        padding: 0 var(--rg-admin-space-3);
+        font-size: var(--rg-admin-text-caption);
+    }
+
+    .rg-admin-analytics__segment-parameter:hover,
+    .rg-admin-analytics__segment-device:hover {
+        border-color: var(--rg-admin-border-strong);
+    }
+
+    .rg-admin-analytics__segment-parameter:focus-visible,
+    .rg-admin-analytics__segment-device:focus-visible {
+        outline: 2px solid var(--rg-admin-focus-ring);
+        outline-offset: 2px;
+    }
+
+    .rg-admin-analytics__segment-parameter--on,
+    .rg-admin-analytics__segment-parameter--on:hover {
+        border-color: var(--rg-admin-surface-inverse);
+        background: var(--rg-admin-surface-inverse);
+        color: var(--rg-admin-text-inverse);
+        font-weight: var(--rg-admin-weight-medium);
+    }
+
+    .rg-admin-analytics__segment-device--on,
+    .rg-admin-analytics__segment-device--on:hover {
+        border-color: var(--rg-admin-surface-inverse);
+        background: var(--rg-admin-surface-sunken);
+        color: var(--rg-admin-text-strong);
+        font-weight: var(--rg-admin-weight-medium);
+    }
+
+    .rg-admin-analytics__segment-operator {
+        align-self: flex-start;
+        max-width: 100%;
+    }
+
+    .rg-admin-analytics__segment-preview {
+        display: flex;
+        gap: 10px;
+        padding: 10px var(--rg-admin-space-3);
+        border: 1px solid var(--rg-admin-border-default);
+        border-radius: var(--rg-admin-radius-md);
+        background: var(--rg-admin-surface-sunken);
+        font-size: var(--rg-admin-text-caption);
+        line-height: var(--rg-admin-leading-caption);
+        color: var(--rg-admin-text-secondary);
+        text-wrap: pretty;
+    }
+
+    .rg-admin-analytics__segment-preview-icon {
+        flex-shrink: 0;
+        margin-top: 1px;
+    }
+
+    .rg-admin-analytics__segment-spacer {
+        flex: 1;
+    }
+
+    /*
      * Analytics → Experiments: the comparisons to choose from, the chosen
      * one's header card with a panel per version, the verdict strip and the
      * table of every metric against the reference, whose metric column stays

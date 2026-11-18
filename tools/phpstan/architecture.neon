@@ -162,9 +162,16 @@ parameters:
             -
                 class: App\Queries\Analytics\AnalyticsVisitsQuery
                 methods: [selectRaw, orderByRaw]
-                reason: 'Growth → Analytics counts people, not visits: conditional COUNT(DISTINCT CASE WHEN … THEN visitor_hash END) and sums over a period''s visits — per source, campaign, creative, landing, device, country, city, game or version with the people past the top groups, or too few to list, counted together and those of no value counted apart when asked, per day, per hour or per block of days between bound boundaries — ordered by the people of each group, and the result shares of the attempts played on them, without hydrating up to millions of visit rows; every value is bound and every grouping column comes from AnalyticsDimension.'
+                reason: 'Growth → Analytics counts people, not visits: conditional COUNT(DISTINCT CASE WHEN … THEN visitor_hash END) and sums over a period''s visits — per source, campaign, creative, landing, device, country, city, game or version with the people past the top groups, or too few to list, counted together and those of no value counted apart or left out when asked, per value asked for, per pair of two dimensions'' values, per day, per hour or per block of days between bound boundaries — ordered by the people of each group; the sums of what the paid clicks cost per dimension or nested dimensions; the first day each value came on; and the result shares of the attempts played on them, without hydrating up to millions of visit rows; every value is bound and every grouping column comes from AnalyticsDimension.'
                 bindings: required
                 behaviorTests: [tests/Feature/Queries/AnalyticsVisitsQueryTest.php]
+                status: approved
+            -
+                class: App\Queries\Analytics\TrafficSegmentsQuery
+                methods: [selectRaw, whereRaw]
+                reason: 'A paid source''s segments are conditions on its clicks'' parameters: which segment each click is in, every segment''s conditions bound once in a CASE, then all the source''s people, each segment''s and those of no segment as conditional COUNT(DISTINCT CASE WHEN … THEN visitor_hash END) and sums over those flags in one read, and the people a draft''s conditions catch — without hydrating up to millions of visit rows; every value is bound and every column comes from SegmentParameter or AnalyticsDimension.'
+                bindings: required
+                behaviorTests: [tests/Feature/Queries/TrafficSegmentsQueryTest.php]
                 status: approved
             -
                 class: App\Queries\Translations\TranslationAiUsageQuery

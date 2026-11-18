@@ -49,6 +49,9 @@ it('draws the icons Growth → Analytics uses with the reference’s Lucide geom
     'hourglass' => ['hourglass', '<path d="M17 22v-4.172a2 2 0 0 0-.586-1.414L12 12l-4.414 4.414A2 2 0 0 0 7 17.828V22"/>'],
     'scale' => ['scale', '<path d="M3 7h2c2 0 5-1 7-2 2 1 5 2 7 2h2"/>'],
     'map-pin' => ['map-pin', '<path d="M20 10c0 4.993-5.539 10.193-7.399 11.799a1 1 0 0 1-1.202 0C9.539 20.193 4 14.993 4 10a8 8 0 0 1 16 0"/><circle cx="12" cy="10" r="3"/>'],
+    'plug' => ['plug', '<path d="M18 8v5a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8Z"/>'],
+    'unplug' => ['unplug', '<path d="m12 6 6 6 2.3-2.3a2.4 2.4 0 0 0 0-3.4l-2.6-2.6a2.4 2.4 0 0 0-3.4 0Z"/>'],
+    'filter' => ['filter', '<path d="M10 20a1 1 0 0 0 .553.895l2 1A1 1 0 0 0 14 21v-7a2 2 0 0 1 .517-1.341L21.74 4.67A1 1 0 0 0 21 3H3a1 1 0 0 0-.742 1.67l7.225 7.989A2 2 0 0 1 10 14z"/>'],
 ]);
 
 it('fails loudly on an icon it does not have', function () {

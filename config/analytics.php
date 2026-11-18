@@ -30,8 +30,11 @@ return [
     // The days after the day of signing up (UTC) on which doing something activates an account: day 1 to this one.
     'activation_days' => 7,
 
-    // The visitors a segment of a paid source needs before it gets a verdict.
+    // The new visitors a segment of a paid source needs before its rate is shown and it gets a verdict.
     'segment_min_visitors' => 100,
+
+    // The accounts a paid source needs in the period before its segments get verdicts.
+    'segment_min_source_accounts' => 10,
 
     // The visitors a creative needs before it can be named a campaign's best.
     'best_creative_min_visitors' => 500,

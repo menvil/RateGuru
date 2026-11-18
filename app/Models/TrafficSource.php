@@ -158,4 +158,10 @@ class TrafficSource extends Model
     {
         return $this->hasMany(TrafficVisit::class, 'source_id');
     }
+
+    /** @return HasMany<TrafficSegment, $this> the segments of its traffic made under Analytics → Campaigns, those deleted left out */
+    public function segments(): HasMany
+    {
+        return $this->hasMany(TrafficSegment::class, 'source_id');
+    }
 }

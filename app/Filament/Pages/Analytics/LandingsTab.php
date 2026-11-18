@@ -116,7 +116,7 @@ final class LandingsTab implements AnalyticsTab
                     $key !== null && LandingRoute::showsGame($key) => '—',
                     default => 'No game',
                 },
-                'gameUrl' => $game === null || $game->status === GameStatus::Archived ? null : self::gameUrl((int) $game->id, $filter),
+                'gameUrl' => $game === null || $game->status === GameStatus::Archived ? null : GamesTab::url((int) $game->id, $filter),
                 'experience' => $experience ?? '—',
             ]);
 
@@ -400,24 +400,6 @@ final class LandingsTab implements AnalyticsTab
             PeriodMetric::Activated => 'Activated within 7 days',
             PeriodMetric::Goal => 'Reached the goal',
         };
-    }
-
-    /**
-     * The address of a game's own analytics on the Games tab, of the same
-     * days and device: the source and campaign don't apply there.
-     */
-    private static function gameUrl(int $gameId, AnalyticsFilter $filter): string
-    {
-        $period = $filter->period;
-
-        return GrowthAnalyticsPage::getUrl(array_filter([
-            'tab' => 'games',
-            'game' => $gameId,
-            'period' => $period->isCustom() || $period->preset === AnalyticsPeriod::DEFAULT ? null : $period->preset,
-            'from' => $period->isCustom() ? $period->fromDay : null,
-            'to' => $period->isCustom() ? $period->toDay : null,
-            'device' => $filter->device?->value,
-        ], fn (mixed $value): bool => $value !== null));
     }
 
     /** A day as a note names it: “08 Oct”, with its year when not this one. */

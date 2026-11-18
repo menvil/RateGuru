@@ -22,9 +22,11 @@ use Carbon\CarbonImmutable;
  * came through and once in all; a source and a campaign narrowing together;
  * the people past the top groups counted together, each once; the people of
  * each hour, day and block of days; those who came back; what the people
- * leave out; the attempts and result shares of the visits; and what the
+ * leave out; the attempts and result shares of the visits; what the
  * page's filters offer, whether a filter admits anyone, and when the first
- * visit was recorded. The same on every database engine.
+ * visit was recorded; the figures of the values asked for, the people of
+ * pairs of values, what the paid clicks cost by one dimension or more, and
+ * the first day each value came on. The same on every database engine.
  */
 
 beforeEach(function () {
@@ -236,6 +238,105 @@ it('keeps the visits of no value out of the groups, in the rest or apart from it
         ->and($all['rest'])->toBeNull()
         ->and($all['unnamed']['figures']->visitors)->toBe(5);
 });
+
+it('leaves the visits of no value out of a split altogether when asked', function () {
+    foreach (['a', 'b', 'c'] as $browser) {
+        analyticsVisit($browser, ['campaign_key' => null]);
+    }
+
+    foreach (['d', 'e', 'g'] as $browser) {
+        analyticsVisit($browser, ['campaign_key' => 'tag:spring']);
+    }
+
+    analyticsVisit('f', ['campaign_key' => 'tag:launch']);
+    // Someone of no campaign once and of a campaign not listed once: in the rest, once.
+    analyticsVisit('a', ['campaign_key' => 'tag:launch', 'network_day' => '2026-11-16']);
+
+    $out = analyticsQuery()->by(analyticsFilter(), AnalyticsDimension::Campaign, 1, unnamed: AnalyticsVisitsQuery::UNNAMED_LEFT_OUT);
+
+    expect(array_column($out['rows'], 'keys'))->toBe([['campaign_key' => 'tag:spring']])
+        ->and($out['rest']['figures']->visitors)->toBe(2)
+        ->and($out['unnamed'])->toBeNull()
+        ->and(analyticsQuery()->by(analyticsFilter(), AnalyticsDimension::Campaign, 5, unnamed: AnalyticsVisitsQuery::UNNAMED_LEFT_OUT))->toMatchArray(['rest' => null, 'unnamed' => null]);
+});
+
+it('counts the figures of each value asked for, leaving out a value nobody came through', function () {
+    analyticsVisit('ann', ['source_key' => 'paid:1', 'started_at' => '2026-11-15 10:01:00']);
+    analyticsVisit('ann', ['source_key' => 'paid:1', 'network_day' => '2026-11-16']);
+    analyticsVisit('bob', ['source_key' => 'paid:1']);
+    analyticsVisit('cat', ['source_key' => 'paid:2', 'device' => TrafficDevice::Desktop->value]);
+    analyticsVisit('dan', ['source_key' => 'reddit:organic']);
+    // Its page never ran: nobody.
+    analyticsVisit('eve', ['source_key' => 'paid:3', 'opened_at' => null]);
+
+    $of = analyticsQuery()->of(analyticsFilter(), AnalyticsDimension::Source, ['paid:1', 'paid:2', 'paid:3']);
+
+    expect(array_keys($of))->toEqualCanonicalizing(['paid:1', 'paid:2'])
+        ->and($of['paid:1']['figures']->visitors)->toBe(2)
+        ->and($of['paid:1']['figures']->starters)->toBe(1)
+        ->and($of['paid:1']['visits'])->toBe(3)
+        ->and(array_keys(analyticsQuery()->of(analyticsFilter(device: TrafficDevice::Desktop), AnalyticsDimension::Source, ['paid:1', 'paid:2'])))->toBe(['paid:2'])
+        ->and(analyticsQuery()->of(analyticsFilter(), AnalyticsDimension::Source, []))->toBe([]);
+});
+
+it('counts the people of each pair two dimensions held together, among the values asked for of the first', function () {
+    foreach (['ann', 'bob', 'cat'] as $browser) {
+        analyticsVisit($browser, ['campaign_key' => 'tag:spring', 'source_key' => 'reddit:organic']);
+    }
+
+    analyticsVisit('ann', ['campaign_key' => 'tag:spring', 'source_key' => 'reddit:organic', 'network_day' => '2026-11-16']);
+    analyticsVisit('dan', ['campaign_key' => 'tag:spring', 'source_key' => 'facebook:organic']);
+    analyticsVisit('eve', ['campaign_key' => 'tag:launch', 'source_key' => 'google:organic']);
+    analyticsVisit('fay', ['campaign_key' => 'tag:other', 'source_key' => 'google:organic']);
+
+    expect(analyticsQuery()->pairs(analyticsFilter(), AnalyticsDimension::Campaign, AnalyticsDimension::Source, ['tag:spring', 'tag:launch']))->toBe([
+        ['keys' => ['campaign_key' => 'tag:spring', 'source_key' => 'reddit:organic'], 'visitors' => 3],
+        ['keys' => ['campaign_key' => 'tag:launch', 'source_key' => 'google:organic'], 'visitors' => 1],
+        ['keys' => ['campaign_key' => 'tag:spring', 'source_key' => 'facebook:organic'], 'visitors' => 1],
+    ])
+        ->and(analyticsQuery()->pairs(analyticsFilter(), AnalyticsDimension::Campaign, AnalyticsDimension::Source, []))->toBe([]);
+});
+
+it('sums what the paid clicks cost, their pages run or not, split by one dimension or more in turn', function () {
+    $source = TrafficSource::factory()->create();
+    $click = fn (string $browser, array $attributes): TrafficVisit => analyticsVisit($browser, ['channel' => TrafficChannel::Network, 'source_id' => $source->id, 'source_key' => 'paid:'.$source->id, ...$attributes]);
+
+    $click('ann', ['campaign_key' => 'paid:7', 'creative_key' => 'a', 'game_id' => null, 'spend' => '0.25']);
+    $click('bob', ['campaign_key' => 'paid:7', 'creative_key' => 'a', 'spend' => '0.25', 'spend_estimated' => true]);
+    // A click whose page never ran cost as much.
+    $click('cat', ['campaign_key' => 'paid:7', 'creative_key' => null, 'spend' => '0.50', 'opened_at' => null]);
+    $click('dan', ['campaign_key' => 'paid:8', 'creative_key' => 'b', 'spend' => '1.00', 'device' => TrafficDevice::Desktop->value]);
+    $click('eve', ['campaign_key' => null, 'spend' => '2.00']);
+    // An unpaid visit of a campaign costs nothing.
+    analyticsVisit('fay', ['campaign_key' => 'paid:7']);
+
+    $byCampaign = collect(analyticsQuery()->spend(analyticsFilter(), [AnalyticsDimension::Campaign]))->keyBy(fn (array $group): string => (string) $group['keys']['campaign_key']);
+    $byCreative = analyticsQuery()->spend(analyticsFilter(), [AnalyticsDimension::Campaign, AnalyticsDimension::Creative], ['paid:7']);
+
+    expect($byCampaign->keys()->sort()->values()->all())->toBe(['paid:7', 'paid:8'])
+        ->and($byCampaign['paid:7'])->toMatchArray(['spend' => '1.00000000', 'estimated' => '0.25000000'])
+        ->and($byCampaign['paid:8']['spend'])->toBe('1.00000000')
+        ->and(collect($byCreative)->sortBy(fn (array $group): string => (string) $group['keys']['creative_key'])->map(fn (array $group): string => ($group['keys']['creative_key'] ?? '-').' '.$group['spend'])->values()->all())
+        ->toBe(['- 0.50000000', 'a 0.50000000'])
+        ->and(analyticsQuery()->spend(analyticsFilter(device: TrafficDevice::Desktop), [AnalyticsDimension::Campaign]))->toBe([['keys' => ['campaign_key' => 'paid:8'], 'spend' => '1.00000000', 'estimated' => '0.00000000']])
+        ->and(analyticsQuery()->spend(analyticsFilter(), [AnalyticsDimension::Campaign], []))->toBe([]);
+});
+
+it('tells the first day each value came on between the days given, whatever else would narrow it', function () {
+    analyticsVisit('ann', ['campaign_key' => 'tag:spring', 'network_day' => '2026-10-02', 'arrived_at' => '2026-10-02 10:00:00']);
+    analyticsVisit('bob', ['campaign_key' => 'tag:spring', 'network_day' => '2026-11-10', 'arrived_at' => '2026-11-10 10:00:00', 'device' => TrafficDevice::Desktop->value]);
+    analyticsVisit('cat', ['campaign_key' => 'tag:launch', 'network_day' => '2026-11-12', 'arrived_at' => '2026-11-12 10:00:00']);
+    // Its page never ran.
+    analyticsVisit('dan', ['campaign_key' => 'tag:launch', 'network_day' => '2026-11-11', 'arrived_at' => '2026-11-11 10:00:00', 'opened_at' => null]);
+
+    expect(analyticsQuery()->firstDays(AnalyticsDimension::Campaign, ['tag:spring', 'tag:launch', 'tag:none'], '2026-09-20', '2026-11-18'))->toEqualCanonicalizing(['tag:spring' => '2026-10-02', 'tag:launch' => '2026-11-12'])
+        ->and(analyticsQuery()->firstDays(AnalyticsDimension::Campaign, ['tag:spring'], '2026-10-20', '2026-11-18'))->toBe(['tag:spring' => '2026-11-10'])
+        ->and(analyticsQuery()->firstDays(AnalyticsDimension::Campaign, [], '2026-10-20', '2026-11-18'))->toBe([]);
+});
+
+it('refuses a read of one column for a dimension of two', function () {
+    analyticsQuery()->of(analyticsFilter(), AnalyticsDimension::City, ['Austin']);
+})->throws(InvalidArgumentException::class, 'The city dimension reads more than one column.');
 
 it('refuses any other way of treating the visits of no value', function () {
     analyticsQuery()->by(analyticsFilter(), AnalyticsDimension::Country, 10, unnamed: 'drop');

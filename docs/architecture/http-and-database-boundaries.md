@@ -67,10 +67,13 @@ The reviewed boundaries are:
   than visits: conditional `COUNT(DISTINCT CASE WHEN … THEN visitor_hash END)`
   and sums over a period's visits — in all, per dimension of the visit with
   the people past the top groups, or too few to list, counted together and
-  those of no value counted apart when asked, per day, or per hour or block of
-  days between bound boundaries — ordered by the people of each group; the values of a dimension ordered by their people, for the page's
+  those of no value counted apart or left out when asked, per value asked for,
+  per pair of two dimensions' values, per day, or per hour or block of days
+  between bound boundaries — ordered by the people of each group; the values of a dimension ordered by their people, for the page's
   filters; the people who came back, through an `EXISTS` on an earlier visit of
-  the browser; and the result shares of the attempts played on the visits.
+  the browser; the sums of what the paid clicks cost, their pages run or not,
+  per dimension or nested dimensions; the first day each value came on, as
+  `MIN(network_day)`; and the result shares of the attempts played on the visits.
 - `CommentListQuery` for arithmetic comment ranking.
 - `ComparisonPeriodsQuery` for literal LIKE searches over the titles, internal
   names and slugs of the games whose traffic periods Growth → Experiments lists.
@@ -111,6 +114,13 @@ The reviewed boundaries are:
   game's versions, ordered by the accounts they brought; and their sign-ups —
   confirmed, never confirmed or still waiting against a bound cutoff, and how
   soon confirmed — per dimension, only groups with a sign-up, the most first.
+- `TrafficSegmentsQuery` for a paid source's segments on Analytics →
+  Campaigns: which segment each of the source's clicks is in, each segment's
+  conditions bound once in a `CASE`, then the people of the whole source, of
+  each segment and of none as conditional `COUNT(DISTINCT CASE WHEN … THEN
+  visitor_hash END)` and sums over those flags in one read; and the people a
+  draft's conditions catch, through a bound `WHERE`. Every column comes from
+  `SegmentParameter` or `AnalyticsDimension`.
 - `TrafficSpendQuery` for reconciling spend: the sums of the visits' prices and
   counted spend and of the day's figures by origin, and the spend no visit took.
 - `TranslationAiUsageQuery` for Translation AI usage: sums conditional on a

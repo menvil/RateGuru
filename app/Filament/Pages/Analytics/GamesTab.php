@@ -72,6 +72,25 @@ final class GamesTab implements AnalyticsTab
     }
 
     /**
+     * The address of a game's own analytics on this tab, of the same days and
+     * device as the filter: the source and campaign don't apply here — what
+     * a game's row elsewhere on the page leads to.
+     */
+    public static function url(int $gameId, AnalyticsFilter $filter): string
+    {
+        $period = $filter->period;
+
+        return GrowthAnalyticsPage::getUrl(array_filter([
+            'tab' => 'games',
+            'game' => $gameId,
+            'period' => $period->isCustom() || $period->preset === AnalyticsPeriod::DEFAULT ? null : $period->preset,
+            'from' => $period->isCustom() ? $period->fromDay : null,
+            'to' => $period->isCustom() ? $period->toDay : null,
+            'device' => $filter->device?->value,
+        ], fn (mixed $value): bool => $value !== null));
+    }
+
+    /**
      * The period of the links to Traffic sources: the same preset where it
      * has one — Last 30 days its default — else the same days.
      *
