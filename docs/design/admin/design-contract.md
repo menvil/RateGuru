@@ -1268,6 +1268,26 @@ Growth holds the games visitors play to discover the site. Its section holds onl
 prototype's Experiments and Growth Analytics arrive with their own screens, never as items before them; a game's
 traffic periods are what experiments will build on.
 
+Every day chosen in Growth is chosen in a drop-down calendar, never the browser's own, and nothing in it waits for
+an Apply or a Cancel. A range of days is chosen as a booking site has it, in the date range field
+(`x-admin.ui.date-range-field`): one calendar of the date field's month grids — two months side by side where they
+fit, one on a phone — whose first click starts the range and whose next ends it, a day before the start starting it
+again; while only the start is chosen the days from it to the pointer or the focus are lightly filled, and a range
+chosen shows its two ends filled and the days between lightly. The range is taken the moment its end is clicked;
+Escape or a click outside keep what was taken before. It keeps the date field's keys (the arrows, Home and End, Page
+Up and Page Down, with Shift a year; Enter or Space chooses), marks today, disables the days outside min and max, and
+its days are Y-m-d, so what the server reads and validates is unchanged. It is the period picker's custom range on
+Traffic sources, Growth → Analytics and a game's Analytics — drawn in the picker's own panel beside the presets, so
+the period is one drop-down, applied at once within the days visits are kept and, on Analytics, no longer than the
+range it reads at a time: past that the days can't end the range, and the calendar says “Up to 93 days at a time”.
+It is also a source's fixed price, whose end may stay open: the start is taken the moment it is clicked, the
+calendar says “Pick the end date, or close for no end”, the field then reads “From 12 Nov 2026 · no end”, and No end
+takes the end off a range that has one. A single day — a campaign's price From, and the day corrected on Spend, one
+of the network's last fourteen in its own time zone — is the date field (`x-admin.ui.date-time-field`) with
+`date-only`: the same trigger and dialog, with the day and how many days it is from today, quick picks named for
+the field, the month or the months of a year, and no time; a day clicked or a quick pick is taken at once and the
+dialog closes. Every calendar opens whole on the screen and inside a drawer's scrolling body.
+
 ### Games
 
 The library (`ListGames`) and a game's editor — one page per tab — are drawn in Admin v2

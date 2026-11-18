@@ -39,11 +39,11 @@
                         <span class="rg-admin-traffic__note">{{ $row['sub'] }}</span>
                     </span>
                     <span class="rg-admin-traffic__perf-label">
-                        <span @class(['rg-admin-traffic__method-name', 'rg-admin-traffic__bad' => $row['postbacks']['tone'] === 'bad'])><x-admin.ui.icon :name="$row['postbacks']['icon']" :size="12" />{{ $row['postbacks']['text'] }}</span>
+                        <span @class(['rg-admin-traffic__method-name', 'rg-admin-traffic__bad' => $row['postbacks']['tone'] === 'bad'])><x-admin.ui.icon :name="$row['postbacks']['icon']" :size="12" /><span>{{ $row['postbacks']['text'] }}</span></span>
                         <span class="rg-admin-traffic__note">{{ $row['postbacks']['sub'] }}</span>
                     </span>
                     <span class="rg-admin-traffic__perf-label">
-                        <span class="rg-admin-traffic__method-name"><x-admin.ui.icon :name="$row['spend']['icon']" :size="12" />{{ $row['spend']['text'] }}</span>
+                        <span class="rg-admin-traffic__method-name"><x-admin.ui.icon :name="$row['spend']['icon']" :size="12" /><span>{{ $row['spend']['text'] }}</span></span>
                         <span class="rg-admin-traffic__note">{{ $row['spendStatus'] }}</span>
                     </span>
                     <span class="rg-admin-traffic__note rg-admin-traffic__source-count">{{ number_format($row['clicks']) }} {{ $row['unit'] }} · 30 days</span>

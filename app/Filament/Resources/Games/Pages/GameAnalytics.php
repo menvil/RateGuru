@@ -202,9 +202,9 @@ final class GameAnalytics extends Page
             'audienceCounts' => array_map(number_format(...), $visitorCounts),
             'periodPicker' => $this->periodPicker(
                 $period->preset === 'all' ? null : self::dates($from, $until),
-                // The days the trigger names, to start a range from; all time's, the last 30.
+                // The days the trigger names, drawn as the calendar's range; all time names none, so its calendar has no range.
                 $period->preset === 'all'
-                    ? [$now->subSecond()->subDays(29)->toDateString(), $now->subSecond()->toDateString()]
+                    ? ['', '']
                     : [$from->toDateString(), $until->subSecond()->toDateString()],
             ),
             'versionOptions' => [

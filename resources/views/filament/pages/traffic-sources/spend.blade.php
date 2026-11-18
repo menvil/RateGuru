@@ -134,15 +134,7 @@
                 <strong>Correct a day</strong>
                 <span class="rg-admin-traffic__note">For a refund, a bonus or a day the network billed differently. What you type replaces every other figure for that day in {{ $spendSourceName }}; leave it empty to take a typed day back.</span>
             </span>
-            <label class="rg-admin-field">
-                <span class="rg-admin-label">Day</span>
-                <select class="rg-admin-traffic__select" wire:model="spendEntry.day">
-                    <option value="">Choose a day</option>
-                    @foreach ($correctDays as $date => $label)
-                        <option value="{{ $date }}">{{ $label }}</option>
-                    @endforeach
-                </select>
-            </label>
+            <x-admin.ui.date-time-field date-only label="Day" id="rg-admin-spend-day" :value="$spendEntry['day']" :min="$correctDay['min']" :max="$correctDay['max']" :timezone="$correctDay['timezone']" placeholder="Choose a day" :quick-picks="['today', 'yesterday', 'week-ago']" wire:model="spendEntry.day" />
             <label class="rg-admin-field">
                 <span class="rg-admin-label">Spend, USD</span>
                 <span class="rg-admin-traffic__money-field"><span aria-hidden="true">$</span><input type="text" inputmode="decimal" class="rg-admin-input" placeholder="0.00" wire:model="spendEntry.amount" /></span>

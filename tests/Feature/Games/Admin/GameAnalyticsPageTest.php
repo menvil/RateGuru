@@ -383,8 +383,12 @@ it('draws the filter bar as the reference does: period, versions, the audiences 
             '20 Oct — 18 Nov 2026 · compared with 20 Sep — 19 Oct 2026',
             'Step prices',
         ], false)
-        // The picker's presets, and the range Apply takes.
-        ->assertSeeInOrder(['Last 7 days', 'Last 30 days', 'Last 90 days', 'All time', 'Custom range', 'From', 'To', 'Cancel', 'Apply']);
+        // The picker's presets beside the calendar of its custom range, in one panel: the range is taken the moment its end is picked.
+        ->assertSeeInOrder(['Last 7 days', 'Last 30 days', 'Last 90 days', 'All time', 'Custom range'])
+        ->assertSeeInOrder(['id="rg-admin-games-analytics-period-panel"', 'x-on:rg-admin-range-chosen="takeRange($event.detail)"', 'rg-admin-date-range rg-admin-date-range--inline', "from: '2026-10-20'", "to: '2026-11-18'"], false)
+        ->assertDontSee('id="rg-admin-games-analytics-period-from"', false)
+        ->assertDontSee('rg-admin-period__foot', false)
+        ->assertDontSee('type="date"', false);
 
     // The range starts from the very days the trigger names: whole days, today's included, as Traffic sources counts them.
     Livewire::test(GameAnalytics::class, ['record' => $this->draft['game']->id])
@@ -429,7 +433,10 @@ it('reads the period from the address — a preset or a range of days — and th
     }
 
     $open(['period' => '365d'])->assertSet('period', '30d')->assertViewHas('periodPicker', fn (array $picker): bool => $picker['label'] === 'Last 30 days');
-    $open(['period' => 'all'])->assertViewHas('datesText', 'All time · nothing earlier to compare with')->assertViewHas('periodPicker', fn (array $picker): bool => $picker['dates'] === null);
+    // All time names no days, so the calendar beside it shows no range that would read as one chosen.
+    $open(['period' => 'all'])->assertViewHas('datesText', 'All time · nothing earlier to compare with')
+        ->assertViewHas('periodPicker', fn (array $picker): bool => $picker['dates'] === null && $picker['from'] === '' && $picker['to'] === '')
+        ->assertSeeInOrder(['rg-admin-date-range rg-admin-date-range--inline', "from: ''", "to: ''"], false);
 
     // A forged update is read the same way; the picker's own calls too.
     $page->set('to', '2027-01-01')->assertSet('period', '30d')->assertSet('from', '')->assertSet('to', '')

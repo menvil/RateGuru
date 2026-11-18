@@ -8415,6 +8415,30 @@ function visitAdminEditor(string $url, int $width = 1440, int $height = 900): mi
 }
 
 /**
+ * The button of a day in a date range field's calendar (x-admin.ui.date-range-field)
+ * under the given selector, the calendar moved a month at a time until the
+ * day is shown — as a phone's single month, or a day months away, needs.
+ */
+function dateRangeDayButton(mixed $page, string $calendar, CarbonImmutable $day): string
+{
+    $stamp = $day->startOfDay()->getTimestamp() * 1000;
+    $button = "{$calendar} [data-day=\"{$stamp}\"]";
+
+    foreach (range(1, 24) as $step) {
+        if ($page->script("document.querySelector('{$button}') !== null")) {
+            return $button;
+        }
+
+        $earlier = $page->script("Math.min(...[...document.querySelectorAll('{$calendar} [data-day]')].map((day) => Number(day.dataset.day))) > {$stamp}");
+        $page->click("{$calendar} [aria-label=\"".($earlier ? 'Previous month' : 'Next month').'"]:visible');
+    }
+
+    waitForScript($page, "document.querySelector('{$button}') !== null");
+
+    return $button;
+}
+
+/**
  * Opens a report's chain on the Reports screen, wide enough for it to dock
  * beside the list, and waits until it is there.
  */

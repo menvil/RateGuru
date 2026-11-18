@@ -157,9 +157,19 @@
                             @endforeach
                         </select>
                     </label>
-                    <x-admin.ui.text-field label="From" id="rg-admin-source-from" type="date" :value="(string) ($s['fixed_from'] ?? '')" :error="$field('fixed_from')" wire:model="draft.source.fixed_from" />
-                    <x-admin.ui.text-field label="To" id="rg-admin-source-to" type="date" :value="(string) ($s['fixed_to'] ?? '')" :error="$field('fixed_to')" wire:model="draft.source.fixed_to" />
                 </div>
+                {{-- Its first day and, if it ends, its last, in one calendar: the end may stay open. --}}
+                <x-admin.ui.date-range-field
+                    open-end
+                    label="Dates"
+                    id="rg-admin-source-dates"
+                    :from="(string) ($s['fixed_from'] ?? '')"
+                    :to="(string) ($s['fixed_to'] ?? '')"
+                    from-model="draft.source.fixed_from"
+                    to-model="draft.source.fixed_to"
+                    hint="The first day it is paid for, and the last if it ends."
+                    :error="$field('fixed_from') ?? $field('fixed_to')"
+                />
             @endif
             <x-admin.ui.text-field label="Target price of an account ($)" id="rg-admin-source-cpa" :value="(string) ($s['target_cpa'] ?? '')" hint="What you are ready to pay for an account from this source; its campaigns use it unless they have their own." :error="$field('target_cpa')" wire:model="draft.source.target_cpa" />
             @if ($editor['accountPrice'] !== null)

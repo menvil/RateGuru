@@ -98,7 +98,10 @@ it('keeps the tab, period, filters and sorting in the address, and reads anythin
     Livewire::withQueryParams(['period' => '7d', 'from' => '2026-07-01', 'to' => '2026-11-01'])->test(GrowthAnalyticsPage::class)
         ->assertSet('period', '7d')
         ->assertSet('from', '')
-        ->assertViewHas('periodPicker', fn (array $picker): bool => $picker['label'] === 'Last 7 days' && $picker['dates'] === '12 Nov — 18 Nov 2026' && $picker['most'] === 93);
+        ->assertViewHas('periodPicker', fn (array $picker): bool => $picker['label'] === 'Last 7 days' && $picker['dates'] === '12 Nov — 18 Nov 2026' && $picker['most'] === 93)
+        // Its calendar can't reach past that, and says so.
+        ->assertSeeHtml('most: 93,')
+        ->assertSee('Up to 93 days at a time');
 
     $page = Livewire::withQueryParams(['from' => '2026-10-01', 'to' => '2026-10-31', 'device' => 'mobile', 'source' => 'paid:12', 'campaign' => 'tag:launch', 'sort' => 'registration'])
         ->test(GrowthAnalyticsPage::class)

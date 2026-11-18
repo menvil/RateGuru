@@ -1050,7 +1050,8 @@ final class TrafficSourcesView
                 'counted' => $row['counted'],
                 'allocated' => $row['allocated'],
             ])->values()->all(),
-            'correctDays' => collect(range(0, 13))->mapWithKeys(fn (int $back): array => [CarbonImmutable::parse($today)->subDays($back)->toDateString() => $back === 0 ? 'Today' : ($back === 1 ? 'Yesterday' : CarbonImmutable::parse($today)->subDays($back)->format('d M'))])->all(),
+            // The days a correction is offered for, the last fourteen in the network's own time zone.
+            'correctDay' => ['min' => CarbonImmutable::parse($today)->subDays(13)->toDateString(), 'max' => $today, 'timezone' => $chosen->reporting_timezone ?? 'UTC'],
         ];
     }
 

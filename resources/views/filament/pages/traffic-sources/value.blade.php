@@ -128,9 +128,9 @@
                 <p class="rg-admin-games__note">A visitor RateGuru already knows as they come is worth $0: logged in, or signed in on that browser before. One who signs in to an email, Google or Facebook account we already have is no new account either: they are worth the price of an existing account signed in, set above, times their country group’s worth. Their plays show in game analytics as engagement, not as new users.</p>
             </header>
             <div class="rg-admin-traffic__who">
-                <div><span class="rg-admin-games__note">Known visitors</span><strong>{{ number_format($who['known']) }}</strong><span class="rg-admin-games__note">{{ $share($who['knownShare']) }} of everyone who opened a game · worth $0 unless they signed in</span></div>
-                <div><span class="rg-admin-games__note">Paid clicks on known visitors</span><strong>{{ number_format($who['paidKnown']) }}</strong><span class="rg-admin-games__note">{{ $money($who['paidKnownSpend']) }} spent on people we had already · no postbacks sent</span></div>
-                <div><span class="rg-admin-games__note">From inside RateGuru</span><strong>{{ $share($who['internalKnown']) }}</strong><span class="rg-admin-games__note">of visitors from the feed and post pages are known, so that traffic is mostly engagement</span></div>
+                <div><span class="rg-admin-traffic__tile-label">Known visitors</span><strong>{{ number_format($who['known']) }}</strong><span class="rg-admin-games__note">{{ $share($who['knownShare']) }} of everyone who opened a game · worth $0 unless they signed in</span></div>
+                <div><span class="rg-admin-traffic__tile-label">Paid clicks on known visitors</span><strong>{{ number_format($who['paidKnown']) }}</strong><span class="rg-admin-games__note">{{ $money($who['paidKnownSpend']) }} spent on people we had already · no postbacks sent</span></div>
+                <div><span class="rg-admin-traffic__tile-label">From inside RateGuru</span><strong>{{ $share($who['internalKnown']) }}</strong><span class="rg-admin-games__note">of visitors from the feed and post pages are known, so that traffic is mostly engagement</span></div>
             </div>
         </section>
 

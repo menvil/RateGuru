@@ -1,11 +1,13 @@
 {{--
-    The period picker of the report pages that keep their period with
-    ChoosesReportPeriod — a game's Analytics, Traffic sources: a trigger with
-    the calendar, the period's name and its days, opening a panel with the
-    page's presets and a range of whole days typed in. A preset is taken at
-    once; a range when Apply is pressed. Cancel, Escape or a click outside
-    leave the period as it was. The fields' limits only help: the server reads
-    whatever it is sent, and a range it cannot read is the default preset.
+    The period picker of the report pages — a game's Analytics, Traffic
+    sources (both with ChoosesReportPeriod) and Growth → Analytics: a trigger
+    with the calendar, the period's name and its days, opening one panel with
+    the page's presets beside a calendar of whole days, the date range field
+    drawn in place. A preset is taken at once; so is a range, the moment its
+    last day is clicked — there is no Apply and no Cancel. Escape or a click
+    outside leave the period as it was. The calendar's limits only help: the
+    server reads whatever it is sent, and a range it cannot read is the
+    default preset.
 
     $picker comes from ChoosesReportPeriod::periodPicker(), or a page's own
     with the same keys; its optional 'most' is the longest range the page
@@ -19,70 +21,20 @@
     wire:key="{{ $id }}-{{ $picker['value'] }}-{{ $picker['from'] }}-{{ $picker['to'] }}"
     x-data="{
         open: false,
-        from: @js($picker['from']),
-        to: @js($picker['to']),
-        first: @js($picker['from']),
-        last: @js($picker['to']),
-        min: @js($picker['min']),
-        max: @js($picker['max']),
-        most: @js($picker['most'] ?? null),
-        days() {
-            if (! this.from || ! this.to) {
-                return null
-            }
-
-            return Math.round((Date.parse(this.to) - Date.parse(this.from)) / 86400000) + 1
-        },
-        valid() {
-            const days = this.days()
-
-            return days !== null && days >= 1 && this.from >= this.min && this.to <= this.max && (this.most === null || days <= this.most)
-        },
-        summary() {
-            const days = this.days()
-
-            if (days === null) {
-                return 'Choose both days'
-            }
-
-            if (days < 1) {
-                return 'The last day comes before the first'
-            }
-
-            if (this.to > this.max) {
-                return 'No figures after today yet'
-            }
-
-            if (this.from < this.min) {
-                return @js('Figures are kept '.$picker['kept'].' days')
-            }
-
-            if (this.most !== null && days > this.most) {
-                return 'Up to ' + this.most + ' days at a time'
-            }
-
-            return days + (days === 1 ? ' day' : ' days')
-        },
         close(returnFocus) {
             if (! this.open) {
                 return
             }
 
             this.open = false
-            this.from = this.first
-            this.to = this.last
 
             if (returnFocus) {
                 this.$refs.trigger.focus()
             }
         },
-        apply() {
-            if (! this.valid()) {
-                return
-            }
-
+        takeRange(range) {
             this.open = false
-            this.$wire.applyRange(this.from, this.to)
+            this.$wire.applyRange(range.from, range.to)
         },
     }"
     x-on:click.outside="close(false)"
@@ -123,17 +75,21 @@
             @endforeach
         </div>
 
-        <div class="rg-admin-period__range" role="group" aria-labelledby="{{ $id }}-range">
-            <p id="{{ $id }}-range" class="rg-admin-period__title">Custom range</p>
-            <div class="rg-admin-period__fields">
-                <x-admin.ui.text-field :id="$id.'-from'" type="date" label="From" x-model="from" :min="$picker['min']" :max="$picker['max']" />
-                <x-admin.ui.text-field :id="$id.'-to'" type="date" label="To" x-model="to" :min="$picker['min']" :max="$picker['max']" />
-            </div>
-            <div class="rg-admin-period__foot">
-                <span class="rg-admin-period__summary" role="status" x-text="summary()"></span>
-                <x-admin.ui.button size="sm" x-on:click="close(true)">Cancel</x-admin.ui.button>
-                <x-admin.ui.button size="sm" variant="primary" x-bind:disabled="! valid()" x-on:click="apply()">Apply</x-admin.ui.button>
-            </div>
+        {{-- Listened for here rather than on the calendar, whose own scope has an open and a close of its own. --}}
+        <div class="rg-admin-period__range" x-on:rg-admin-range-chosen="takeRange($event.detail)">
+            <p class="rg-admin-period__title" aria-hidden="true">Custom range</p>
+            {{-- The period's own days to begin with, in the UTC days it is counted in. --}}
+            <x-admin.ui.date-range-field
+                inline
+                :id="$id.'-calendar'"
+                label="Custom range"
+                :from="$picker['from']"
+                :to="$picker['to']"
+                :min="$picker['min']"
+                :max="$picker['max']"
+                :most="$picker['most'] ?? null"
+                timezone="UTC"
+            />
         </div>
     </div>
 </div>

@@ -38,12 +38,12 @@
             <div class="rg-admin-field">
                 <span class="rg-admin-label">Results by stage</span>
                 <div class="rg-admin-traffic__kpis">
-                    <div><span class="rg-admin-traffic__note">Visits</span><strong>{{ number_format($f->visits) }}</strong><span class="rg-admin-traffic__note">last 30 days</span></div>
-                    <div><span class="rg-admin-traffic__note">Spend</span><strong>{{ $money($f->spend) }}</strong><span class="rg-admin-traffic__note">{{ \App\Support\Traffic\Money\TrafficMoney::of($f->spendEstimated)->isPositive() ? 'incl. '.$money($f->spendEstimated).' estimated' : 'counted' }}</span></div>
-                    <div><span class="rg-admin-traffic__note">Accounts</span><strong>{{ number_format($f->accounts) }}</strong><span class="rg-admin-traffic__note">confirmed</span></div>
-                    <div><span class="rg-admin-traffic__note">Cost / account</span><strong @class(['rg-admin-traffic__bad' => $cpa !== null && $target !== null && (float) $cpa > (float) $target])>{{ $cpa === null ? '—' : $money($cpa) }}</strong><span class="rg-admin-traffic__note">{{ $target === null ? 'no target' : 'target '.$money($target) }}</span></div>
-                    <div><span class="rg-admin-traffic__note">Value</span><strong>{{ $money($f->value()) }}</strong><span class="rg-admin-traffic__note">incl. {{ $money($f->valueExpected) }} expected</span></div>
-                    <div><span class="rg-admin-traffic__note">ROI</span><strong @class(['rg-admin-traffic__good' => ($f->roi() ?? 0) > 0, 'rg-admin-traffic__bad' => ($f->roi() ?? 0) < 0])>{{ $f->roi() === null ? '—' : ($f->roi() > 0 ? '+' : '').number_format($f->roi(), 0).'%' }}</strong><span class="rg-admin-traffic__note">value − spend</span></div>
+                    <div><span class="rg-admin-traffic__tile-label">Visits</span><strong>{{ number_format($f->visits) }}</strong><span class="rg-admin-traffic__note">last 30 days</span></div>
+                    <div><span class="rg-admin-traffic__tile-label">Spend</span><strong>{{ $money($f->spend) }}</strong><span class="rg-admin-traffic__note">{{ \App\Support\Traffic\Money\TrafficMoney::of($f->spendEstimated)->isPositive() ? 'incl. '.$money($f->spendEstimated).' estimated' : 'counted' }}</span></div>
+                    <div><span class="rg-admin-traffic__tile-label">Accounts</span><strong>{{ number_format($f->accounts) }}</strong><span class="rg-admin-traffic__note">confirmed</span></div>
+                    <div><span class="rg-admin-traffic__tile-label">Cost / account</span><strong @class(['rg-admin-traffic__bad' => $cpa !== null && $target !== null && (float) $cpa > (float) $target])>{{ $cpa === null ? '—' : $money($cpa) }}</strong><span class="rg-admin-traffic__note">{{ $target === null ? 'no target' : 'target '.$money($target) }}</span></div>
+                    <div><span class="rg-admin-traffic__tile-label">Value</span><strong>{{ $money($f->value()) }}</strong><span class="rg-admin-traffic__note">incl. {{ $money($f->valueExpected) }} expected</span></div>
+                    <div><span class="rg-admin-traffic__tile-label">ROI</span><strong @class(['rg-admin-traffic__good' => ($f->roi() ?? 0) > 0, 'rg-admin-traffic__bad' => ($f->roi() ?? 0) < 0])>{{ $f->roi() === null ? '—' : ($f->roi() > 0 ? '+' : '').number_format($f->roi(), 0).'%' }}</strong><span class="rg-admin-traffic__note">value − spend</span></div>
                 </div>
                 @if ($campaign['stages'] !== [])
                     <div class="rg-admin-traffic__param-table">
@@ -151,7 +151,7 @@
                     </label>
                 @endforeach
                 @if (($campaignDraft['spend_mode'] ?? '') === 'price')
-                    <x-admin.ui.text-field label="From" id="rg-admin-campaign-from" type="date" :value="$campaignDraft['price_from'] ?? ''" wire:model="campaignDraft.price_from" />
+                    <x-admin.ui.date-time-field date-only label="From" id="rg-admin-campaign-from" :value="(string) ($campaignDraft['price_from'] ?? '')" :quick-picks="['today', 'tomorrow', 'yesterday', 'week-ago', 'month-start']" wire:model="campaignDraft.price_from" />
                 @endif
             </fieldset>
 

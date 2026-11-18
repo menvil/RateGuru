@@ -5,6 +5,7 @@ use App\Enums\TrafficCampaignStage;
 use App\Enums\TrafficCampaignStatus;
 use App\Enums\TrafficEvent;
 use App\Filament\Pages\TrafficSourcesPage;
+use App\Models\Game;
 use App\Models\TrafficCampaign;
 use App\Models\TrafficConversion;
 use App\Models\TrafficPostback;
@@ -47,6 +48,18 @@ it('draws every tab on real figures', function (string $tab, string $text) {
     'sources' => ['sources', 'How a visit gets its source'],
     'logs' => ['logs', 'Failed only'],
 ]);
+
+it('hands the link to Copy link as written, with no Blade directive left in the page for Alpine to choke on', function () {
+    TrafficSource::factory()->create(['name' => 'ExoClick tests', 'link_key' => 'exo']);
+    Game::factory()->create(['title' => 'Trust Your Taste', 'slug' => 'trust-your-taste']);
+
+    $page = Livewire::withQueryParams(['tab' => 'campaigns'])->test(TrafficSourcesPage::class)->call('load');
+    $link = (string) $page->viewData('link');
+
+    expect($link)->toContain('/games/trust-your-taste?rg_src=exo')
+        ->and($page->html())->toContain('data-copy="'.e($link).'"')
+        ->and($page->html())->not->toContain('@js(');
+});
 
 it('creates a source from a preset in its editor', function () {
     Livewire::test(TrafficSourcesPage::class)
@@ -243,6 +256,64 @@ it('gives each country group it adds a key no other group has', function () {
     $keys = array_column($page->get('groups'), 'key');
 
     expect($keys)->toBe(array_values(array_unique($keys)));
+});
+
+it('chooses every day in a drop-down calendar, never the browser’s own: the period’s range, a fixed price’s days, a campaign’s price and the day corrected', function () {
+    $network = TrafficSource::factory()->create(['name' => 'PopAds main', 'reporting_timezone' => 'Asia/Tokyo']);
+    $campaign = TrafficCampaign::factory()->create(['source_id' => $network->id, 'name' => 'US popunder']);
+
+    // The period's range: one calendar in the picker's own panel, of the UTC days a report reads within the days visits are kept, taken the moment its end is picked.
+    $html = Livewire::withQueryParams(['from' => '2026-11-01', 'to' => '2026-11-05'])->test(TrafficSourcesPage::class)->html();
+    expect(substr_count($html, 'rg-admin-date-range--inline'))->toBe(1)
+        ->and($html)->toMatch('/<div class="rg-admin-period__range" x-on:rg-admin-range-chosen="takeRange\(\$event\.detail\)">/')
+        ->and($html)->toMatch('/rg-admin-date-range--inline"\s+data-now="2026-11-17T12:00:00"\s+role="group" aria-label="Custom range"\s+x-data="\{\s+from: \'2026-11-01\',\s+to: \'2026-11-05\',\s+min: \'2025-10-14\',\s+max: \'2026-11-17\',\s+most: null,/')
+        ->and($html)->toContain('this.$wire.applyRange(range.from, range.to)')
+        ->and($html)->not->toContain('id="rg-admin-traffic-period-from"')
+        ->and($html)->not->toContain('rg-admin-date-time--date')
+        ->and($html)->not->toContain('type="date"');
+
+    // A fixed price's first and last day in one calendar, each bound as wire:model binds one; the last may stay open.
+    $html = Livewire::withQueryParams(['tab' => 'sources'])->test(TrafficSourcesPage::class)
+        ->call('openEditor', 'new:placement')
+        ->set('draft.source.spend_mode', 'fixed')
+        ->set('draft.source.fixed_from', '2026-11-20')
+        ->html();
+    expect($html)->toContain('id="rg-admin-source-dates"')
+        ->toMatch('/x-data="\{\s+from: \$wire\.\$entangle\(\'draft\.source\.fixed_from\'\),\s+to: \$wire\.\$entangle\(\'draft\.source\.fixed_to\'\),/')
+        ->toContain('openEnd: true')
+        ->toMatch('/x-text="shown"\s*>From 20 Nov 2026 · no end<\/span>/')
+        ->toContain('x-on:click="noEnd()"')
+        ->not->toContain('id="rg-admin-source-from"')
+        ->not->toContain('id="rg-admin-source-to"')
+        ->not->toContain('type="date"');
+
+    // A refusal for either day is the field's.
+    Livewire::withQueryParams(['tab' => 'sources'])->test(TrafficSourcesPage::class)
+        ->call('openEditor', 'new:placement')
+        ->set('draft.source.name', 'Cat blog')
+        ->set('draft.source.link_key', 'catblog')
+        ->set('draft.source.spend_mode', 'fixed')
+        ->set('draft.source.fixed_amount', '70')
+        ->set('draft.source.fixed_from', '2026-11-20')
+        ->set('draft.source.fixed_to', '2026-11-10')
+        ->call('saveSource')
+        ->assertHasErrors(['fixed_to'])
+        ->assertSeeHtml('class="rg-admin-date-time__trigger rg-admin-date-time__trigger--invalid"')
+        ->assertSeeHtml('id="rg-admin-source-dates-error"');
+
+    // A campaign's price, from the day chosen.
+    $html = Livewire::withQueryParams(['tab' => 'campaigns', 'camp' => (string) $campaign->id])->test(TrafficSourcesPage::class)
+        ->set('campaignDraft.spend_mode', 'price')
+        ->html();
+    expect($html)->toMatch('/rg-admin-date-time--date" wire:model="campaignDraft\.price_from"[^>]*x-data="\{\s+value: \'2026-11-17\',/')
+        ->not->toContain('type="date"');
+
+    // The day corrected on Spend: one of the network's last fourteen, in its own time zone — already the 17th's evening in Tokyo.
+    $html = Livewire::withQueryParams(['tab' => 'spend'])->test(TrafficSourcesPage::class)->call('load')
+        ->set('spendSource', (string) $network->id)
+        ->html();
+    expect($html)->toContain('id="rg-admin-spend-day"')
+        ->toMatch('/rg-admin-date-time--date" wire:model="spendEntry\.day"\s+data-now="2026-11-17T21:00:00"\s+x-data="\{\s+value: \'\',\s+min: \'2026-11-04\',\s+max: \'2026-11-17\'/');
 });
 
 it('edits a source in panes, with what its preset filled in, and names a parameter added without a name for what it carries', function () {

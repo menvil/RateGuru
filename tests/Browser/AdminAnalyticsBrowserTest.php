@@ -2,6 +2,7 @@
 
 use App\Models\ProjectSettings;
 use App\Models\User;
+use Carbon\CarbonImmutable;
 
 use function Pest\Laravel\actingAs;
 
@@ -9,9 +10,10 @@ use function Pest\Laravel\actingAs;
  * Growth → Analytics in a real browser: the shell and Overview at each width,
  * the sources table scrolling inside its card and never the page; the strip
  * of the tabs built so far; another period, with the top bar's days moving
- * along; a device, a source from its menu with its chip and the chip's ×, a
- * source row filtering the page and a second click clearing it; and the
- * sources sorted by a rate.
+ * along; a custom range picked with two clicks in the period picker's own
+ * calendar, never longer than Analytics reads at a time; a device, a source
+ * from its menu with its chip and the chip's ×, a source row filtering the
+ * page and a second click clearing it; and the sources sorted by a rate.
  */
 beforeEach(function () {
     ProjectSettings::factory()->create();
@@ -120,6 +122,46 @@ it('changes the period, the device and the source, with the chip and a source ro
     $page->click('.rg-admin-analytics__sort [role=radio]:has-text("Start rate")');
     waitForScript($page, "[...document.querySelectorAll('.rg-admin-analytics__source-row .rg-admin-analytics__source-name')].map((name) => name.textContent.trim()).join()", 'Google,Reddit', 10.0);
     expect(analyticsScreen($page)['search'])->toBe('?period=7d&sort=start');
+
+    $page->assertNoJavaScriptErrors();
+});
+
+it('picks a custom range in the period picker’s own calendar with two clicks, no longer than Analytics reads at a time', function () {
+    $today = CarbonImmutable::now('UTC')->startOfDay();
+    $page = visitAnalytics('/admin/analytics');
+    $panel = '#rg-admin-analytics-period-panel';
+    $status = "document.querySelector('{$panel} .rg-admin-date-range__status').textContent";
+    $first = $today->subDays(25);
+    $last = $today->subDays(10);
+
+    $page->click('#rg-admin-analytics-period');
+    waitForScript($page, "getComputedStyle(document.querySelector('{$panel}')).display !== 'none'");
+
+    // A start, then an end: the range is taken at once — the address, the trigger, the top bar and the figures follow, and the panel closes.
+    $page->click(dateRangeDayButton($page, $panel, $first));
+    waitForScript($page, $status, 'From '.$first->format('d M Y').' · pick the end date');
+    $page->hover(dateRangeDayButton($page, $panel, $last));
+    waitForScript($page, "document.querySelector('".dateRangeDayButton($page, $panel, $first->addDay())."').classList.contains('rg-admin-date-range__day--between')");
+    $page->click(dateRangeDayButton($page, $panel, $last));
+    waitForScript($page, "document.querySelector('.rg-admin-analytics__kpi-value')?.textContent.trim()", '1', 10.0);
+    expect(analyticsScreen($page))->toMatchArray(['search' => '?from='.$first->toDateString().'&to='.$last->toDateString(), 'range' => $first->format('d M').' — '.$last->format('d M Y')])
+        ->and($page->script("document.querySelector('#rg-admin-analytics-period .rg-admin-period__name').textContent.trim()"))->toBe('Custom range')
+        ->and($page->script("getComputedStyle(document.querySelector('{$panel}')).display"))->toBe('none');
+
+    // From a start months back, the 93rd day can end the range and the 94th can't; the calendar says so.
+    $page->click('#rg-admin-analytics-period');
+    waitForScript($page, "getComputedStyle(document.querySelector('{$panel}')).display !== 'none'");
+    $start = $today->subDays(150);
+    $page->click(dateRangeDayButton($page, $panel, $start));
+    waitForScript($page, $status, 'From '.$start->format('d M Y').' · pick the end date');
+    expect($page->script("document.querySelector('".dateRangeDayButton($page, $panel, $start->addDays(92))."').disabled"))->toBeFalse()
+        ->and($page->script("document.querySelector('".dateRangeDayButton($page, $panel, $start->addDays(93))."').disabled"))->toBeTrue()
+        ->and($page->script("document.querySelector('{$panel} .rg-admin-date-range__limit').textContent.trim()"))->toBe('Up to 93 days at a time');
+
+    // Escape closes the panel and keeps the range taken before.
+    $page->keys(':focus', 'Escape');
+    waitForScript($page, "getComputedStyle(document.querySelector('{$panel}')).display", 'none');
+    expect(analyticsScreen($page)['search'])->toBe('?from='.$first->toDateString().'&to='.$last->toDateString());
 
     $page->assertNoJavaScriptErrors();
 });

@@ -9,11 +9,11 @@ use Livewire\Attributes\Url;
 /**
  * A report page's period, as the period picker sets it and the address
  * keeps it: one of the page's presets (`period`, from its PERIODS), or a
- * range of whole days typed in (`from`, `to`). Whatever the address or an
- * update sends is read through ReportPeriod and written back as read, so a
- * range that cannot be read becomes the default preset, never an error. The
- * page says how many days back its data is kept, and what else starts over
- * when the period changes.
+ * range of whole days chosen in its calendar (`from`, `to`). Whatever the
+ * address or an update sends is read through ReportPeriod and written back
+ * as read, so a range that cannot be read becomes the default preset, never
+ * an error. The page says how many days back its data is kept, and what else
+ * starts over when the period changes.
  */
 trait ChoosesReportPeriod
 {
@@ -68,11 +68,11 @@ trait ChoosesReportPeriod
 
     /**
      * What the period picker shows and offers: the presets, which is chosen,
-     * the trigger's name and days, the range in its fields — the period's own
-     * days to begin with — and the days a range may take.
+     * the trigger's name and days, the range its calendar starts from — the
+     * period's own days — and the days a range may take.
      *
      * @param  string|null  $dates  the period's days as the trigger names them; none for all time
-     * @param  array{0: string, 1: string}  $days  the period's first and last day, Y-m-d, to start the range's fields from
+     * @param  array{0: string, 1: string}  $days  the period's first and last day, Y-m-d, drawn as the range's calendar's range; empty for a period without days of its own
      * @return array<string, mixed>
      */
     protected function periodPicker(?string $dates, array $days): array
@@ -89,7 +89,6 @@ trait ChoosesReportPeriod
             'to' => $period->toDay ?? $days[1],
             'min' => $today->subDays($this->keptDays() - 1)->toDateString(),
             'max' => $today->toDateString(),
-            'kept' => $this->keptDays(),
         ];
     }
 }

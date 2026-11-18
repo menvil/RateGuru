@@ -257,8 +257,9 @@ final class GrowthAnalyticsPage extends Page
 
     /**
      * What the period picker shows and offers: the presets, which is chosen,
-     * the days, the range in its fields, and the days a range may take — no
-     * earlier than the visits are kept, no longer than Analytics reads.
+     * the days, the range its calendar starts from, and the days a range may
+     * take — no earlier than the visits are kept, no longer than Analytics
+     * reads.
      *
      * @return array<string, mixed>
      */
@@ -276,7 +277,6 @@ final class GrowthAnalyticsPage extends Page
             'to' => $period->toDay,
             'min' => $today->subDays($kept - 1)->toDateString(),
             'max' => $today->toDateString(),
-            'kept' => $kept,
             'most' => (int) config('analytics.max_range_days'),
         ];
     }

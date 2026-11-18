@@ -2367,6 +2367,11 @@
         max-width: 100%;
     }
 
+    /* A day alone: the trigger as narrow as the longest day it shows. */
+    .rg-admin-date-time--date .rg-admin-date-time__control {
+        width: 200px;
+    }
+
     .rg-admin-date-time__trigger {
         display: flex;
         align-items: center;
@@ -2745,6 +2750,115 @@
         .rg-admin-date-time__preset[aria-pressed='false'] .rg-admin-date-time__preset-check {
             display: none;
         }
+    }
+
+    /*
+     * Date range field: a range of days in one calendar, as a booking site has it — the date field's month grids,
+     * two side by side where they fit, the range's ends filled and the days between lightly.
+     */
+    .rg-admin-date-range {
+        min-width: 0;
+    }
+
+    .rg-admin-date-range .rg-admin-date-time__control {
+        width: 280px;
+    }
+
+    .rg-admin-date-range__popover {
+        flex-direction: column;
+        width: 284px;
+        max-width: calc(100vw - 32px);
+    }
+
+    .rg-admin-date-range__popover--pair {
+        width: 532px;
+    }
+
+    .rg-admin-date-range__body {
+        display: flex;
+        flex: 1;
+        flex-direction: column;
+        gap: 10px;
+        min-width: 0;
+        padding: var(--rg-admin-space-3) 14px;
+    }
+
+    .rg-admin-date-range--inline .rg-admin-date-range__body {
+        padding: 0;
+    }
+
+    .rg-admin-date-range__months {
+        display: flex;
+        gap: var(--rg-admin-space-6);
+    }
+
+    .rg-admin-date-range__month {
+        flex: 1 1 0;
+        min-width: 0;
+        max-width: 320px;
+    }
+
+    .rg-admin-date-range__step {
+        display: flex;
+        flex-shrink: 0;
+        width: var(--rg-admin-control-sm);
+    }
+
+    .rg-admin-date-range__title {
+        flex: 1;
+        font-size: var(--rg-admin-text-caption);
+        line-height: var(--rg-admin-control-sm);
+        font-weight: var(--rg-admin-weight-semibold);
+        font-variant-numeric: tabular-nums;
+        text-align: center;
+    }
+
+    /* The days between the ends, and while only the start is chosen those up to the pointer: lightly filled, touching. */
+    .rg-admin-date-range__day--between,
+    .rg-admin-date-range__day--between:hover:not(:disabled),
+    .rg-admin-date-range__day--reach,
+    .rg-admin-date-range__day--reach:hover:not(:disabled) {
+        border-radius: 0;
+        background: var(--rg-admin-surface-pill);
+    }
+
+    .rg-admin-date-range__day--reach,
+    .rg-admin-date-range__day--reach:hover:not(:disabled) {
+        border-radius: 0 var(--rg-admin-radius-item) var(--rg-admin-radius-item) 0;
+    }
+
+    .rg-admin-date-range__day--edge,
+    .rg-admin-date-range__day--edge:hover:not(:disabled) {
+        background: var(--rg-admin-surface-inverse);
+        box-shadow: none;
+        color: var(--rg-admin-text-inverse);
+        font-weight: var(--rg-admin-weight-semibold);
+    }
+
+    .rg-admin-date-range__foot {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: var(--rg-admin-space-1) var(--rg-admin-space-3);
+        min-height: 42px;
+        padding-top: 10px;
+        border-top: 1px solid var(--rg-admin-border-default);
+    }
+
+    .rg-admin-date-range__status {
+        flex: 1 1 auto;
+        min-width: 0;
+        margin: 0;
+        font-size: var(--rg-admin-text-micro);
+        line-height: var(--rg-admin-leading-micro);
+        font-variant-numeric: tabular-nums;
+        color: var(--rg-admin-text-secondary);
+    }
+
+    .rg-admin-date-range__limit {
+        font-size: var(--rg-admin-text-micro);
+        line-height: var(--rg-admin-leading-micro);
+        color: var(--rg-admin-text-tertiary);
     }
 
     /* Content Studio · Publication step: its two columns, the plan's readiness and the final card's parts. */
@@ -12175,8 +12289,8 @@
     }
 
     .rg-admin-games__eyebrow {
-        font-size: 11px;
-        line-height: 16px;
+        font-size: var(--rg-admin-text-overline);
+        line-height: var(--rg-admin-leading-overline);
         font-weight: var(--rg-admin-weight-medium);
         letter-spacing: 0.04em;
         text-transform: uppercase;
@@ -13293,7 +13407,7 @@
     }
 
     .rg-admin-games__worth-row--head {
-        font-size: 11px;
+        font-size: var(--rg-admin-text-overline);
         color: var(--rg-admin-text-tertiary);
     }
 
@@ -14244,7 +14358,8 @@
         z-index: 50;
         display: grid;
         grid-template-columns: 168px minmax(0, 1fr);
-        width: 560px;
+        /* Room for the presets beside two months of the range's calendar. */
+        width: 680px;
         max-width: calc(100vw - 32px);
         overflow: hidden;
         border: 1px solid var(--rg-admin-border-default);
@@ -14315,28 +14430,6 @@
         font-size: var(--rg-admin-text-ui);
         font-weight: var(--rg-admin-weight-medium);
         color: var(--rg-admin-text-strong);
-    }
-
-    .rg-admin-period__fields {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-        gap: var(--rg-admin-space-3);
-    }
-
-    .rg-admin-period__foot {
-        display: flex;
-        flex-wrap: wrap;
-        align-items: center;
-        gap: var(--rg-admin-space-2);
-        padding-top: var(--rg-admin-space-3);
-        border-top: 1px solid var(--rg-admin-border-default);
-    }
-
-    .rg-admin-period__summary {
-        flex: 1;
-        min-width: 0;
-        font-size: var(--rg-admin-text-caption);
-        color: var(--rg-admin-text-secondary);
     }
 
     @media (max-width: 767.98px) {
@@ -14634,16 +14727,35 @@
         background: var(--rg-admin-surface-card, transparent);
     }
 
-    .rg-admin-traffic__tile-label,
+    /* A note is meta text, as under a card title or a table row's name on every admin screen. */
     .rg-admin-traffic__tile-note,
     .rg-admin-traffic__note {
-        font-size: 12.5px;
+        font-size: var(--rg-admin-text-caption);
+        line-height: var(--rg-admin-leading-caption);
+        color: var(--rg-admin-text-secondary);
+    }
+
+    /* Under a field a note is its hint, the size of the kit's hint beside it. */
+    .rg-admin-field > .rg-admin-traffic__note {
+        font-size: var(--rg-admin-text-micro);
+        line-height: var(--rg-admin-leading-micro);
+    }
+
+    /* A tile reads as a stat: an overline label over a stat figure, as the stats on Games and a game's Analytics. */
+    .rg-admin-traffic__tile-label {
+        font-size: var(--rg-admin-text-overline);
+        line-height: var(--rg-admin-leading-overline);
+        font-weight: var(--rg-admin-weight-medium);
+        letter-spacing: var(--rg-admin-tracking-overline);
+        text-transform: uppercase;
         color: var(--rg-admin-text-secondary);
     }
 
     .rg-admin-traffic__tile-value {
-        font-size: 22px;
+        font-size: var(--rg-admin-text-stat);
+        line-height: var(--rg-admin-leading-stat);
         font-weight: var(--rg-admin-weight-medium);
+        letter-spacing: var(--rg-admin-tracking-tight);
         font-variant-numeric: tabular-nums;
         color: var(--rg-admin-text-strong);
     }
@@ -14721,7 +14833,7 @@
     }
 
     .rg-admin-traffic__groups-head {
-        font-size: 12px;
+        font-size: var(--rg-admin-text-micro);
         font-weight: var(--rg-admin-weight-medium);
         color: var(--rg-admin-text-secondary);
     }
@@ -14773,7 +14885,7 @@
 
     .rg-admin-traffic__mono {
         font-family: var(--rg-admin-font-mono, ui-monospace, monospace);
-        font-size: 12.5px;
+        font-size: var(--rg-admin-text-caption);
         overflow-wrap: anywhere;
     }
 
@@ -14791,7 +14903,7 @@
         gap: 10px;
         padding: 8px 0;
         border-bottom: 1px solid var(--rg-admin-border-default);
-        font-size: 13px;
+        font-size: var(--rg-admin-text-body);
     }
 
     .rg-admin-traffic__checks {
@@ -14801,7 +14913,7 @@
         margin: 8px 0 0;
         padding: 0;
         list-style: none;
-        font-size: 13px;
+        font-size: var(--rg-admin-text-caption);
     }
 
     .rg-admin-traffic__check--danger { color: var(--rg-admin-status-danger-fg, #b42318); }
@@ -14859,7 +14971,8 @@
         padding: 0 6px;
         border: 1px solid var(--rg-admin-border-default);
         border-radius: var(--rg-admin-radius-sm);
-        font-size: 11px;
+        font-size: var(--rg-admin-text-micro);
+        line-height: var(--rg-admin-leading-micro);
         color: var(--rg-admin-text-secondary);
     }
 
@@ -15025,7 +15138,7 @@
         padding-block: 6px;
         white-space: nowrap;
         background: var(--rg-admin-surface-sunken);
-        font-size: 11px;
+        font-size: var(--rg-admin-text-overline);
         letter-spacing: 0.04em;
         text-transform: uppercase;
         color: var(--rg-admin-text-tertiary);
@@ -15363,8 +15476,8 @@
 
     .rg-admin-traffic__panel-title {
         margin: 0;
-        font-size: 14px;
-        line-height: 20px;
+        font-size: var(--rg-admin-text-ui);
+        line-height: var(--rg-admin-leading-ui);
         font-weight: var(--rg-admin-weight-medium);
         color: var(--rg-admin-text-strong);
     }
@@ -15418,12 +15531,13 @@
         display: flex;
         flex: 1;
         flex-direction: column;
-        font-size: 13px;
+        font-size: var(--rg-admin-text-body);
         font-weight: var(--rg-admin-weight-medium);
     }
 
     .rg-admin-traffic__device-roi {
-        font-size: 15px;
+        font-size: var(--rg-admin-text-stat);
+        line-height: var(--rg-admin-leading-stat);
         font-weight: var(--rg-admin-weight-semibold);
     }
 
@@ -15431,7 +15545,7 @@
         display: grid;
         grid-template-columns: repeat(4, minmax(0, 1fr));
         gap: 8px;
-        font-size: 13px;
+        font-size: var(--rg-admin-text-body);
         font-weight: var(--rg-admin-weight-medium);
         font-variant-numeric: tabular-nums;
     }
@@ -15454,7 +15568,8 @@
         display: flex;
         flex-direction: column;
         margin: 0;
-        font-size: 13px;
+        font-size: var(--rg-admin-text-body);
+        line-height: var(--rg-admin-leading-ui);
         font-weight: var(--rg-admin-weight-medium);
         color: var(--rg-admin-text-strong);
     }
@@ -15470,7 +15585,7 @@
         grid-template-columns: minmax(0, 1fr) auto 44px;
         gap: 8px;
         align-items: baseline;
-        font-size: 12.5px;
+        font-size: var(--rg-admin-text-body);
         color: var(--rg-admin-text-strong);
     }
 
@@ -15502,7 +15617,8 @@
         margin: 4px 0 0;
         padding-top: 8px;
         border-top: 1px solid var(--rg-admin-border-default);
-        font-size: 12px;
+        font-size: var(--rg-admin-text-caption);
+        line-height: var(--rg-admin-leading-caption);
     }
 
     .rg-admin-traffic__way-lines > div {
@@ -15552,7 +15668,7 @@
         border-radius: calc(var(--rg-admin-radius-control) - 2px);
         background: transparent;
         font: inherit;
-        font-size: 12.5px;
+        font-size: var(--rg-admin-text-caption);
         color: var(--rg-admin-text-secondary);
         cursor: pointer;
     }
@@ -15566,7 +15682,7 @@
 
     .rg-admin-traffic__chain {
         margin: 0;
-        font-size: 12.5px;
+        font-size: var(--rg-admin-text-caption);
         color: var(--rg-admin-text-secondary);
     }
 
@@ -15579,29 +15695,42 @@
     .rg-admin-traffic__perf-grid {
         display: flex;
         flex-direction: column;
-        min-width: 1360px;
+        min-width: 1440px;
     }
 
+    /* Accounts, spend and value carry the longest lines under their figures ("73.1% of finished", "$2.26 expected"), so their columns are wider. */
     .rg-admin-traffic__perf-row {
         display: grid;
-        grid-template-columns: minmax(280px, 2.4fr) repeat(12, minmax(74px, 1fr));
+        grid-template-columns: minmax(280px, 2.4fr) repeat(4, minmax(74px, 1fr)) repeat(3, minmax(112px, 1.5fr)) repeat(5, minmax(74px, 1fr));
         gap: 8px;
         align-items: center;
         padding: 7px 16px;
         border-bottom: 1px solid var(--rg-admin-border-default);
-        font-size: 13px;
+        font-size: var(--rg-admin-text-body);
         color: var(--rg-admin-text-strong);
     }
 
+    /* A table's head: the overline every admin table header uses. */
     .rg-admin-traffic__perf-row--head {
         position: sticky;
         top: 0;
         padding-block: 6px;
         background: var(--rg-admin-surface-sunken);
-        font-size: 10.5px;
-        letter-spacing: 0.04em;
+        font-size: var(--rg-admin-text-overline);
+        line-height: var(--rg-admin-leading-overline);
+        font-weight: var(--rg-admin-weight-medium);
+        letter-spacing: var(--rg-admin-tracking-overline);
         text-transform: uppercase;
         color: var(--rg-admin-text-tertiary);
+    }
+
+    /* The other tables' rows set their own size further down; their heads keep the overline all the same. */
+    .rg-admin-traffic__spend-row.rg-admin-traffic__perf-row--head,
+    .rg-admin-traffic__day-row.rg-admin-traffic__perf-row--head,
+    .rg-admin-traffic__log-line.rg-admin-traffic__perf-row--head,
+    .rg-admin-traffic__stage-row.rg-admin-traffic__param-row--head {
+        font-size: var(--rg-admin-text-overline);
+        line-height: var(--rg-admin-leading-overline);
     }
 
     .rg-admin-traffic__perf-row--head > :not(:first-child) {
@@ -15698,7 +15827,8 @@
     }
 
     .rg-admin-traffic__fig > small {
-        font-size: 10.5px;
+        font-size: var(--rg-admin-text-caption);
+        line-height: var(--rg-admin-leading-caption);
         color: var(--rg-admin-text-tertiary);
         white-space: nowrap;
     }
@@ -15708,7 +15838,7 @@
         border: 0;
         background: transparent;
         font: inherit;
-        font-size: 12.5px;
+        font-size: var(--rg-admin-text-caption);
         color: var(--rg-admin-text-link, var(--rg-admin-text-strong));
         text-decoration: underline;
         text-underline-offset: 2px;
@@ -15781,7 +15911,7 @@
 
     .rg-admin-traffic__rule-line {
         margin: 0;
-        font-size: 13px;
+        font-size: var(--rg-admin-text-body);
         line-height: 32px;
         color: var(--rg-admin-text-strong);
     }
@@ -15854,7 +15984,7 @@
         border-radius: 999px;
         background: var(--rg-admin-surface-card);
         font: inherit;
-        font-size: 12.5px;
+        font-size: var(--rg-admin-text-caption);
         color: var(--rg-admin-text-strong);
         cursor: pointer;
     }
@@ -15884,8 +16014,8 @@
         padding: 8px 12px;
         border-radius: var(--rg-admin-radius-md);
         background: var(--rg-admin-surface-sunken);
-        font-size: 12.5px;
-        line-height: 18px;
+        font-size: var(--rg-admin-text-caption);
+        line-height: var(--rg-admin-leading-caption);
         color: var(--rg-admin-text-secondary);
     }
 
@@ -15902,7 +16032,7 @@
         padding: 8px 12px;
         border-radius: var(--rg-admin-radius-md);
         background: var(--rg-admin-surface-pill);
-        font-size: 13px;
+        font-size: var(--rg-admin-text-caption);
     }
 
     .rg-admin-traffic__selection-actions {
@@ -15957,7 +16087,7 @@
         flex: 1;
         flex-direction: column;
         min-width: 0;
-        font-size: 13px;
+        font-size: var(--rg-admin-text-caption);
         color: var(--rg-admin-text-strong);
     }
 
@@ -16004,7 +16134,7 @@
         padding: 10px 12px;
         border: 1px solid var(--rg-admin-border-default);
         border-radius: var(--rg-admin-radius-md);
-        font-size: 13px;
+        font-size: var(--rg-admin-text-body);
         color: var(--rg-admin-text-strong);
     }
 
@@ -16023,7 +16153,8 @@
         height: 20px;
         border-radius: 999px;
         background: var(--rg-admin-surface-inverse);
-        font-size: 11px;
+        font-size: var(--rg-admin-text-micro);
+        line-height: var(--rg-admin-leading-micro);
         font-weight: var(--rg-admin-weight-semibold);
         color: var(--rg-admin-text-inverse);
     }
@@ -16057,7 +16188,7 @@
         border-radius: var(--rg-admin-radius-sm);
         background: var(--rg-admin-surface-card);
         font: inherit;
-        font-size: 12px;
+        font-size: var(--rg-admin-text-caption);
         color: var(--rg-admin-text-strong);
         cursor: pointer;
     }
@@ -16083,7 +16214,7 @@
         gap: 4px;
         width: 100%;
         margin: 0;
-        font-size: 12.5px;
+        font-size: var(--rg-admin-text-body);
     }
 
     .rg-admin-traffic__inspection-fields > div {
@@ -16102,7 +16233,7 @@
         display: inline-flex;
         align-items: center;
         gap: 6px;
-        font-size: 12px;
+        font-size: var(--rg-admin-text-micro);
         color: var(--rg-admin-status-success-fg);
     }
 
@@ -16120,7 +16251,7 @@
         align-items: start;
         padding: 6px 0;
         border-top: 1px solid var(--rg-admin-border-default);
-        font-size: 12.5px;
+        font-size: var(--rg-admin-text-body);
     }
 
     .rg-admin-traffic__click-text {
@@ -16136,12 +16267,12 @@
     }
 
     .rg-admin-traffic__perf-grid--campaigns {
-        min-width: 1240px;
+        min-width: 1250px;
     }
 
     .rg-admin-traffic__camp-row {
         display: grid;
-        grid-template-columns: minmax(200px, 1.6fr) minmax(150px, 1.2fr) 100px minmax(140px, 1fr) 110px 70px 80px 90px 110px 64px 90px;
+        grid-template-columns: minmax(200px, 1.6fr) minmax(150px, 1.2fr) 100px minmax(140px, 1fr) 110px 70px 80px 100px 110px 64px 90px;
         gap: 8px;
         align-items: center;
         width: 100%;
@@ -16150,7 +16281,7 @@
         border-bottom: 1px solid var(--rg-admin-border-default);
         background: transparent;
         font: inherit;
-        font-size: 13px;
+        font-size: var(--rg-admin-text-body);
         text-align: left;
         color: var(--rg-admin-text-strong);
     }
@@ -16166,8 +16297,10 @@
     .rg-admin-traffic__camp-row.rg-admin-traffic__perf-row--head {
         padding-block: 6px;
         background: var(--rg-admin-surface-sunken);
-        font-size: 10.5px;
-        letter-spacing: 0.04em;
+        font-size: var(--rg-admin-text-overline);
+        line-height: var(--rg-admin-leading-overline);
+        font-weight: var(--rg-admin-weight-medium);
+        letter-spacing: var(--rg-admin-tracking-overline);
         text-transform: uppercase;
         color: var(--rg-admin-text-tertiary);
     }
@@ -16184,7 +16317,7 @@
         padding: 6px 16px;
         border-bottom: 1px solid var(--rg-admin-border-default);
         background: var(--rg-admin-surface-sunken);
-        font-size: 12.5px;
+        font-size: var(--rg-admin-text-body);
     }
 
     .rg-admin-traffic__camp-group > span {
@@ -16223,6 +16356,31 @@
         }
     }
 
+    /*
+     * Traffic sources → Value borrows the game Value tab's cards; on Traffic
+     * sources they take the type sizes of every other admin card, while the
+     * game Value tab keeps its own.
+     */
+    .rg-admin-traffic .rg-admin-games__value-card-title {
+        font-size: var(--rg-admin-text-ui);
+        line-height: var(--rg-admin-leading-ui);
+    }
+
+    .rg-admin-traffic .rg-admin-games__value-tag {
+        font-size: var(--rg-admin-text-micro);
+        line-height: var(--rg-admin-leading-micro);
+    }
+
+    .rg-admin-traffic .rg-admin-games__value-big {
+        font-size: var(--rg-admin-text-title);
+        line-height: var(--rg-admin-leading-title);
+    }
+
+    .rg-admin-traffic .rg-admin-games__worth-row:not(.rg-admin-games__worth-row--head) {
+        font-size: var(--rg-admin-text-caption);
+        line-height: var(--rg-admin-leading-caption);
+    }
+
     /* Traffic sources → Value: outcomes and their prices, accounts by source, who counts, country groups. */
     .rg-admin-traffic__outcomes {
         display: flex;
@@ -16237,15 +16395,17 @@
         align-items: center;
         padding: 8px 14px;
         border-top: 1px solid var(--rg-admin-border-default);
-        font-size: 13px;
+        font-size: var(--rg-admin-text-body);
         color: var(--rg-admin-text-strong);
     }
 
     .rg-admin-traffic__outcome--head {
         padding-block: 6px;
         background: var(--rg-admin-surface-sunken);
-        font-size: 10.5px;
-        letter-spacing: 0.04em;
+        font-size: var(--rg-admin-text-overline);
+        line-height: var(--rg-admin-leading-overline);
+        font-weight: var(--rg-admin-weight-medium);
+        letter-spacing: var(--rg-admin-tracking-overline);
         text-transform: uppercase;
         color: var(--rg-admin-text-tertiary);
     }
@@ -16290,21 +16450,25 @@
 
     .rg-admin-traffic__source-row {
         display: grid;
-        grid-template-columns: minmax(150px, 1.6fr) 64px 60px 72px 104px 108px 110px 100px;
+        grid-template-columns: minmax(150px, 1.6fr) 68px 60px 72px 104px 108px 110px 100px;
         gap: 8px;
         align-items: center;
         padding: 8px 14px;
         border-top: 1px solid var(--rg-admin-border-default);
-        font-size: 13px;
+        font-size: var(--rg-admin-text-body);
         color: var(--rg-admin-text-strong);
     }
 
+    /* The longer headings ("Target / account") take two lines over their columns rather than running into the next. */
     .rg-admin-traffic__source-row.rg-admin-games__value-row--head {
+        align-items: end;
         padding-block: 6px;
-        white-space: nowrap;
+        white-space: normal;
         background: var(--rg-admin-surface-sunken);
-        font-size: 10.5px;
-        letter-spacing: 0.04em;
+        font-size: var(--rg-admin-text-overline);
+        line-height: var(--rg-admin-leading-overline);
+        font-weight: var(--rg-admin-weight-medium);
+        letter-spacing: var(--rg-admin-tracking-overline);
         text-transform: uppercase;
         color: var(--rg-admin-text-tertiary);
     }
@@ -16316,8 +16480,10 @@
     .rg-admin-traffic__source-row > [data-label]::before {
         display: none;
         content: attr(data-label);
-        font-size: 10.5px;
-        letter-spacing: 0.04em;
+        font-size: var(--rg-admin-text-overline);
+        line-height: var(--rg-admin-leading-overline);
+        font-weight: var(--rg-admin-weight-medium);
+        letter-spacing: var(--rg-admin-tracking-overline);
         text-transform: uppercase;
         color: var(--rg-admin-text-tertiary);
     }
@@ -16338,15 +16504,17 @@
     }
 
     .rg-admin-traffic__source-price > small {
-        font-size: 10.5px;
+        font-size: var(--rg-admin-text-micro);
+        line-height: var(--rg-admin-leading-micro);
         text-align: right;
         white-space: nowrap;
         color: var(--rg-admin-text-tertiary);
     }
 
+    /* Cost / account keeps a fixed minimum as wide as its longest caption ("above its worth"); a minimum taken from the content would differ from row to row. */
     @container (max-width: 859.98px) {
         .rg-admin-traffic__source-row {
-            grid-template-columns: minmax(0, 0.8fr) minmax(0, 0.8fr) minmax(0, 0.9fr) minmax(0, 1.1fr) minmax(0, 1.2fr) minmax(0, 1.2fr) minmax(0, 1fr);
+            grid-template-columns: minmax(0, 0.9fr) minmax(0, 0.8fr) minmax(0, 0.9fr) minmax(0, 1.1fr) minmax(0, 1.2fr) minmax(0, 1.2fr) minmax(96px, 1fr);
             gap: 4px 6px;
         }
 
@@ -16354,19 +16522,15 @@
             grid-column: 1 / -1;
         }
 
-        .rg-admin-traffic__source-row.rg-admin-games__value-row--head {
-            align-items: end;
-            white-space: normal;
-        }
-
         .rg-admin-traffic__source-row.rg-admin-games__value-row--head > :first-child {
             display: none;
         }
     }
 
+    /* Each column as wide as the longest label over it, "Target / account". */
     @container (max-width: 559.98px) {
         .rg-admin-traffic__source-row {
-            grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+            grid-template-columns: repeat(auto-fill, minmax(132px, 1fr));
             align-items: start;
             row-gap: 6px;
         }
@@ -16411,28 +16575,30 @@
     }
 
     .rg-admin-traffic__who strong {
-        font-size: 20px;
-        line-height: 26px;
+        font-size: var(--rg-admin-text-stat);
+        line-height: var(--rg-admin-leading-stat);
         font-weight: var(--rg-admin-weight-semibold);
         color: var(--rg-admin-text-strong);
     }
 
     .rg-admin-traffic__group-row {
         display: grid;
-        grid-template-columns: minmax(0, 1fr) 100px 140px;
+        grid-template-columns: minmax(0, 1fr) 112px 140px;
         gap: 12px;
         align-items: start;
         min-width: 520px;
         padding: 10px 14px;
         border-top: 1px solid var(--rg-admin-border-default);
-        font-size: 13px;
+        font-size: var(--rg-admin-text-body);
     }
 
     .rg-admin-traffic__group-row.rg-admin-games__value-row--head {
         padding-block: 6px;
         background: var(--rg-admin-surface-sunken);
-        font-size: 10.5px;
-        letter-spacing: 0.04em;
+        font-size: var(--rg-admin-text-overline);
+        line-height: var(--rg-admin-leading-overline);
+        font-weight: var(--rg-admin-weight-medium);
+        letter-spacing: var(--rg-admin-tracking-overline);
         text-transform: uppercase;
         color: var(--rg-admin-text-tertiary);
     }
@@ -16473,7 +16639,7 @@
         padding: 0 4px 0 8px;
         border: 1px solid var(--rg-admin-border-default);
         border-radius: var(--rg-admin-radius-sm);
-        font-size: 12px;
+        font-size: var(--rg-admin-text-micro);
         color: var(--rg-admin-text-strong);
     }
 
@@ -16490,7 +16656,7 @@
         width: 140px;
         min-height: 24px;
         height: 24px;
-        font-size: 12px;
+        font-size: var(--rg-admin-text-micro);
     }
 
     .rg-admin-traffic__how-list {
@@ -16500,8 +16666,8 @@
         margin: 0;
         padding: 0;
         list-style: none;
-        font-size: 12px;
-        line-height: 17px;
+        font-size: var(--rg-admin-text-caption);
+        line-height: var(--rg-admin-leading-caption);
         color: var(--rg-admin-text-secondary);
     }
 
@@ -16522,7 +16688,7 @@
         gap: 2px;
         padding: 6px 0;
         border-bottom: 1px solid var(--rg-admin-border-default);
-        font-size: 12.5px;
+        font-size: var(--rg-admin-text-caption);
         color: var(--rg-admin-text-strong);
     }
 
@@ -16555,13 +16721,20 @@
         display: inline-flex;
         align-items: center;
         gap: 6px;
-        font-size: 13px;
+        font-size: var(--rg-admin-text-body);
         font-weight: var(--rg-admin-weight-medium);
         color: var(--rg-admin-text-strong);
     }
 
+    /* Where a line cuts the name short (Sources), the text ends in an ellipsis instead of being clipped mid-letter. */
+    .rg-admin-traffic__method-name > span {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
     .rg-admin-traffic__method-users {
-        font-size: 12px;
+        font-size: var(--rg-admin-text-micro);
         font-weight: var(--rg-admin-weight-medium);
         color: var(--rg-admin-text-strong);
     }
@@ -16577,7 +16750,7 @@
         align-items: center;
         padding: 8px 16px;
         border-bottom: 1px solid var(--rg-admin-border-default);
-        font-size: 13px;
+        font-size: var(--rg-admin-text-body);
         color: var(--rg-admin-text-strong);
     }
 
@@ -16594,11 +16767,19 @@
         color: var(--rg-admin-text-secondary);
     }
 
+    /* A long line under a figure ("Import the network's CSV to compare", "known visitors, not new") wraps inside its column rather than running into the one before. */
+    .rg-admin-traffic__spend-row > .rg-admin-traffic__fig > small,
+    .rg-admin-traffic__outcome > .rg-admin-traffic__fig > small,
+    .rg-admin-traffic__source-row > .rg-admin-traffic__fig > small {
+        white-space: normal;
+        text-align: right;
+    }
+
     .rg-admin-traffic__status {
         display: inline-flex;
         align-items: center;
         gap: 6px;
-        font-size: 12.5px;
+        font-size: var(--rg-admin-text-caption);
         color: var(--rg-admin-text-secondary);
     }
 
@@ -16633,7 +16814,7 @@
         align-items: center;
         padding: 7px 16px;
         border-bottom: 1px solid var(--rg-admin-border-default);
-        font-size: 13px;
+        font-size: var(--rg-admin-text-body);
         color: var(--rg-admin-text-strong);
     }
 
@@ -16660,12 +16841,22 @@
 
     .rg-admin-traffic__correct {
         display: grid;
-        grid-template-columns: minmax(220px, 1fr) 150px 140px auto auto;
+        grid-template-columns: minmax(220px, 1fr) 200px 140px auto auto;
         gap: 10px;
         align-items: end;
         margin: 0 -16px -14px;
         padding: 12px 16px;
         background: var(--rg-admin-surface-sunken);
+    }
+
+    /* In the correction row the day is one line, as tall as the amount beside it, so the labels and controls line up. */
+    .rg-admin-traffic__correct .rg-admin-date-time__trigger {
+        min-height: var(--rg-admin-input-md);
+        padding-block: 0;
+    }
+
+    .rg-admin-traffic__correct .rg-admin-date-time__relative {
+        display: none;
     }
 
     .rg-admin-traffic__file {
@@ -16681,6 +16872,17 @@
         .rg-admin-traffic__correct > :first-child {
             grid-column: 1 / -1;
         }
+
+        .rg-admin-traffic__correct .rg-admin-date-time__control {
+            width: 100%;
+        }
+    }
+
+    /* On a phone the day and the amount take a line each, so the day reads whole. */
+    @media (max-width: 480px) {
+        .rg-admin-traffic__correct > .rg-admin-field {
+            grid-column: 1 / -1;
+        }
     }
 
     /* Traffic sources → Sources: the sections, a source's line. */
@@ -16692,7 +16894,7 @@
         padding: 6px 16px;
         border-bottom: 1px solid var(--rg-admin-border-default);
         background: var(--rg-admin-surface-sunken);
-        font-size: 11px;
+        font-size: var(--rg-admin-text-overline);
         letter-spacing: 0.02em;
     }
 
@@ -16704,15 +16906,21 @@
         color: var(--rg-admin-text-secondary);
     }
 
+    /* The spend method is the longest line ("Price in each click · per 1000 clicks"); the row fits a 1280px screen beside the sidebar, and the method wraps onto a second line where its column is too narrow. */
     .rg-admin-traffic__source-line {
         display: grid;
-        grid-template-columns: 28px minmax(220px, 1.5fr) minmax(200px, 1.2fr) minmax(200px, 1.2fr) 150px 32px 72px;
+        grid-template-columns: 28px minmax(180px, 1.4fr) minmax(150px, 1fr) minmax(200px, 1.5fr) 150px 32px 72px;
         gap: 10px;
         align-items: center;
         padding: 9px 16px;
         border-bottom: 1px solid var(--rg-admin-border-default);
-        font-size: 13px;
+        font-size: var(--rg-admin-text-body);
         color: var(--rg-admin-text-strong);
+    }
+
+    /* In a source's line the method wraps onto a second line rather than losing its unit ("per 1000 clicks") on narrower screens. */
+    .rg-admin-traffic__source-line .rg-admin-traffic__method-name > span {
+        white-space: normal;
     }
 
     .rg-admin-traffic__source-sign {
@@ -16732,8 +16940,12 @@
         gap: 6px;
     }
 
+    /* A long name ends in an ellipsis, so the status badge after it stays whole. */
     .rg-admin-traffic__source-title .rg-admin-traffic__text-button {
-        font-size: 13px;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        font-size: var(--rg-admin-text-body);
         text-decoration: none;
         color: var(--rg-admin-text-strong);
     }
@@ -16771,7 +16983,7 @@
         align-items: start;
         padding: 8px 16px;
         border-bottom: 1px solid var(--rg-admin-border-default);
-        font-size: 13px;
+        font-size: var(--rg-admin-text-body);
         color: var(--rg-admin-text-strong);
     }
 
@@ -16780,12 +16992,19 @@
         text-align: left;
     }
 
+    /* A note that is a cell of its own sits on the line of the cells beside it. */
+    .rg-admin-traffic__log-line > .rg-admin-traffic__note,
+    .rg-admin-traffic__click > .rg-admin-traffic__note {
+        line-height: var(--rg-admin-leading-body);
+    }
+
     .rg-admin-traffic__log-line--postbacks {
         grid-template-columns: 70px 110px minmax(220px, 1.4fr) 120px minmax(260px, 2fr) 150px 96px;
     }
 
+    /* Worth is wide enough for the longest way it was arrived at, "Leaning on the level above". */
     .rg-admin-traffic__log-line--milestones {
-        grid-template-columns: 70px 140px minmax(220px, 1.5fr) 140px minmax(180px, 1fr);
+        grid-template-columns: 70px 140px minmax(220px, 1.5fr) 180px minmax(180px, 1fr);
     }
 
     .rg-admin-traffic__log-line--blocks {
@@ -16815,7 +17034,7 @@
         border-radius: var(--rg-admin-radius-sm);
         background: var(--rg-admin-surface-sunken);
         list-style: none;
-        font-size: 12px;
+        font-size: var(--rg-admin-text-caption);
     }
 
     .rg-admin-traffic__path > li {
@@ -16844,7 +17063,7 @@
         border-bottom: 2px solid transparent;
         background: transparent;
         font: inherit;
-        font-size: 13px;
+        font-size: var(--rg-admin-text-ui);
         color: var(--rg-admin-text-secondary);
         white-space: nowrap;
         cursor: pointer;
@@ -16854,6 +17073,18 @@
         border-bottom-color: var(--rg-admin-surface-inverse);
         font-weight: var(--rg-admin-weight-medium);
         color: var(--rg-admin-text-strong);
+    }
+
+    /* On a phone the four editor panes fit the drawer without scrolling. */
+    @media (max-width: 480px) {
+        .rg-admin-traffic__panes {
+            gap: 0;
+            padding: 0 var(--rg-admin-space-3);
+        }
+
+        .rg-admin-traffic__pane-tab {
+            padding-inline: 6px;
+        }
     }
 
     .rg-admin-traffic__pane-error {
@@ -16882,7 +17113,7 @@
         border: 1px solid var(--rg-admin-border-default);
         border-radius: var(--rg-admin-radius-md);
         background: var(--rg-admin-surface-sunken);
-        font-size: 13px;
+        font-size: var(--rg-admin-text-caption);
         color: var(--rg-admin-text-strong);
     }
 
@@ -16900,7 +17131,7 @@
         border: 1px solid var(--rg-admin-border-default);
         border-radius: var(--rg-admin-radius-sm);
         background: var(--rg-admin-surface-card);
-        font-size: 12px;
+        font-size: var(--rg-admin-text-micro);
     }
 
     .rg-admin-traffic__preset-chip > span {
@@ -16922,7 +17153,7 @@
         display: flex;
         align-items: flex-start;
         gap: 6px;
-        font-size: 12.5px;
+        font-size: var(--rg-admin-text-caption);
     }
 
     .rg-admin-traffic__preset-fill > svg {
@@ -16953,9 +17184,10 @@
         overflow: hidden;
     }
 
+    /* "What" as wide as its longest choice, Campaign, so that on a phone the Parameter heading still fits its column. */
     .rg-admin-traffic__param-row {
         display: grid;
-        grid-template-columns: 130px minmax(0, 1fr) minmax(0, 1.2fr) 32px;
+        grid-template-columns: 120px minmax(0, 1fr) minmax(0, 1.1fr) 32px;
         gap: 8px;
         align-items: center;
         padding: 6px 8px;
@@ -16968,8 +17200,10 @@
 
     .rg-admin-traffic__param-row--head {
         background: var(--rg-admin-surface-sunken);
-        font-size: 10.5px;
-        letter-spacing: 0.04em;
+        font-size: var(--rg-admin-text-overline);
+        line-height: var(--rg-admin-leading-overline);
+        font-weight: var(--rg-admin-weight-medium);
+        letter-spacing: var(--rg-admin-tracking-overline);
         text-transform: uppercase;
         color: var(--rg-admin-text-tertiary);
     }
@@ -16995,7 +17229,7 @@
         display: flex;
         flex-direction: column;
         gap: 2px;
-        font-size: 13px;
+        font-size: var(--rg-admin-text-caption);
     }
 
     .rg-admin-traffic__footer-actions {
@@ -17027,7 +17261,7 @@
         border-radius: var(--rg-admin-radius-md);
         background: var(--rg-admin-surface-card);
         font: inherit;
-        font-size: 12.5px;
+        font-size: var(--rg-admin-text-body);
         text-align: left;
         color: var(--rg-admin-text-strong);
         cursor: pointer;
@@ -17059,7 +17293,8 @@
     }
 
     .rg-admin-traffic__kpis strong {
-        font-size: 16px;
+        font-size: var(--rg-admin-text-stat);
+        line-height: var(--rg-admin-leading-stat);
         font-weight: var(--rg-admin-weight-semibold);
         font-variant-numeric: tabular-nums;
     }
@@ -17071,7 +17306,7 @@
         align-items: center;
         padding: 6px 8px;
         border-top: 1px solid var(--rg-admin-border-default);
-        font-size: 12.5px;
+        font-size: var(--rg-admin-text-body);
     }
 
     .rg-admin-traffic__stage-row.rg-admin-traffic__param-row--head {
@@ -17084,7 +17319,7 @@
         gap: 8px 12px;
         align-items: center;
         margin: 0;
-        font-size: 13px;
+        font-size: var(--rg-admin-text-body);
     }
 
     .rg-admin-traffic__facts-grid > dt {
@@ -17101,7 +17336,7 @@
         padding: 0 8px;
         background: var(--rg-admin-surface-card);
         font: inherit;
-        font-size: 12px;
+        font-size: var(--rg-admin-text-micro);
         cursor: pointer;
     }
 

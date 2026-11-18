@@ -72,7 +72,7 @@
             @else
                 <x-admin.ui.button size="sm" variant="danger" icon="ban" wire:click="blockSelected">Block {{ number_format($list['selected']) }}</x-admin.ui.button>
             @endif
-            <x-admin.ui.button size="sm" icon="copy" x-on:click="navigator.clipboard.writeText(@js($list['copyIds'])); copied = true; setTimeout(() => copied = false, 1500)"><span x-text="copied ? 'Copied' : 'Copy IDs'">Copy IDs</span></x-admin.ui.button>
+            <x-admin.ui.button size="sm" icon="copy" :data-copy="$list['copyIds']" x-on:click="navigator.clipboard.writeText($el.dataset.copy); copied = true; setTimeout(() => copied = false, 1500)"><span x-text="copied ? 'Copied' : 'Copy IDs'">Copy IDs</span></x-admin.ui.button>
             <x-admin.ui.button size="sm" variant="ghost" wire:click="clearSelection">Clear</x-admin.ui.button>
         </span>
     </div>
