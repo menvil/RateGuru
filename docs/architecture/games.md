@@ -253,8 +253,9 @@ A game's Preview offers, for a published version still active, a test link
 checked against the signature, so a parameter a channel adds on the way —
 `fbclid`, `utm_*` — leaves the link working. `PlayGamePageController`, the
 action of `games.play`, draws the version through the admin preview's
-component (`PreviewGame`) for a valid link to an active version of that game —
-whatever the game's own status — as whoever holds it, a signed-in player or an
+component (`PreviewGame`) for a valid link to an active version of that game
+while the game is live or paused — never a draft, which nobody plays yet —
+as whoever holds it, a signed-in player or an
 anonymous visitor, in the site's language, under the preview's banner.
 Nothing is recorded: `CaptureTrafficArrival` leaves the request alone (no
 click, arrival token or cookie), and the preview assigns nobody and keeps its

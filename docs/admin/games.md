@@ -51,8 +51,9 @@ Prepare and preview a game first; switch games on when it is live.
    or straight to a result. Nothing is recorded. With a published version
    still active chosen, **Copy test link** copies a link to the game's page
    that plays that version for whoever opens it, signed in or not, for seven
-   days — before the game is live too — and records nothing; once it expires,
-   or the version is archived, it opens the ordinary game page.
+   days while the game is live or paused — never while it is a draft — and
+   records nothing; once it expires, or the version is archived, it opens the
+   ordinary game page.
 
 Games are not created in the admin: each arrives with the release that adds
 it, as a draft in Growth → Games — the first is **Trust Your Taste** (Versus),

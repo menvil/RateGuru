@@ -7,8 +7,9 @@
      * it: the flow's steps, the one on screen marked as the frame moves, each
      * a way to start again there. Restart plays it again from where it began;
      * Fullscreen lays the whole of it over the window. Nothing the frame does
-     * is recorded. A published version still active has Copy test link: the
-     * game's public page playing it for seven days, recording nothing.
+     * is recorded. A published version still active of a live or paused game
+     * has Copy test link: the game's public page playing it for seven days,
+     * recording nothing.
      */
     $view = $device === 'mobile' ? 'mobile' : 'desktop';
     $display = $device === 'page' ? 'page' : 'window';

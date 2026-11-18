@@ -2,6 +2,7 @@
 
 namespace App\Queries\Games;
 
+use App\Enums\GameStatus;
 use App\Enums\GameVersionStatus;
 use App\Models\GameVersion;
 use App\Support\Games\Play\VersionTestLink;
@@ -10,10 +11,10 @@ use Illuminate\Http\Request;
 
 /**
  * The version a game page's test link plays (VersionTestLink): one still
- * active of the game the page is for, whatever the game's own status — a
- * link copied before launch plays as well as after. An archived version, one
- * of another game, or a request without a valid link finds none, and the
- * page is the game's ordinary page. Read-only.
+ * active of the game the page is for, while the game is live or paused. A
+ * draft or archived game, an archived version, one of another game, or a
+ * request without a valid link finds none, and the page is the game's
+ * ordinary page. Read-only.
  */
 final class TestLinkVersionQuery
 {
@@ -28,7 +29,7 @@ final class TestLinkVersionQuery
         return GameVersion::query()
             ->whereKey($versionId)
             ->where('status', GameVersionStatus::Active)
-            ->whereHas('game', fn (Builder $game) => $game->where('slug', $slug))
+            ->whereHas('game', fn (Builder $game) => $game->where('slug', $slug)->whereIn('status', [GameStatus::Live, GameStatus::Paused]))
             ->first();
     }
 }

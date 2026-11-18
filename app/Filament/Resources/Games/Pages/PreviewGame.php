@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\Games\Pages;
 
+use App\Enums\GameStatus;
 use App\Enums\GameStepAudience;
 use App\Filament\Resources\Games\Concerns\InteractsWithGameEditor;
 use App\Filament\Resources\Games\GameResource;
@@ -128,8 +129,8 @@ final class PreviewGame extends Page
             ], $steps),
             'results' => collect(range(0, $rounds))->mapWithKeys(fn (int $matches): array => ['result:'.$matches => $matches.' of '.$rounds.' '.($rounds === 1 ? 'match' : 'matches')])->all(),
             'frameUrl' => route('games.preview', $params),
-            // A published version still active can be played by anyone holding its test link, recording nothing.
-            'testLink' => $version !== null && $version->isActive() ? VersionTestLink::url($game->slug, (int) $version->id) : null,
+            // A published version still active of a live or paused game can be played by anyone holding its test link, recording nothing.
+            'testLink' => $version !== null && $version->isActive() && in_array($game->status, [GameStatus::Live, GameStatus::Paused], true) ? VersionTestLink::url($game->slug, (int) $version->id) : null,
             'testLabel' => $version?->label(),
             'address' => preg_replace('#\Ahttps?://#', '', url('/games/'.$game->slug)),
             'tabTitle' => $game->title.' · '.app(ProjectSettingsManager::class)->current()->siteName(),

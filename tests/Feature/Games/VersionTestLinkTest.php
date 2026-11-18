@@ -115,11 +115,16 @@ it('plays it as a logged-in player for a signed-in holder, still recording nothi
         ->and(GameAssignment::query()->where('user_id', $player->id)->exists())->toBeFalse();
 });
 
-it('plays a version of a game not live yet', function () {
+it('plays a version of a paused game, and none of a game still a draft', function () {
+    $link = VersionTestLink::url($this->game->slug, (int) $this->v2->id);
+    $this->game->forceFill(['status' => GameStatus::Paused])->save();
+
+    $this->get($link)->assertOk()->assertSee('Preview — V2 — nothing is recorded');
+
+    // A draft is no game anyone plays yet: its link is the ordinary page, which a draft doesn't have.
     $this->game->forceFill(['status' => GameStatus::Draft])->save();
 
-    $this->get('/games/'.$this->game->slug)->assertNotFound();
-    $this->get(VersionTestLink::url($this->game->slug, (int) $this->v2->id))->assertOk()->assertSee('Preview — V2 — nothing is recorded');
+    $this->get($link)->assertNotFound();
 });
 
 it('is the ordinary game page for a link unsigned, tampered with, expired, or to a version it may not play', function (Closure $link) {
@@ -167,4 +172,8 @@ it('offers Copy test link in Preview for a published version still active, and n
 
     GameVersion::query()->whereKey($this->v2->id)->update(['status' => GameVersionStatus::Retired]);
     $page->set('source', (string) $this->v1->id)->set('source', (string) $this->v2->id)->assertDontSee('Copy test link');
+
+    // A game still a draft offers none, whatever its versions.
+    $this->game->forceFill(['status' => GameStatus::Draft])->save();
+    Livewire::test(PreviewGame::class, ['record' => $this->game->id])->set('source', (string) $this->v1->id)->assertDontSee('Copy test link');
 });
