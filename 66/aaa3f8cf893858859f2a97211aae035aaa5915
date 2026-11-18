@@ -1,0 +1,21 @@
+resources/css/filament/admin/components.css
+  s_4b9dc6ab6b25d3::t_c19ab52b5e8d44 17449-17453
+  s_4b9dc6ab6b25d3::t_9126948c2d7071 17376-17382
+  s_4b9dc6ab6b25d3::t_a327b02472ac32 17356-17375
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "66aaa3f8cf893858859f2a97211aae035aaa5915",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
