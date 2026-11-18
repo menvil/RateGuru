@@ -14658,6 +14658,21 @@ function periodVisitor(GameTrafficPeriod $period, GameVersion $version, array $d
 }
 
 /**
+ * Visitors a traffic period sent to its version of the number given, each
+ * doing what the list at their place says (periodVisitor).
+ *
+ * @param  callable(int): array<string, mixed>  $did
+ */
+function assignVisitors(GameTrafficPeriod $period, int $number, int $count, callable $did): void
+{
+    $version = $period->versions->firstWhere('number', $number);
+
+    foreach (range(1, $count) as $n) {
+        periodVisitor($period, $version, $did($n));
+    }
+}
+
+/**
  * The flow's steps replaced by fresh ones of these types, in this order, each
  * with its defaults and the settings given for its type; a Next Game step
  * leads to the game given.

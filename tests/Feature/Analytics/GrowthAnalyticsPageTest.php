@@ -126,7 +126,7 @@ it('keeps the tab, period, filters and sorting in the address, and reads anythin
 it('lists only the tabs that are built, each drawn from its own view and figures', function () {
     analyticsVisit('ann');
 
-    expect(GrowthAnalyticsPage::TABS)->toBe(['overview' => 'Overview', 'games' => 'Games', 'experiments' => 'Experiments'])
+    expect(GrowthAnalyticsPage::TABS)->toBe(['overview' => 'Overview', 'landings' => 'Landings', 'games' => 'Games', 'experiments' => 'Experiments', 'geo' => 'Geography'])
         ->and(array_keys(GrowthAnalyticsPage::TAB_DATA))->toBe(array_keys(GrowthAnalyticsPage::TABS));
 
     foreach (GrowthAnalyticsPage::TABS as $tab => $label) {

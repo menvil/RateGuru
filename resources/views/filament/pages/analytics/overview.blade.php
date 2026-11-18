@@ -11,16 +11,7 @@
 @endphp
 
 @if ($data['empty'])
-    <x-admin.ui.card>
-        <x-admin.ui.empty-state icon="search-x" title="No visitors for these filters" data-testid="analytics-empty">
-            Nothing matches in {{ $data['range'] }}. Pick a longer range or clear the filters.
-            @if ($data['filtered'])
-                <x-slot:action>
-                    <x-admin.ui.button size="sm" wire:click="clearFilters">Clear filters</x-admin.ui.button>
-                </x-slot:action>
-            @endif
-        </x-admin.ui.empty-state>
-    </x-admin.ui.card>
+    @include('filament.pages.analytics.elements.no-visitors', ['range' => $data['range'], 'filtered' => $data['filtered']])
 @else
     <x-admin.ui.card flush clip data-testid="analytics-kpis">
         <dl class="rg-admin-analytics__kpis">

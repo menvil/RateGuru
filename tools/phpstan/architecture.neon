@@ -162,7 +162,7 @@ parameters:
             -
                 class: App\Queries\Analytics\AnalyticsVisitsQuery
                 methods: [selectRaw, orderByRaw]
-                reason: 'Growth → Analytics counts people, not visits: conditional COUNT(DISTINCT CASE WHEN … THEN visitor_hash END) and sums over a period''s visits — per source, campaign, creative, landing, device, country, city, game or version with the people past the top groups counted together, per day, per hour or per block of days between bound boundaries — ordered by the people of each group, and the result shares of the attempts played on them, without hydrating up to millions of visit rows; every value is bound and every grouping column comes from AnalyticsDimension.'
+                reason: 'Growth → Analytics counts people, not visits: conditional COUNT(DISTINCT CASE WHEN … THEN visitor_hash END) and sums over a period''s visits — per source, campaign, creative, landing, device, country, city, game or version with the people past the top groups, or too few to list, counted together and those of no value counted apart when asked, per day, per hour or per block of days between bound boundaries — ordered by the people of each group, and the result shares of the attempts played on them, without hydrating up to millions of visit rows; every value is bound and every grouping column comes from AnalyticsDimension.'
                 bindings: required
                 behaviorTests: [tests/Feature/Queries/AnalyticsVisitsQueryTest.php]
                 status: approved

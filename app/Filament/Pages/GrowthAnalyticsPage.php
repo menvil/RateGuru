@@ -7,6 +7,8 @@ use App\Filament\Pages\Analytics\AnalyticsTab;
 use App\Filament\Pages\Analytics\AnalyticsView;
 use App\Filament\Pages\Analytics\ExperimentsTab;
 use App\Filament\Pages\Analytics\GamesTab;
+use App\Filament\Pages\Analytics\GeographyTab;
+use App\Filament\Pages\Analytics\LandingsTab;
 use App\Filament\Pages\Analytics\OverviewTab;
 use App\Filament\Resources\Games\Analytics\ReadsGameAnalytics;
 use App\Filament\Support\AdminNavigationGroup;
@@ -28,30 +30,31 @@ use UnitEnum;
  * site, counted by RateGuru itself from the visits it records — people, not
  * visits. A period of whole days (its presets, or a range up to the longest
  * Analytics reads at a time), a device, a source and a campaign narrow every
- * figure of the tab open that reads visits; Experiments reads who each
- * traffic period assigned to which version instead, and none of them
- * applies to it; Games is a game's own analytics, of the period and the
- * device with the game's own filters (ReadsGameAnalytics), the source and
- * campaign said not to apply. The strip lists only the tabs built so far.
+ * figure of the tab open that reads visits — Overview, Landings and
+ * Geography; Experiments reads who each traffic period assigned to which
+ * version instead, and none of them applies to it; Games is a game's own
+ * analytics, of the period and the device with the game's own filters
+ * (ReadsGameAnalytics), the source and campaign said not to apply. The strip
+ * lists only the tabs built so far.
  *
  * Everything on screen is in the address — the tab, the period, the device,
  * the source and campaign, a tab's own sorting, the comparison Experiments
- * shows, the game Games shows and its filters — and anything it can't read
- * is the default. Asking for the page reads no visits: the open tab's
- * figures are read once the page is in a browser (wire:init), and only the
- * open tab's. A source chosen whose campaign isn't one of its own drops the
- * campaign. The page, and every request it answers, is an active
- * administrator's who may manage traffic sources.
+ * shows, the game Games shows and its filters, the country Geography opens —
+ * and anything it can't read is the default. Asking for the page reads no
+ * visits: the open tab's figures are read once the page is in a browser
+ * (wire:init), and only the open tab's. A source chosen whose campaign isn't
+ * one of its own drops the campaign. The page, and every request it answers,
+ * is an active administrator's who may manage traffic sources.
  */
 final class GrowthAnalyticsPage extends Page
 {
     use ReadsGameAnalytics;
 
     /** @var array<string, string> the tabs built so far, in the reference's order: the strip lists these and no other */
-    public const array TABS = ['overview' => 'Overview', 'games' => 'Games', 'experiments' => 'Experiments'];
+    public const array TABS = ['overview' => 'Overview', 'landings' => 'Landings', 'games' => 'Games', 'experiments' => 'Experiments', 'geo' => 'Geography'];
 
     /** @var array<string, class-string<AnalyticsTab>> what each tab of the strip reads */
-    public const array TAB_DATA = ['overview' => OverviewTab::class, 'games' => GamesTab::class, 'experiments' => ExperimentsTab::class];
+    public const array TAB_DATA = ['overview' => OverviewTab::class, 'landings' => LandingsTab::class, 'games' => GamesTab::class, 'experiments' => ExperimentsTab::class, 'geo' => GeographyTab::class];
 
     /**
      * @var list<string> the tabs not counted from the visits Analytics
@@ -122,6 +125,14 @@ final class GrowthAnalyticsPage extends Page
     /** Games: the game shown, the id of one not archived; the first while none is named or the one named isn't offered. */
     #[Url(except: '')]
     public mixed $game = '';
+
+    /** Geography: what its countries and cities are sorted by, one of GeographyTab::SORTS. */
+    #[Url(except: 'visitors')]
+    public mixed $gsort = 'visitors';
+
+    /** Geography: the country whose cities are open, by its code, or none (GeographyTab::NONE_OPEN); the one the most people came from while none is named. */
+    #[Url(except: '')]
+    public mixed $open = '';
 
     /** Whether the page is in a browser: only then does the open tab read its figures. */
     public bool $ready = false;
@@ -340,6 +351,10 @@ final class GrowthAnalyticsPage extends Page
         $this->sort = is_string($this->sort) && array_key_exists($this->sort, self::SORTS) ? $this->sort : 'visitors';
         // The comparison is the Experiments tab's alone.
         $this->exp = $this->tab === 'experiments' && (is_int($this->exp) || is_string($this->exp)) && preg_match('/^[1-9]\d{0,17}$/', (string) $this->exp) === 1 ? (string) $this->exp : '';
+
+        // The sorting and the open country are the Geography tab's alone.
+        $this->gsort = $this->tab === 'geo' && is_string($this->gsort) && array_key_exists($this->gsort, GeographyTab::SORTS) ? $this->gsort : 'visitors';
+        $this->open = $this->tab === 'geo' ? GeographyTab::readOpen($this->open) : '';
 
         // The game and its filters are the Games tab's alone.
         if ($this->tab === 'games') {

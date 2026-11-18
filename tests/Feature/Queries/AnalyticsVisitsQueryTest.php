@@ -175,6 +175,72 @@ it('counts the rest of a split on two columns by both, and leaves a top group of
         ->and($countries['rest']['figures']->visitors)->toBe(1);
 });
 
+it('lists only the groups with the people asked, the smaller ones counted in the rest whatever the limit', function () {
+    foreach (range(1, 3) as $n) {
+        analyticsVisit('austin-'.$n, ['country' => 'US', 'city' => 'Austin']);
+    }
+
+    foreach (range(1, 2) as $n) {
+        analyticsVisit('boston-'.$n, ['country' => 'US', 'city' => 'Boston']);
+    }
+
+    // Someone of Austin seen in Denver too.
+    analyticsVisit('austin-1', ['country' => 'US', 'city' => 'Denver', 'network_day' => '2026-11-16']);
+    analyticsVisit('denver', ['country' => 'US', 'city' => 'Denver']);
+
+    $cities = analyticsQuery()->by(analyticsFilter(), AnalyticsDimension::City, 10, 2);
+
+    expect(array_column(array_column($cities['rows'], 'keys'), 'city'))->toBe(['Austin', 'Boston', 'Denver'])
+        ->and($cities['rest'])->toBeNull()
+        ->and(analyticsQuery()->by(analyticsFilter(), AnalyticsDimension::City, 10, 3)['rows'])->toHaveCount(1)
+        ->and(analyticsQuery()->by(analyticsFilter(), AnalyticsDimension::City, 10, 3)['rest']['figures']->visitors)->toBe(4)
+        ->and(analyticsQuery()->by(analyticsFilter(), AnalyticsDimension::City, null, 4))->toMatchArray(['rows' => []])
+        ->and(analyticsQuery()->by(analyticsFilter(), AnalyticsDimension::City, null, 4)['rest']['figures']->visitors)->toBe(6);
+});
+
+it('keeps the visits of no value out of the groups, in the rest or apart from it as asked', function () {
+    foreach (['a', 'b', 'c'] as $browser) {
+        analyticsVisit($browser, ['country' => 'US', 'city' => null]);
+    }
+
+    analyticsVisit('d', ['country' => 'US', 'city' => 'Austin']);
+    analyticsVisit('e', ['country' => 'US', 'city' => 'Austin']);
+    analyticsVisit('f', ['country' => 'US', 'city' => 'Boston']);
+    analyticsVisit('g', ['country' => 'DE', 'city' => 'Berlin']);
+
+    foreach (['u1', 'u2', 'u3', 'u4'] as $browser) {
+        analyticsVisit($browser, ['country' => null]);
+    }
+
+    // Someone placed once and unplaced once: in each.
+    analyticsVisit('g', ['country' => null, 'network_day' => '2026-11-16']);
+
+    $us = analyticsFilter()->within(AnalyticsDimension::Country, ['country' => 'US']);
+    $listed = analyticsQuery()->by($us, AnalyticsDimension::City, 1);
+    $inRest = analyticsQuery()->by($us, AnalyticsDimension::City, 1, unnamed: AnalyticsVisitsQuery::UNNAMED_IN_REST);
+    $apart = analyticsQuery()->by(analyticsFilter(), AnalyticsDimension::Country, 1, unnamed: AnalyticsVisitsQuery::UNNAMED_APART);
+    $all = analyticsQuery()->by(analyticsFilter(), AnalyticsDimension::Country, 5, unnamed: AnalyticsVisitsQuery::UNNAMED_APART);
+
+    expect(array_column($listed['rows'], 'keys'))->toBe([['city' => null, 'country' => 'US']])
+        ->and($listed['unnamed'])->toBeNull()
+        // The unplaced are never a group of their own, but the rest of those not listed.
+        ->and(array_column($inRest['rows'], 'keys'))->toBe([['city' => 'Austin', 'country' => 'US']])
+        ->and($inRest['rest']['figures']->visitors)->toBe(4)
+        ->and($inRest['unnamed'])->toBeNull()
+        ->and(analyticsQuery()->by($us, AnalyticsDimension::City, 10, unnamed: AnalyticsVisitsQuery::UNNAMED_IN_REST)['rest']['figures']->visitors)->toBe(3)
+        // Or counted apart, in no group and no rest.
+        ->and(array_column($apart['rows'], 'keys'))->toBe([['country' => 'US']])
+        ->and($apart['rest']['figures']->visitors)->toBe(1)
+        ->and($apart['unnamed']['figures']->visitors)->toBe(5)
+        ->and(array_column($all['rows'], 'keys'))->toBe([['country' => 'US'], ['country' => 'DE']])
+        ->and($all['rest'])->toBeNull()
+        ->and($all['unnamed']['figures']->visitors)->toBe(5);
+});
+
+it('refuses any other way of treating the visits of no value', function () {
+    analyticsQuery()->by(analyticsFilter(), AnalyticsDimension::Country, 10, unnamed: 'drop');
+})->throws(InvalidArgumentException::class, 'No split treats the visits of no value as [drop].');
+
 it('splits by game and version as numbers, along an opened path', function () {
     $version = GameVersion::factory()->create();
     analyticsVisit('ann', ['game_id' => $version->game_id, 'version_id' => $version->id, 'campaign_key' => 'tag:launch']);

@@ -18342,6 +18342,321 @@
     }
 
     /*
+     * Landings: a row per page a session began on — where it is over what
+     * its version had of the traffic, both wrapping rather than cut, so a
+     * shared result's marker is never lost — a game's row leading to the
+     * game's analytics.
+     */
+    .rg-admin-analytics__landings {
+        --rg-admin-table-columns: minmax(250px, 1.5fr) minmax(140px, 0.8fr) minmax(170px, 1fr) repeat(5, minmax(92px, 0.5fr));
+        --rg-admin-table-min-width: 1080px;
+        --rg-admin-table-row-height: 56px;
+    }
+
+    .rg-admin-analytics__landing-row--link {
+        cursor: pointer;
+    }
+
+    .rg-admin-analytics__landings .rg-admin-table__cell:first-child {
+        padding-left: var(--rg-admin-space-5);
+    }
+
+    .rg-admin-analytics__landing-path {
+        font-family: var(--rg-admin-font-mono);
+        font-size: var(--rg-admin-text-caption);
+        line-height: var(--rg-admin-leading-caption);
+        color: var(--rg-admin-text-strong);
+        overflow-wrap: anywhere;
+    }
+
+    .rg-admin-analytics__landing-note {
+        font-size: var(--rg-admin-text-micro);
+        line-height: var(--rg-admin-leading-micro);
+        color: var(--rg-admin-text-tertiary);
+        text-wrap: pretty;
+    }
+
+    .rg-admin-analytics__landing-game {
+        display: block;
+        overflow: hidden;
+        font-size: var(--rg-admin-text-body);
+        line-height: var(--rg-admin-leading-ui);
+        color: var(--rg-admin-text-strong);
+        text-decoration: none;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .rg-admin-analytics__landing-game--link:hover {
+        text-decoration: underline;
+        text-underline-offset: 3px;
+    }
+
+    .rg-admin-analytics__landing-game--link:focus-visible {
+        outline: 2px solid var(--rg-admin-focus-ring);
+        outline-offset: 2px;
+        border-radius: var(--rg-admin-radius-xs);
+    }
+
+    .rg-admin-analytics__landing-experience {
+        font-size: var(--rg-admin-text-caption);
+        line-height: var(--rg-admin-leading-caption);
+        color: var(--rg-admin-text-secondary);
+    }
+
+    .rg-admin-analytics__landing-quiet {
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-analytics__landings .rg-admin-table__cell:last-child {
+        padding-right: var(--rg-admin-space-5);
+    }
+
+    /*
+     * The comparison beside the landings: each version against the
+     * reference, the metric column held in place while the versions scroll
+     * under it on a narrow card; its rows are no links, so they never light up.
+     */
+    .rg-admin-analytics__compare-card .rg-admin-card__header--aside {
+        flex-wrap: wrap;
+    }
+
+    .rg-admin-analytics__compare-card .rg-admin-card__heading {
+        flex: 1 1 320px;
+    }
+
+    .rg-admin-analytics__compare-actions {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: var(--rg-admin-space-2) var(--rg-admin-space-3);
+    }
+
+    .rg-admin-analytics__compare {
+        --rg-admin-analytics-metric-width: 200px;
+        --rg-admin-table-row-height: 44px;
+    }
+
+    .rg-admin-analytics__compare-row,
+    .rg-admin-analytics__compare-row:not(.rg-admin-table__row--head):hover {
+        background: var(--rg-admin-surface-card);
+    }
+
+    .rg-admin-analytics__compare-metric {
+        position: sticky;
+        left: 0;
+        z-index: 1;
+        align-self: stretch;
+        display: flex;
+        align-items: center;
+        background: var(--rg-admin-surface-card);
+    }
+
+    .rg-admin-analytics__compare .rg-admin-table__cell:first-child {
+        padding-left: var(--rg-admin-space-5);
+    }
+
+    .rg-admin-analytics__compare-label {
+        font-size: var(--rg-admin-text-caption);
+        line-height: var(--rg-admin-leading-caption);
+        color: var(--rg-admin-text-secondary);
+    }
+
+    .rg-admin-analytics__compare-figure {
+        font-size: var(--rg-admin-text-body);
+        line-height: var(--rg-admin-leading-ui);
+        font-variant-numeric: tabular-nums;
+    }
+
+    .rg-admin-analytics__compare-change {
+        font-size: var(--rg-admin-text-caption);
+        line-height: var(--rg-admin-leading-caption);
+        color: var(--rg-admin-text-secondary);
+        font-variant-numeric: tabular-nums;
+    }
+
+    .rg-admin-analytics__compare .rg-admin-table__cell:last-child {
+        padding-right: var(--rg-admin-space-5);
+    }
+
+    @media (max-width: 639.98px) {
+        .rg-admin-analytics__compare {
+            --rg-admin-analytics-metric-width: 148px;
+        }
+    }
+
+    /*
+     * Geography: a row per country — chevron, flag, name — over the open
+     * country's cities on a sunken band, indented under it; each row's share
+     * a bar on a track, as long as the row of the most people at its fullest
+     * (--rg-admin-analytics-geo-bar). The sorting wraps under the title where
+     * both don't fit.
+     */
+    .rg-admin-analytics__geo-credit {
+        color: inherit;
+        text-decoration: underline;
+        text-underline-offset: 2px;
+    }
+
+    .rg-admin-analytics__geo-card .rg-admin-card__header--aside {
+        flex-wrap: wrap;
+    }
+
+    .rg-admin-analytics__geo-card .rg-admin-card__heading {
+        flex: 1 1 320px;
+    }
+
+    .rg-admin-analytics__geo {
+        --rg-admin-table-columns: minmax(220px, 1.4fr) 100px minmax(120px, 1fr) 100px 110px 100px;
+        --rg-admin-table-min-width: 880px;
+        --rg-admin-table-row-height: 48px;
+    }
+
+    .rg-admin-analytics__geo-row--country {
+        cursor: pointer;
+    }
+
+    .rg-admin-analytics__geo-row--inner,
+    .rg-admin-analytics__geo-row--inner:not(.rg-admin-table__row--head):hover {
+        min-height: 40px;
+        background: var(--rg-admin-surface-sunken);
+    }
+
+    .rg-admin-analytics__geo .rg-admin-table__cell:first-child {
+        padding-left: var(--rg-admin-space-5);
+    }
+
+    .rg-admin-analytics__geo .rg-admin-table__cell:last-child {
+        padding-right: var(--rg-admin-space-5);
+    }
+
+    .rg-admin-analytics__geo-place {
+        display: flex;
+        align-items: center;
+        gap: var(--rg-admin-space-2);
+        padding-block: 6px;
+    }
+
+    .rg-admin-analytics__geo .rg-admin-analytics__geo-row--inner .rg-admin-analytics__geo-place {
+        padding-left: 44px;
+    }
+
+    .rg-admin-analytics__geo-chevron {
+        display: grid;
+        flex-shrink: 0;
+        place-items: center;
+        width: 16px;
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-analytics__geo-flag {
+        flex-shrink: 0;
+        font-size: var(--rg-admin-text-workspace);
+        line-height: 1;
+    }
+
+    .rg-admin-analytics__geo-row--unknown .rg-admin-analytics__geo-flag {
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-analytics__geo-name {
+        min-width: 0;
+        overflow: hidden;
+        padding: 0;
+        border: 0;
+        background: transparent;
+        color: var(--rg-admin-text-strong);
+        font: inherit;
+        font-size: var(--rg-admin-text-body);
+        line-height: var(--rg-admin-leading-ui);
+        font-weight: var(--rg-admin-weight-medium);
+        text-align: left;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        cursor: pointer;
+    }
+
+    .rg-admin-analytics__geo-name:focus-visible {
+        outline: 2px solid var(--rg-admin-focus-ring);
+        outline-offset: 2px;
+        border-radius: var(--rg-admin-radius-xs);
+    }
+
+    .rg-admin-analytics__geo-row--other .rg-admin-analytics__geo-name,
+    .rg-admin-analytics__geo-row--unknown .rg-admin-analytics__geo-name {
+        cursor: default;
+    }
+
+    .rg-admin-analytics__geo-row--unknown .rg-admin-analytics__geo-name {
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-analytics__geo-row--inner .rg-admin-analytics__geo-name {
+        font-size: var(--rg-admin-text-caption);
+        line-height: var(--rg-admin-leading-caption);
+        font-weight: var(--rg-admin-weight-regular);
+        cursor: default;
+    }
+
+    .rg-admin-analytics__geo-row--others .rg-admin-analytics__geo-name {
+        color: var(--rg-admin-text-secondary);
+    }
+
+    .rg-admin-analytics__geo-visitors,
+    .rg-admin-analytics__geo-rate {
+        font-size: var(--rg-admin-text-body);
+        line-height: var(--rg-admin-leading-ui);
+    }
+
+    .rg-admin-analytics__geo-row:not(.rg-admin-analytics__geo-row--inner) .rg-admin-analytics__geo-visitors {
+        font-weight: var(--rg-admin-weight-medium);
+    }
+
+    .rg-admin-analytics__geo-rate--none {
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-analytics__geo-share {
+        display: flex;
+        align-items: center;
+        gap: var(--rg-admin-space-2);
+    }
+
+    .rg-admin-analytics__geo-track {
+        flex: 1;
+        height: 6px;
+        overflow: hidden;
+        border-radius: var(--rg-admin-radius-full);
+        background: var(--rg-admin-gray-200);
+    }
+
+    .rg-admin-analytics__geo-bar {
+        display: block;
+        width: var(--rg-admin-analytics-geo-bar, 0%);
+        height: 100%;
+        border-radius: var(--rg-admin-radius-full);
+        background: var(--rg-admin-surface-inverse);
+    }
+
+    .rg-admin-analytics__geo-row--city .rg-admin-analytics__geo-bar {
+        background: var(--rg-admin-gray-400);
+    }
+
+    .rg-admin-analytics__geo-row--others .rg-admin-analytics__geo-bar {
+        background: var(--rg-admin-gray-300);
+    }
+
+    .rg-admin-analytics__geo-percent {
+        flex-shrink: 0;
+        width: 40px;
+        font-size: var(--rg-admin-text-micro);
+        line-height: var(--rg-admin-leading-micro);
+        color: var(--rg-admin-text-secondary);
+        text-align: right;
+        font-variant-numeric: tabular-nums;
+    }
+
+    /*
      * Analytics → Experiments: the comparisons to choose from, the chosen
      * one's header card with a panel per version, the verdict strip and the
      * table of every metric against the reference, whose metric column stays

@@ -7,7 +7,6 @@ use App\Filament\Pages\GrowthAnalyticsPage;
 use App\Models\Game;
 use App\Models\GameContentSet;
 use App\Models\GameFlow;
-use App\Models\GameTrafficPeriod;
 use App\Models\GameVersion;
 use App\Models\User;
 use App\Support\Analytics\ComparisonVerdict;
@@ -61,16 +60,6 @@ function emailAskingVersion(Game $game, int $number): GameVersion
         'game_id' => $game->id, 'number' => $number, 'flow_id' => $flow->id, 'snapshot' => $snapshot,
         'content_set_id' => GameContentSet::factory()->create(['game_id' => $game->id, 'name' => 'Spring set'])->id,
     ]);
-}
-
-/** Assigns visitors to a period's version, each doing what the list at their place says. */
-function assignVisitors(GameTrafficPeriod $period, int $number, int $count, callable $did): void
-{
-    $version = $period->versions->firstWhere('number', $number);
-
-    foreach (range(1, $count) as $n) {
-        periodVisitor($period, $version, $did($n));
-    }
 }
 
 it('offers the latest comparisons, twelve at most, with the way to all of them, and shows the one the address names', function () {

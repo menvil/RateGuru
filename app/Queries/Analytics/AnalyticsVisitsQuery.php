@@ -17,6 +17,7 @@ use App\Support\Traffic\Capture\BotSignals;
 use App\Support\Traffic\Money\TrafficMoney;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Builder;
+use InvalidArgumentException;
 
 /**
  * The people of Growth → Analytics, read straight from the visits — every
@@ -35,7 +36,8 @@ use Illuminate\Database\Eloquent\Builder;
  *  - figures()       the people of the filter and what they did;
  *  - by()            the same per source, campaign, country … the most
  *                    people first, and the people of every group past the
- *                    top ones counted together, each once;
+ *                    top ones, or too small to list, counted together, each
+ *                    once;
  *  - series()        the people of each bucket of a chart;
  *  - returning()     those who came on two days of the period or before it;
  *  - quality()       what the people leave out: the visitors no tag or
@@ -54,6 +56,15 @@ final class AnalyticsVisitsQuery implements RawSqlPersistenceBoundary
 {
     public const int MOST_GROUPS = 2000;
 
+    /** A split lists the visits whose dimension holds no value as a group like any other. */
+    public const string UNNAMED_LISTED = 'listed';
+
+    /** A split never lists the visits whose dimension holds no value: their people count in the rest. */
+    public const string UNNAMED_IN_REST = 'rest';
+
+    /** A split lists the visits whose dimension holds no value neither as a group nor in the rest: their people count on their own. */
+    public const string UNNAMED_APART = 'apart';
+
     /** The figures of every visit the filter admits. */
     public function figures(AnalyticsFilter $filter): VisitorFigures
     {
@@ -66,20 +77,32 @@ final class AnalyticsVisitsQuery implements RawSqlPersistenceBoundary
      * The visits the filter admits split by a dimension: a person counts in
      * each group they came through, so the groups can add up to more than
      * the figures of them all. The most people first, then by the value; at
-     * most the limit given — and then the people of all the other groups
-     * together, each once, as `rest` (none when no one is left). With each
-     * group, how many visits it had and how many of them carried campaign
-     * tags (AnalyticsSource::basis()).
+     * most the limit given, each with at least the people given — and then
+     * the people of all the other groups together, each once, as `rest`
+     * (none when no one is left). With each group, how many visits it had
+     * and how many of them carried campaign tags (AnalyticsSource::basis()).
      *
-     * @return array{rows: list<array{keys: array<string, int|string|null>, figures: VisitorFigures, visits: int, tagged: int}>, rest: array{figures: VisitorFigures, visits: int, tagged: int}|null}
+     * The visits whose dimension holds no value — its first column empty —
+     * are a group like any other (UNNAMED_LISTED); or never one, their
+     * people counted in the rest (UNNAMED_IN_REST); or in neither, their
+     * people counted on their own as `unnamed` (UNNAMED_APART). Only then is
+     * `unnamed` read; it is none otherwise, and when no one is left.
+     *
+     * @return array{rows: list<array{keys: array<string, int|string|null>, figures: VisitorFigures, visits: int, tagged: int}>, rest: array{figures: VisitorFigures, visits: int, tagged: int}|null, unnamed: array{figures: VisitorFigures, visits: int, tagged: int}|null}
      */
-    public function by(AnalyticsFilter $filter, AnalyticsDimension $dimension, ?int $limit = null): array
+    public function by(AnalyticsFilter $filter, AnalyticsDimension $dimension, ?int $limit = null, int $least = 1, string $unnamed = self::UNNAMED_LISTED): array
     {
+        if (! in_array($unnamed, [self::UNNAMED_LISTED, self::UNNAMED_IN_REST, self::UNNAMED_APART], true)) {
+            throw new InvalidArgumentException("No split treats the visits of no value as [{$unnamed}].");
+        }
+
         [$metrics, $bindings] = self::metrics($filter);
         $columns = $dimension->columns();
         $limit = $limit === null ? null : max(1, min($limit, self::MOST_GROUPS));
+        $least = max(1, $least);
+        $named = fn (Builder $query): Builder => $unnamed === self::UNNAMED_LISTED ? $query : $query->whereNotNull($columns[0]);
 
-        $rows = $this->visits($filter)
+        $read = $named($this->visits($filter))
             ->groupBy(...$columns)
             ->select($columns)
             ->selectRaw($metrics, $bindings)
@@ -91,17 +114,29 @@ final class AnalyticsVisitsQuery implements RawSqlPersistenceBoundary
             ->map(fn (object $row): array => ['keys' => self::keys((array) $row, $columns), ...self::counted((array) $row)])
             ->values()
             ->all();
+        // The most people first: a group too small to be listed is followed only by others as small.
+        $rows = array_values(array_filter($read, fn (array $row): bool => $row['figures']->visitors >= $least));
+        $left = ($limit !== null && count($read) >= $limit) || count($rows) < count($read) || $unnamed === self::UNNAMED_IN_REST;
+        $rest = null;
 
-        if ($limit === null || count($rows) < $limit) {
-            return ['rows' => $rows, 'rest' => null];
+        if ($left) {
+            $rest = self::counted((array) self::excluding($unnamed === self::UNNAMED_APART ? $named($this->visits($filter)) : $this->visits($filter), $columns, array_column($rows, 'keys'))
+                ->selectRaw($metrics, $bindings)
+                ->toBase()
+                ->first());
         }
 
-        $rest = self::counted((array) self::excluding($this->visits($filter), $columns, array_column($rows, 'keys'))
+        $none = $unnamed !== self::UNNAMED_APART ? null : self::counted((array) $this->visits($filter)
+            ->whereNull($columns[0])
             ->selectRaw($metrics, $bindings)
             ->toBase()
             ->first());
 
-        return ['rows' => $rows, 'rest' => $rest['figures']->isEmpty() ? null : $rest];
+        return [
+            'rows' => $rows,
+            'rest' => $rest === null || $rest['figures']->isEmpty() ? null : $rest,
+            'unnamed' => $none === null || $none['figures']->isEmpty() ? null : $none,
+        ];
     }
 
     /**
@@ -311,6 +346,10 @@ final class AnalyticsVisitsQuery implements RawSqlPersistenceBoundary
      */
     private static function excluding(Builder $query, array $columns, array $groups): Builder
     {
+        if ($groups === []) {
+            return $query;
+        }
+
         return $query->whereNot(function (Builder $any) use ($columns, $groups): void {
             foreach ($groups as $keys) {
                 // Each column compared so a null never makes the whole test unknown.

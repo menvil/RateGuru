@@ -13,8 +13,9 @@ use App\Queries\Games\ComparisonPeriodsQuery;
  * keeps each in its place across pages — searched literally over the game's
  * title, internal name and slug, narrowed to comparisons and to current or
  * ended periods. Also the open comparisons the navigation counts, the
- * periods a period's page switches between, and the comparisons Analytics →
- * Experiments offers and shows. The same on every database engine.
+ * periods a period's page switches between, the comparisons Analytics →
+ * Experiments offers and shows, and the open one started last Analytics →
+ * Landings shows. The same on every database engine.
  */
 function comparisonPeriodsPage(string $search = '', string $show = 'all', string $status = 'all', int $page = 1): array
 {
@@ -150,4 +151,28 @@ it('offers Analytics → Experiments the latest comparisons listed, and one of t
     }
 
     expect($query->comparison(999_999))->toBeNull();
+});
+
+it('finds the open comparison started last for Analytics → Landings, a paused game’s included, with its versions', function () {
+    $taste = Game::factory()->status(GameStatus::Live)->create();
+    $paused = Game::factory()->status(GameStatus::Paused)->create();
+    $query = app(ComparisonPeriodsQuery::class);
+
+    expect($query->latestOpenComparison())->toBeNull();
+
+    comparisonPeriod($taste, [1 => 50, 2 => 50], '2026-10-01 10:00:00');
+    $latest = comparisonPeriod($paused, [1 => 80, 2 => 20], '2026-10-08 10:00:00', audience: GameAudience::Authenticated);
+    // Not open comparisons: ended, one version alone, hidden, of an archived game — each started later.
+    comparisonPeriod($taste, [1 => 50, 2 => 50], '2026-10-09 10:00:00', '2026-10-10 10:00:00');
+    comparisonPeriod($taste, [1 => 100], '2026-10-11 10:00:00', audience: GameAudience::Authenticated);
+    comparisonPeriod($taste, [1 => 50, 2 => 50], '2026-10-12 10:00:00')->forceFill(['hidden_at' => now()])->save();
+    comparisonPeriod(Game::factory()->status(GameStatus::Archived)->create(), [1 => 50, 2 => 50], '2026-10-13 10:00:00');
+
+    $found = $query->latestOpenComparison();
+
+    expect($found?->id)->toBe($latest->id)
+        ->and($found?->relationLoaded('game'))->toBeTrue()
+        ->and($found?->versions->pluck('number')->all())->toBe([1, 2])
+        ->and($found?->versions->first()?->relationLoaded('flow'))->toBeTrue()
+        ->and($found?->versions->first()?->relationLoaded('contentSet'))->toBeTrue();
 });

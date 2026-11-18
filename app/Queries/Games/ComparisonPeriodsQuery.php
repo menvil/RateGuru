@@ -19,8 +19,9 @@ use Illuminate\Support\Collection;
  * internal name and slug, narrowed to comparisons (two versions or more) and
  * to current or ended periods, the latest started first across every game.
  * Also the open comparisons the navigation counts, a period's page and the
- * periods its switcher offers, and the comparisons Analytics → Experiments
- * offers and shows. Read-only.
+ * periods its switcher offers, the comparisons Analytics → Experiments
+ * offers and shows, and the latest open one Analytics → Landings shows.
+ * Read-only.
  */
 final class ComparisonPeriodsQuery implements RawSqlPersistenceBoundary, StablePaginationBoundary
 {
@@ -113,6 +114,21 @@ final class ComparisonPeriodsQuery implements RawSqlPersistenceBoundary, StableP
         return $this->listed('', 'comparisons', 'all')
             ->where('game_traffic_periods.id', $periodId)
             ->with(['game', 'versions.flow', 'versions.contentSet'])
+            ->first(['game_traffic_periods.*']);
+    }
+
+    /**
+     * The comparison started last of those still open — a paused game's
+     * included — with its game and its versions, each with its share, flow
+     * and content set: what Analytics → Landings sets beside its landings.
+     * None while no comparison listed in Experiments is open.
+     */
+    public function latestOpenComparison(): ?GameTrafficPeriod
+    {
+        return $this->listed('', 'comparisons', 'current')
+            ->with(['game', 'versions.flow', 'versions.contentSet'])
+            ->orderByDesc('game_traffic_periods.started_at')
+            ->orderByDesc('game_traffic_periods.id')
             ->first(['game_traffic_periods.*']);
     }
 

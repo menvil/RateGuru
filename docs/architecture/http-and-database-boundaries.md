@@ -66,9 +66,9 @@ The reviewed boundaries are:
 - `AnalyticsVisitsQuery` for Growth → Analytics, which counts people rather
   than visits: conditional `COUNT(DISTINCT CASE WHEN … THEN visitor_hash END)`
   and sums over a period's visits — in all, per dimension of the visit with
-  the people past the top groups counted together, per day, or per hour or
-  block of days between bound boundaries — ordered by the people of each
-  group; the values of a dimension ordered by their people, for the page's
+  the people past the top groups, or too few to list, counted together and
+  those of no value counted apart when asked, per day, or per hour or block of
+  days between bound boundaries — ordered by the people of each group; the values of a dimension ordered by their people, for the page's
   filters; the people who came back, through an `EXISTS` on an earlier visit of
   the browser; and the result shares of the attempts played on the visits.
 - `CommentListQuery` for arithmetic comment ranking.

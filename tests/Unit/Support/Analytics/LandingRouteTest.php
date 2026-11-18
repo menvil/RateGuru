@@ -44,6 +44,37 @@ it('reads back what a landing names', function () {
         ->and(LandingRoute::parts('posts.show'))->toBe(['route' => 'posts.show', 'gameId' => null, 'versionId' => null]);
 });
 
+it('says where a landing is: a game’s page by its slug, a result shared from it marked so, any other page by its route', function (string $key, ?string $slug, string $path) {
+    expect(LandingRoute::path($key, $slug))->toBe($path);
+})->with([
+    ['feed', null, '/'],
+    ['posts.show', null, '/posts/…'],
+    ['profile.show', null, '/u/…'],
+    ['saved-posts.index', null, '/saved'],
+    ['pages.about', null, '/about'],
+    ['register', null, '/register'],
+    ['games.play:12:345', 'trust-your-taste', '/games/trust-your-taste'],
+    ['games.play:12', 'trust-your-taste', '/games/trust-your-taste'],
+    ['games.result:12:345', 'trust-your-taste', '/games/trust-your-taste · shared result'],
+    ['games.player-result:12', 'trust-your-taste', '/games/trust-your-taste · shared result'],
+    // A game gone.
+    ['games.play:12:345', null, '/games/…'],
+    ['other', null, 'Other pages'],
+    ['studio.unknown', null, 'Other pages'],
+]);
+
+it('says what a landing without a game is, and which landings show a game', function () {
+    expect(LandingRoute::page('feed'))->toBe('Home feed')
+        ->and(LandingRoute::page('posts.show'))->toBe('Post')
+        ->and(LandingRoute::page('login'))->toBe('Sign in')
+        ->and(LandingRoute::page('other'))->toBe('Other page')
+        ->and(LandingRoute::showsGame('games.play:12:345'))->toBeTrue()
+        ->and(LandingRoute::showsGame('games.result:12'))->toBeTrue()
+        ->and(LandingRoute::showsGame('games.player-result:12'))->toBeTrue()
+        ->and(LandingRoute::showsGame('feed'))->toBeFalse()
+        ->and(LandingRoute::showsGame('other'))->toBeFalse();
+});
+
 it('names a campaign by its paid campaign or by its tag, within its column', function () {
     expect(CampaignKey::paid(55))->toBe('paid:55')
         ->and(CampaignKey::paid(null))->toBeNull()

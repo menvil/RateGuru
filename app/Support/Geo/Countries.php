@@ -11,6 +11,12 @@ namespace App\Support\Geo;
  */
 final class Countries
 {
+    /** The globe with meridians, drawn where no flag of a country of its own is. */
+    public const string GLOBE = "\u{1F310}";
+
+    /** The regional indicator symbol for the letter A: the others follow it in the alphabet's order. */
+    private const int REGIONAL_A = 0x1F1E6;
+
     /** @var array<string, string> */
     private const array NAMES = [
         'AD' => 'Andorra',
@@ -280,5 +286,20 @@ final class Countries
     public static function name(string $code): string
     {
         return self::NAMES[$code] ?? $code;
+    }
+
+    /**
+     * The flag drawn for a country: its code's two letters as regional
+     * indicator symbols, which an emoji font draws as the country's flag —
+     * and a globe for Kosovo, whose code is one the IP databases assign
+     * rather than ISO 3166-1, as for a code this list does not know.
+     */
+    public static function flag(string $code): string
+    {
+        if ($code === 'XK' || ! self::has($code)) {
+            return self::GLOBE;
+        }
+
+        return implode('', array_map(fn (string $letter): string => mb_chr(self::REGIONAL_A + ord($letter) - ord('A'), 'UTF-8'), str_split($code)));
     }
 }
