@@ -295,7 +295,7 @@ it('switches a source between the general block rule and its own thresholds on i
     // Its own thresholds: each field empty, the general value shown in it.
     $page->click($pane.' [role="radio"]:has-text("Own thresholds for this source")');
     waitForScript($page, "document.querySelector('{$bots}').offsetParent !== null");
-    expect($page->script("document.querySelector('{$bots}').placeholder"))->toBe('30');
+    expect($page->script("document.querySelector('{$bots}').placeholder"))->toBe('100');
     $page->type($bots, '45');
     $save();
 
