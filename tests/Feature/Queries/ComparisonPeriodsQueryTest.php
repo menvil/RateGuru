@@ -12,9 +12,9 @@ use App\Queries\Games\ComparisonPeriodsQuery;
  * not hidden — the latest started first across every game, in an order that
  * keeps each in its place across pages — searched literally over the game's
  * title, internal name and slug, narrowed to comparisons and to current or
- * ended periods. Also the open comparisons the navigation counts, and the
- * periods a period's page switches between. The same on every database
- * engine.
+ * ended periods. Also the open comparisons the navigation counts, the
+ * periods a period's page switches between, and the comparisons Analytics →
+ * Experiments offers and shows. The same on every database engine.
  */
 function comparisonPeriodsPage(string $search = '', string $show = 'all', string $status = 'all', int $page = 1): array
 {
@@ -117,4 +117,37 @@ it('finds a period with shares, hidden or not, and offers the periods of its gam
         ->and($query->find($empty->id))->toBeNull()
         ->and($query->find(999_999))->toBeNull()
         ->and($query->siblings($hidden)->pluck('id')->all())->toBe([$current->id, $first->id]);
+});
+
+it('offers Analytics → Experiments the latest comparisons listed, and one of them by its id with its versions', function () {
+    $taste = Game::factory()->status(GameStatus::Live)->create();
+    $older = comparisonPeriod($taste, [1 => 50, 2 => 50], '2026-09-01 10:00:00', '2026-09-12 10:00:00');
+    $players = comparisonPeriod($taste, [1 => 50, 2 => 50], '2026-09-12 10:00:00', audience: GameAudience::Authenticated);
+    $latest = comparisonPeriod($taste, [1 => 80, 2 => 20], '2026-10-08 10:00:00');
+    // Not comparisons it lists: one version, hidden, of an archived game.
+    $single = comparisonPeriod($taste, [1 => 100], '2026-10-09 10:00:00', audience: GameAudience::Authenticated);
+    $hidden = comparisonPeriod($taste, [1 => 50, 2 => 50], '2026-10-10 10:00:00', '2026-10-11 10:00:00');
+    $hidden->forceFill(['hidden_at' => now()])->save();
+    $archived = comparisonPeriod(Game::factory()->status(GameStatus::Archived)->create(), [1 => 50, 2 => 50], '2026-10-12 10:00:00');
+    $query = app(ComparisonPeriodsQuery::class);
+
+    expect($query->latestComparisons(12)->pluck('id')->all())->toBe([$latest->id, $players->id, $older->id])
+        ->and($query->latestComparisons(2)->pluck('id')->all())->toBe([$latest->id, $players->id])
+        ->and($query->latestComparisons(12)->first()?->relationLoaded('game'))->toBeTrue();
+
+    $found = $query->comparison($older->id);
+
+    expect($found?->id)->toBe($older->id)
+        ->and($found?->relationLoaded('game'))->toBeTrue()
+        ->and($found?->versions->pluck('number')->all())->toBe([1, 2])
+        ->and($found?->versions->first()?->relationLoaded('flow'))->toBeTrue()
+        ->and($found?->versions->first()?->relationLoaded('contentSet'))->toBeTrue()
+        ->and($query->isComparison($older->id))->toBeTrue();
+
+    foreach ([$single, $hidden, $archived] as $period) {
+        expect($query->comparison($period->id))->toBeNull()
+            ->and($query->isComparison($period->id))->toBeFalse();
+    }
+
+    expect($query->comparison(999_999))->toBeNull();
 });

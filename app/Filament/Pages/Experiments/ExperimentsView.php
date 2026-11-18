@@ -35,7 +35,17 @@ final class ExperimentsView
     private const float TONED_FROM = 0.3;
 
     /** @var array<string, string> the icon of each audience, as the reference draws it */
-    private const array AUDIENCE_ICONS = ['anonymous' => 'user-round', 'authenticated' => 'user-check'];
+    public const array AUDIENCE_ICONS = ['anonymous' => 'user-round', 'authenticated' => 'user-check'];
+
+    /** @var list<PeriodMetric> the metrics a period's page compares its versions by, in its columns' order */
+    private const array METRICS = [
+        PeriodMetric::Starts,
+        PeriodMetric::Completions,
+        PeriodMetric::Emails,
+        PeriodMetric::Registrations,
+        PeriodMetric::Activated,
+        PeriodMetric::Goal,
+    ];
 
     public function __construct(
         private readonly ComparisonPeriodsQuery $periods,
@@ -160,7 +170,7 @@ final class ExperimentsView
                 'url' => ExperimentsPage::getUrl(['period' => $each->id]),
             ])->values()->all(),
             'note' => self::note($comparison, $state, $ended),
-            'heads' => array_map(fn (PeriodMetric $metric): string => $metric->label(), PeriodMetric::cases()),
+            'heads' => array_map(fn (PeriodMetric $metric): string => $metric->label(), self::METRICS),
             'rows' => array_map(function (ComparedVersion $version) use ($comparison, $state, $reference, $period): array {
                 $model = $period->versions->firstWhere('id', $version->id);
                 $funnel = $comparison->funnel($version);
@@ -171,7 +181,7 @@ final class ExperimentsView
                     'reference' => $comparison->compares() && $reference?->id === $version->id,
                     'share' => $version->share.'%',
                     'visitors' => number_format($funnel->assigned),
-                    'cells' => array_map(fn (PeriodMetric $metric): array => self::cell($comparison, $state, $version, $metric), PeriodMetric::cases()),
+                    'cells' => array_map(fn (PeriodMetric $metric): array => self::cell($comparison, $state, $version, $metric), self::METRICS),
                 ];
             }, $comparison->versions),
             'foot' => 'Rates use the visitors assigned to each version. '
@@ -269,7 +279,7 @@ final class ExperimentsView
     }
 
     /** The period's versions with their shares: “V7 80% · V8 20%”. */
-    private static function mix(GameTrafficPeriod $period): string
+    public static function mix(GameTrafficPeriod $period): string
     {
         return $period->versions->map(fn (GameVersion $version): string => $version->label().' '.((int) $version->getRelation('pivot')->getAttribute('share_percent')).'%')->implode(' · ');
     }
@@ -277,9 +287,9 @@ final class ExperimentsView
     /**
      * A period's days as the list and the period's page name them: “24 Sep
      * — 08 Oct 2026”, or “Since 08 Oct 2026” for one still open. Short, for
-     * the switcher, without this year.
+     * the switcher and Analytics → Experiments, without this year.
      */
-    private static function dates(GameTrafficPeriod $period, bool $short, ?CarbonImmutable $today = null): string
+    public static function dates(GameTrafficPeriod $period, bool $short, ?CarbonImmutable $today = null): string
     {
         $from = $period->started_at->utc();
         $to = $period->ended_at?->utc();

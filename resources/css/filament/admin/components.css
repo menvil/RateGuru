@@ -17967,4 +17967,474 @@
             margin-left: 0;
         }
     }
+
+    /*
+     * Analytics → Experiments: the comparisons to choose from, the chosen
+     * one's header card with a panel per version, the verdict strip and the
+     * table of every metric against the reference, whose metric column stays
+     * in place while the versions scroll sideways. Kit components carry the
+     * cards, badges and empty states; these are the tab's own elements.
+     */
+    .rg-admin-experiments__chooser {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: var(--rg-admin-space-2) var(--rg-admin-space-4);
+    }
+
+    .rg-admin-experiments__choices {
+        display: flex;
+        flex: 1 1 auto;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: var(--rg-admin-space-2);
+        min-width: 0;
+    }
+
+    /* Never wider than the row: a long game title is cut rather than widening the page. */
+    .rg-admin-experiments__choice {
+        display: inline-flex;
+        max-width: 100%;
+        align-items: center;
+        gap: var(--rg-admin-space-2);
+        height: 36px;
+        padding: 0 var(--rg-admin-space-3);
+        border: 1px solid var(--rg-admin-border-default);
+        border-radius: var(--rg-admin-radius-md);
+        background: var(--rg-admin-surface-card);
+        color: var(--rg-admin-text-strong);
+        white-space: nowrap;
+        cursor: pointer;
+    }
+
+    .rg-admin-experiments__choice:hover {
+        border-color: var(--rg-admin-border-strong);
+    }
+
+    .rg-admin-experiments__choice:focus-visible {
+        outline: 2px solid var(--rg-admin-focus-ring);
+        outline-offset: 2px;
+    }
+
+    .rg-admin-experiments__choice[aria-pressed="true"] {
+        border-color: var(--rg-admin-surface-inverse);
+        background: var(--rg-admin-surface-sunken);
+    }
+
+    .rg-admin-experiments__choice-icon {
+        flex-shrink: 0;
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-experiments__choice-name {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        font-size: var(--rg-admin-text-body);
+        line-height: var(--rg-admin-leading-ui);
+    }
+
+    .rg-admin-experiments__choice[aria-pressed="true"] .rg-admin-experiments__choice-name {
+        font-weight: var(--rg-admin-weight-medium);
+    }
+
+    .rg-admin-experiments__choice-meta {
+        font-size: var(--rg-admin-text-micro);
+        line-height: var(--rg-admin-leading-micro);
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-experiments__all {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--rg-admin-space-1);
+        padding: 0 var(--rg-admin-space-1);
+        font-size: var(--rg-admin-text-caption);
+        line-height: var(--rg-admin-leading-caption);
+        font-weight: var(--rg-admin-weight-medium);
+        color: var(--rg-admin-text-secondary);
+        text-decoration: none;
+        white-space: nowrap;
+    }
+
+    .rg-admin-experiments__all:hover {
+        color: var(--rg-admin-text-strong);
+    }
+
+    .rg-admin-experiments__all:focus-visible {
+        outline: 2px solid var(--rg-admin-focus-ring);
+        outline-offset: 2px;
+    }
+
+    .rg-admin-experiments__caption {
+        font-size: var(--rg-admin-text-micro);
+        line-height: var(--rg-admin-leading-micro);
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-experiments__summary {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: flex-start;
+        gap: var(--rg-admin-space-3) var(--rg-admin-space-6);
+        padding: var(--rg-admin-space-4) 20px;
+    }
+
+    .rg-admin-experiments__heading {
+        flex: 1 1 280px;
+        min-width: 0;
+    }
+
+    .rg-admin-experiments__name {
+        margin: 0;
+        font-size: var(--rg-admin-text-workspace);
+        line-height: 24px;
+        font-weight: var(--rg-admin-weight-semibold);
+        color: var(--rg-admin-text-strong);
+    }
+
+    .rg-admin-experiments__question {
+        margin: var(--rg-admin-space-1) 0 0;
+        font-size: var(--rg-admin-text-caption);
+        line-height: var(--rg-admin-leading-caption);
+        color: var(--rg-admin-text-secondary);
+        text-wrap: pretty;
+    }
+
+    .rg-admin-experiments__facts {
+        display: flex;
+        flex-wrap: wrap;
+        row-gap: var(--rg-admin-space-3);
+        margin: 0;
+    }
+
+    .rg-admin-experiments__fact {
+        padding: 0 18px;
+        border-left: 1px solid var(--rg-admin-border-default);
+    }
+
+    /* The first fact lines up with the title when the facts wrap under it. */
+    .rg-admin-experiments__fact:first-child {
+        padding-left: 0;
+        border-left: 0;
+    }
+
+    .rg-admin-experiments__fact-label {
+        font-size: var(--rg-admin-text-overline);
+        line-height: var(--rg-admin-leading-overline);
+        font-weight: var(--rg-admin-weight-medium);
+        letter-spacing: var(--rg-admin-tracking-overline);
+        text-transform: uppercase;
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-experiments__fact-value {
+        margin: 2px 0 0;
+        font-size: var(--rg-admin-text-stat);
+        line-height: var(--rg-admin-leading-stat);
+        font-weight: var(--rg-admin-weight-medium);
+        letter-spacing: var(--rg-admin-tracking-tight);
+        color: var(--rg-admin-text-strong);
+        font-variant-numeric: tabular-nums;
+        white-space: nowrap;
+    }
+
+    .rg-admin-experiments__variants {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
+        border-top: 1px solid var(--rg-admin-border-default);
+    }
+
+    /* Side by side a panel's edges overlap its neighbour's and the card's; stacked, each is ruled off from the one above. */
+    .rg-admin-experiments__variant {
+        display: flex;
+        flex-direction: column;
+        gap: var(--rg-admin-space-2);
+        min-width: 0;
+        margin: -1px 0 0 -1px;
+        padding: 14px 20px var(--rg-admin-space-4);
+        border-top: 1px solid var(--rg-admin-border-default);
+        border-left: 1px solid var(--rg-admin-border-default);
+    }
+
+    .rg-admin-experiments__variant-head {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: var(--rg-admin-space-2);
+        min-width: 0;
+    }
+
+    .rg-admin-experiments__variant-key {
+        display: grid;
+        flex-shrink: 0;
+        place-items: center;
+        min-width: 22px;
+        height: 22px;
+        padding: 0 5px;
+        border-radius: var(--rg-admin-radius-xs);
+        background: var(--rg-admin-surface-inverse);
+        font-size: var(--rg-admin-text-micro);
+        line-height: var(--rg-admin-leading-micro);
+        font-weight: var(--rg-admin-weight-semibold);
+        color: var(--rg-admin-text-inverse);
+        font-variant-numeric: tabular-nums;
+    }
+
+    .rg-admin-experiments__variant-name {
+        min-width: 0;
+        font-size: var(--rg-admin-text-body);
+        line-height: var(--rg-admin-leading-ui);
+        font-weight: var(--rg-admin-weight-medium);
+        color: var(--rg-admin-text-strong);
+        overflow-wrap: anywhere;
+    }
+
+    .rg-admin-experiments__variant-meta {
+        font-size: var(--rg-admin-text-micro);
+        line-height: var(--rg-admin-leading-micro);
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-experiments__steps {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: var(--rg-admin-space-1);
+        margin: 0;
+        padding: 0;
+        list-style: none;
+    }
+
+    .rg-admin-experiments__step {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--rg-admin-space-1);
+    }
+
+    .rg-admin-experiments__step-chip {
+        display: inline-flex;
+        align-items: center;
+        height: 22px;
+        padding: 0 var(--rg-admin-space-2);
+        border: 1px solid var(--rg-admin-border-default);
+        border-radius: var(--rg-admin-radius-xs);
+        background: var(--rg-admin-surface-card);
+        font-size: var(--rg-admin-text-micro);
+        line-height: var(--rg-admin-leading-micro);
+        color: var(--rg-admin-text-secondary);
+        white-space: nowrap;
+    }
+
+    .rg-admin-experiments__step-chip--game {
+        border-color: var(--rg-admin-surface-inverse);
+        background: var(--rg-admin-surface-inverse);
+        color: var(--rg-admin-text-inverse);
+    }
+
+    /* A step that stands between the game and its full result. */
+    .rg-admin-experiments__step-chip--gate {
+        border-color: var(--rg-admin-orange-500);
+    }
+
+    .rg-admin-experiments__step-arrow {
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-experiments__verdict {
+        display: flex;
+        gap: var(--rg-admin-space-3);
+        padding: 14px var(--rg-admin-space-4);
+        border-radius: var(--rg-admin-radius-lg);
+        background: var(--rg-admin-surface-sunken);
+        color: var(--rg-admin-text-strong);
+    }
+
+    .rg-admin-experiments__verdict--success {
+        background: var(--rg-admin-status-success-bg);
+        color: var(--rg-admin-status-success-fg);
+    }
+
+    .rg-admin-experiments__verdict--warning {
+        background: var(--rg-admin-status-warning-bg);
+        color: var(--rg-admin-status-warning-fg);
+    }
+
+    .rg-admin-experiments__verdict-icon {
+        flex-shrink: 0;
+        margin-top: 2px;
+    }
+
+    .rg-admin-experiments__verdict-text {
+        margin: 0;
+        font-size: var(--rg-admin-text-body);
+        line-height: var(--rg-admin-leading-ui);
+        text-wrap: pretty;
+    }
+
+    .rg-admin-experiments__verdict-title {
+        font-weight: var(--rg-admin-weight-semibold);
+    }
+
+    /*
+     * The table: every row carries its background in a property, which the
+     * metric column held in place repeats so the figures scrolling under it
+     * never show through; the primary metric's row is sunken.
+     */
+    .rg-admin-experiments__compare {
+        --rg-admin-experiments-metric-width: 240px;
+    }
+
+    .rg-admin-experiments__compare-row {
+        --rg-admin-experiments-row-surface: var(--rg-admin-surface-card);
+
+        min-height: 52px;
+        background: var(--rg-admin-experiments-row-surface);
+    }
+
+    .rg-admin-experiments__compare-row:not(.rg-admin-table__row--head):hover {
+        background: var(--rg-admin-experiments-row-surface);
+    }
+
+    .rg-admin-experiments__compare-row.rg-admin-table__row--head {
+        min-height: 44px;
+    }
+
+    .rg-admin-experiments__compare-row--primary {
+        --rg-admin-experiments-row-surface: var(--rg-admin-surface-sunken);
+    }
+
+    .rg-admin-experiments__compare-row--secondary {
+        min-height: 44px;
+    }
+
+    .rg-admin-experiments__pinned {
+        position: sticky;
+        left: 0;
+        z-index: 1;
+        align-self: stretch;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        background: var(--rg-admin-experiments-row-surface, var(--rg-admin-surface-card));
+    }
+
+    .rg-admin-experiments__compare-row .rg-admin-table__cell:first-child {
+        padding: var(--rg-admin-space-2) var(--rg-admin-space-3) var(--rg-admin-space-2) 20px;
+    }
+
+    .rg-admin-experiments__compare-row .rg-admin-table__cell:last-child {
+        padding-right: 20px;
+    }
+
+    .rg-admin-experiments__metric-label {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: var(--rg-admin-space-2);
+        font-size: var(--rg-admin-text-body);
+        line-height: var(--rg-admin-leading-ui);
+        color: var(--rg-admin-text-strong);
+    }
+
+    .rg-admin-experiments__compare-row--primary .rg-admin-experiments__metric-label {
+        font-weight: var(--rg-admin-weight-semibold);
+    }
+
+    .rg-admin-experiments__metric-label--secondary {
+        font-size: var(--rg-admin-text-caption);
+        line-height: var(--rg-admin-leading-caption);
+        color: var(--rg-admin-text-secondary);
+    }
+
+    .rg-admin-experiments__metric-sub {
+        font-size: var(--rg-admin-text-micro);
+        line-height: var(--rg-admin-leading-micro);
+        color: var(--rg-admin-text-tertiary);
+        text-wrap: balance;
+    }
+
+    .rg-admin-experiments__figures {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+    }
+
+    .rg-admin-experiments__figure-rate {
+        font-size: var(--rg-admin-text-body);
+        line-height: var(--rg-admin-leading-ui);
+        color: var(--rg-admin-text-strong);
+        font-variant-numeric: tabular-nums;
+    }
+
+    .rg-admin-experiments__figure-rate--none {
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-experiments__figure-count {
+        font-size: var(--rg-admin-text-micro);
+        line-height: var(--rg-admin-leading-micro);
+        color: var(--rg-admin-text-tertiary);
+        font-variant-numeric: tabular-nums;
+        white-space: nowrap;
+    }
+
+    .rg-admin-experiments__change {
+        font-size: var(--rg-admin-text-body);
+        line-height: var(--rg-admin-leading-ui);
+        font-weight: var(--rg-admin-weight-medium);
+        color: var(--rg-admin-text-strong);
+        font-variant-numeric: tabular-nums;
+    }
+
+    .rg-admin-experiments__change--secondary {
+        font-size: var(--rg-admin-text-caption);
+        font-weight: var(--rg-admin-weight-regular);
+        color: var(--rg-admin-text-secondary);
+    }
+
+    .rg-admin-experiments__section {
+        border-bottom: 1px solid var(--rg-admin-border-default);
+    }
+
+    .rg-admin-experiments__section-label {
+        display: inline-flex;
+        padding: var(--rg-admin-space-3) 20px var(--rg-admin-space-1);
+        font-size: var(--rg-admin-text-overline);
+        line-height: var(--rg-admin-leading-overline);
+        font-weight: var(--rg-admin-weight-medium);
+        letter-spacing: var(--rg-admin-tracking-overline);
+        text-transform: uppercase;
+        color: var(--rg-admin-text-tertiary);
+        white-space: nowrap;
+    }
+
+    .rg-admin-experiments__compare-foot {
+        padding-inline: 20px;
+    }
+
+    /* On a phone the facts take two columns and the metric column narrows; the comparisons wrap as anywhere else. */
+    @media (max-width: 639.98px) {
+        .rg-admin-experiments__facts {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            width: 100%;
+            column-gap: var(--rg-admin-space-4);
+        }
+
+        .rg-admin-experiments__fact {
+            padding: 0;
+            border-left: 0;
+        }
+
+        .rg-admin-experiments__fact-value {
+            font-size: var(--rg-admin-text-workspace);
+            line-height: 24px;
+            white-space: normal;
+        }
+
+        .rg-admin-experiments__compare {
+            --rg-admin-experiments-metric-width: 156px;
+        }
+    }
 }

@@ -8,8 +8,8 @@ namespace App\Enums;
  * comparable by design — the metric is not in the version's flow, or the
  * audience is signed up already; too early, with too few conversions on a
  * side or no visitors yet; strong evidence from 95 % confidence; ahead, not
- * sure yet, from 80 %; or no clear difference (TwoProportionTest). Never
- * stored.
+ * sure yet, or behind, not sure yet, from 80 %, by which side leads; or no
+ * clear difference (TwoProportionTest). Never stored.
  */
 enum ComparisonEvidence: string
 {
@@ -17,6 +17,7 @@ enum ComparisonEvidence: string
     case TooEarly = 'too_early';
     case Strong = 'strong';
     case Ahead = 'ahead';
+    case Behind = 'behind';
     case None = 'none';
 
     public function label(): string
@@ -26,6 +27,7 @@ enum ComparisonEvidence: string
             self::TooEarly => 'Too early',
             self::Strong => 'Strong evidence',
             self::Ahead => 'Ahead, not sure yet',
+            self::Behind => 'Behind, not sure yet',
             self::None => 'No clear difference',
         };
     }

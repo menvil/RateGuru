@@ -33,6 +33,7 @@ final readonly class PeriodVersionFunnel
         return match ($metric) {
             PeriodMetric::Starts => $this->started,
             PeriodMetric::Completions => $this->completed,
+            PeriodMetric::ResultViewed => $this->resultViewed,
             PeriodMetric::Emails => $this->emailed,
             PeriodMetric::Registrations => $this->accounts,
             PeriodMetric::Activated => $this->activated,

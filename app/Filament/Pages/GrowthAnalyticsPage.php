@@ -5,8 +5,10 @@ namespace App\Filament\Pages;
 use App\Enums\TrafficDevice;
 use App\Filament\Pages\Analytics\AnalyticsTab;
 use App\Filament\Pages\Analytics\AnalyticsView;
+use App\Filament\Pages\Analytics\ExperimentsTab;
 use App\Filament\Pages\Analytics\OverviewTab;
 use App\Filament\Support\AdminNavigationGroup;
+use App\Queries\Games\ComparisonPeriodsQuery;
 use App\Support\Analytics\AnalyticsFilter;
 use App\Support\Analytics\AnalyticsPeriod;
 use App\Support\Analytics\AnalyticsSource;
@@ -24,23 +26,34 @@ use UnitEnum;
  * site, counted by RateGuru itself from the visits it records — people, not
  * visits. A period of whole days (its presets, or a range up to the longest
  * Analytics reads at a time), a device, a source and a campaign narrow every
- * figure of the tab open; the strip lists only the tabs built so far.
+ * figure of the tab open that reads visits; Experiments reads who each
+ * traffic period assigned to which version instead, and none of them
+ * applies to it. The strip lists only the tabs built so far.
  *
  * Everything on screen is in the address — the tab, the period, the device,
- * the source and campaign, a tab's own sorting — and anything it can't read
- * is the default. Asking for the page reads no visits: the open tab's figures
- * are read once the page is in a browser (wire:init), and only the open
- * tab's. A source chosen whose campaign isn't one of its own drops the
- * campaign. The page, and every request it answers, is an active
- * administrator's who may manage traffic sources.
+ * the source and campaign, a tab's own sorting, the comparison Experiments
+ * shows — and anything it can't read is the default. Asking for the page
+ * reads no visits: the open tab's figures are read once the page is in a
+ * browser (wire:init), and only the open tab's. A source chosen whose
+ * campaign isn't one of its own drops the campaign. The page, and every
+ * request it answers, is an active administrator's who may manage traffic
+ * sources.
  */
 final class GrowthAnalyticsPage extends Page
 {
     /** @var array<string, string> the tabs built so far, in the reference's order: the strip lists these and no other */
-    public const array TABS = ['overview' => 'Overview'];
+    public const array TABS = ['overview' => 'Overview', 'experiments' => 'Experiments'];
 
     /** @var array<string, class-string<AnalyticsTab>> what each tab of the strip reads */
-    public const array TAB_DATA = ['overview' => OverviewTab::class];
+    public const array TAB_DATA = ['overview' => OverviewTab::class, 'experiments' => ExperimentsTab::class];
+
+    /**
+     * @var list<string> the tabs that read no visits — Experiments reads who
+     *                   was assigned to which version — so what the page says
+     *                   about recorded visits, and the states it draws for
+     *                   none, don't apply to them
+     */
+    public const array WITHOUT_VISITS = ['experiments'];
 
     /** @var array<string, string> how Overview's sources table can be sorted */
     public const array SORTS = ['visitors' => 'Visitors', 'start' => 'Start rate', 'registration' => 'Registration rate', 'activation' => 'Activation rate'];
@@ -91,6 +104,10 @@ final class GrowthAnalyticsPage extends Page
     #[Url(except: 'visitors')]
     public mixed $sort = 'visitors';
 
+    /** Experiments: the comparison shown, a traffic period's id; the latest while none is named. */
+    #[Url(except: '')]
+    public mixed $exp = '';
+
     /** Whether the page is in a browser: only then does the open tab read its figures. */
     public bool $ready = false;
 
@@ -124,6 +141,7 @@ final class GrowthAnalyticsPage extends Page
     public function load(): void
     {
         $this->ready = true;
+        $this->dropUnknownComparison();
     }
 
     public function updated(string $property): void
@@ -132,6 +150,10 @@ final class GrowthAnalyticsPage extends Page
 
         if ($property === 'source') {
             $this->dropForeignCampaign();
+        }
+
+        if ($this->ready && in_array($property, ['tab', 'exp'], true)) {
+            $this->dropUnknownComparison();
         }
     }
 
@@ -184,18 +206,23 @@ final class GrowthAnalyticsPage extends Page
         $filter = $this->filter();
         $period = $filter->period;
         $view = app(AnalyticsView::class);
-        $recordedSince = $this->ready ? $view->recordedSince() : null;
+        $withoutVisits = in_array($this->tab, self::WITHOUT_VISITS, true);
+        $recordedSince = $this->ready && ! $withoutVisits ? $view->recordedSince() : null;
 
         // Nothing to read yet when no visit was ever recorded, or none until after the period.
         $state = match (true) {
             ! $this->ready => 'loading',
+            $withoutVisits => 'ready',
             $recordedSince === null => 'nothing',
             $period->toDay < $recordedSince->toDateString() => 'early',
             default => 'ready',
         };
+        $shell = $view->shell($filter, $this->ready, $recordedSince);
 
         return [
-            ...$view->shell($filter, $this->ready, $recordedSince),
+            ...$shell,
+            // Whether visits are recorded is nothing to a tab that reads none.
+            'notices' => $withoutVisits ? [] : $shell['notices'],
             'ready' => $this->ready,
             'state' => $state,
             'since' => $recordedSince?->format('d M Y'),
@@ -261,6 +288,14 @@ final class GrowthAnalyticsPage extends Page
         $this->dispatch('rg-admin-analytics-range', text: self::readPeriod($this->period, $this->from, $this->to)->range());
     }
 
+    /** A period the address names that isn't a comparison Experiments lists — one version, hidden, of an archived game, gone — gives way to the latest. */
+    private function dropUnknownComparison(): void
+    {
+        if ($this->exp !== '' && ! app(ComparisonPeriodsQuery::class)->isComparison((int) $this->exp)) {
+            $this->exp = '';
+        }
+    }
+
     /** A campaign that isn't the chosen source's is dropped: both filters always hold together. */
     private function dropForeignCampaign(): void
     {
@@ -283,5 +318,7 @@ final class GrowthAnalyticsPage extends Page
         $this->source = AnalyticsSource::read($this->source) ?? '';
         $this->campaign = CampaignKey::read($this->campaign) ?? '';
         $this->sort = is_string($this->sort) && array_key_exists($this->sort, self::SORTS) ? $this->sort : 'visitors';
+        // The comparison is the Experiments tab's alone.
+        $this->exp = $this->tab === 'experiments' && (is_int($this->exp) || is_string($this->exp)) && preg_match('/^[1-9]\d{0,17}$/', (string) $this->exp) === 1 ? (string) $this->exp : '';
     }
 }

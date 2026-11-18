@@ -119,6 +119,11 @@ it('judges how sure a difference from the reference is', function () {
         ->and($comparison->evidence($v8, PeriodMetric::Completions))->toBe(ComparisonEvidence::None)
         // 12.5 % against 10 %: about 92 % sure.
         ->and($comparison->evidence($v8, PeriodMetric::Goal))->toBe(ComparisonEvidence::Ahead)
+        // 10 % against the reference's 12.5 %, as sure: behind, not ahead.
+        ->and((new PeriodComparison(GameAudience::Anonymous, [$v7, $v8], [
+            7 => comparedFunnel(1000, 100, more: ['goal' => 125]),
+            8 => comparedFunnel(1000, 100, more: ['goal' => 100]),
+        ]))->evidence($v8, PeriodMetric::Goal))->toBe(ComparisonEvidence::Behind)
         // The reference's flow asks for no email: nothing to compare, by design.
         ->and($comparison->evidence($v8, PeriodMetric::Emails))->toBe(ComparisonEvidence::ByDesign)
         // Fewer than ten conversions on a side.
@@ -135,4 +140,30 @@ it('counts an account matured once its seventh day after signing up is over, in 
     expect(ActivityDay::maturedBefore(CarbonImmutable::parse('2026-11-18 00:00:01'), 7)->toDateTimeString())->toBe('2026-11-11 00:00:00')
         ->and(ActivityDay::maturedBefore(CarbonImmutable::parse('2026-11-18 23:59:59'), 7)->toDateTimeString())->toBe('2026-11-11 00:00:00')
         ->and(ActivityDay::maturedBefore(CarbonImmutable::parse('2026-11-18 00:30:00', 'Europe/Berlin'), 7)->toDateTimeString())->toBe('2026-11-10 00:00:00');
+});
+
+it('reads a version’s difference relative to the reference, and the rates among those who got as far as another step', function () {
+    $v7 = new ComparedVersion(7, 7, 50);
+    $v8 = new ComparedVersion(8, 8, 50, asksForEmail: true);
+    $comparison = new PeriodComparison(GameAudience::Anonymous, [$v7, $v8], [
+        7 => comparedFunnel(1000, 50, more: ['completed' => 500, 'resultViewed' => 480, 'goal' => 0]),
+        8 => comparedFunnel(1000, 40, more: ['completed' => 200, 'resultViewed' => 150, 'emailed' => 100, 'goal' => 30]),
+    ]);
+
+    expect($comparison->rate($v8, PeriodMetric::ResultViewed))->toBe(15.0)
+        // 4 % against 5 %: a fifth less.
+        ->and($comparison->relative($v8, PeriodMetric::Registrations))->toEqualWithDelta(-20.0, 1e-9)
+        ->and($comparison->relative($v7, PeriodMetric::Registrations))->toBeNull()
+        // Nothing to be relative to where the reference's rate is nought, or can't be read.
+        ->and($comparison->relative($v8, PeriodMetric::Goal))->toBeNull()
+        ->and($comparison->relative($v8, PeriodMetric::Emails))->toBeNull()
+        // Accounts among those who completed: 10 % against 20 %.
+        ->and($comparison->conditional($v7, PeriodMetric::Registrations, PeriodMetric::Completions))->toBe(10.0)
+        ->and($comparison->conditional($v8, PeriodMetric::Registrations, PeriodMetric::Completions))->toBe(20.0)
+        ->and($comparison->conditionalRelative($v8, PeriodMetric::Registrations, PeriodMetric::Completions))->toEqualWithDelta(100.0, 1e-9)
+        ->and($comparison->conditional($v7, PeriodMetric::Emails, PeriodMetric::Completions))->toBeNull()
+        ->and($comparison->conditional($v8, PeriodMetric::Emails, PeriodMetric::Completions))->toBe(50.0)
+        ->and($comparison->conditionalRelative($v8, PeriodMetric::Emails, PeriodMetric::Completions))->toBeNull()
+        // Nobody got as far: no rate among them.
+        ->and((new PeriodComparison(GameAudience::Anonymous, [$v7, $v8], [7 => comparedFunnel(10), 8 => comparedFunnel(10)]))->conditional($v7, PeriodMetric::Registrations, PeriodMetric::Completions))->toBeNull();
 });

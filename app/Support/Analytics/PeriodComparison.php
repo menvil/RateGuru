@@ -9,17 +9,18 @@ use App\Enums\PeriodMetric;
 use App\Support\Traffic\Reports\TwoProportionTest;
 
 /**
- * The versions of one traffic period compared, as Growth → Experiments shows
- * them and a game's Analytics tab badges them — one rule for both.
+ * The versions of one traffic period compared, as Growth → Experiments and
+ * Analytics → Experiments show them and a game's Analytics tab badges them —
+ * one rule for all three.
  *
  * Every rate is a share of the visitors assigned to the version, whatever
  * they did after (intent to treat). The reference is the version with the
  * largest share, the lower number among equals; every other version's rates
- * differ from it by percentage points, and how sure that difference is comes
- * from TwoProportionTest. The primary metric is the confirmed accounts for
- * anonymous visitors and, since logged-in players make no accounts, the
- * players who reached the flow's goal: the period has enough data once every
- * version has TwoProportionTest::MIN_ACCOUNTS of it.
+ * differ from it by percentage points and, relative to it, by per cent; how
+ * sure that difference is comes from TwoProportionTest. The primary metric is
+ * the confirmed accounts for anonymous visitors and, since logged-in players
+ * make no accounts, the players who reached the flow's goal: the period has
+ * enough data once every version has TwoProportionTest::MIN_ACCOUNTS of it.
  *
  * A rate that can't be read says why: the version's flow never asks for an
  * email (a logged-in player is never asked), the players are signed up
@@ -195,6 +196,58 @@ final readonly class PeriodComparison
     }
 
     /**
+     * How far a version's rate is from the reference's, relative to it, in
+     * per cent: 12.0 for a rate 12 % above the reference's. Null for the
+     * reference, where either rate can't be read, or where the reference's
+     * is nought.
+     */
+    public function relative(ComparedVersion $version, PeriodMetric $metric): ?float
+    {
+        $reference = $this->reference();
+
+        if (! $this->compares() || $reference === null || $reference->id === $version->id) {
+            return null;
+        }
+
+        return self::change($this->rate($version, $metric), $this->rate($reference, $metric));
+    }
+
+    /**
+     * A version's rate of a metric among the visitors who got as far as
+     * another, in per cent — accounts among those who completed the game,
+     * which hides who dropped off before. Null where the metric can't be read
+     * or nobody got as far.
+     */
+    public function conditional(ComparedVersion $version, PeriodMetric $metric, PeriodMetric $among): ?float
+    {
+        $funnel = $this->funnel($version);
+
+        if ($this->dash($version, $metric) !== null || $funnel->count($among) === 0) {
+            return null;
+        }
+
+        return $funnel->count($metric) * 100 / $funnel->count($among);
+    }
+
+    /** How far a version's conditional rate is from the reference's, relative to it, in per cent; null as relative() is. */
+    public function conditionalRelative(ComparedVersion $version, PeriodMetric $metric, PeriodMetric $among): ?float
+    {
+        $reference = $this->reference();
+
+        if (! $this->compares() || $reference === null || $reference->id === $version->id) {
+            return null;
+        }
+
+        return self::change($this->conditional($version, $metric, $among), $this->conditional($reference, $metric, $among));
+    }
+
+    /** A rate relative to another, in per cent; null where either is missing or the other is nought. */
+    private static function change(?float $rate, ?float $against): ?float
+    {
+        return $rate === null || $against === null || $against <= 0.0 ? null : ($rate / $against - 1) * 100;
+    }
+
+    /**
      * How sure the comparison is that a version differs from the reference
      * on a metric: by design where either side's rate can't be read for a
      * reason of the flow or the audience, too early where it can't be read
@@ -219,7 +272,8 @@ final readonly class PeriodComparison
 
         return match (TwoProportionTest::compare($theirs->assigned, $theirs->count($metric), $mine->assigned, $mine->count($metric))['verdict']) {
             'leader' => ComparisonEvidence::Strong,
-            'ahead' => ComparisonEvidence::Ahead,
+            // The test says how sure it is, not which side leads: the version's own rate against the reference's does.
+            'ahead' => $mine->count($metric) * $theirs->assigned < $theirs->count($metric) * $mine->assigned ? ComparisonEvidence::Behind : ComparisonEvidence::Ahead,
             'too_early' => ComparisonEvidence::TooEarly,
             default => ComparisonEvidence::None,
         };

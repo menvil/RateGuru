@@ -44,6 +44,9 @@ it('draws the icons Growth → Analytics uses with the reference’s Lucide geom
     $this->blade('<x-admin.ui.icon name="'.$name.'" />')->assertSee($geometry, false);
 })->with([
     'circle-help' => ['circle-help', '<path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/>'],
+    'circle-pause' => ['circle-pause', '<line x1="10" x2="10" y1="15" y2="9"/><line x1="14" x2="14" y1="15" y2="9"/>'],
+    'hourglass' => ['hourglass', '<path d="M17 22v-4.172a2 2 0 0 0-.586-1.414L12 12l-4.414 4.414A2 2 0 0 0 7 17.828V22"/>'],
+    'scale' => ['scale', '<path d="M3 7h2c2 0 5-1 7-2 2 1 5 2 7 2h2"/>'],
 ]);
 
 it('fails loudly on an icon it does not have', function () {

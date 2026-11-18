@@ -18,7 +18,8 @@ use Illuminate\Support\Collection;
  * internal name and slug, narrowed to comparisons (two versions or more) and
  * to current or ended periods, the latest started first across every game.
  * Also the open comparisons the navigation counts, a period's page and the
- * periods its switcher offers. Read-only.
+ * periods its switcher offers, and the comparisons Analytics → Experiments
+ * offers and shows. Read-only.
  */
 final class ComparisonPeriodsQuery implements RawSqlPersistenceBoundary, StablePaginationBoundary
 {
@@ -81,6 +82,43 @@ final class ComparisonPeriodsQuery implements RawSqlPersistenceBoundary, StableP
             ->has('versions')
             ->with(['game', 'versions.flow', 'versions.contentSet'])
             ->first();
+    }
+
+    /**
+     * The comparisons Analytics → Experiments offers: the latest started
+     * periods listed in Experiments that share their visitors between two
+     * versions or more, each with its game.
+     *
+     * @return Collection<int, GameTrafficPeriod>
+     */
+    public function latestComparisons(int $limit): Collection
+    {
+        return $this->listed('', 'comparisons', 'all')
+            ->with('game')
+            ->orderByDesc('game_traffic_periods.started_at')
+            ->orderByDesc('game_traffic_periods.id')
+            ->limit($limit)
+            ->get(['game_traffic_periods.*']);
+    }
+
+    /**
+     * One comparison listed in Experiments, with its game and its versions —
+     * every one with its share, flow and content set: what Analytics →
+     * Experiments shows. None for a period that isn't one: hidden, of an
+     * archived game, or with a single version.
+     */
+    public function comparison(int $periodId): ?GameTrafficPeriod
+    {
+        return $this->listed('', 'comparisons', 'all')
+            ->where('game_traffic_periods.id', $periodId)
+            ->with(['game', 'versions.flow', 'versions.contentSet'])
+            ->first(['game_traffic_periods.*']);
+    }
+
+    /** Whether a period is a comparison listed in Experiments: what Analytics → Experiments' address may name. */
+    public function isComparison(int $periodId): bool
+    {
+        return $this->listed('', 'comparisons', 'all')->where('game_traffic_periods.id', $periodId)->exists();
     }
 
     /**
