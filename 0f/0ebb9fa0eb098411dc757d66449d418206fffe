@@ -1,0 +1,31 @@
+app/Queries/Games/TestLinkVersionQuery.php
+  s_4b9dc6ab6b25d3::t_df9f25123a1089 5,14-17,32
+resources/views/filament/pages/game-preview.blade.php
+  s_4b9dc6ab6b25d3::t_df9f25123a1089 10-12
+docs/architecture/games.md
+  s_4b9dc6ab6b25d3::t_ad4b236f5387ed 256-258
+tests/Feature/Games/VersionTestLinkTest.php
+  s_4b9dc6ab6b25d3::t_df9f25123a1089 118-124,127
+  s_4b9dc6ab6b25d3::t_ff029528ad5b5f 175-178
+app/Filament/Resources/Games/Pages/PreviewGame.php
+  s_4b9dc6ab6b25d3::t_ff029528ad5b5f 5
+  s_4b9dc6ab6b25d3::t_df9f25123a1089 132-133
+docs/admin/games.md
+  s_4b9dc6ab6b25d3::t_ad4b236f5387ed 54-56
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "0f0ebb9fa0eb098411dc757d66449d418206fffe",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
