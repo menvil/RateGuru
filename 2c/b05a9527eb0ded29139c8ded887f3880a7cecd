@@ -1,0 +1,129 @@
+app/Queries/Analytics/AnalyticsVisitsQuery.php
+  s_4b9dc6ab6b25d3::t_dfd35102556eb5 20
+  s_4b9dc6ab6b25d3::t_3153626c0ade2e 39-40
+  s_4b9dc6ab6b25d3::t_d03272f45f9edd 59-67
+  s_4b9dc6ab6b25d3::t_bb93ac0511943b 80-83,85-91,93,95-98,102-103,105,117-126,129-130,135-139
+  s_4b9dc6ab6b25d3::t_e7abf8c14a4e59 349-352
+app/Support/Analytics/LandingRoute.php
+  s_4b9dc6ab6b25d3::t_c2aebea890cc76 28-31
+  s_4b9dc6ab6b25d3::t_4bfbcc38876e21 79-110
+  s_4b9dc6ab6b25d3::t_ff807d72b303f8 11-14,24-27,32-44
+tools/phpstan/architecture.neon
+  s_4b9dc6ab6b25d3::t_c409968dd51cab 165
+tests/Feature/Queries/ComparisonPeriodsQueryTest.php
+  s_4b9dc6ab6b25d3::t_99f7f7dfee23c7 155-178
+  s_4b9dc6ab6b25d3::t_df9d3c74653246 16-18
+tests/Unit/Support/Geo/CountriesTest.php
+  s_4b9dc6ab6b25d3::t_61929c2e8767ba 17-26
+resources/css/filament/admin/components.css
+  s_4b9dc6ab6b25d3::t_a79a1f99ab602f 18407
+  s_4b9dc6ab6b25d3::t_793adddd7c30ff 18489-18539,18541-18658
+  s_4b9dc6ab6b25d3::t_b5580d6149c0d9 18345,18349-18359,18361-18368,18370-18406,18408-18452,18457-18488
+  s_4b9dc6ab6b25d3::t_16ef1b545341e1 18346-18348
+  s_4b9dc6ab6b25d3::t_14eda6e7e8b9d4 18453-18456
+  s_4b9dc6ab6b25d3::t_be58de9a638800 18540
+  s_4b9dc6ab6b25d3::t_ee7995513bd96e 18360
+  s_4b9dc6ab6b25d3::t_208807255e9667 18369
+resources/views/filament/pages/analytics/landings.blade.php
+  s_4b9dc6ab6b25d3::t_2e2687682addb3 22,37
+  s_4b9dc6ab6b25d3::t_da0c5c5b68c645 76-83,86-96
+  s_4b9dc6ab6b25d3::t_1cd622a872071c 98
+  s_4b9dc6ab6b25d3::t_49e53c934ba1d7 66,73-75
+  s_4b9dc6ab6b25d3::t_de940217dbc293 1-21,23-36,38-65,67-72,84-85,97,99-101
+tests/Browser/AdminAnalyticsGamesBrowserTest.php
+  s_4b9dc6ab6b25d3::t_ceaa5ba916a0a7 57
+tests/Feature/Analytics/AnalyticsLandingsTabTest.php
+  s_4b9dc6ab6b25d3::t_29fa762914194a 186,196-197
+  s_4b9dc6ab6b25d3::t_1430f3b482bc07 406-408
+  s_4b9dc6ab6b25d3::t_1e915a7ce95ba0 412-424,427
+  s_4b9dc6ab6b25d3::t_bdef2d843f05a6 371-380,382,392-393
+  s_4b9dc6ab6b25d3::t_c2fb0c7380aa47 425-426
+  s_4b9dc6ab6b25d3::t_c04feb72f5f501 409-410
+  s_4b9dc6ab6b25d3::t_0b00626e2e4528 129,132
+  s_4b9dc6ab6b25d3::t_a8cbe47b4e00ac 133-134
+  s_4b9dc6ab6b25d3::t_5c32a16745bc0a 1-128,130-131,135,138-185,187-195,199-269,272-314,316-329,331-370,381,383-391,394-405,411
+  s_4b9dc6ab6b25d3::t_d5afbb40b1c80f 198
+  s_4b9dc6ab6b25d3::t_1d24aa68c1f06f 136-137,270-271,315,330
+resources/views/components/admin/ui/icon.blade.php
+  s_4b9dc6ab6b25d3::t_77a80280bbeab2 125
+tests/Browser/AdminAnalyticsExperimentsBrowserTest.php
+  s_4b9dc6ab6b25d3::t_ceaa5ba916a0a7 48
+app/Queries/Analytics/LandingExperiencesQuery.php
+  s_4b9dc6ab6b25d3::t_fe4d9eb33ce602 71
+  s_4b9dc6ab6b25d3::t_b5335d745557da 1-70,72-77
+app/Support/Geo/Countries.php
+  s_4b9dc6ab6b25d3::t_17b5c854341da1 14-19
+  s_4b9dc6ab6b25d3::t_4ad1a1c815e492 290-304
+app/Filament/Pages/Analytics/GeographyTab.php
+  s_4b9dc6ab6b25d3::t_e9ecd1ab77afa7 95-96,103-105
+  s_4b9dc6ab6b25d3::t_28600b0ad9f504 1-94,97-102,106-258
+app/Filament/Pages/Analytics/LandingsTab.php
+  s_4b9dc6ab6b25d3::t_6c4354c6479e3d 1-85,89-113,119-123,126-131,133-139,146-151,153-209,214-231,233-234,236-247,250,253-266,269,271-275,281-296,299-350,353-364,369-430
+  s_4b9dc6ab6b25d3::t_37cb0f55a01f36 114-118
+  s_4b9dc6ab6b25d3::t_227527d194afee 152
+  s_4b9dc6ab6b25d3::t_4890d23c8ad32e 297-298
+  s_4b9dc6ab6b25d3::t_548d3027ba5edf 210-213
+  s_4b9dc6ab6b25d3::t_705bfc9dba4eae 86-88
+  s_4b9dc6ab6b25d3::t_3947e12f81e1c8 232,235
+  s_4b9dc6ab6b25d3::t_a072da415237af 365-368
+  s_4b9dc6ab6b25d3::t_edbf4ee7f06f74 351-352
+  s_4b9dc6ab6b25d3::t_ed8becc5aa5917 124-125,132,140-145,248-249,251-252,267-268,270,276-280
+resources/views/filament/pages/analytics/geo.blade.php
+  s_4b9dc6ab6b25d3::t_85b62b42d7aa2b 58,85
+  s_4b9dc6ab6b25d3::t_1cd9442be2a915 1-57,59-84,86-93
+tests/Unit/Support/Analytics/LandingRouteTest.php
+  s_4b9dc6ab6b25d3::t_62b5b4f4cc2713 47-77
+tests/Feature/Queries/AnalyticsVisitsQueryTest.php
+  s_4b9dc6ab6b25d3::t_45e17e46114339 178-243
+tests/Pest.php
+  s_4b9dc6ab6b25d3::t_3a7ea3b34352c3 14661-14674
+tests/Feature/ViewComponents/AdminUiComponentsTest.php
+  s_4b9dc6ab6b25d3::t_77a80280bbeab2 51
+resources/views/filament/pages/analytics/overview.blade.php
+  s_4b9dc6ab6b25d3::t_e36189b9ed2228 14
+app/Filament/Pages/GrowthAnalyticsPage.php
+  s_4b9dc6ab6b25d3::t_032036c0a643f9 11
+  s_4b9dc6ab6b25d3::t_a4f1641cee1a55 37-38
+  s_4b9dc6ab6b25d3::t_4f32d1eaad7c1d 10,33,42,54,57,129-136,355-357
+  s_4b9dc6ab6b25d3::t_330660573ffc2e 44-47
+  s_4b9dc6ab6b25d3::t_95d2ed56eff8fd 34-36,43
+tests/Browser/AdminAnalyticsBrowserTest.php
+  s_4b9dc6ab6b25d3::t_ceaa5ba916a0a7 63
+tests/Browser/AdminAnalyticsGeographyBrowserTest.php
+  s_4b9dc6ab6b25d3::t_3624765e1e1c65 1-98,100-107
+  s_4b9dc6ab6b25d3::t_6e07575bdc4b84 99
+docs/architecture/http-and-database-boundaries.md
+  s_4b9dc6ab6b25d3::t_c409968dd51cab 69-71
+tests/Browser/AdminAnalyticsLandingsBrowserTest.php
+  s_4b9dc6ab6b25d3::t_2cbc4129c82b16 88
+  s_4b9dc6ab6b25d3::t_704cddd3dd9d70 92,104
+  s_4b9dc6ab6b25d3::t_ceaa5ba916a0a7 58
+  s_4b9dc6ab6b25d3::t_57a2f0c3201256 1-57,59-74,77-79,81-85,87,89-90,93-103,105-108
+  s_4b9dc6ab6b25d3::t_a9dadfdfac394c 75-76,80,86,91
+tests/Feature/Analytics/GrowthAnalyticsPageTest.php
+  s_4b9dc6ab6b25d3::t_ceaa5ba916a0a7 129
+resources/views/filament/pages/analytics/elements/no-visitors.blade.php
+  s_4b9dc6ab6b25d3::t_c4ef6b58d26b78 1-21
+app/Queries/Games/ComparisonPeriodsQuery.php
+  s_4b9dc6ab6b25d3::t_e9b02def7793ef 120-134
+  s_4b9dc6ab6b25d3::t_f6a6cc043fa0e1 22-24
+tests/Feature/Analytics/AnalyticsGeographyTabTest.php
+  s_4b9dc6ab6b25d3::t_3a10f5fff06ee1 78,80-81,85,88,91,127,130,236-241,315-317
+  s_4b9dc6ab6b25d3::t_a54263d4a2fcd3 1-77,79,82-84,86-87,89-90,92-126,128-129,131-235,242-313,318-323
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "2cb05a9527eb0ded29139c8ded887f3880a7cecd",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
