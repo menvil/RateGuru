@@ -51,6 +51,7 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
  * @property int|null $block_bot_clicks
  * @property int|null $block_open_below
  * @property int|null $block_open_below_average
+ * @property int|null $block_open_floor
  * @property string|null $block_min_spend
  * @property int|null $block_min_clicks
  * @property int|null $block_roi_below
@@ -103,6 +104,7 @@ class TrafficSource extends Model
             'block_bot_clicks' => 'integer',
             'block_open_below' => 'integer',
             'block_open_below_average' => 'integer',
+            'block_open_floor' => 'integer',
             'block_min_spend' => 'decimal:2',
             'block_min_clicks' => 'integer',
             'block_roi_below' => 'integer',

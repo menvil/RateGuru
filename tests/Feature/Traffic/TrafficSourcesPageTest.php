@@ -546,7 +546,7 @@ it('explains on Blocking how blocking works, with the rule’s thresholds as set
     $open()->assertSeeHtmlInOrder([
         'data-testid="traffic-source-blocking-how"', 'How blocking works',
         'Every 5 minutes the rule reads each zone’s last 30 days.',
-        'at least 45 clicks, and fewer opened the page than 40% and than 50% of the source’s own average.',
+        'at least 45 clicks, and fewer opened the page than 40% and than 50% of the source’s own average, or than 5% always, whatever the average.',
         'ROI below −25% once a zone has cost enough — at least $3.50 spent or 150 clicks, as neither this source nor its campaigns have a target price of an account — from 3 days after its first click, so its accounts can arrive; and only once the worth is known: 0 of the 30 accounts it needs so far.',
         'only those with a click in the last 3 days, the most spent first, up to 7 a day; one you unblock stays unblocked for 30 days.',
         'These are the general thresholds, from Report → Worth blocking: give this source its own under Thresholds above.',
@@ -555,7 +555,7 @@ it('explains on Blocking how blocking works, with the rule’s thresholds as set
     ]);
 
     // In a browser it reads the source's last 30 days: no clicks yet, so the rule's own share counts.
-    $open()->call('load')->assertSee('of the source’s own average: no clicks from it in the last 30 days yet, so 40% alone counts.');
+    $open()->call('load')->assertSee('of the source’s own average, or than 5% always, whatever the average: no clicks from it in the last 30 days yet, so 40% alone counts.');
 
     $run = TrafficChanceRun::query()->forceCreate(['status' => 'finished', 'reason' => 'nightly', 'price_set_id' => TrafficPriceSet::current()->id, 'matured_before' => now(), 'started_at' => now(), 'finished_at' => now()]);
     TrafficStepChance::query()->forceCreate(['run_id' => $run->id, 'slice_key' => '*', 'step' => 'opened', 'visitors' => 900, 'accounts' => 42, 'slice_accounts' => 42, 'chance' => '0.04666667', 'thin' => false, 'stands_on' => '*']);
@@ -574,7 +574,7 @@ it('explains on Blocking the thresholds that apply to a source — its own marke
             && $editor['blocking']['average']['below'] === 20.0)
         ->assertSeeHtmlInOrder([
             'data-testid="traffic-source-blocking-how"',
-            'at least 45 clicks (this source’s), and fewer opened the page than 50% and than 50% of the source’s own average: its clicks opened the page 40% of the time, so under 20% counts.',
+            'at least 45 clicks (this source’s), and fewer opened the page than 50% and than 50% of the source’s own average, or than 5% always, whatever the average: its clicks opened the page 40% of the time, so under 20% counts.',
             'ROI below −25% (this source’s) once a site has cost enough — 3 (this source’s) × the target price of an account: its campaign’s own where it has one, else this source’s $0.60, so $1.80 — from 5 days (this source’s) after its first click',
             'Those marked (this source’s) are its own, set under Thresholds above; the rest are the general ones from Report → Worth blocking.',
         ]);
@@ -615,7 +615,7 @@ it('keeps a network on the general block rule, or saves its own thresholds with 
         ->assertViewHas('editor', fn (array $editor): bool => $editor['thresholds']['own'] === true);
 
     expect($source->fresh()->only(BlockRule::KEYS))->toBe([
-        'block_bot_clicks' => 45, 'block_open_below' => null, 'block_open_below_average' => null, 'block_min_spend' => '3.50', 'block_min_clicks' => null,
+        'block_bot_clicks' => 45, 'block_open_below' => null, 'block_open_below_average' => null, 'block_open_floor' => null, 'block_min_spend' => '3.50', 'block_min_clicks' => null,
         'block_roi_below' => -25, 'block_grace_days' => null, 'block_target_multiple' => '1.5', 'block_start_clicks' => null, 'block_start_percent' => null,
     ]);
 
@@ -634,6 +634,56 @@ it('keeps a network on the general block rule, or saves its own thresholds with 
 
     $page->call('saveSource')->assertHasNoErrors();
     expect(array_filter($source->fresh()->only(BlockRule::KEYS), fn (mixed $value): bool => $value !== null))->toBe([]);
+});
+
+it('explains on Blocking when the floor is the line for a source that is nearly all bots, its own floor marked, and when it has none', function () {
+    $source = TrafficSource::factory()->create(['block_level' => TrafficBlockLevel::Site]);
+    // Nearly all bots: 3 of its 100 clicks in the last 30 days opened the page, so half its average holds nothing.
+    TrafficVisit::factory()->count(100)->sequence(fn ($sequence): array => ['opened_at' => $sequence->index < 3 ? now() : null])
+        ->create(['source_id' => $source->id, 'site_ref' => '40123', 'arrived_at' => now()->subDays(2), 'network_day' => now()->subDays(2)->toDateString()]);
+    $open = fn () => Livewire::withQueryParams(['tab' => 'sources', 'edit' => (string) $source->id])->test(TrafficSourcesPage::class)->call('load');
+
+    $open()->assertViewHas('editor', fn (array $editor): bool => $editor['blocking']['average']['below'] === 5.0 && $editor['blocking']['average']['fromFloor'] === true)
+        ->assertSee('of the source’s own average, or than 5% always, whatever the average: its clicks opened the page 3% of the time, so the floor counts, under 5%.');
+
+    $source->forceFill(['block_open_floor' => 10])->save();
+    $open()->assertSee('of the source’s own average, or than 10% (this source’s) always, whatever the average: its clicks opened the page 3% of the time, so the floor counts, under 10%.');
+
+    // Its floor off: half its average is the line again, and the step says there is no floor.
+    $source->forceFill(['block_open_floor' => 0])->save();
+    $open()->assertViewHas('editor', fn (array $editor): bool => $editor['blocking']['average']['below'] === 1.5 && $editor['blocking']['average']['fromFloor'] === false)
+        ->assertSee('of the source’s own average, with no floor (this source’s): its clicks opened the page 3% of the time, so under 1.5% counts.');
+});
+
+it('saves a network’s own floor with it — 0 turning the general one off for it — refused outside 0 to 100', function () {
+    TrafficSetting::current()->forceFill(['block_open_floor' => 8])->save();
+    $source = TrafficSource::factory()->create(['name' => 'PopAds main', 'block_level' => TrafficBlockLevel::Site]);
+    $page = Livewire::withQueryParams(['tab' => 'sources', 'edit' => (string) $source->id])->test(TrafficSourcesPage::class)
+        ->assertViewHas('editor', fn (array $editor): bool => $editor['thresholds']['general']['block_open_floor'] === '8')
+        ->assertSeeHtmlInOrder([
+            'data-testid="traffic-source-thresholds"', '<strong>Likely bots</strong>',
+            'wire:model="draft.source.block_open_below_average"', 'of the source’s own average, or than',
+            '<strong x-show="thresholds === \'general\'">8%</strong>', 'placeholder="8"', 'aria-label="Opened below, percent, whatever the source’s average"', 'wire:model="draft.source.block_open_floor"', 'whatever the average — 0 for no floor.',
+            '<strong>Losing</strong>',
+        ]);
+
+    $page->set('draft.source.block_open_floor', 101)->call('saveSource')
+        ->assertHasErrors(['block_open_floor'])
+        ->assertSee('The opened below, percent, whatever the source’s average field must not be greater than 100.');
+    expect($page->html())->toMatch('/<input class="[^"]*rg-admin-input--invalid"[^>]*aria-label="Opened below, percent, whatever the source’s average"[^>]*aria-invalid="true"/')
+        ->and($source->fresh()->block_open_floor)->toBeNull();
+
+    $page->set('draft.source.block_open_floor', '0')->call('saveSource')->assertHasNoErrors()
+        ->assertViewHas('editor', fn (array $editor): bool => $editor['thresholds']['own'] === true);
+    expect($source->fresh()->block_open_floor)->toBe(0)
+        ->and(BlockRule::own($source->fresh()->only(BlockRule::KEYS)))->toBe(['block_open_floor']);
+
+    $page->set('draft.source.block_open_floor', '12')->call('saveSource')->assertHasNoErrors();
+    expect($source->fresh()->block_open_floor)->toBe(12);
+
+    // Emptied, it keeps the general floor again.
+    $page->set('draft.source.block_open_floor', '')->call('saveSource')->assertHasNoErrors();
+    expect($source->fresh()->block_open_floor)->toBeNull();
 });
 
 it('keeps no thresholds of its own for a banner, and gives a new network the general rule to start from', function () {

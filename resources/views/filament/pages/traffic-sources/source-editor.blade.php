@@ -265,6 +265,7 @@
                             'block_bot_clicks' => ['type' => 'number', 'min' => 1],
                             'block_open_below' => ['type' => 'number', 'min' => 1, 'max' => 100],
                             'block_open_below_average' => ['type' => 'number', 'min' => 1, 'max' => 100],
+                            'block_open_floor' => ['type' => 'number', 'min' => 0, 'max' => 100],
                             'block_min_spend' => ['type' => 'text'],
                             'block_min_clicks' => ['type' => 'number', 'min' => 1],
                             'block_roi_below' => ['type' => 'number', 'max' => 0],
@@ -275,7 +276,7 @@
                         ];
                         // Each line of the rule as Report → Worth blocking words it: a threshold where its value goes, with what stands either side of it.
                         $lines = [
-                            ['Likely bots', [': at least ', ['block_bot_clicks', '', ''], ' clicks, and fewer opened the page than ', ['block_open_below', '', '%'], ' and than ', ['block_open_below_average', '', '%'], ' of the source’s own average.']],
+                            ['Likely bots', [': at least ', ['block_bot_clicks', '', ''], ' clicks, and fewer opened the page than ', ['block_open_below', '', '%'], ' and than ', ['block_open_below_average', '', '%'], ' of the source’s own average, or than ', ['block_open_floor', '', '%'], ' whatever the average — 0 for no floor.']],
                             ['Losing', [': ROI below ', ['block_roi_below', '', '%'], ' once it has spent ', ['block_target_multiple', '', ''], ' × the target price of an account where its campaign or this source has one — else at least ', ['block_min_spend', '$', ''], ' spent or ', ['block_min_clicks', '', ''], ' clicks — from ', ['block_grace_days', '', ''], ' days after its first click.']],
                             ['Weak start', [': at least ', ['block_start_clicks', '', ''], ' clicks and the game started below ', ['block_start_percent', '', '%'], ' as often as on the source’s other places.']],
                         ];
@@ -363,11 +364,13 @@
                         $average = $b['average'];
                         $minimums = 'at least '.$r['min_spend'].$own('block_min_spend').' spent or '.number_format($r['min_clicks']).' clicks'.$own('block_min_clicks');
                         $multiple = $r['target_multiple'].$own('block_target_multiple').' × the target price of an account';
+                        // Below the floor a site is bots whatever the source's average; 0 turns it off, and the step says so.
+                        $botFloor = $r['open_floor'] > 0 ? ', or than '.$percent($r['open_floor']).$own('block_open_floor').' always, whatever the average' : ', with no floor'.$own('block_open_floor');
                     @endphp
                     <div class="rg-admin-traffic__preset-card" data-testid="traffic-source-blocking-how">
                         <strong>How blocking works</strong>
                         <ol class="rg-admin-traffic__block-steps">
-                            <li>Every 5 minutes the rule reads each {{ $noun }}’s last 30 days. <strong>Likely bots</strong>: at least {{ number_format($r['bot_clicks']) }} clicks{{ $own('block_bot_clicks') }}, and fewer opened the page than {{ $percent($r['open_below']) }}{{ $own('block_open_below') }} and than {{ $r['open_below_average'] }}%{{ $own('block_open_below_average') }} of the source’s own average{{ match (true) { $average === null => '', $average['rate'] === null => ': no clicks from it in the last 30 days yet, so '.$percent($r['open_below']).' alone counts', default => ': its clicks opened the page '.$share($average['rate'] * 100).' of the time, so under '.$share($average['below']).' counts' } }}.</li>
+                            <li>Every 5 minutes the rule reads each {{ $noun }}’s last 30 days. <strong>Likely bots</strong>: at least {{ number_format($r['bot_clicks']) }} clicks{{ $own('block_bot_clicks') }}, and fewer opened the page than {{ $percent($r['open_below']) }}{{ $own('block_open_below') }} and than {{ $r['open_below_average'] }}%{{ $own('block_open_below_average') }} of the source’s own average{{ $botFloor }}{{ match (true) { $average === null => '', $average['rate'] === null => ': no clicks from it in the last 30 days yet, so '.$percent($average['fromFloor'] ? $r['open_floor'] : $r['open_below']).' alone counts', $average['fromFloor'] => ': its clicks opened the page '.$share($average['rate'] * 100).' of the time, so the floor counts, under '.$share($average['below']), default => ': its clicks opened the page '.$share($average['rate'] * 100).' of the time, so under '.$share($average['below']).' counts' } }}.</li>
                             <li><strong>Losing</strong>: ROI below {{ $percent($r['roi_below']) }}{{ $own('block_roi_below') }} once a {{ $noun }} has cost enough — {{ match (true) { $b['target'] !== null => $multiple.': its campaign’s own where it has one, else this source’s '.$b['target']['amount'].', so '.$b['target']['spend'], $b['campaignTargets'] > 0 => $multiple.' where its campaign has one, else '.$minimums, default => $minimums.', as neither this source nor its campaigns have a target price of an account' } }} — from {{ $r['grace_days'] }} {{ \Illuminate\Support\Str::plural('day', $r['grace_days']) }}{{ $own('block_grace_days') }} after its first click, so its accounts can arrive; {{ $b['worth']['known'] ? 'judged now that the worth stands on '.number_format($b['worth']['accounts']).' accounts' : 'and only once the worth is known: '.number_format($b['worth']['accounts']).' of the '.$b['worth']['needed'].' accounts it needs so far' }}.</li>
                             <li>It blocks only those with a click in the last 3 days, the most spent first, up to {{ number_format($b['cap']) }} a day; one you unblock stays unblocked for 30 days. {{ $b['own'] === [] ? 'These are the general thresholds, from Report → Worth blocking: give this source its own under Thresholds above.' : 'Those marked (this source’s) are its own, set under Thresholds above; the rest are the general ones from Report → Worth blocking.' }}</li>
                             <li>You block by hand in Report → Sites & zones: tick them, then Block, or Copy IDs.</li>

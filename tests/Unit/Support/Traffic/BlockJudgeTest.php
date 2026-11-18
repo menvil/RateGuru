@@ -8,7 +8,8 @@ use Carbon\CarbonImmutable;
 
 /**
  * The block rule's verdicts on one site, pure: bots against the lower of the
- * rule's share and a share of the source's own average; losing only so many
+ * rule's share and a share of the source's own average, never below the
+ * rule's floor, whatever the average; losing only so many
  * days after the site's first click, and — where its campaign or its source
  * has a target price of an account — only once it has spent so many times
  * that target, else the rule's spend or clicks; a weak start before the
@@ -20,7 +21,7 @@ const JUDGED_AT = '2026-11-18 12:00:00';
 function judgedBlockRule(array $changes = []): array
 {
     return BlockRule::effective([
-        'block_bot_clicks' => 30, 'block_open_below' => 50, 'block_open_below_average' => 50, 'block_min_spend' => '2', 'block_min_clicks' => 200,
+        'block_bot_clicks' => 30, 'block_open_below' => 50, 'block_open_below_average' => 50, 'block_open_floor' => 5, 'block_min_spend' => '2', 'block_min_clicks' => 200,
         'block_roi_below' => -40, 'block_grace_days' => 3, 'block_target_multiple' => '2', 'block_start_clicks' => 60, 'block_start_percent' => 60,
     ], $changes);
 }
@@ -68,9 +69,39 @@ it('holds a site to the rule’s share alone while its source has no clicks to a
         ->and(BlockJudge::openBelowFromAverage($rule, null))->toBeFalse()
         ->and(BlockJudge::openBelowFromAverage($rule, 0.4))->toBeTrue()
         ->and(BlockJudge::openBelowFromAverage(judgedBlockRule(['block_open_below_average' => 70]), 0.85))->toBeFalse()
-        // A source none of whose clicks opened the page has nothing to hold its sites below.
-        ->and(judgedSite(['visits' => 40, 'opened' => 0], openRate: 0.0)['verdict'])->toBeNull();
+        ->and(BlockJudge::openBelowFromFloor($rule, null))->toBeFalse()
+        ->and(BlockJudge::openBelowFromFloor($rule, 0.4))->toBeFalse()
+        // A source none of whose clicks opened the page holds its sites to the floor alone, and to nothing with the floor off.
+        ->and(BlockJudge::openBelow($rule, 0.0))->toBe(5.0)
+        ->and(judgedSite(['visits' => 40, 'opened' => 0], openRate: 0.0)['verdict'])->toBe(TrafficBlockVerdict::Bots)
+        ->and(judgedSite(['visits' => 40, 'opened' => 0], ['block_open_floor' => 0], openRate: 0.0)['verdict'])->toBeNull();
 });
+
+it('calls a site bots below the floor whatever its source’s average or the rule’s share, and says the floor is the line', function (?float $sourceOpenRate, array $rule, int $visits, int $opened, ?TrafficBlockVerdict $verdict, float $below, bool $fromFloor) {
+    expect(judgedSite(['visits' => $visits, 'opened' => $opened], $rule, openRate: $sourceOpenRate)['verdict'])->toBe($verdict)
+        ->and(BlockJudge::openBelow(judgedBlockRule($rule), $sourceOpenRate))->toBe($below)
+        ->and(BlockJudge::openBelowFromFloor(judgedBlockRule($rule), $sourceOpenRate))->toBe($fromFloor)
+        // The floor and the average never both claim the line.
+        ->and(BlockJudge::openBelowFromAverage(judgedBlockRule($rule), $sourceOpenRate) && $fromFloor)->toBeFalse();
+})->with([
+    // A source that is nearly all bots opens the page 3% of the time: half of that, 1.5%, would hold nothing.
+    'all-bots source averaging 3%, a site at 2.5%: under the floor' => [0.03, [], 40, 1, TrafficBlockVerdict::Bots, 5.0, true],
+    'all-bots source averaging 3%, a site at 5%: at the floor, not under it' => [0.03, [], 40, 2, null, 5.0, true],
+    'all-bots source averaging 3%, 29 clicks: too few for bots, floor or not' => [0.03, [], 29, 0, null, 5.0, true],
+    // A source with a single site is its own average: it can never fall below half of itself.
+    'single site, 2 of 50 opened, its source averaging the same 4%' => [0.04, [], 50, 2, TrafficBlockVerdict::Bots, 5.0, true],
+    'single site, 2 of 50 opened, the floor off: never below half of itself' => [0.04, ['block_open_floor' => 0], 50, 2, null, 2.0, false],
+    // Above the rule's own share the floor lifts the line past it, average or none.
+    'floor 60% above the rule’s 50%, a banner site at 55%' => [0.85, ['block_open_floor' => 60], 40, 22, TrafficBlockVerdict::Bots, 60.0, true],
+    'floor 60% above the rule’s 50%, no average yet, a site at 57.5%' => [null, ['block_open_floor' => 60], 40, 23, TrafficBlockVerdict::Bots, 60.0, true],
+    'floor 60% above the rule’s 50%, a site at 60%: at the line' => [null, ['block_open_floor' => 60], 40, 24, null, 60.0, true],
+    // An ordinary pop source: half its 40% average, 20%, stands above the floor and stays the line.
+    'pop source averaging 40%, the floor below half of it' => [0.4, [], 40, 7, TrafficBlockVerdict::Bots, 20.0, false],
+    // A source's own floor stands in for the general one.
+    'own floor 10%, all-bots source averaging 3%, a site at 7.5%' => [0.03, ['block_open_floor' => 10], 40, 3, TrafficBlockVerdict::Bots, 10.0, true],
+    'own floor 2%, all-bots source averaging 3%, a site at 2.5%: above it' => [0.03, ['block_open_floor' => 2], 40, 1, null, 2.0, true],
+    'own floor 0, the general 5% kept off for this source' => [0.03, ['block_open_floor' => 0], 40, 1, null, 1.5, false],
+]);
 
 it('calls a site losing only once the days after its first click have passed, and never holds back bots or a profit', function (array $figures, string $firstClick, array $rule, ?TrafficBlockVerdict $verdict, string $state) {
     expect(judgedSite($figures, $rule, worthKnown: true, firstClick: $firstClick))->toBe(['verdict' => $verdict, 'state' => $state]);

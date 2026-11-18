@@ -295,11 +295,21 @@ figures over the same window and the thresholds that apply:
 - **Bots**: at least `block_bot_clicks` clicks, and fewer opened the page than
   `block_open_below` % *and* than `block_open_below_average` % of the source's
   own average over the same rows the judge reads — the lower share is the
-  line. Pop traffic opens the page far less often than a banner, so the same
-  absolute share would call a whole pop source bots: averaging 40 %, its sites
-  are bots under 20 %. A source with no clicks to average is held to the
-  absolute share alone; one none of whose clicks opened the page holds its
-  sites below nothing, so none is bots by this rule.
+  line — or fewer than `block_open_floor` % whatever the average: the line is
+  `max(floor, min(absolute, relative × average))`. Pop traffic opens the page
+  far less often than a banner, so the same absolute share would call a whole
+  pop source bots: averaging 40 %, its sites are bots under 20 %. The floor
+  (5 % to start; 0 turns it off) catches what a share of the average can't: a
+  source that is nearly all bots averages too little to hold its sites to
+  anything, and a source with a single site can never fall below a share of
+  itself — yet a site that opens the page that rarely never pays back on pop
+  prices, bots or not. A floor above the absolute share lifts the line above
+  it too. A source with no clicks to average is held to the higher of the
+  absolute share and the floor; one none of whose clicks opened the page
+  holds its sites to the floor alone, and with the floor off none is bots by
+  this rule. `BlockJudge::openBelowFromFloor()` and `openBelowFromAverage()`
+  say which of the three the line came from, so the badge's tip and the
+  source's Blocking pane name it.
 - **Losing**: ROI below `block_roi_below` % once the site has cost enough:
   `block_target_multiple` × the target price of an account of the campaign
   its clicks came through (a site in several campaigns takes its source's),

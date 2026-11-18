@@ -171,11 +171,13 @@ it('saves Worth blocking’s general thresholds — the share of the source’s 
     $page = Livewire::test(TrafficSourcesPage::class)->call('load')
         ->call('toggleBlockRule')
         ->assertSet('settings.block_open_below_average', 50)
+        ->assertSet('settings.block_open_floor', 5)
         ->assertSet('settings.block_grace_days', 3)
         ->assertSet('settings.block_target_multiple', '2.0')
         ->assertSeeHtmlInOrder([
             'data-testid="traffic-block-rule"',
-            'wire:model="settings.block_bot_clicks"', 'wire:model="settings.block_open_below"', 'wire:model="settings.block_open_below_average"', 'of the source’s own average.',
+            'wire:model="settings.block_bot_clicks"', 'wire:model="settings.block_open_below"', 'wire:model="settings.block_open_below_average"', 'of the source’s own average, or than',
+            'wire:model="settings.block_open_floor"', 'aria-label="Opened below, percent, whatever the source’s average"', '% whatever the average — 0 for no floor.',
             'wire:model="settings.block_roi_below"', 'wire:model="settings.block_target_multiple"', '× the target price of an account where its campaign or its source has one',
             'wire:model="settings.block_min_spend"', 'wire:model="settings.block_min_clicks"', 'wire:model="settings.block_grace_days"', 'days after its first click.',
             'data-testid="traffic-block-rule-own"', 'Banner network has thresholds of its own, set in the source’s editor → Blocking; the rest are judged by these.',
@@ -201,6 +203,55 @@ it('saves Worth blocking’s general thresholds — the share of the source’s 
         ->assertSet('settings.block_target_multiple', '1.5');
 
     expect(TrafficSetting::current())->block_open_below_average->toBe(40)->block_grace_days->toBe(5)->block_target_multiple->toBe('1.5');
+});
+
+it('saves Worth blocking’s floor, 0 turning it off, refused outside 0 to 100 or empty', function () {
+    $page = Livewire::test(TrafficSourcesPage::class)->call('load')->call('toggleBlockRule');
+
+    foreach (['', 101, -1, '2.5'] as $refused) {
+        $page->set('settings.block_open_floor', $refused)->call('saveSettings')->assertHasErrors(['block_open_floor']);
+        expect($page->html())->toMatch('/<input class="[^"]*rg-admin-input--invalid"[^>]*wire:model="settings.block_open_floor"[^>]*aria-invalid="true"/');
+    }
+
+    expect(TrafficSetting::current()->exists)->toBeFalse();
+    $page->assertSee('The opened below, percent, whatever the source’s average field must be an integer.');
+
+    $page->set('settings.block_open_floor', 10)->call('saveSettings')->assertHasNoErrors()->assertSet('settings.block_open_floor', 10);
+    expect(TrafficSetting::current()->block_open_floor)->toBe(10);
+
+    $page->set('settings.block_open_floor', 0)->call('saveSettings')->assertHasNoErrors()->assertSet('settings.block_open_floor', 0);
+    expect(TrafficSetting::current()->block_open_floor)->toBe(0);
+});
+
+it('calls a site bots below the floor whatever its source’s average, and says so in its badge', function () {
+    // A source that is nearly all bots: 4 of its 140 clicks opened the page, 2.9%, half of which would hold nothing.
+    siteClicks($this->source, '80001', 100, 3);
+    siteClicks($this->source, '80002', 40, 1);
+    // A source with a single site is its own average: 2 of 50 opened, 4%.
+    $single = TrafficSource::factory()->create(['name' => 'Single-site network']);
+    siteClicks($single, '90001', 50, 2);
+
+    $page = Livewire::withQueryParams(['view' => 'sites', 'list' => 'site'])->test(TrafficSourcesPage::class)->call('load');
+    $rows = collect($page->viewData('list')['rows'])->keyBy('ref');
+
+    expect($rows->map(fn (array $row): string => $row['state'])->sortKeys()->all())->toBe(['80001' => 'bots', '80002' => 'bots', '90001' => 'bots'])
+        ->and($page->viewData('worthBlocking'))->toBe(3)
+        ->and($rows['80002']['flag']['tip'])->toBe('Meets the block rule: 2.5% of 40 clicks opened the page, under the rule’s floor of 5%, bots below it always (the source averages 2.9%)')
+        ->and($rows['90001']['flag']['tip'])->toBe('Meets the block rule: 4% of 50 clicks opened the page, under the rule’s floor of 5%, bots below it always (the source averages 4%)');
+
+    $page->assertSee('under the rule’s floor of 5%, bots below it always (the source averages 2.9%)');
+
+    // The single-site network sets its own floor at 0: off for it alone, the other source still held to 5%.
+    $single->forceFill(['block_open_floor' => 0])->save();
+    $rows = collect(Livewire::withQueryParams(['view' => 'sites', 'list' => 'site'])->test(TrafficSourcesPage::class)->call('load')->viewData('list')['rows'])->keyBy('ref');
+
+    expect($rows->map(fn (array $row): string => $row['state'])->sortKeys()->all())->toBe(['80001' => 'bots', '80002' => 'bots', '90001' => 'early']);
+
+    // The general floor off: none of them is bots any more.
+    TrafficSetting::current()->forceFill(['block_open_floor' => 0])->save();
+    $rows = collect(Livewire::withQueryParams(['view' => 'sites', 'list' => 'site'])->test(TrafficSourcesPage::class)->call('load')->viewData('list')['rows'])->keyBy('ref');
+
+    expect($rows->map(fn (array $row): string => $row['state'])->sortKeys()->all())->toBe(['80001' => 'early', '80002' => 'early', '90001' => 'early']);
 });
 
 it('judges Sites & zones by each source’s own thresholds and against its own average, and says why in each badge', function () {

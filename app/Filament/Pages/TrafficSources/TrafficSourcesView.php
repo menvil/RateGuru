@@ -531,10 +531,12 @@ final class TrafficSourcesView
 
     /**
      * Why the rule calls a site what it does, with the values that applied:
-     * the share it opened the page at against the share it is held to and
-     * its source's average; its ROI against the line, and what it had to
-     * spend first — so many times its campaign's or its source's target, or
-     * the rule's spend or clicks; and, while it waits, until when.
+     * the share it opened the page at against the share it is held to — the
+     * rule's, a share of its source's average, or the floor below which a
+     * site is bots always — and its source's average; its ROI against the
+     * line, and what it had to spend first — so many times its campaign's or
+     * its source's target, or the rule's spend or clicks; and, while it
+     * waits, until when.
      *
      * @param  array<string, int|string>  $rule
      * @param  array{amount: string, from: 'campaign'|'source'}|null  $target
@@ -551,9 +553,11 @@ final class TrafficSourcesView
 
         return match ($state) {
             'bots' => 'Meets the block rule: '.$percent($figures->opened * 100 / max(1, $figures->visits)).' of '.number_format($figures->visits).' clicks opened the page, under '
-                .(BlockJudge::openBelowFromAverage($rule, $openRate)
-                    ? $percent(BlockJudge::openBelow($rule, $openRate)).': '.(int) $rule['block_open_below_average'].'% of the source’s average of '.$percent(($openRate ?? 0) * 100)
-                    : 'the rule’s '.(int) $rule['block_open_below'].'%'.($openRate !== null ? ' (the source averages '.$percent($openRate * 100).')' : '')),
+                .match (true) {
+                    BlockJudge::openBelowFromFloor($rule, $openRate) => 'the rule’s floor of '.(int) $rule['block_open_floor'].'%, bots below it always'.($openRate !== null ? ' (the source averages '.$percent($openRate * 100).')' : ''),
+                    BlockJudge::openBelowFromAverage($rule, $openRate) => $percent(BlockJudge::openBelow($rule, $openRate)).': '.(int) $rule['block_open_below_average'].'% of the source’s average of '.$percent(($openRate ?? 0) * 100),
+                    default => 'the rule’s '.(int) $rule['block_open_below'].'%'.($openRate !== null ? ' (the source averages '.$percent($openRate * 100).')' : ''),
+                },
             'losing' => 'Meets the block rule: ROI '.$signed((float) $roi).', below '.$signed((float) (int) $rule['block_roi_below']).', with '.TrafficMoney::format($figures->spend).' spent — past '.$money,
             'waiting' => 'ROI '.$signed((float) $roi).' is below '.$signed((float) (int) $rule['block_roi_below']).', but the rule waits '.(int) $rule['block_grace_days'].' '.Str::plural('day', (int) $rule['block_grace_days']).' after its first click in the last 30 days'
                 .($firstAt !== null ? ', on '.$firstAt->format('j M') : '').', so its accounts can arrive: losing is judged from '.$from?->format('j M H:i').'.',
@@ -1517,6 +1521,7 @@ final class TrafficSourcesView
                 'bot_clicks' => (int) $rule['block_bot_clicks'],
                 'open_below' => (int) $rule['block_open_below'],
                 'open_below_average' => (int) $rule['block_open_below_average'],
+                'open_floor' => (int) $rule['block_open_floor'],
                 'min_spend' => TrafficMoney::format($rule['block_min_spend']),
                 'min_clicks' => (int) $rule['block_min_clicks'],
                 'roi_below' => (int) $rule['block_roi_below'],
@@ -1525,7 +1530,12 @@ final class TrafficSourcesView
             ],
             'own' => BlockRule::own($own),
             // Read only once the page is in a browser: until then the share stands as the rule sets it.
-            'average' => $ready ? ['rate' => $average, 'below' => BlockJudge::openBelow($rule, $average), 'fromAverage' => BlockJudge::openBelowFromAverage($rule, $average)] : null,
+            'average' => $ready ? [
+                'rate' => $average,
+                'below' => BlockJudge::openBelow($rule, $average),
+                'fromAverage' => BlockJudge::openBelowFromAverage($rule, $average),
+                'fromFloor' => BlockJudge::openBelowFromFloor($rule, $average),
+            ] : null,
             'target' => $target === null || $needed === null ? null : ['amount' => TrafficMoney::format($target['amount']), 'spend' => TrafficMoney::format($needed)],
             'campaignTargets' => TrafficCampaign::query()->where('source_id', $source->id)->where('target_cpa', '>', 0)->count(),
             'worth' => ['accounts' => $accounts, 'needed' => TrafficBlocksQuery::WORTH_KNOWN_AT, 'known' => $accounts >= TrafficBlocksQuery::WORTH_KNOWN_AT],

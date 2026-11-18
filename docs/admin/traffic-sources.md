@@ -76,11 +76,17 @@ that UTC day, so unblocking one frees no room for another until the next day.
 The rule is gentle with traffic it can't judge yet:
 
 - **Likely bots** means fewer clicks opened the page than the rule's share
-  (50 %) *and* than half the source's own average. Pop traffic opens the page
-  far less often than banners: with a pop source averaging 40 %, a site is
-  bots under 20 %; with banners averaging 85 %, under 42.5 %. Set the share
-  of the average higher (Worth blocking → "of the source's own average") to
-  let the rule's own 50 % be the line for banners.
+  (50 %) *and* than half the source's own average — or fewer than the floor
+  (5 %), whatever the average. Pop traffic opens the page far less often than
+  banners: with a pop source averaging 40 %, a site is bots under 20 %; with
+  banners averaging 85 %, under 42.5 %. Set the share of the average higher
+  (Worth blocking → "of the source's own average") to let the rule's own 50 %
+  be the line for banners. The floor is for sources half of whose average
+  says nothing: one that is nearly all bots averages 3 %, and one with a
+  single site is its own average — below 5 % such a site is bots anyway,
+  since on pop prices it can't pay back whoever clicks. Set it in Worth
+  blocking ("whatever the average"), or per source; 0 turns it off. The
+  site's badge says when the floor was the line.
 - **Losing** waits 3 days after a site's first click in the last 30 days,
   so its accounts can arrive; until then such a site shows "Judged from …"
   under Below the line. The report counts those days the same way whatever

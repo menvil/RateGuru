@@ -52,6 +52,8 @@ it('starts the tracker switched off, with the prototype\'s block rule and GeoLit
         ->toBe(['2.00', 200, -40, 50, 30, 60, 60])
         // Gentler on its own: half the source's average, three days after a first click, twice a target price.
         ->and([$settings->block_open_below_average, $settings->block_grace_days, $settings->block_target_multiple])->toBe([50, 3, '2.0'])
+        // Yet below 5% opened a site is bots whatever its source's average.
+        ->and($settings->block_open_floor)->toBe(5)
         ->and(DB::table('traffic_settings')->count())->toBe(0);
 });
 

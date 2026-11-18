@@ -22,6 +22,7 @@ use Illuminate\Support\Facades\DB;
  * @property int $block_roi_below
  * @property int $block_open_below
  * @property int $block_open_below_average
+ * @property int $block_open_floor
  * @property int $block_grace_days
  * @property string $block_target_multiple
  * @property int $block_bot_clicks
@@ -57,6 +58,7 @@ class TrafficSetting extends Model
             'block_roi_below' => 'integer',
             'block_open_below' => 'integer',
             'block_open_below_average' => 'integer',
+            'block_open_floor' => 'integer',
             'block_grace_days' => 'integer',
             'block_target_multiple' => 'decimal:1',
             'block_bot_clicks' => 'integer',
@@ -84,6 +86,7 @@ class TrafficSetting extends Model
             'block_roi_below' => -40,
             'block_open_below' => 50,
             'block_open_below_average' => 50,
+            'block_open_floor' => 5,
             'block_grace_days' => 3,
             'block_target_multiple' => '2.0',
             'block_bot_clicks' => 30,

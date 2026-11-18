@@ -17,7 +17,10 @@ use Carbon\CarbonInterface;
  * - bots, when enough clicks came and fewer opened the page than the rule's
  *   share and than a share of its source's own average — pop traffic opens
  *   far less often than a banner, so the same share would call a whole pop
- *   source bots;
+ *   source bots — or fewer than the rule's floor, whatever the average: a
+ *   source that is nearly all bots has a tiny average, and one with a single
+ *   site can't fall below a share of itself, yet a site that rarely opens
+ *   the page never pays back, bots or not;
  * - losing, when it has cost enough and its worth falls too far short of its
  *   spend — judged only once accounts are measured on the site, and only so
  *   many days after its first click in the window, so its accounts have time
@@ -78,27 +81,36 @@ final class BlockJudge
     /**
      * The share of its clicks, in percent, below which a site's opening the
      * page calls it bots: the rule's share, or a share of its source's own
-     * average where that is lower; the rule's alone while the source has no
-     * clicks to average.
+     * average where that is lower — the rule's alone while the source has no
+     * clicks to average — and never below the rule's floor, which 0 turns off.
      *
      * @param  array<string, int|string>  $rule
      */
     public static function openBelow(array $rule, ?float $sourceOpenRate): float
     {
-        $share = (float) (int) $rule['block_open_below'];
-
-        return $sourceOpenRate === null ? $share : min($share, round($sourceOpenRate * (int) $rule['block_open_below_average'], 6));
+        return max((float) (int) $rule['block_open_floor'], self::lowerShare($rule, $sourceOpenRate));
     }
 
     /**
      * Whether the share a site is held to is a share of its source's average
-     * rather than the rule's own.
+     * rather than the rule's own share or its floor.
      *
      * @param  array<string, int|string>  $rule
      */
     public static function openBelowFromAverage(array $rule, ?float $sourceOpenRate): bool
     {
-        return self::openBelow($rule, $sourceOpenRate) < (float) (int) $rule['block_open_below'];
+        return ! self::openBelowFromFloor($rule, $sourceOpenRate) && self::lowerShare($rule, $sourceOpenRate) < (float) (int) $rule['block_open_below'];
+    }
+
+    /**
+     * Whether the share a site is held to is the rule's floor: the lower of
+     * the rule's share and the share of its source's average falls below it.
+     *
+     * @param  array<string, int|string>  $rule
+     */
+    public static function openBelowFromFloor(array $rule, ?float $sourceOpenRate): bool
+    {
+        return (float) (int) $rule['block_open_floor'] > self::lowerShare($rule, $sourceOpenRate);
     }
 
     /**
@@ -134,6 +146,20 @@ final class BlockJudge
         }
 
         return CarbonImmutable::instance($firstClickAt)->addDays((int) $rule['block_grace_days']);
+    }
+
+    /**
+     * The lower of the rule's share and the share of its source's average —
+     * the rule's alone while the source has no clicks to average — before
+     * the floor lifts it.
+     *
+     * @param  array<string, int|string>  $rule
+     */
+    private static function lowerShare(array $rule, ?float $sourceOpenRate): float
+    {
+        $share = (float) (int) $rule['block_open_below'];
+
+        return $sourceOpenRate === null ? $share : min($share, round($sourceOpenRate * (int) $rule['block_open_below_average'], 6));
     }
 
     /** @param  array<string, int|string>  $rule */
