@@ -89,6 +89,6 @@
                 @endforeach
             </div>
         </div>
-        <x-slot:footer data-testid="analytics-geo-foot">{{ $data['foot'] }} A visitor’s location for each visit is <a href="{{ $data['journeys'] }}" class="rg-admin-analytics__geo-journeys" wire:click.prevent="$set('tab', 'journeys')">on the Journeys tab</a>.</x-slot:footer>
+        <x-slot:footer data-testid="analytics-geo-foot">{{ $data['foot'] }} A visitor’s location for each visit is <a href="{{ $data['journeys'] }}" class="rg-admin-analytics__geo-journeys" x-on:click="if (! ($event.metaKey || $event.ctrlKey || $event.shiftKey || $event.altKey)) { $event.preventDefault(); $wire.$set('tab', 'journeys') }">on the Journeys tab</a>.</x-slot:footer>
     </x-admin.ui.card>
 @endif

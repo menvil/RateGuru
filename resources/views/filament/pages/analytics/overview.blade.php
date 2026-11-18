@@ -42,7 +42,7 @@
         <x-admin.ui.card title="Acquisition funnel" :description="$data['funnel']['note']" class="rg-admin-analytics__funnel-card" data-testid="analytics-funnel">
             {{-- Which journey is picked when it is followed: one of the people the filters keep. --}}
             <x-slot:aside>
-                <a href="{{ GrowthAnalyticsPage::getUrl(['tab' => 'journeys']) }}" class="rg-admin-analytics__journey-link" wire:click.prevent="openExampleJourney" data-testid="analytics-example-journey">See an example journey<x-admin.ui.icon name="arrow-right" :size="13" /></a>
+                <a href="{{ GrowthAnalyticsPage::getUrl(['tab' => 'journeys']) }}" class="rg-admin-analytics__journey-link" x-on:click="if (! ($event.metaKey || $event.ctrlKey || $event.shiftKey || $event.altKey)) { $event.preventDefault(); $wire.openExampleJourney() }" data-testid="analytics-example-journey">See an example journey<x-admin.ui.icon name="arrow-right" :size="13" /></a>
             </x-slot:aside>
             <ol class="rg-admin-analytics__funnel">
                 @foreach ($data['funnel']['steps'] as $step)
