@@ -1,0 +1,19 @@
+tests/Feature/Games/VersionTestLinkTest.php
+  s_4b9dc6ab6b25d3::t_3376c620c523aa 161-162
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "6ea12a3e503cd17c2a19c4260226342c406e01bf",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
