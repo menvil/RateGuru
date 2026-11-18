@@ -31,7 +31,8 @@ use Livewire\Livewire;
 beforeEach(function () {
     $this->travelTo(CarbonImmutable::parse('2026-11-17 12:00:00'));
     $this->actingAs(User::factory()->admin()->create());
-    $this->source = TrafficSource::factory()->create(['name' => 'PopAds main']);
+    // The fixtures' sites have a few dozen clicks each: this source judges bots from 30, not the general 100.
+    $this->source = TrafficSource::factory()->create(['name' => 'PopAds main', 'block_bot_clicks' => 30]);
 });
 
 /** Visits from a site of the source: so many clicks, so many of them opening the page, each costing a cent. */
@@ -89,6 +90,8 @@ it('shows ten rows a level and folds the rest into one row that opens a source�
 
 it('lists sites and zones in the block rule’s segments, searched, sorted and paged', function () {
     TrafficSetting::current()->forceFill(['block_bot_clicks' => 5, 'block_open_below' => 50])->save();
+    // The general rule's 5 clicks, not the 30 this source keeps elsewhere.
+    $this->source->forceFill(['block_bot_clicks' => null])->save();
     siteClicks($this->source, '50001', 6, 1);
     siteClicks($this->source, '50002', 4, 4);
 
@@ -165,6 +168,8 @@ it('keeps the block rule in place and shows the sites and zones it picks out', f
 });
 
 it('saves Worth blocking’s general thresholds — the share of the source’s average, the days after a first click and the multiple of a target — refused by their fields', function () {
+    // PopAds main keeps the general rule here: only the banner network has its own.
+    $this->source->forceFill(['block_bot_clicks' => null])->save();
     TrafficSource::factory()->create(['name' => 'Banner network', 'block_bot_clicks' => 60]);
     TrafficSource::factory()->placement()->create(['name' => 'Cat blog sidebar']);
 
@@ -228,7 +233,7 @@ it('calls a site bots below the floor whatever its source’s average, and says 
     siteClicks($this->source, '80001', 100, 3);
     siteClicks($this->source, '80002', 40, 1);
     // A source with a single site is its own average: 2 of 50 opened, 4%.
-    $single = TrafficSource::factory()->create(['name' => 'Single-site network']);
+    $single = TrafficSource::factory()->create(['name' => 'Single-site network', 'block_bot_clicks' => 30]);
     siteClicks($single, '90001', 50, 2);
 
     $page = Livewire::withQueryParams(['view' => 'sites', 'list' => 'site'])->test(TrafficSourcesPage::class)->call('load');
@@ -272,8 +277,8 @@ it('judges Sites & zones by each source’s own thresholds and against its own a
 
     $page->assertSee('Meets the block rule: 10% of 40 clicks opened the page, under 15.7%: 50% of the source’s average of 31.4%');
 
-    // Back on the general rule, the other network's site is bots too: under half its source's 50% average.
-    $patient->forceFill(['block_bot_clicks' => null])->save();
+    // Judged from 30 clicks too, the other network's site is bots as well: under half its source's 50% average.
+    $patient->forceFill(['block_bot_clicks' => 30])->save();
     $page = Livewire::withQueryParams(['view' => 'sites', 'list' => 'site'])->test(TrafficSourcesPage::class)->call('load');
 
     expect(collect($page->viewData('list')['rows'])->firstWhere('ref', '60001')['state'])->toBe('bots')

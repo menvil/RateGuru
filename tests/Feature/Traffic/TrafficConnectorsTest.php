@@ -245,7 +245,8 @@ it('takes a block off the network before it goes, leaves one already going alone
 
 it('blocks by itself the sites the rule calls bots, within the day’s cap, only with a verified API', function () {
     TrafficApiConnection::factory()->create(['source_id' => $this->popads->id, 'next_sync_at' => now()->addHour()]);
-    $this->popads->forceFill(['block_auto' => true, 'block_daily_cap' => 2])->save();
+    // Its sites have a few dozen clicks each: it judges bots from 30, not the general 100.
+    $this->popads->forceFill(['block_auto' => true, 'block_daily_cap' => 2, 'block_bot_clicks' => 30])->save();
 
     foreach (['s1' => 40, 's2' => 35, 's3' => 31] as $site => $clicks) {
         TrafficVisit::factory()->count($clicks)->create(['source_id' => $this->popads->id, 'site_ref' => $site, 'arrived_at' => now()->subHour(), 'network_day' => '2026-11-17', 'opened_at' => null, 'spend' => '0.01']);

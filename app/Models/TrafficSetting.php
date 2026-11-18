@@ -89,7 +89,7 @@ class TrafficSetting extends Model
             'block_open_floor' => 5,
             'block_grace_days' => 3,
             'block_target_multiple' => '2.0',
-            'block_bot_clicks' => 30,
+            'block_bot_clicks' => 100,
             'block_start_clicks' => 60,
             'block_start_percent' => 60,
             'geo_edition' => GeoEdition::GeoLite2City->value,

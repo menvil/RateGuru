@@ -41,7 +41,8 @@ beforeEach(function () {
 function blockingPopAds(array $clicksBySite, int $cap = 10, array $source = []): TrafficSource
 {
     config(['traffic_presets.connectors.popads.verified' => true]);
-    $source = TrafficSource::factory()->create(['connector' => TrafficConnector::PopAds, 'block_level' => TrafficBlockLevel::Site, 'block_auto' => true, 'block_daily_cap' => $cap, ...$source]);
+    // Its sites have a few dozen clicks each: it judges bots from 30, not the general 100.
+    $source = TrafficSource::factory()->create(['connector' => TrafficConnector::PopAds, 'block_level' => TrafficBlockLevel::Site, 'block_auto' => true, 'block_daily_cap' => $cap, 'block_bot_clicks' => 30, ...$source]);
     TrafficApiConnection::factory()->create(['source_id' => $source->id, 'next_sync_at' => now()->addHour()]);
 
     foreach ($clicksBySite as $site => $clicks) {
@@ -178,8 +179,8 @@ it('judges each source’s sites by its own thresholds and against its own avera
     expect(TrafficBlock::query()->pluck('ref')->all())->toBe(['pop-bots'])
         ->and(TrafficBlock::query()->sole()->verdict)->toBe(TrafficBlockVerdict::Bots);
 
-    // Back on the general rule, the patient source's site is bots too.
-    $patient->forceFill(['block_bot_clicks' => null])->save();
+    // Judged from 30 clicks like the other, the patient source's site is bots too.
+    $patient->forceFill(['block_bot_clicks' => 30])->save();
     $this->artisan('traffic:block-losers')->assertSuccessful()->expectsOutput('Queued 1 blocks.');
 
     expect(TrafficBlock::query()->where('source_id', $patient->id)->pluck('ref')->all())->toBe(['p1']);

@@ -290,7 +290,7 @@ it('switches a source between the general block rule and its own thresholds on i
 
     // The general rule: its values read out at the body's leading, no field to type in.
     expect($page->script("[...document.querySelectorAll('{$pane} input')].filter((input) => input.offsetParent !== null).length"))->toBe(0)
-        ->and($page->script("document.querySelector('{$pane} .rg-admin-traffic__rule-line').innerText"))->toBe('Likely bots: at least 30 clicks, and fewer opened the page than 50% and than 50% of the source’s own average, or than 5% whatever the average — 0 for no floor.');
+        ->and($page->script("document.querySelector('{$pane} .rg-admin-traffic__rule-line').innerText"))->toBe('Likely bots: at least 100 clicks, and fewer opened the page than 50% and than 50% of the source’s own average, or than 5% whatever the average — 0 for no floor.');
 
     // Its own thresholds: each field empty, the general value shown in it.
     $page->click($pane.' [role="radio"]:has-text("Own thresholds for this source")');
