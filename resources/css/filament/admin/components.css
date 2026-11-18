@@ -14263,9 +14263,17 @@
         flex: 1;
     }
 
-    /* The audiences on the segmented track, each with its visitors over the period. */
-    .rg-admin-games__audiences .rg-admin-segmented__option {
-        font-size: var(--rg-admin-text-body);
+    /*
+     * The games to choose from (Growth → Analytics → Games), and the audiences
+     * with their visitors: each one segmented track that wraps onto another
+     * line inside itself once it is wider than the bar, as on a phone, rather
+     * than running past the page's edge.
+     */
+    .rg-admin-games__game-choices,
+    .rg-admin-games__audiences {
+        flex-wrap: wrap;
+        flex-shrink: 1;
+        max-width: 100%;
     }
 
     .rg-admin-games__audience-count {
@@ -14458,6 +14466,13 @@
         margin: 0;
     }
 
+    /* From a tablet on, five figures stay in one row down to the 1024 content width, as the reference keeps them. */
+    @media (min-width: 768px) {
+        .rg-admin-games__kpis {
+            grid-template-columns: repeat(auto-fit, minmax(min(100%, 140px), 1fr));
+        }
+    }
+
     .rg-admin-games__kpi {
         display: flex;
         flex-direction: column;
@@ -14522,12 +14537,12 @@
     }
 
     @media (max-width: 767.98px) {
-        .rg-admin-games .rg-admin-card__header--aside:has(.rg-admin-games__card-tools) {
+        .rg-admin-card__header--aside:has(.rg-admin-games__card-tools) {
             flex-wrap: wrap;
         }
 
         /* On a phone the heading has the first line to itself; the tools go under it. */
-        .rg-admin-games .rg-admin-card__header--aside:has(.rg-admin-games__card-tools) > .rg-admin-card__heading {
+        .rg-admin-card__header--aside:has(.rg-admin-games__card-tools) > .rg-admin-card__heading {
             flex-basis: 100%;
         }
 

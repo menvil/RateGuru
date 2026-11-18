@@ -42,7 +42,7 @@ function visitAnalyticsExperiments(string $url, int $width = 1440): mixed
 it('draws the tab at every width, the table scrolling inside its card with the metric column held in place, never the page', function (int $width) {
     $page = visitAnalyticsExperiments('/admin/analytics?tab=experiments', $width);
 
-    expect($page->script("[...document.querySelectorAll('.rg-admin-analytics__tabs .rg-admin-tab')].map((tab) => tab.textContent.trim())"))->toBe(['Overview', 'Experiments'])
+    expect($page->script("[...document.querySelectorAll('.rg-admin-analytics__tabs .rg-admin-tab')].map((tab) => tab.textContent.trim())"))->toBe(['Overview', 'Games', 'Experiments'])
         ->and($page->script("document.querySelector('.rg-admin-experiments__name')?.textContent.trim()"))->toBe('V7 vs V8 vs V9')
         ->and($page->script(<<<'JS'
             (() => {

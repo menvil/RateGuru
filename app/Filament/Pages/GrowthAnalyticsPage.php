@@ -6,7 +6,9 @@ use App\Enums\TrafficDevice;
 use App\Filament\Pages\Analytics\AnalyticsTab;
 use App\Filament\Pages\Analytics\AnalyticsView;
 use App\Filament\Pages\Analytics\ExperimentsTab;
+use App\Filament\Pages\Analytics\GamesTab;
 use App\Filament\Pages\Analytics\OverviewTab;
+use App\Filament\Resources\Games\Analytics\ReadsGameAnalytics;
 use App\Filament\Support\AdminNavigationGroup;
 use App\Queries\Games\ComparisonPeriodsQuery;
 use App\Support\Analytics\AnalyticsFilter;
@@ -28,32 +30,41 @@ use UnitEnum;
  * Analytics reads at a time), a device, a source and a campaign narrow every
  * figure of the tab open that reads visits; Experiments reads who each
  * traffic period assigned to which version instead, and none of them
- * applies to it. The strip lists only the tabs built so far.
+ * applies to it; Games is a game's own analytics, of the period and the
+ * device with the game's own filters (ReadsGameAnalytics), the source and
+ * campaign said not to apply. The strip lists only the tabs built so far.
  *
  * Everything on screen is in the address — the tab, the period, the device,
  * the source and campaign, a tab's own sorting, the comparison Experiments
- * shows — and anything it can't read is the default. Asking for the page
- * reads no visits: the open tab's figures are read once the page is in a
- * browser (wire:init), and only the open tab's. A source chosen whose
- * campaign isn't one of its own drops the campaign. The page, and every
- * request it answers, is an active administrator's who may manage traffic
- * sources.
+ * shows, the game Games shows and its filters — and anything it can't read
+ * is the default. Asking for the page reads no visits: the open tab's
+ * figures are read once the page is in a browser (wire:init), and only the
+ * open tab's. A source chosen whose campaign isn't one of its own drops the
+ * campaign. The page, and every request it answers, is an active
+ * administrator's who may manage traffic sources.
  */
 final class GrowthAnalyticsPage extends Page
 {
+    use ReadsGameAnalytics;
+
     /** @var array<string, string> the tabs built so far, in the reference's order: the strip lists these and no other */
-    public const array TABS = ['overview' => 'Overview', 'experiments' => 'Experiments'];
+    public const array TABS = ['overview' => 'Overview', 'games' => 'Games', 'experiments' => 'Experiments'];
 
     /** @var array<string, class-string<AnalyticsTab>> what each tab of the strip reads */
-    public const array TAB_DATA = ['overview' => OverviewTab::class, 'experiments' => ExperimentsTab::class];
+    public const array TAB_DATA = ['overview' => OverviewTab::class, 'games' => GamesTab::class, 'experiments' => ExperimentsTab::class];
 
     /**
-     * @var list<string> the tabs that read no visits — Experiments reads who
-     *                   was assigned to which version — so what the page says
-     *                   about recorded visits, and the states it draws for
-     *                   none, don't apply to them
+     * @var list<string> the tabs not counted from the visits Analytics
+     *                   records — Experiments reads who was assigned to which
+     *                   version, Games what playing recorded, saying itself
+     *                   what Traffic sources didn't record — so what the page
+     *                   says about recorded visits, and the states it draws
+     *                   for none, don't apply to them
      */
-    public const array WITHOUT_VISITS = ['experiments'];
+    public const array OWN_STATES = ['games', 'experiments'];
+
+    /** @var list<string> the tabs the source and campaign filters don't apply to: each says so while one is chosen */
+    public const array WITHOUT_SOURCE = ['games'];
 
     /** @var array<string, string> how Overview's sources table can be sorted */
     public const array SORTS = ['visitors' => 'Visitors', 'start' => 'Start rate', 'registration' => 'Registration rate', 'activation' => 'Activation rate'];
@@ -107,6 +118,10 @@ final class GrowthAnalyticsPage extends Page
     /** Experiments: the comparison shown, a traffic period's id; the latest while none is named. */
     #[Url(except: '')]
     public mixed $exp = '';
+
+    /** Games: the game shown, the id of one not archived; the first while none is named or the one named isn't offered. */
+    #[Url(except: '')]
+    public mixed $game = '';
 
     /** Whether the page is in a browser: only then does the open tab read its figures. */
     public bool $ready = false;
@@ -206,13 +221,13 @@ final class GrowthAnalyticsPage extends Page
         $filter = $this->filter();
         $period = $filter->period;
         $view = app(AnalyticsView::class);
-        $withoutVisits = in_array($this->tab, self::WITHOUT_VISITS, true);
-        $recordedSince = $this->ready && ! $withoutVisits ? $view->recordedSince() : null;
+        $ownStates = in_array($this->tab, self::OWN_STATES, true);
+        $recordedSince = $this->ready && ! $ownStates ? $view->recordedSince() : null;
 
         // Nothing to read yet when no visit was ever recorded, or none until after the period.
         $state = match (true) {
             ! $this->ready => 'loading',
-            $withoutVisits => 'ready',
+            $ownStates => 'ready',
             $recordedSince === null => 'nothing',
             $period->toDay < $recordedSince->toDateString() => 'early',
             default => 'ready',
@@ -221,8 +236,13 @@ final class GrowthAnalyticsPage extends Page
 
         return [
             ...$shell,
-            // Whether visits are recorded is nothing to a tab that reads none.
-            'notices' => $withoutVisits ? [] : $shell['notices'],
+            'notices' => [
+                // Whether visits are recorded is nothing to a tab not counted from them.
+                ...($ownStates ? [] : $shell['notices']),
+                ...(in_array($this->tab, self::WITHOUT_SOURCE, true) && $filter->narrowsSource()
+                    ? [['tone' => 'info', 'text' => 'The source and campaign filters don’t apply on this tab.', 'action' => null]]
+                    : []),
+            ],
             'ready' => $this->ready,
             'state' => $state,
             'since' => $recordedSince?->format('d M Y'),
@@ -320,5 +340,15 @@ final class GrowthAnalyticsPage extends Page
         $this->sort = is_string($this->sort) && array_key_exists($this->sort, self::SORTS) ? $this->sort : 'visitors';
         // The comparison is the Experiments tab's alone.
         $this->exp = $this->tab === 'experiments' && (is_int($this->exp) || is_string($this->exp)) && preg_match('/^[1-9]\d{0,17}$/', (string) $this->exp) === 1 ? (string) $this->exp : '';
+
+        // The game and its filters are the Games tab's alone.
+        if ($this->tab === 'games') {
+            $game = GamesTab::chosen($this->game);
+            $this->game = $game === null ? '' : (string) $game;
+            $this->settleGameAnalytics($game ?? 0);
+        } else {
+            $this->game = '';
+            $this->clearGameAnalytics();
+        }
     }
 }

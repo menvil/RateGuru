@@ -1,5 +1,6 @@
 <?php
 
+use App\Enums\GameStatus;
 use App\Filament\Pages\Dashboard;
 use App\Filament\Pages\ExperimentsPage;
 use App\Filament\Pages\GrowthAnalyticsPage;
@@ -24,6 +25,7 @@ use App\Filament\Support\AdminNavigationGroup;
 use App\Filament\Support\AdminShellNavigation;
 use App\Livewire\Admin\Sidebar;
 use App\Livewire\Admin\Topbar;
+use App\Models\Game;
 use App\Models\ProjectSettings;
 use App\Models\RatingGroup;
 use App\Models\StudioPlan;
@@ -210,6 +212,18 @@ it('carries Analytics’ period in the top bar, beside its breadcrumb', function
         ->and($topbar)->toContain('aria-current="page">Analytics')
         ->and($topbar)->toContain('x-on:rg-admin-analytics-range.window')
         ->and($topbar)->toContain('>12 Nov — 18 Nov 2026</span>');
+});
+
+it('keeps Analytics’ own breadcrumb on its Games tab, naming no game', function () {
+    $game = Game::factory()->status(GameStatus::Live)->create(['title' => 'Trust Your Taste']);
+
+    $html = $this->actingAs(User::factory()->admin()->create())->get(GrowthAnalyticsPage::getUrl(['tab' => 'games', 'game' => $game->id]))->assertOk()->getContent();
+    $topbar = substr($html, (int) strpos($html, 'class="rg-admin rg-admin-shell-topbar"'), 6000);
+
+    expect(adminShellCurrent($html))->toBe('Analytics')
+        ->and($topbar)->toContain('aria-current="page">Analytics')
+        ->and($topbar)->not->toContain('Trust Your Taste')
+        ->and($topbar)->not->toContain('rg-admin-breadcrumb__link');
 });
 
 it('names the section and page in the breadcrumb without loading any record', function () {
