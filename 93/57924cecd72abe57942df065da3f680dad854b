@@ -1,0 +1,27 @@
+app/Actions/Traffic/SyncTrafficNetworkAction.php
+  s_4b9dc6ab6b25d3::t_7fa9a002b96915 34-36,43,81,92
+docs/architecture/traffic.md
+  s_4b9dc6ab6b25d3::t_7fa9a002b96915 275-279
+app/Filament/Pages/TrafficSources/TrafficSourcesView.php
+  s_4b9dc6ab6b25d3::t_7fa9a002b96915 1036
+resources/views/filament/pages/traffic-sources/source-editor.blade.php
+  s_4b9dc6ab6b25d3::t_7fa9a002b96915 124
+tests/Feature/Traffic/TrafficConnectorsTest.php
+  s_4b9dc6ab6b25d3::t_7fa9a002b96915 102
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "9357924cecd72abe57942df065da3f680dad854b",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
