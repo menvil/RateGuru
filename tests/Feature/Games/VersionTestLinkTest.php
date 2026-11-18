@@ -158,6 +158,8 @@ it('is the ordinary game page for a link unsigned, tampered with, expired, or to
 ]);
 
 it('offers Copy test link in Preview for a published version still active, and nothing for the draft or an archived one', function () {
+    // The link's expiry is read to the second: the clock stands still while the page draws it.
+    $this->freezeTime();
     $this->actingAs($this->draft['admin']);
     $page = Livewire::test(PreviewGame::class, ['record' => $this->game->id])->assertDontSee('Copy test link');
 
