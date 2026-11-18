@@ -45,7 +45,10 @@ it('starts with the starting prices in force', function () {
         ->and($prices->groupOf('FR'))->toBe(['key' => 't2', 'percent' => 60])
         ->and($prices->groupOf('IN'))->toBe(['key' => 'rest', 'percent' => 30])
         // A visit whose country isn't known counts with every other country.
-        ->and($prices->groupOf(null))->toBe(['key' => 'rest', 'percent' => 30]);
+        ->and($prices->groupOf(null))->toBe(['key' => 'rest', 'percent' => 30])
+        // No source has an account price of its own yet: every one counts the site's.
+        ->and($prices->source_account_prices)->toBeNull()
+        ->and($prices->sourceAccountPrices())->toBe([]);
 });
 
 it('keeps one of each thing the tracker counts once', function () {

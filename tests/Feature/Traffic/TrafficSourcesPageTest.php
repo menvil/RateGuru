@@ -91,6 +91,84 @@ it('switches recording on, and saves new prices as a new set', function () {
         ->and(TrafficPriceSet::current()->login_price)->toBe('0.1500');
 });
 
+it('gives a paid source its own account price on Value, beside what its accounts brought, saved with the prices', function () {
+    $exo = TrafficSource::factory()->create(['name' => 'ExoClick main']);
+    $idle = TrafficSource::factory()->create(['name' => 'PopAds idle']);
+    TrafficVisit::factory()->create(['source_id' => $exo->id, 'arrived_at' => '2026-11-16 10:00:00', 'network_day' => '2026-11-16', 'opened_at' => '2026-11-16 10:00:00', 'account_at' => '2026-11-16 11:00:00', 'value_real' => '0.9']);
+    $before = TrafficPriceSet::current()->id;
+
+    $page = Livewire::withQueryParams(['tab' => 'value'])->test(TrafficSourcesPage::class)
+        ->call('load')
+        ->assertSee('Account price')
+        ->assertSeeHtml('aria-label="Account price of ExoClick main"')
+        ->assertSeeHtml('placeholder="0.50"')
+        // Every paid source has a row, one without a visit in the period too; an account from ExoClick brought $0.90 on average.
+        ->assertViewHas('sourceRows', fn (array $rows): bool => collect($rows)->firstWhere('id', $exo->id)['brings'] === '0.90000000'
+            && collect($rows)->firstWhere('id', $idle->id)['figures']->accounts === 0)
+        ->set('accountPrices.'.$exo->id, '0.85')
+        ->call('savePrices')
+        ->assertHasNoErrors()
+        ->assertSet('accountPrices.'.$exo->id, '0.85')
+        ->assertDispatched('rg-admin-toast', message: 'Prices saved. Visits from now on count by them; earlier ones keep theirs.');
+
+    $set = TrafficPriceSet::current();
+
+    expect($set->id)->not->toBe($before)
+        ->and($set->sourceAccountPrices())->toBe([$exo->id => '0.8500'])
+        ->and($set->summary)->toEndWith('; ExoClick main account $0.85');
+
+    $page->assertViewHas('priceChanges', fn (array $changes): bool => str_ends_with($changes[0]['summary'], 'ExoClick main account $0.85'))
+        ->assertViewHas('ownPrices', [['name' => 'ExoClick main', 'price' => '0.8500']])
+        ->assertSee('own account price: ExoClick main $0.85')
+        ->set('accountPrices.'.$idle->id, '-2')
+        ->call('savePrices')
+        ->assertHasErrors(['source_account_prices.'.$idle->id])
+        // Said aloud, since the price can be far from the button that saved it.
+        ->assertDispatched('rg-admin-toast', tone: 'error')
+        ->set('accountPrices.'.$idle->id, '')
+        ->set('accountPrices.'.$exo->id, '')
+        ->call('savePrices')
+        ->assertHasNoErrors();
+
+    expect(TrafficPriceSet::current()->source_account_prices)->toBeNull();
+
+    // With the page on one source, the card lists that source alone, not every other paid source as empty.
+    Livewire::withQueryParams(['tab' => 'value', 'source' => (string) $exo->id])->test(TrafficSourcesPage::class)
+        ->call('load')
+        ->assertViewHas('sourceRows', fn (array $rows): bool => collect($rows)->whereNotNull('id')->pluck('id')->all() === [$exo->id]);
+});
+
+it('values a new visitor on Value with the sources’ own account prices mixed in as their accounts came', function () {
+    $exo = TrafficSource::factory()->create(['name' => 'ExoClick main']);
+    TrafficPriceSet::factory()->create(['source_account_prices' => [$exo->id => '0.8000']]);
+    // 10 of the site's 40 accounts came from ExoClick: (10 × $0.80 + 30 × $0.50) / 40 an account.
+    finishedChanceRun([
+        '*' => ['opened' => ['chance' => 0.1, 'visitors' => 400, 'accounts' => 40]],
+        's'.$exo->id => ['opened' => ['chance' => 0.1, 'visitors' => 100, 'accounts' => 10]],
+    ]);
+
+    Livewire::withQueryParams(['tab' => 'value'])->test(TrafficSourcesPage::class)
+        ->call('load')
+        ->assertViewHas('visitorWorth', '0.05750000')
+        ->assertViewHas('sourceRows', fn (array $rows): bool => collect($rows)->firstWhere('id', $exo->id)['brings'] === '0.80000000')
+        ->assertViewHas('unpaidRow', fn (array $row): bool => $row['brings'] === '0.50000000')
+        ->assertSee('the sources’ own account prices mixed in as their accounts came');
+});
+
+it('shows a source’s account price in its editor, its own or the site’s, with the way to Value', function () {
+    $exo = TrafficSource::factory()->create(['name' => 'ExoClick main']);
+    $pop = TrafficSource::factory()->create(['name' => 'PopAds main']);
+    TrafficPriceSet::factory()->create(['source_account_prices' => [$exo->id => '0.8500']]);
+    // The same period, at the card where it is set, in a tab of its own.
+    $value = e(TrafficSourcesPage::getUrl(['tab' => 'value']).'#traffic-value-sources');
+
+    Livewire::withQueryParams(['tab' => 'sources', 'edit' => $exo->id])->test(TrafficSourcesPage::class)
+        ->assertSeeHtmlInOrder(['data-testid="traffic-source-account-price"', 'What an account from it is worth', '$0.85', 'href="'.$value.'"', 'Set on Value', 'Its own account price, in place of the site’s $0.50.']);
+
+    Livewire::withQueryParams(['tab' => 'sources', 'edit' => $pop->id])->test(TrafficSourcesPage::class)
+        ->assertSeeHtmlInOrder(['data-testid="traffic-source-account-price"', '$0.50', 'The site’s account price: it has none of its own.']);
+});
+
 it('refuses a sign-in price that is no amount, by its field', function () {
     Livewire::test(TrafficSourcesPage::class)
         ->set('prices.login_price', 'free')

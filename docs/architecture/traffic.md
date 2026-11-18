@@ -67,9 +67,30 @@ times the group's share is what the visit is worth so far, and nothing more is
 expected of it; it never enters the chances and is never told to a network, the
 visitor being a known one. Other known visitors are worth nothing; a value set
 by hand on a game's Value tab counts always or while the data is thin — never
-for the account or a sign-in, which are priced once for the whole site. Prices
+for the account or a sign-in, which are priced on Traffic sources → Value: for
+the whole site, an account also per paid source. Prices
 and country groups are immutable sets: every visit keeps the set it arrived
-under, so a price change never recounts the past. A visit's worth so far and
+under, so a price change never recounts the past.
+
+A paid source — an ad network or a banner or link — can have an account price
+of its own (`traffic_price_sets.source_account_prices`, source id → price),
+because an account from one network can be worth more to the site than from
+another. It lives in the set like every other price: saving it adds a set,
+saving the site's prices or the country groups carries it over, a blank takes
+it away, and a visit keeps the set it arrived under — so a later price for its
+source never moves what the visit is worth, and postbacks already sent keep
+their value. An account from such a source is worth its own price in place of
+the site's, with the bonuses and the group's share on top as ever
+(`WorthPrices::forSource`); unpaid traffic always counts the site's price, and
+the chances never change — they are probabilities, not prices. The same price
+reaches everything that values an account: a step's worth and a visit's
+(`StepWorth`, `VisitValue`, `TrafficVisitWorth`), the nightly revaluation,
+settling and `{value}`/`{value_total}`, a game's Value tab for that source,
+and Traffic sources → Value. Where every source counts at once — a game's
+Value tab on All sources, what a new visitor is worth site-wide — the sources'
+own prices are mixed in by how many of the slice's confirmed accounts in the
+last run came from each, the rest at the site's price (`WorthPrices::mixed`,
+`TrafficWorthQuery::pricesFor`), and the tab says so. A visit's worth so far and
 still to come (`VisitValue`) is kept on the visit and brought up to date
 nightly. The starting set prices an account $0.50, a first post $1 more, a
 return $0.20 more and a sign-in $0, and counts Tier 1 at 100 %, Tier 2 at 60 %

@@ -298,6 +298,22 @@ it('settles a visit at once when its account is confirmed, with the account’s 
     expect(TrafficConversion::query()->where('event', TrafficEvent::Settled)->count())->toBe(1);
 });
 
+it('tells a network what an account is worth at its source’s own price, in {value} and {value_total}', function () {
+    TrafficPostbackRule::factory()->create(['source_id' => $this->source->id, 'event' => TrafficEvent::Settled, 'url_template' => 'https://pb.example.com/s?id={click_id}&v={value}&t={value_total}', 'enabled' => true]);
+    $other = TrafficSource::factory()->create();
+    TrafficPostbackRule::factory()->create(['source_id' => $other->id, 'event' => TrafficEvent::Settled, 'url_template' => 'https://pb.example.com/o?id={click_id}&v={value}&t={value_total}', 'enabled' => true]);
+    TrafficPriceSet::factory()->create(['source_account_prices' => [$this->source->id => '0.9000']]);
+    $own = paidClick($this->source);
+    $site = paidClick($other, ['click_hash' => hash('sha256', 'other click')]);
+
+    DB::transaction(fn () => app(MarkTrafficVisitAction::class)->handle($own->id, TrafficEvent::Account, now()->toImmutable()));
+    DB::transaction(fn () => app(MarkTrafficVisitAction::class)->handle($site->id, TrafficEvent::Account, now()->toImmutable()));
+
+    expect((string) TrafficConversion::query()->where('visit_id', $own->id)->where('event', TrafficEvent::Settled)->sole()->value)->toStartWith('0.9')
+        ->and(TrafficPostback::query()->where('source_id', $this->source->id)->sole()->url)->toBe('https://pb.example.com/s?id={click_id}&v=0.9&t=0.9')
+        ->and(TrafficPostback::query()->where('source_id', $other->id)->sole()->url)->toBe('https://pb.example.com/o?id={click_id}&v=0.5&t=0.5');
+});
+
 it('never tells a network of a sign-in to an existing account, nor of the visit settling after it, however it is priced', function () {
     TrafficPostbackRule::factory()->create(['source_id' => $this->source->id, 'event' => TrafficEvent::Settled, 'url_template' => 'https://pb.example.com/s?id={click_id}&v={value}', 'enabled' => true]);
     $priced = TrafficPriceSet::factory()->create(['login_price' => '0.4']);

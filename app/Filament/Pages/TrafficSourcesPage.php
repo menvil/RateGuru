@@ -207,6 +207,9 @@ final class TrafficSourcesPage extends Page
     /** @var array{account_price: string, post_bonus: string, returned_bonus: string, login_price: string} */
     public array $prices = ['account_price' => '', 'post_bonus' => '', 'returned_bonus' => '', 'login_price' => ''];
 
+    /** @var array<int|string, string> each paid source's own account price, as typed on Value by source id; blank counts the site's */
+    public array $accountPrices = [];
+
     /** @var list<array{key: string, name: string, percent: int|string, countries: string}> */
     public array $groups = [];
 
@@ -908,12 +911,17 @@ final class TrafficSourcesPage extends Page
 
     // Value ----------------------------------------------------------------
 
+    /** Saves the site's prices with each paid source's own account price as typed beside it, as one new set. */
     public function savePrices(): void
     {
+        $sourcePrices = array_filter($this->accountPrices, fn (mixed $price, int|string $sourceId): bool => ctype_digit((string) $sourceId), ARRAY_FILTER_USE_BOTH);
+
         try {
-            app(SaveTrafficPricesAction::class)->prices($this->admin(), $this->prices, $this->pricesFrom);
+            app(SaveTrafficPricesAction::class)->prices($this->admin(), $this->prices, $this->pricesFrom, $sourcePrices);
         } catch (ValidationException $exception) {
             $this->setErrorBag($exception->validator->errors());
+            // Said aloud too: a source's price can be wrong far from the button that saved it.
+            $this->toast((string) collect($exception->errors())->flatten()->first(), 'error');
 
             return;
         } catch (CannotManageTrafficException $exception) {
@@ -1120,6 +1128,7 @@ final class TrafficSourcesPage extends Page
         // Prices read as money: two decimals, more only where a price has them.
         $money = fn (string $amount): string => number_format((float) $amount, max(2, strlen(rtrim((string) substr((string) strrchr($amount, '.'), 1), '0'))), '.', '');
         $this->prices = ['account_price' => $money((string) $set->account_price), 'post_bonus' => $money((string) $set->post_bonus), 'returned_bonus' => $money((string) $set->returned_bonus), 'login_price' => $money((string) $set->login_price)];
+        $this->accountPrices = array_map($money, $set->sourceAccountPrices());
         $this->groups = array_map(fn (array $group): array => ['key' => $group['key'], 'name' => $group['name'], 'percent' => $group['percent'], 'countries' => implode(', ', $group['countries'])], $set->country_groups);
     }
 

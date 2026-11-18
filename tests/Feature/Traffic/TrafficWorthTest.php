@@ -219,3 +219,89 @@ it('works the worth out again only when the country groups changed', function ()
     $this->artisan('traffic:work-out-worth --when-groups-changed')->assertSuccessful();
     expect(TrafficChanceRun::query()->count())->toBe(2);
 });
+
+it('keeps a paid source’s own account price in a new set, carries it over every other save, and takes it away when blank', function () {
+    $exo = TrafficSource::factory()->create(['name' => 'ExoClick main']);
+    $pop = TrafficSource::factory()->create(['name' => 'PopAds main']);
+    $site = ['account_price' => '0.5', 'post_bonus' => '1', 'returned_bonus' => '0.2', 'login_price' => '0'];
+    $first = TrafficPriceSet::current();
+
+    $priced = app(SaveTrafficPricesAction::class)->prices($this->admin, $site, $first->id, [$exo->id => ' 0.8 ', $pop->id => '']);
+
+    expect($priced->sourceAccountPrices())->toBe([$exo->id => '0.8000'])
+        ->and($priced->summary)->toBe('Prices: account $0.50, first post $1.00, return $0.20, existing account signed in $0.00; ExoClick main account $0.80')
+        ->and($first->fresh()->source_account_prices)->toBeNull();
+
+    // Saving the groups, or the site's prices alone, keeps the source's own price; the summary names only what changed.
+    $grouped = app(SaveTrafficPricesAction::class)->groups($this->admin, [['key' => 'all', 'name' => 'All', 'percent' => 100, 'countries' => []]], $priced->id);
+    $repriced = app(SaveTrafficPricesAction::class)->prices($this->admin, [...$site, 'account_price' => '0.6'], $grouped->id);
+
+    expect($grouped->sourceAccountPrices())->toBe([$exo->id => '0.8000'])
+        ->and($repriced->sourceAccountPrices())->toBe([$exo->id => '0.8000'])
+        ->and($repriced->account_price)->toBe('0.6000')
+        ->and($repriced->summary)->toBe('Prices: account $0.60, first post $1.00, return $0.20, existing account signed in $0.00');
+
+    $both = app(SaveTrafficPricesAction::class)->prices($this->admin, $site, $repriced->id, [$exo->id => '0.9', $pop->id => '0.35']);
+    $cleared = app(SaveTrafficPricesAction::class)->prices($this->admin, $site, $both->id, [$exo->id => ' ']);
+
+    expect($both->summary)->toEndWith('; ExoClick main account $0.90, PopAds main account $0.35')
+        ->and($cleared->sourceAccountPrices())->toBe([$pop->id => '0.3500'])
+        ->and($cleared->summary)->toEndWith('; ExoClick main account at the site price')
+        // Each set keeps what it was saved with.
+        ->and($both->fresh()->sourceAccountPrices())->toBe([$exo->id => '0.9000', $pop->id => '0.3500']);
+});
+
+it('prices a source’s own account price as strictly as the site’s, and only for a paid source', function () {
+    $exo = TrafficSource::factory()->create(['name' => 'ExoClick main']);
+    $site = ['account_price' => '0.5', 'post_bonus' => '1', 'returned_bonus' => '0.2', 'login_price' => '0'];
+    $save = fn (array $sourcePrices) => app(SaveTrafficPricesAction::class)->prices($this->admin, $site, TrafficPriceSet::current()->id, $sourcePrices);
+    $refusal = function (callable $save): array {
+        try {
+            $save();
+        } catch (ValidationException $exception) {
+            return $exception->errors();
+        }
+
+        return [];
+    };
+
+    expect($refusal(fn () => $save([$exo->id => '-1'])))->toHaveKey('source_account_prices.'.$exo->id)
+        ->and((string) collect($refusal(fn () => $save([$exo->id => 'free'])))->flatten()->first())->toContain('account price of ExoClick main')
+        ->and($refusal(fn () => $save([$exo->id => '1000.01'])))->toHaveKey('source_account_prices.'.$exo->id)
+        ->and($refusal(fn () => $save([$exo->id + 1000 => '0.8'])))->toBe(['source_account_prices.'.($exo->id + 1000) => ['Only a paid source has an account price of its own.']])
+        ->and($refusal(fn () => $save(['abc' => '0.8'])))->toHaveKey('source_account_prices.abc')
+        ->and(TrafficPriceSet::query()->count())->toBe(1);
+});
+
+it('values a paid visit at its source’s own account price from the visit’s own set, unpaid traffic at the site’s, and a later price never moves either', function () {
+    $exo = TrafficSource::factory()->create();
+    $pop = TrafficSource::factory()->create();
+    $set = TrafficPriceSet::factory()->create(['source_account_prices' => [$exo->id => '0.8000']]);
+    $own = TrafficVisit::factory()->create(['source_id' => $exo->id, 'price_set_id' => $set->id, 'opened_at' => now()]);
+    $other = TrafficVisit::factory()->create(['source_id' => $pop->id, 'price_set_id' => $set->id, 'opened_at' => now()]);
+    $unpaid = TrafficVisit::factory()->unpaid()->create(['price_set_id' => $set->id, 'opened_at' => now()]);
+    $worth = app(TrafficVisitWorth::class);
+
+    expect((string) $worth->step($own, 'account')['value'])->toBe('0.80000000')
+        ->and((string) $worth->step($other, 'account')['value'])->toBe('0.50000000')
+        ->and((string) $worth->step($unpaid, 'account')['value'])->toBe('0.50000000');
+
+    // Signed up then, so the nightly revaluation below takes both up while their bonuses are still open.
+    app(MarkTrafficVisitAction::class)->handle($own->id, TrafficEvent::Account, $this->now, ['signup_at' => $this->now]);
+    app(MarkTrafficVisitAction::class)->handle($unpaid->id, TrafficEvent::Account, $this->now, ['signup_at' => $this->now]);
+
+    expect($own->fresh()->value_real)->toBe('0.80000000')
+        ->and($unpaid->fresh()->value_real)->toBe('0.50000000');
+
+    // A new set prices the source higher: visits from now on count by it, the earlier ones keep theirs.
+    $newer = app(SaveTrafficPricesAction::class)->prices($this->admin, ['account_price' => '1', 'post_bonus' => '1', 'returned_bonus' => '0.2', 'login_price' => '0'], $set->id, [$exo->id => '2']);
+    app(MarkTrafficVisitAction::class)->handle($own->id, TrafficEvent::Returned, $this->now->addDay());
+    app(RevalueOpenVisitsAction::class)->handle($this->now->addDays(2));
+    $this->artisan('traffic:work-out-worth')->assertSuccessful();
+    $later = TrafficVisit::factory()->create(['source_id' => $exo->id, 'price_set_id' => $newer->id, 'opened_at' => now()]);
+
+    expect($own->fresh()->value_real)->toBe('1.00000000')
+        ->and((string) app(TrafficVisitWorth::class)->step($own->fresh(), 'account')['value'])->toBe('0.80000000')
+        ->and($unpaid->fresh()->value_real)->toBe('0.50000000')
+        ->and((string) app(TrafficVisitWorth::class)->step($later, 'account')['value'])->toBe('2.00000000');
+});

@@ -106,6 +106,40 @@ it('shows what a sign-in to an existing account is worth, at the price of the wh
         ->assertViewHas('rows', fn (array $rows): bool => collect($rows['accounts'])->firstWhere('step', 'login')['worth'] === '0.12000000');
 });
 
+it('prices an account at the source’s own price with the source filter, and mixes the sources’ prices in for every source, saying so', function () {
+    $game = $this->draft['game'];
+    $exo = TrafficSource::factory()->create(['name' => 'ExoClick main']);
+    $pop = TrafficSource::factory()->create(['name' => 'PopAds main']);
+    TrafficPriceSet::factory()->create(['source_account_prices' => [$exo->id => '0.8000']]);
+    // 10 of the game's 40 accounts came from ExoClick.
+    finishedChanceRun([
+        'g'.$game->id => ['opened' => ['chance' => 0.1, 'visitors' => 400, 'accounts' => 40]],
+        'g'.$game->id.'|s'.$exo->id => ['opened' => ['chance' => 0.1, 'visitors' => 100, 'accounts' => 10]],
+    ]);
+    $account = fn (string $worth): Closure => fn (array $rows): bool => collect($rows['accounts'])->firstWhere('step', 'account')['worth'] === $worth;
+
+    Livewire::test(GameValue::class, ['record' => $game->id])
+        // (10 × $0.80 + 30 × $0.50) / 40 accounts.
+        ->assertViewHas('rows', $account('0.57500000'))
+        ->assertViewHas('rows', fn (array $rows): bool => collect($rows['playing'])->firstWhere('step', 'opened')['worth'] === '0.05750000')
+        ->assertSee('Sources’ own prices mixed in')
+        ->assertSeeHtml('data-testid="game-value-price-note"')
+        ->assertSee('ExoClick main has an account price of its own, mixed in here as its accounts came: $0.58 an account rather than the site’s $0.50.')
+        ->assertSee('Mixed price $0.58')
+        ->set('source', 's'.$exo->id)
+        ->assertViewHas('rows', $account('0.80000000'))
+        ->assertViewHas('rows', fn (array $rows): bool => collect($rows['playing'])->firstWhere('step', 'opened')['worth'] === '0.08000000')
+        ->assertSee('Own price of this source')
+        ->assertSee('ExoClick main counts an account at its own price, $0.80, not the site’s $0.50.')
+        ->assertSee('Its own price $0.80')
+        ->assertViewHas('bySource', fn (array $rows): bool => collect($rows)->firstWhere('key', 'all')['account'] === '0.57500000')
+        ->set('source', 's'.$pop->id)
+        ->assertViewHas('rows', $account('0.50000000'))
+        ->assertDontSeeHtml('data-testid="game-value-price-note"')
+        ->set('source', 'c:search')
+        ->assertViewHas('rows', $account('0.50000000'));
+});
+
 it('shows the game’s sources, its paid traffic and the postbacks that send its steps', function () {
     $game = $this->draft['game'];
     $source = TrafficSource::factory()->create(['name' => 'PopAds main']);

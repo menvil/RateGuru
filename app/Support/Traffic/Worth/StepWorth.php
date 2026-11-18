@@ -14,7 +14,9 @@ use Brick\Math\RoundingMode;
  * a known visitor, nothing; the account's worth for the account; the
  * administrator's own value when it is set to always count, or while the
  * slice is thin; else the chance of an account from the step times what an
- * account is worth.
+ * account is worth. An account is priced as the slice's source prices it —
+ * its own account price when the set gives it one, else the site's; a slice
+ * of unpaid traffic or of every source is priced as the prices it is given.
  */
 final class StepWorth
 {
@@ -24,6 +26,8 @@ final class StepWorth
      */
     public static function of(Slice $slice, string $step, WorthPrices $prices, int $percent, bool $known, ?array $manual, ChanceTable $table): array
     {
+        $prices = $prices->forSource($slice->sourceId);
+
         // A sign-in is an outcome of its own: no chance of a new account leads on from it.
         if ($step === 'login') {
             return ['value' => $prices->login($percent), 'basis' => TrafficValueBasis::Outcome, 'chance' => 0.0];

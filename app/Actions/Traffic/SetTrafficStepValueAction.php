@@ -21,7 +21,8 @@ use Illuminate\Validation\ValidationException;
  * the data behind the step is thin — or its removal. It counts from the next
  * postback at once, with no new version; the visits still open take it on
  * the next night. An account and a sign-in have no value to set here: both
- * are priced once for the whole site, on Traffic sources → Value.
+ * are priced on Traffic sources → Value, for the whole site, an account
+ * also per paid source.
  */
 final class SetTrafficStepValueAction
 {

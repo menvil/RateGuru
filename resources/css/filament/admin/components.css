@@ -15995,12 +15995,21 @@
         white-space: nowrap;
     }
 
+    /*
+     * Accounts by source: a source a line while the card is wide; narrower,
+     * the source on a line of its own with its figures under the headings
+     * below it; narrower still, each figure under its own label, as many to
+     * a line as fit.
+     */
+    .rg-admin-traffic__sources {
+        container-type: inline-size;
+    }
+
     .rg-admin-traffic__source-row {
         display: grid;
-        grid-template-columns: minmax(150px, 1.6fr) 70px 64px 80px 104px 110px 100px;
+        grid-template-columns: minmax(150px, 1.6fr) 64px 60px 72px 104px 108px 110px 100px;
         gap: 8px;
         align-items: center;
-        min-width: 720px;
         padding: 8px 14px;
         border-top: 1px solid var(--rg-admin-border-default);
         font-size: 13px;
@@ -16019,6 +16028,88 @@
 
     .rg-admin-traffic__source-row.rg-admin-games__value-row--head > :not(:first-child) {
         text-align: right;
+    }
+
+    .rg-admin-traffic__source-row > [data-label]::before {
+        display: none;
+        content: attr(data-label);
+        font-size: 10.5px;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    /* Where the table ends: the prices' save button, below a rule, clear of the last row the table pulls to the card's edge. */
+    .rg-admin-traffic__sources-save {
+        align-items: center;
+        margin-top: 6px;
+        padding-top: 12px;
+        border-top: 1px solid var(--rg-admin-border-default);
+    }
+
+    .rg-admin-traffic__source-price {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        min-width: 0;
+    }
+
+    .rg-admin-traffic__source-price > small {
+        font-size: 10.5px;
+        text-align: right;
+        white-space: nowrap;
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    @container (max-width: 859.98px) {
+        .rg-admin-traffic__source-row {
+            grid-template-columns: minmax(0, 0.8fr) minmax(0, 0.8fr) minmax(0, 0.9fr) minmax(0, 1.1fr) minmax(0, 1.2fr) minmax(0, 1.2fr) minmax(0, 1fr);
+            gap: 4px 6px;
+        }
+
+        .rg-admin-traffic__source-row > :first-child {
+            grid-column: 1 / -1;
+        }
+
+        .rg-admin-traffic__source-row.rg-admin-games__value-row--head {
+            align-items: end;
+            white-space: normal;
+        }
+
+        .rg-admin-traffic__source-row.rg-admin-games__value-row--head > :first-child {
+            display: none;
+        }
+    }
+
+    @container (max-width: 559.98px) {
+        .rg-admin-traffic__source-row {
+            grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+            align-items: start;
+            row-gap: 6px;
+        }
+
+        .rg-admin-traffic__source-row.rg-admin-games__value-row--head {
+            display: none;
+        }
+
+        .rg-admin-traffic__source-row > [data-label]::before {
+            display: block;
+            white-space: nowrap;
+        }
+
+        /* The two inputs line up under their labels, whatever the caption under the price. */
+        .rg-admin-traffic__source-row > .rg-admin-traffic__source-price,
+        .rg-admin-traffic__source-row > [data-label='Target / account'] {
+            align-self: start;
+        }
+
+        .rg-admin-traffic__source-row > .rg-admin-traffic__fig {
+            align-items: flex-start;
+        }
+
+        .rg-admin-traffic__source-price > small {
+            text-align: left;
+        }
     }
 
     .rg-admin-traffic__who {

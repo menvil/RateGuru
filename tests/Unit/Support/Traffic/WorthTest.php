@@ -115,7 +115,7 @@ it('works out what a visit brought and may still bring', function () {
     $reached = [['value' => BigDecimal::of('0.05'), 'basis' => TrafficValueBasis::Measured, 'chance' => 0.1]];
     $value = fn (...$changes) => VisitValue::of(...[
         'known' => false, 'signedIn' => false, 'arrivedAt' => $arrived, 'holdsUntil' => $holds, 'accountAt' => null, 'signupAt' => null, 'posted' => false, 'returned' => false,
-        'reached' => $reached, 'prices' => $prices, 'percent' => 100, 'postRate' => 0.0, 'returnRate' => 0.0, 'curve' => ConfirmationCurve::none(), 'now' => $now, ...$changes,
+        'reached' => $reached, 'prices' => $prices, 'sourceId' => null, 'percent' => 100, 'postRate' => 0.0, 'returnRate' => 0.0, 'curve' => ConfirmationCurve::none(), 'now' => $now, ...$changes,
     ]);
 
     expect($value())->toBe(['real' => '0.00000000', 'expected' => '0.05000000'])
@@ -125,6 +125,61 @@ it('works out what a visit brought and may still bring', function () {
         ->and($value(known: true, signedIn: true, now: $holds->addDays(30)))->toBe(['real' => '0.30000000', 'expected' => '0.00000000'])
         ->and($value(now: $holds->addDays(7)))->toBe(['real' => '0.00000000', 'expected' => '0.00000000'])
         ->and($value(accountAt: $now, signupAt: $now, posted: true, percent: 50, returnRate: 0.5))->toBe(['real' => '0.75000000', 'expected' => '0.05000000']);
+});
+
+it('prices an account at its paid source’s own price, the site’s for every other source and for unpaid traffic', function () {
+    $prices = new WorthPrices('0.5', '1', '0.2', '0.3', [7 => '0.8000']);
+    $table = new ChanceTable(['*' => ['started' => ['chance' => '0.1', 'thin' => false], 'post_bonus' => ['chance' => '0.5', 'thin' => false], 'returned_bonus' => ['chance' => '0.5', 'thin' => false]]]);
+
+    expect($prices->accountPriceOf(7))->toBe('0.8000')
+        ->and($prices->accountPriceOf(8))->toBe('0.5')
+        ->and($prices->accountPriceOf(null))->toBe('0.5')
+        ->and($prices->hasOwnAccountPrice(7))->toBeTrue()
+        ->and($prices->hasOwnAccountPrice(8))->toBeFalse()
+        // Resolved prices name no source prices any more, so resolving them again keeps them.
+        ->and($prices->forSource(7)->sourceAccountPrices)->toBe([])
+        ->and($prices->forSource(7)->forSource(null)->accountPrice)->toBe('0.8000')
+        // The bonuses and the group's share come on top of the source's own price: (0.8 + ½ × 1 + ½ × 0.2) × 50 %.
+        ->and((string) StepWorth::of(new Slice(1, 7), 'account', $prices, 50, false, null, $table)['value'])->toBe('0.70000000')
+        ->and((string) StepWorth::of(new Slice(1, 8), 'account', $prices, 50, false, null, $table)['value'])->toBe('0.55000000')
+        ->and((string) StepWorth::of(new Slice(1, null, 'search'), 'account', $prices, 50, false, null, $table)['value'])->toBe('0.55000000')
+        // A step is the chance of an account times what an account from that source brings; the chance itself never moves.
+        ->and(StepWorth::of(new Slice(1, 7), 'started', $prices, 100, false, null, $table))->toEqual(['value' => BigDecimal::of('0.14000000'), 'basis' => TrafficValueBasis::Leaning, 'chance' => 0.1])
+        ->and((string) StepWorth::of(new Slice(1, 8), 'started', $prices, 100, false, null, $table)['value'])->toBe('0.11000000')
+        // A sign-in keeps its own price, whatever the source.
+        ->and((string) StepWorth::of(new Slice(1, 7), 'login', $prices, 100, false, null, $table)['value'])->toBe('0.30000000');
+});
+
+it('values what a paid visit brought and may still bring at its source’s own account price', function () {
+    $prices = new WorthPrices('0.5', '1', '0.2', '0.3', [7 => '0.8000']);
+    $now = CarbonImmutable::parse('2026-11-17 12:00:00');
+    $arrived = $now->subDay();
+    $value = fn (...$changes) => VisitValue::of(...[
+        'known' => false, 'signedIn' => false, 'arrivedAt' => $arrived, 'holdsUntil' => $arrived->addDays(7), 'accountAt' => $now, 'signupAt' => $now, 'posted' => true, 'returned' => false,
+        'reached' => [], 'prices' => $prices, 'sourceId' => 7, 'percent' => 50, 'postRate' => 0.0, 'returnRate' => 0.5, 'curve' => ConfirmationCurve::none(), 'now' => $now, ...$changes,
+    ]);
+
+    // (0.8 + 1) × 50 % brought; half the return bonus still to come.
+    expect($value())->toBe(['real' => '0.90000000', 'expected' => '0.05000000'])
+        ->and($value(sourceId: 8))->toBe(['real' => '0.75000000', 'expected' => '0.05000000'])
+        ->and($value(sourceId: null))->toBe(['real' => '0.75000000', 'expected' => '0.05000000'])
+        // Before an account, what it may still bring is the chance of one times the source's own account worth.
+        ->and($value(accountAt: null, signupAt: null, posted: false, percent: 100, returnRate: 0.0, reached: [['value' => BigDecimal::of('0.08'), 'basis' => TrafficValueBasis::Measured, 'chance' => 0.1]]))
+        ->toBe(['real' => '0.00000000', 'expected' => '0.08000000'])
+        ->and($value(accountAt: null, signupAt: null, posted: false, percent: 100, returnRate: 0.0, sourceId: 8, reached: [['value' => BigDecimal::of('0.05'), 'basis' => TrafficValueBasis::Measured, 'chance' => 0.1]]))
+        ->toBe(['real' => '0.00000000', 'expected' => '0.05000000']);
+});
+
+it('mixes the sources’ own account prices in as the accounts came from them', function () {
+    $prices = new WorthPrices('0.5', '1', '0.2', '0.3', [7 => '0.8000', 9 => '0.2000']);
+
+    // 10 of 40 accounts at $0.80, 10 at $0.20, the other 20 at the site's $0.50.
+    expect($prices->mixed([7 => 10, 9 => 10], 40)->accountPrice)->toBe('0.50000000')
+        ->and($prices->mixed([7 => 10], 40)->accountPrice)->toBe('0.57500000')
+        ->and($prices->mixed([7 => 10], 40)->sourceAccountPrices)->toBe([])
+        // With no account to weigh, the site price.
+        ->and($prices->mixed([7 => 0], 0)->accountPrice)->toBe('0.5')
+        ->and((new WorthPrices('0.5', '1', '0.2', '0.3'))->mixed([], 40)->accountPrice)->toBe('0.5');
 });
 
 it('reads how soon accounts are confirmed, trusting it only with 30 accounts or more', function () {

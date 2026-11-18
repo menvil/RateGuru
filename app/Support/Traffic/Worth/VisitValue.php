@@ -17,7 +17,9 @@ use Carbon\CarbonImmutable;
  * nothing more. A known visitor's visit may bring nothing more: it is worth
  * the price of a sign-in, times its group's share, when the visitor turned
  * out to have an account and signed in to it after arriving, and nothing when
- * they were known as they came.
+ * they were known as they came. An account is priced as the visit's source
+ * prices it in the visit's own set: its own account price when the set gives
+ * it one, else the site's — always the site's for unpaid traffic.
  */
 final class VisitValue
 {
@@ -32,6 +34,8 @@ final class VisitValue
     /**
      * @param  bool  $signedIn  whether the visitor signed in, after arriving, to an account they already had
      * @param  list<array{value: BigDecimal, basis: TrafficValueBasis, chance: float}>  $reached  the worth of each step the visit reached (StepWorth)
+     * @param  WorthPrices  $prices  the visit's own set
+     * @param  int|null  $sourceId  the visit's paid source, null for unpaid traffic
      * @return array{real: string, expected: string}
      */
     public static function of(
@@ -45,12 +49,15 @@ final class VisitValue
         bool $returned,
         array $reached,
         WorthPrices $prices,
+        ?int $sourceId,
         int $percent,
         float $postRate,
         float $returnRate,
         ConfirmationCurve $curve,
         CarbonImmutable $now,
     ): array {
+        $prices = $prices->forSource($sourceId);
+
         if ($known) {
             return ['real' => TrafficMoney::stored($signedIn ? $prices->login($percent) : 0), 'expected' => TrafficMoney::stored(0)];
         }

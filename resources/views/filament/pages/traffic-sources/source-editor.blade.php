@@ -162,6 +162,17 @@
                 </div>
             @endif
             <x-admin.ui.text-field label="Target price of an account ($)" id="rg-admin-source-cpa" :value="(string) ($s['target_cpa'] ?? '')" hint="What you are ready to pay for an account from this source; its campaigns use it unless they have their own." :error="$field('target_cpa')" wire:model="draft.source.target_cpa" />
+            @if ($editor['accountPrice'] !== null)
+                <div class="rg-admin-field" data-testid="traffic-source-account-price">
+                    <span class="rg-admin-label">What an account from it is worth</span>
+                    <span class="rg-admin-traffic__price-line">
+                        <strong>{{ \App\Support\Traffic\Money\TrafficMoney::brief($editor['accountPrice']['price']) }}</strong>
+                        {{-- In a tab of its own, so the editor and its unsaved draft stay as they are. --}}
+                        <a class="rg-admin-link" href="{{ $editor['accountPrice']['url'] }}" target="_blank" rel="noopener">Set on Value</a>
+                    </span>
+                    <span class="rg-admin-traffic__note">{{ $editor['accountPrice']['own'] ? 'Its own account price, in place of the site’s '.\App\Support\Traffic\Money\TrafficMoney::brief($editor['accountPrice']['site']).'.' : 'The site’s account price: it has none of its own.' }} Bonuses and the country group’s worth apply on top.</span>
+                </div>
+            @endif
         </div>
 
         @if ($network)

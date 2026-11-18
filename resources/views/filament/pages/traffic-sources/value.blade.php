@@ -2,8 +2,10 @@
     Value, as the reference draws it: the prices of the outcomes — the
     account, its bonuses and a sign-in to an account the visitor already had,
     saved as a new set, so earlier visits keep theirs — with how often each
-    came and what an account brings on average; accounts by source against
-    each source's target; who counts as new; the country groups, their
+    came and what an account brings on average; accounts by source, each paid
+    source's own account price typed beside what its accounts brought and
+    saved with the prices, against each source's target; who counts as new;
+    the country groups, their
     countries as chips, their share of visitors and what a finished game is
     worth in each. Beside them: what a new visitor is worth, step by step; how
     the chances are worked out; the history of the prices.
@@ -20,9 +22,9 @@
         <section class="rg-admin-games__value-card" data-testid="traffic-value-prices">
             <header class="rg-admin-games__value-card-head">
                 <h3 class="rg-admin-games__value-card-title">What a new user is worth</h3>
-                <p class="rg-admin-games__note">Set prices for outcomes only, once for the whole site. Every step of a play is then worth the chance that a visitor who reached it ends up a confirmed account, times what an account brings. The chances come from the traffic itself, per game, source, device and country group; each game’s Value tab shows them.</p>
+                <p class="rg-admin-games__note">Set prices for outcomes only, once for the whole site; an account from a paid source can have a price of its own, under Accounts by source. Every step of a play is then worth the chance that a visitor who reached it ends up a confirmed account, times what an account brings. The chances come from the traffic itself, per game, source, device and country group; each game’s Value tab shows them.</p>
             </header>
-            <form class="rg-admin-traffic__outcomes" wire:submit="savePrices">
+            <form class="rg-admin-traffic__outcomes" id="traffic-value-prices-form" wire:submit="savePrices">
                 <div class="rg-admin-traffic__outcome rg-admin-traffic__outcome--head"><span>Outcome</span><span>This period</span><span>Price</span></div>
                 @foreach ([
                     ['account_price', 'Account confirmed', 'A new account, signed up on any page within the source’s window after the click and confirmed', 'user-plus', number_format($outcomes['accounts']).' accounts', 'new users, confirmed', '$', false],
@@ -47,21 +49,21 @@
                     @error($field)<p class="rg-admin-games__note rg-admin-games__note--danger">{{ $message }}</p>@enderror
                 @endforeach
                 <div class="rg-admin-traffic__outcome rg-admin-traffic__outcome--foot">
-                    <span>An account brings on average <span class="rg-admin-games__note">{{ $brief($prices['account_price']) }} + {{ $share($postRate) }} post × {{ $brief($prices['post_bonus']) }} + {{ $share($returnRate) }} back × {{ $brief($prices['returned_bonus']) }}</span></span>
+                    <span>An account brings on average <span class="rg-admin-games__note">{{ $brief($prices['account_price']) }} + {{ $share($postRate) }} post × {{ $brief($prices['post_bonus']) }} + {{ $share($returnRate) }} back × {{ $brief($prices['returned_bonus']) }}@if ($ownPrices !== []) · own account price: {{ collect($ownPrices)->map(fn (array $own): string => $own['name'].' '.$brief($own['price']))->implode(', ') }}@endif</span></span>
                     <strong>{{ $brief($accountBrings) }}</strong>
                     <x-admin.ui.button size="sm" variant="primary" type="submit">Save prices</x-admin.ui.button>
                 </div>
             </form>
         </section>
 
-        <section class="rg-admin-games__value-card" data-testid="traffic-value-sources">
+        <section class="rg-admin-games__value-card" id="traffic-value-sources" data-testid="traffic-value-sources">
             <header class="rg-admin-games__value-card-head">
                 <h3 class="rg-admin-games__value-card-title">Accounts by source</h3>
-                <p class="rg-admin-games__note">The same prices for every source; what differs is what their accounts go on to do. Cost per account needs no prices at all: spend divided by confirmed accounts. Target is what you are ready to pay for an account from that source; its campaigns use it unless they have their own.</p>
+                <p class="rg-admin-games__note">The site’s prices for every source, unless you give an account from one a price of its own: an account from one network can be worth more to you than from another. Account brings is what its accounts were worth on average in this period: the account price they came under, plus the bonuses they earned, times their country group’s share. It is not a figure to copy into Account price, since the bonuses and the group’s share go on top of whatever price you set. Cost per account needs no prices at all: spend divided by confirmed accounts. Target is what you are ready to pay for an account from that source; its campaigns use it unless they have their own.</p>
             </header>
-            <div class="rg-admin-games__value-table" role="table" aria-label="Accounts by source">
+            <div class="rg-admin-games__value-table rg-admin-traffic__sources" role="table" aria-label="Accounts by source">
                 <div class="rg-admin-traffic__source-row rg-admin-games__value-row--head" role="row">
-                    @foreach (['Source', 'Accounts', 'Posted', 'Came back', 'Account brings', 'Target / account', 'Cost / account'] as $heading)
+                    @foreach (['Source', 'Accounts', 'Posted', 'Came back', 'Account brings', 'Account price', 'Target / account', 'Cost / account'] as $heading)
                         <span role="columnheader">{{ $heading }}</span>
                     @endforeach
                 </div>
@@ -78,11 +80,21 @@
                     @endphp
                     <div class="rg-admin-traffic__source-row" role="row" @if ($row['id'] !== null) wire:key="value-source-{{ $row['id'] }}" @endif>
                         <span role="cell" class="rg-admin-traffic__perf-label"><span class="rg-admin-traffic__perf-title">{{ $row['name'] }}</span><span class="rg-admin-games__note">{{ $row['kind'] }}</span></span>
-                        <span role="cell" class="rg-admin-traffic__fig"><strong>{{ number_format($f->accounts) }}</strong></span>
-                        <span role="cell" class="rg-admin-traffic__fig">{{ $share($f->accounts > 0 ? $f->posted / $f->accounts : null) }}</span>
-                        <span role="cell" class="rg-admin-traffic__fig">{{ $share($f->accounts > 0 ? $f->returned / $f->accounts : null) }}</span>
-                        <span role="cell" class="rg-admin-traffic__fig">{{ $brief($row['brings']) }}</span>
-                        <span role="cell">
+                        <span role="cell" class="rg-admin-traffic__fig" data-label="Accounts"><strong>{{ number_format($f->accounts) }}</strong></span>
+                        <span role="cell" class="rg-admin-traffic__fig" data-label="Posted">{{ $share($f->accounts > 0 ? $f->posted / $f->accounts : null) }}</span>
+                        <span role="cell" class="rg-admin-traffic__fig" data-label="Came back">{{ $share($f->accounts > 0 ? $f->returned / $f->accounts : null) }}</span>
+                        <span role="cell" class="rg-admin-traffic__fig" data-label="Account brings"><span>{{ $brief($row['brings']) }}</span><small>{{ $f->accounts > 0 ? 'on average' : 'expected' }}</small></span>
+                        {{-- Labelled, at narrow widths, only where there is something to label: totals and unpaid traffic have no price of their own. --}}
+                        <span role="cell" class="rg-admin-traffic__source-price" @if ($row['id'] !== null && ($row['priced'] ?? false)) data-label="Account price" @endif>
+                            @if ($row['id'] !== null && ($row['priced'] ?? false))
+                                <span class="rg-admin-traffic__money-field">
+                                    <span aria-hidden="true">$</span>
+                                    <input type="text" inputmode="decimal" class="rg-admin-input" form="traffic-value-prices-form" placeholder="{{ preg_replace('/(\.\d\d\d*?)0+$/', '$1', \App\Support\Traffic\Money\TrafficMoney::stored($sitePrice, 4)) }}" aria-label="Account price of {{ $row['name'] }}" wire:model="accountPrices.{{ $row['id'] }}" />
+                                </span>
+                                <small>{{ $row['ownPrice'] !== null ? 'its own price' : 'the site’s price' }}</small>
+                            @endif
+                        </span>
+                        <span role="cell" @if ($row['id'] !== null) data-label="Target / account" @endif>
                             @if ($row['id'] !== null)
                                 <form class="rg-admin-traffic__money-field" wire:submit="saveTarget({{ $row['id'] }})">
                                     <span aria-hidden="true">$</span>
@@ -90,7 +102,7 @@
                                 </form>
                             @endif
                         </span>
-                        <span role="cell" @class(['rg-admin-traffic__fig', 'rg-admin-traffic__good' => $state[1] === 'good', 'rg-admin-traffic__bad' => $state[1] === 'bad'])>
+                        <span role="cell" data-label="Cost / account" @class(['rg-admin-traffic__fig', 'rg-admin-traffic__good' => $state[1] === 'good', 'rg-admin-traffic__bad' => $state[1] === 'bad'])>
                             @if (($row['free'] ?? false))
                                 <span class="rg-admin-games__note">free</span>
                             @else
@@ -98,9 +110,16 @@
                             @endif
                         </span>
                     </div>
+                    @if ($row['id'] !== null)
+                        @error('source_account_prices.'.$row['id'])<p class="rg-admin-games__note rg-admin-games__note--danger">{{ $message }}</p>@enderror
+                    @endif
                 @endforeach
             </div>
-            <p class="rg-admin-games__note">Cost per account is green when it is within the source’s target and red when over; a source without a target is held to what an account brings. Unpaid traffic costs nothing. Accounts count when the email is confirmed, within the source’s window after the click; posts within 30 days of signing up.</p>
+            <div class="rg-admin-traffic__rule-actions rg-admin-traffic__sources-save">
+                <x-admin.ui.button size="sm" variant="primary" type="submit" form="traffic-value-prices-form">Save prices</x-admin.ui.button>
+                <span class="rg-admin-games__note">Saved with the prices above, as a new set: visits from now on count by it; earlier ones, and postbacks already sent, keep theirs. Blank counts the site’s {{ $brief($sitePrice) }}.</span>
+            </div>
+            <p class="rg-admin-games__note">Cost per account is green when it is within the source’s target and red when over; a source without a target is held to what an account brings. Unpaid traffic costs nothing and always counts the site’s prices. Accounts count when the email is confirmed, within the source’s window after the click; posts within 30 days of signing up.</p>
         </section>
 
         <section class="rg-admin-games__value-card" data-testid="traffic-value-who">
@@ -188,7 +207,7 @@
         <section class="rg-admin-games__value-card rg-admin-games__value-visitor" data-testid="traffic-value-visitor">
             <span class="rg-admin-games__eyebrow">A new visitor</span>
             <span class="rg-admin-games__value-big">{{ $fine($visitorWorth) }}</span>
-            <p class="rg-admin-games__note">What a new visitor who opens a game is worth on average, every game and source. {{ $share($visitorChance) }} of them end up a confirmed account.</p>
+            <p class="rg-admin-games__note">What a new visitor who opens a game is worth on average, every game and source{{ $ownPrices !== [] ? ', the sources’ own account prices mixed in as their accounts came' : '' }}. {{ $share($visitorChance) }} of them end up a confirmed account.</p>
             <div class="rg-admin-games__worth-grid" role="table" aria-label="A new visitor's worth">
                 <div class="rg-admin-games__worth-row rg-admin-games__worth-row--head" role="row"><span>Reached</span><span>Mobile</span><span>Desktop</span></div>
                 @foreach ($visitorRows as $row)

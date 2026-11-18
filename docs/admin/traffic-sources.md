@@ -21,6 +21,19 @@ Growth → Traffic sources (`/admin/traffic-sources`), for active administrators
    site — a confirmed account, its two bonuses, and a sign-in to an account the
    visitor already had (not a new user; $0 until you set it). A game's Value
    tab shows what they make each step worth and links back here for both.
+   When an account from one network is worth more (or less) to you than from
+   another, type its own price in Value → Accounts by source → **Account
+   price**, beside what its accounts brought on average in the period, and
+   **Save prices** (the button under the prices or the one under the table:
+   both save everything as one new set). Blank gives it the site's price
+   again. The bonuses and the country group's worth still apply on top; unpaid
+   traffic always counts the site's price. Like any price change it never
+   rewrites the past: visits that came before keep the price they came under,
+   and postbacks already sent keep their value. A source's editor (Sources →
+   the source → Spend) shows its account price, its own or the site's, with a
+   link here. On a game's Value tab, picking that source shows its steps at
+   its own price; All sources mixes the sources' own prices in as their
+   accounts came, and says so.
 8. On each game's Value tab, set the other steps by hand while the data is
    thin; then add a postback rule, **Send test**, and switch on **Send
    postbacks**. Send a network one event per click on each of its goals: two

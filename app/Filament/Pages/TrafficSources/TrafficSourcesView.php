@@ -59,6 +59,7 @@ use App\Support\Traffic\Reports\TrafficReportFilter;
 use App\Support\Traffic\Worth\Slice;
 use App\Support\Traffic\Worth\StepLabels;
 use App\Support\Traffic\Worth\StepWorth;
+use App\Support\Traffic\Worth\WorthPrices;
 use BackedEnum;
 use Brick\Math\BigDecimal;
 use Brick\Math\RoundingMode;
@@ -858,10 +859,13 @@ final class TrafficSourcesView
      * Value, as the reference draws it: the prices of the outcomes — the
      * account, its bonuses, a sign-in to an account a visitor already had —
      * with how often they came in the period and what an account brings on
-     * average; accounts by source, against each source's target; who counts
-     * as new; the country groups with their share of visitors and what a
-     * finished game is worth in each; what a new visitor is worth, step by
-     * step; how the chances are worked out; and the history of the prices.
+     * average; accounts by source, every paid source with its own account
+     * price, if any, beside what its accounts brought, against its target;
+     * who counts as new; the country groups with their share of visitors and
+     * what a finished game is worth in each; what a new visitor is worth,
+     * step by step; how the chances are worked out; and the history of the
+     * prices. Wherever every source counts at once, the sources' own account
+     * prices are mixed in as their accounts came.
      *
      * @return array<string, mixed>
      */
@@ -884,38 +888,64 @@ final class TrafficSourcesView
         $opened = array_sum(array_map(fn (ReportFigures $f): int => $f->opened, $byGroup));
         // Every group at once, as the period's visitors are spread over them; a full share before any came.
         $mix = $opened === 0 ? 100 : (int) round(array_sum(array_map(fn (string $key, ReportFigures $f): int => $f->opened * (int) ($groups->firstWhere('key', $key)['percent'] ?? 100), array_keys($byGroup), $byGroup)) / $opened);
-        // What the accounts brought, each at its own group's share — sign-ins to accounts visitors already had left out; for rows with none yet, the mix.
-        $brings = fn (ReportFigures $f): BigDecimal => $f->accounts > 0
+        // What the accounts brought, each at its own group's share and its source's account price — sign-ins to accounts visitors already had
+        // left out; for rows with none yet, what one is expected to bring at the prices given, in the mix of groups.
+        $brings = fn (ReportFigures $f, WorthPrices $at): BigDecimal => $f->accounts > 0
             ? TrafficMoney::of($f->valueAccounts)->dividedBy($f->accounts, TrafficMoney::SCALE, RoundingMode::HalfUp)
-            : $prices->account($postRate, $returnRate, $mix);
+            : $at->account($postRate, $returnRate, $mix);
         $worth = app(TrafficWorthQuery::class);
-        $stepWorth = fn (string $step, ?string $device, ?string $group): string => (string) StepWorth::of(new Slice(device: $device, group: $group), $step, $prices, $group === null ? $mix : (int) ($groups->firstWhere('key', $group)['percent'] ?? 100), false, null, $worth->table($run, new Slice(device: $device, group: $group)))['value'];
+        // A slice of every source counts the sources' own account prices as its accounts came from them.
+        $sliceWorth = [];
+        $stepWorth = function (string $step, ?string $device, ?string $group) use ($worth, $run, $prices, $groups, $mix, &$sliceWorth): string {
+            $slice = new Slice(device: $device, group: $group);
+            $sliceWorth[$slice->key()] ??= [$worth->pricesFor($prices, $run, $slice), $worth->table($run, $slice)];
+
+            return (string) StepWorth::of($slice, $step, $sliceWorth[$slice->key()][0], $group === null ? $mix : (int) ($groups->firstWhere('key', $group)['percent'] ?? 100), false, null, $sliceWorth[$slice->key()][1])['value'];
+        };
         $bySource = collect($this->reports->level($filter, TrafficDimension::Source));
         $unpaid = $sum($bySource->filter(fn (array $group): bool => $group['keys']['source_id'] === null)->all());
+        $newVisitors = fn (ReportFigures $f): int => max(0, $f->opened - $f->knownOpened);
+        // Each paid source's new visitors in the period: the weight of its own account price where no account came to weigh it by.
+        $visitorsBySource = $bySource->filter(fn (array $group): bool => $group['keys']['source_id'] !== null)
+            ->mapWithKeys(fn (array $group): array => [(int) $group['keys']['source_id'] => $newVisitors($group['figures'])])->all();
+        $own = $set->sourceAccountPrices();
+        // Every paid source the filters admit, those without a visit in the period too, so each can be given an account price of its own.
+        $paidSources = $sources->whereIn('type', [TrafficSourceType::Network, TrafficSourceType::Placement])
+            ->filter(fn (TrafficSource $source): bool => (! array_key_exists('source_id', $filter->where) || $filter->where['source_id'] === (int) $source->id)
+                && (! isset($filter->where['channel']) || $filter->where['channel'] === $source->type->value)
+                && ! isset($filter->where['campaign_id']));
+        $sourceGroups = $bySource->filter(fn (array $group): bool => $group['keys']['source_id'] !== null)->values();
+        $seen = $sourceGroups->map(fn (array $group): int => (int) $group['keys']['source_id'])->all();
+        $sourceGroups = $sourceGroups->concat($paidSources->reject(fn (TrafficSource $source): bool => in_array((int) $source->id, $seen, true))
+            ->map(fn (TrafficSource $source): array => ['keys' => ['source_id' => (int) $source->id], 'figures' => new ReportFigures]));
 
         return [
             'run' => $run === null ? null : ['at' => $run->finished_at, 'visits' => $run->visits_scanned, 'accounts' => (int) ($site['opened']->slice_accounts ?? 0)],
             'outcomes' => ['accounts' => $total->accounts, 'posted' => $total->posted, 'returned' => $total->returned, 'logins' => array_sum(array_map(fn (array $row): int => $row['path']['login'] ?? 0, $summary))],
             'postRate' => $postRate,
             'returnRate' => $returnRate,
-            'accountBrings' => (string) $brings($total),
-            'sourceRows' => [
-                ...$bySource->filter(fn (array $group): bool => $group['keys']['source_id'] !== null)->map(function (array $group) use ($sources, $brings): array {
-                    $source = $sources->firstWhere('id', (int) $group['keys']['source_id']);
-                    $f = $group['figures'];
+            'accountBrings' => (string) $brings($total, $prices->mixed($visitorsBySource, $newVisitors($total))),
+            'sitePrice' => (string) $set->account_price,
+            'ownPrices' => collect($own)->map(fn (string $price, int $id): array => ['name' => $sources->firstWhere('id', $id)->name ?? 'Source #'.$id, 'price' => $price])->values()->all(),
+            'sourceRows' => $sourceGroups->map(function (array $group) use ($sources, $brings, $prices, $own): array {
+                $id = (int) $group['keys']['source_id'];
+                $source = $sources->firstWhere('id', $id);
+                $f = $group['figures'];
 
-                    return [
-                        'id' => (int) $group['keys']['source_id'],
-                        'name' => $source->name ?? 'Source #'.$group['keys']['source_id'],
-                        'kind' => $source?->type === TrafficSourceType::Placement ? 'Banner or link' : 'Ad network',
-                        'figures' => $f,
-                        'brings' => (string) $brings($f),
-                        'target' => $source?->target_cpa,
-                    ];
-                })->values()->all(),
-            ],
-            'paidRow' => ['figures' => $paid, 'brings' => (string) $brings($paid)],
-            'unpaidRow' => ['figures' => $unpaid, 'brings' => (string) $brings($unpaid)],
+                return [
+                    'id' => $id,
+                    'name' => $source->name ?? 'Source #'.$id,
+                    'kind' => $source?->type === TrafficSourceType::Placement ? 'Banner or link' : 'Ad network',
+                    'figures' => $f,
+                    'brings' => (string) $brings($f, $prices->forSource($id)),
+                    'target' => $source?->target_cpa,
+                    // Only a source still on the books can be given an account price.
+                    'priced' => $source !== null,
+                    'ownPrice' => $own[$id] ?? null,
+                ];
+            })->all(),
+            'paidRow' => ['figures' => $paid, 'brings' => (string) $brings($paid, $prices->mixed($visitorsBySource, $newVisitors($paid)))],
+            'unpaidRow' => ['figures' => $unpaid, 'brings' => (string) $brings($unpaid, $prices->forSource(null))],
             'who' => [
                 'known' => $total->knownOpened,
                 'knownShare' => $total->opened > 0 ? $total->knownOpened / $total->opened : null,
@@ -935,7 +965,8 @@ final class TrafficSourcesView
             'visitorRows' => collect(['opened' => 'Opened the game', 'started' => 'Started it', 'completed' => 'Finished it', 'email' => 'Left an email', 'signup' => 'Signed up, not confirmed', 'account' => 'Confirmed the account', 'login' => 'Signed in, had an account'])
                 ->map(fn (string $label, string $step): array => ['label' => $label, 'mobile' => $stepWorth($step, 'mobile', null), 'desktop' => $stepWorth($step, 'desktop', null)])->values()->all(),
             'priceChanges' => TrafficPriceSet::query()->orderByDesc('id')->limit(5)->get()->map(fn (TrafficPriceSet $priceSet): array => [
-                'summary' => $priceSet->summary ?? 'Account confirmed '.TrafficMoney::brief($priceSet->account_price).', Published a post +'.TrafficMoney::brief($priceSet->post_bonus).', Came back +'.TrafficMoney::brief($priceSet->returned_bonus).', Existing account signed in '.TrafficMoney::brief($priceSet->login_price),
+                'summary' => $priceSet->summary ?? 'Account confirmed '.TrafficMoney::brief($priceSet->account_price).', Published a post +'.TrafficMoney::brief($priceSet->post_bonus).', Came back +'.TrafficMoney::brief($priceSet->returned_bonus).', Existing account signed in '.TrafficMoney::brief($priceSet->login_price)
+                    .collect($priceSet->sourceAccountPrices())->map(fn (string $price, int $id): string => '; '.($sources->firstWhere('id', $id)->name ?? 'Source #'.$id).' account '.TrafficMoney::brief($price))->implode(''),
                 'at' => $priceSet->created_at,
                 'by' => $priceSet->created_by_user_id === null ? 'First prices' : (User::query()->whereKey($priceSet->created_by_user_id)->value('name') ?? 'An administrator'),
             ])->all(),
@@ -1203,9 +1234,18 @@ final class TrafficSourcesView
         $presetKey = $page->draft['source']['preset_key'] ?? null;
         $preset = $this->presets->find(is_string($presetKey) ? $presetKey : null);
         $connector = $source?->connector;
+        $set = $source === null ? null : TrafficPriceSet::current();
 
         return [
             'new' => $source === null,
+            // What a confirmed account from the source is worth, its own price or the site's, set on Value.
+            'accountPrice' => $set === null ? null : [
+                'price' => $set->worth()->accountPriceOf((int) $source->id),
+                'own' => $set->worth()->hasOwnAccountPrice((int) $source->id),
+                'site' => (string) $set->account_price,
+                // The same period, at the card where it is set.
+                'url' => TrafficSourcesPage::getUrl(array_filter(['tab' => 'value', 'period' => $page->period === '30d' ? null : $page->period])).'#traffic-value-sources',
+            ],
             'preset' => $preset,
             'connector' => $connector === null ? null : [...($this->presets->connector($connector->value) ?? []), 'verified' => $this->connectors->verified($connector)],
             'connection' => $source?->apiConnection?->only(['status', 'account_label', 'last_synced_at', 'next_sync_at', 'last_error', 'spend_closed_through']),

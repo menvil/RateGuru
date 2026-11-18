@@ -4,9 +4,9 @@
      * step of a play is worth in the slice the filters name, grouped as
      * playing, after the result, on the site and the account, each settable
      * by hand in place but the account and a sign-in, which link to the
-     * prices of the whole site; beside it what a new visitor and an account
-     * are worth, each source's figures, the game's paid traffic and its
-     * postbacks.
+     * prices on Traffic sources → Value; beside it what a new visitor and an
+     * account are worth, at whose account price, each source's figures, the
+     * game's paid traffic and its postbacks.
      */
     $fine = fn ($amount): string => \App\Support\Traffic\Money\TrafficMoney::fine($amount);
     $brief = fn ($amount): string => \App\Support\Traffic\Money\TrafficMoney::brief($amount);
@@ -23,7 +23,7 @@
                     <h2 class="rg-admin-games__value-title">What each step is worth</h2>
                     <x-admin.ui.button size="sm" :href="$pricesUrl" trailing-icon="arrow-right">Outcome prices</x-admin.ui.button>
                 </div>
-                <p class="rg-admin-games__value-intro">Worked out, not typed in: the chance that a visitor who reached a step ends up a confirmed account, times what an account brings. Outcome prices are set once for the whole site; here you see what they make each step of {{ $title }} worth, by source, device and country group.</p>
+                <p class="rg-admin-games__value-intro">Worked out, not typed in: the chance that a visitor who reached a step ends up a confirmed account, times what an account brings. Outcome prices are set once for the whole site, an account’s also per paid source; here you see what they make each step of {{ $title }} worth, by source, device and country group.</p>
 
                 <div class="rg-admin-games__value-filters">
                     <select class="rg-admin-games__select rg-admin-games__value-source" wire:model.live="source" aria-label="Source" data-testid="game-value-source">
@@ -84,7 +84,7 @@
                                                         <span class="rg-admin-games__value-tag" title="Sent to the source with this worth for the visitor’s slice"><x-admin.ui.icon name="arrow-up-right" :size="10" />{{ $postback }}</span>
                                                     @endforeach
                                                     @if ($row['sitePrice'])
-                                                        <a class="rg-admin-link rg-admin-link--quiet" href="{{ $pricesUrl }}" title="Priced once for every game, on Traffic sources → Value" data-testid="game-value-site-{{ $row['step'] }}"><x-admin.ui.icon name="globe" :size="10" />Set for the whole site</a>
+                                                        <a class="rg-admin-link rg-admin-link--quiet" href="{{ $pricesUrl }}" title="Priced once for every game, on Traffic sources → Value" data-testid="game-value-site-{{ $row['step'] }}"><x-admin.ui.icon name="globe" :size="10" />{{ $row['priceTag'] }}</a>
                                                     @endif
                                                 </span>
                                             @endif
@@ -144,6 +144,9 @@
                         <span class="rg-admin-games__value-brings-row"><span>An account brings</span><strong>{{ $brief($visitor['account']) }}</strong></span>
                         <span class="rg-admin-games__note">{{ $visitor['formula'] }}</span>
                     </div>
+                    @if ($visitor['priceNote'] !== null)
+                        <p class="rg-admin-games__note" data-testid="game-value-price-note">{{ $visitor['priceNote'] }} <a class="rg-admin-link rg-admin-link--quiet" href="{{ $pricesUrl }}">Account prices</a></p>
+                    @endif
                 </section>
 
                 <section class="rg-admin-games__value-card" data-testid="game-value-by-source">

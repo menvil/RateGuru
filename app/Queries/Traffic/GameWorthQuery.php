@@ -22,7 +22,10 @@ use Brick\Math\BigDecimal;
  * editor and the game's Value tab show it: the worth in force, the worth the
  * traffic works out, the chance of an account, how many reached the step,
  * whether the slice stands on its own accounts or leans on the one above,
- * and the value set by hand; with what an account brings there.
+ * and the value set by hand; with what an account brings there — at a paid
+ * source's own account price when it has one, at the site's for an unpaid
+ * channel, and for every source at once at the sources' prices mixed as the
+ * slice's accounts came from them.
  */
 final class GameWorthQuery
 {
@@ -52,8 +55,7 @@ final class GameWorthQuery
         }
 
         $slice = new Slice((int) $game->id);
-        $set = TrafficPriceSet::current();
-        $prices = $set->worth();
+        $prices = $this->worth->pricesFor(TrafficPriceSet::current()->worth(), $run, $slice);
 
         return StepWorth::of($slice, 'opened', $prices, 100, false, $this->worth->manualValues((int) $game->id)['opened'] ?? null, $this->worth->table($run, $slice))['value'];
     }
@@ -71,6 +73,7 @@ final class GameWorthQuery
      *     postRate: float,
      *     returnRate: float,
      *     prices: WorthPrices,
+     *     priced: 'site'|'own'|'mix',
      * }
      */
     public function slice(Game $game, int $rounds, ?int $sourceId = null, ?string $channel = null, ?string $device = null, ?string $group = null): array
@@ -79,7 +82,7 @@ final class GameWorthQuery
         $slice = new Slice((int) $game->id, $sourceId, $sourceId === null ? $channel : null, $device, $group);
         $table = $this->worth->table($run, $slice);
         $set = TrafficPriceSet::current();
-        $prices = $set->worth();
+        $prices = $this->worth->pricesFor($set->worth(), $run, $slice);
         $percent = $group === null ? $this->mix($run, (int) $game->id, $sourceId, $sourceId === null ? $channel : null, $device, $set) : (int) (collect($set->country_groups)->firstWhere('key', $group)['percent'] ?? 100);
         $manual = $this->worth->manualValues((int) $game->id);
         $own = $run === null ? collect() : TrafficStepChance::query()->where('run_id', $run->id)->where('slice_key', $slice->key())->get(['step', 'visitors', 'slice_accounts', 'stands_on'])->keyBy('step');
@@ -117,6 +120,13 @@ final class GameWorthQuery
             'postRate' => $postRate,
             'returnRate' => $returnRate,
             'prices' => $prices,
+            // Whose account price it is: the site's, the source's own, or the sources' mixed.
+            'priced' => match (true) {
+                $set->worth()->hasOwnAccountPrice($sourceId) => 'own',
+                // Mixed when a source with its own price brought accounts here, whatever the mix averages out to.
+                $sourceId === null && $slice->channel === null && array_sum($this->worth->ownPriceAccounts($set->worth(), $run, $slice)[0]) > 0 => 'mix',
+                default => 'site',
+            },
         ];
     }
 

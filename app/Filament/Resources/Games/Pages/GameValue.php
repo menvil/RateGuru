@@ -30,6 +30,7 @@ use App\Support\Traffic\Worth\TrafficStep;
 use Carbon\CarbonImmutable;
 use Filament\Resources\Pages\Page;
 use Filament\Support\Enums\Width;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Collection;
 use Illuminate\Validation\ValidationException;
 use Livewire\Attributes\Url;
@@ -42,8 +43,10 @@ use Livewire\Attributes\Url;
  * result, on the site and the account, each with how many reached it, its
  * chance, its worth and its tags — the Halfway round, the goal of a flow, the
  * postbacks that send it, a value set by hand — and set by hand in place, all
- * but the account and a sign-in, which are priced once for the whole site.
- * Beside them: what a new visitor here is worth and an account brings, each
+ * but the account and a sign-in, which are priced on Traffic sources → Value:
+ * once for the whole site, the account also per paid source that has a price
+ * of its own. Beside them: what a new visitor here is worth and an account
+ * brings, at whose account price, each
  * source's figures, the game's paid traffic over 30 days and the postbacks
  * that send these values. A value set here counts from the next postback,
  * with no new version.
@@ -222,9 +225,10 @@ final class GameValue extends Page
                 'chance' => $step === 'login' ? null : $row['chance'],
                 'worth' => (string) $row['value'],
                 'worked' => $row['basis'] === TrafficValueBasis::Manual ? (string) $row['worked'] : null,
-                // What an account and a sign-in are worth is priced once for the whole site, on Traffic sources → Value.
+                // What an account and a sign-in are worth is priced on Traffic sources → Value: for the whole site, an account also per source.
                 'editable' => ! in_array($step, ['account', 'login'], true),
                 'sitePrice' => in_array($step, ['account', 'login'], true),
+                'priceTag' => $step === 'account' ? (['own' => 'Own price of this source', 'mix' => 'Sources’ own prices mixed in'][$data['priced']] ?? 'Set for the whole site') : 'Set for the whole site',
                 'halfway' => $step === $halfway,
                 'goal' => $goalSteps[$step] ?? null,
                 'manual' => $row['manual'] === null ? null : ($row['manual']['mode'] === TrafficStepValueMode::Thin ? 'Set by hand while data is thin' : 'Set by hand'),
@@ -243,7 +247,7 @@ final class GameValue extends Page
                 StepLabels::PLAYING => ['Playing', 'Every play goes through these. The further a visitor gets, the likelier an account.'],
                 StepLabels::AFTER_THE_RESULT => ['After the result', 'What the visitor does on the result and on the steps after it.'],
                 StepLabels::ON_THE_SITE => ['On the site', 'What they do on the post or in the feed that the flow sends them to.'],
-                StepLabels::ACCOUNTS => ['Accounts', 'Signed up is worth the share that go on to confirm. Confirmed is what an account brings. Signing in to an existing account is worth its own price: not a new user, but someone we had already coming back. Both prices are set once for the whole site.'],
+                StepLabels::ACCOUNTS => ['Accounts', 'Signed up is worth the share that go on to confirm. Confirmed is what an account brings. Signing in to an existing account is worth its own price: not a new user, but someone we had already coming back. Both prices are set for the whole site; a paid source can have an account price of its own.'],
             ],
             'rows' => $rows,
             'basis' => $this->basis($game, $data, $visited, $groups),
@@ -256,11 +260,13 @@ final class GameValue extends Page
                 'worth' => (string) $data['steps']['opened']['value'],
                 'chance' => $data['steps']['opened']['chance'],
                 'account' => (string) $data['account'],
-                'formula' => TrafficMoney::brief($data['prices']->accountPrice)
+                'formula' => (['own' => 'Its own price ', 'mix' => 'Mixed price '][$data['priced']] ?? '')
+                    .TrafficMoney::brief($data['prices']->accountPrice)
                     .' + '.self::percent($data['postRate']).' post × '.TrafficMoney::brief($data['prices']->postBonus)
                     .' + '.self::percent($data['returnRate']).' back × '.TrafficMoney::brief($data['prices']->returnedBonus)
                     .($data['percent'] !== 100 ? ' · '.$data['percent'].'% for the group' : ''),
                 'scope' => $this->scopeLabel($visited, $groups),
+                'priceNote' => $this->priceNote($data, $set, $sources, $visited),
             ],
             'bySource' => $this->bySource($game, $rounds, $visited),
             'deviceLabel' => ['all' => 'Every device', 'mobile' => 'Mobile', 'desktop' => 'Desktop'][$this->device] ?? 'Every device',
@@ -418,6 +424,40 @@ final class GameValue extends Page
         }
 
         return $named === '' ? 'the whole site' : $this->sliceName($title, $visited, $groups, $source, $device, $group);
+    }
+
+    /**
+     * Whose account price the slice counts, said plainly when it is not
+     * simply the site's: a source's own price, or — for every source — that
+     * the sources with a price of their own count it, mixed in as their
+     * accounts came.
+     *
+     * @param  array<string, mixed>  $data
+     * @param  Collection<int, TrafficSource>  $sources
+     * @param  array<string, array{key: string, name: string, sourceId: int|null, channel: string|null}>  $visited
+     */
+    private function priceNote(array $data, TrafficPriceSet $set, Collection $sources, array $visited): ?string
+    {
+        $own = $set->sourceAccountPrices();
+        $site = TrafficMoney::brief($set->account_price);
+        [$sourceId, $channel] = $this->sourceFilter();
+
+        if ($data['priced'] === 'own') {
+            $name = $visited[(string) $this->source]['name'] ?? $sources->firstWhere('id', $sourceId)->name ?? 'This source';
+
+            return $name.' counts an account at its own price, '.TrafficMoney::brief($data['prices']->accountPrice).', not the site’s '.$site.'.';
+        }
+
+        if ($sourceId !== null || $channel !== null || $own === []) {
+            return null;
+        }
+
+        $names = Arr::join(array_map(fn (int $id): string => $sources->firstWhere('id', $id)->name ?? 'Source #'.$id, array_keys($own)), ', ', ' and ');
+        [$has, $their] = count($own) === 1 ? ['has', 'its'] : ['have', 'their'];
+
+        return $data['priced'] === 'mix'
+            ? $names.' '.$has.' an account price of '.$their.' own, mixed in here as '.$their.' accounts came: '.TrafficMoney::brief($data['prices']->accountPrice).' an account rather than the site’s '.$site.'. Pick a source to see its own.'
+            : $names.' '.$has.' an account price of '.$their.' own; with none of '.$their.' accounts counted here yet, this counts the site’s '.$site.'. Pick a source to see its own.';
     }
 
     /**

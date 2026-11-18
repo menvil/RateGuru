@@ -4,6 +4,7 @@ use App\Enums\GeoEdition;
 use App\Models\TrafficApiConnection;
 use App\Models\TrafficPriceSet;
 use App\Models\TrafficSetting;
+use App\Models\TrafficSource;
 use Illuminate\Support\Facades\DB;
 
 it('keeps a network API\'s credentials encrypted, and out of every array of the connection', function () {
@@ -21,6 +22,17 @@ it('never changes a price set once written', function () {
 
     expect(fn () => $set->forceFill(['account_price' => '0.6'])->save())->toThrow(LogicException::class)
         ->and(TrafficPriceSet::current()->account_price)->toBe('0.5000');
+});
+
+it('keeps each paid source’s own account price in its set, read back by source id', function () {
+    $source = TrafficSource::factory()->create();
+    $set = TrafficPriceSet::factory()->create(['source_account_prices' => [$source->id => '0.8000']])->fresh();
+
+    expect($set->sourceAccountPrices())->toBe([$source->id => '0.8000'])
+        ->and($set->worth()->accountPriceOf($source->id))->toBe('0.8000')
+        ->and($set->worth()->accountPriceOf($source->id + 1))->toBe('0.5000')
+        ->and($set->worth()->accountPriceOf(null))->toBe('0.5000')
+        ->and(fn () => $set->forceFill(['source_account_prices' => null])->save())->toThrow(LogicException::class);
 });
 
 it('puts the newest price set in force', function () {

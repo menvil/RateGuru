@@ -16,7 +16,8 @@ return new class extends Migration
         // country groups and the share of the price each is worth. Never
         // changed once written: saving prices or groups adds a set, the newest
         // one is in force, and every visit keeps the set that was in force
-        // when it came.
+        // when it came. A paid source can have an account price of its own in
+        // a set, so an account from it is worth that instead of the site's.
         Schema::create('traffic_price_sets', function (Blueprint $table) {
             $table->id();
             $table->decimal('account_price', 10, 4);
@@ -26,6 +27,10 @@ return new class extends Migration
             // [{key, name, percent, countries: [upper-case codes]}], the last
             // group holding every country the others do not name.
             $table->json('country_groups');
+            // {source id: price with four decimals} for the paid sources whose
+            // account is worth its own price; a source not named, or the whole
+            // column null, counts the site's account price.
+            $table->json('source_account_prices')->nullable();
             $table->string('summary', 300)->nullable();
             $table->foreignId('created_by_user_id')->nullable()->constrained('users')->restrictOnDelete();
             $table->dateTime('created_at');

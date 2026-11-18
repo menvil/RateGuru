@@ -20,8 +20,9 @@ use Carbon\CarbonImmutable;
 /**
  * A visit's worth, worked out for it: what a step it reached is worth now
  * (the value a postback sends), and what the visit is worth so far and may
- * still bring. Reads the last run once per instance, so a nightly pass over
- * thousands of visits asks for it once.
+ * still bring — always at the prices of the visit's own set, its source's
+ * own account price when that set gives it one. Reads the last run once per
+ * instance, so a nightly pass over thousands of visits asks for it once.
  */
 final class TrafficVisitWorth
 {
@@ -56,7 +57,7 @@ final class TrafficVisitWorth
         return StepWorth::of(
             $slice,
             $step,
-            $this->worth->prices((int) $visit->price_set_id),
+            $this->worth->prices((int) $visit->price_set_id)->forSource($visit->source_id),
             (int) $visit->worth_percent,
             (bool) $visit->known,
             $this->worth->manualValues($visit->game_id)[$step] ?? null,
@@ -69,7 +70,7 @@ final class TrafficVisitWorth
     {
         $slice = $this->sliceOf($visit);
         $table = $this->table($slice);
-        $prices = $this->worth->prices((int) $visit->price_set_id);
+        $prices = $this->worth->prices((int) $visit->price_set_id)->forSource($visit->source_id);
         $manual = $this->worth->manualValues($visit->game_id);
         $reached = [];
 
@@ -88,6 +89,7 @@ final class TrafficVisitWorth
             $visit->returned_at !== null,
             $reached,
             $prices,
+            $visit->source_id,
             (int) $visit->worth_percent,
             $table->of($slice, 'post_bonus')['chance'],
             $table->of($slice, 'returned_bonus')['chance'],
