@@ -57,7 +57,7 @@ function changesSnapshot(?Closure $edit = null): GameVersionSnapshot
                 ['key' => 's4', 'type' => 'go_to_page', 'audience' => 'all', 'settings' => ['destination' => 'category', 'category' => 'cats', 'tag' => '', 'path' => '', 'url' => '', 'new_tab' => false], 'texts' => ['title' => ['en' => 'More like this'], 'button_label' => ['en' => 'Take a look']]],
             ],
         ],
-        'locales' => ['en', 'de'],
+        'locales' => ['en'],
     ];
 
     return GameVersionSnapshot::fromArray($edit === null ? $data : $edit($data));
