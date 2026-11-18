@@ -71,6 +71,29 @@ It runs once: when the game exists it changes nothing, and without enough
 decided posts it makes nothing and says why. It is not called by
 `DatabaseSeeder`.
 
+## Demo traffic and game analytics
+
+To look at Growth → Traffic sources and a game's Analytics, Value and Traffic
+on figures, add the tracker's sources and then two months of play on top of the
+demo game:
+
+```bash
+php artisan db:seed --class=TrafficDemoSeeder
+php artisan db:seed --class=GameAnalyticsDemoSeeder
+```
+
+`TrafficDemoSeeder` adds PopAds, ExoClick and a banner from their presets, a few
+campaigns and six weeks of visits. `GameAnalyticsDemoSeeder` then plays the
+demo game's history through the game's and the tracker's own actions, the clock
+set back to each moment: three versions sharing the traffic period after
+period, anonymous and logged-in players, answers, results, emails, shares and
+exits, attempts on the visits they came on across ten more ad networks and a
+few banners, sign-ups confirmed, never confirmed and still waiting, and
+sign-ins to existing accounts. It rewrites what happened after each of
+`TrafficDemoSeeder`'s clicks, so the two agree, and takes about five minutes.
+Both run once and are not called by `DatabaseSeeder`; if the history run stops
+halfway, start again from `migrate:fresh`.
+
 ## Demo accounts
 
 Admin:
