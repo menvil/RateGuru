@@ -205,7 +205,7 @@
                 @endforeach
                 @foreach ($draft['rules'] as $index => $rule)
                     <div class="rg-admin-traffic__rule" wire:key="rule-{{ $index }}">
-                        <div class="rg-admin-traffic__row">
+                        <div class="rg-admin-traffic__rule-head">
                             <label class="rg-admin-field">
                                 <span class="rg-admin-label">When</span>
                                 <select class="rg-admin-traffic__select" wire:model.live="draft.rules.{{ $index }}.event" aria-label="Event" aria-describedby="rg-admin-rule-when-{{ $index }}">
@@ -216,7 +216,7 @@
                                 <span class="rg-admin-traffic__note" id="rg-admin-rule-when-{{ $index }}">{{ ($rule['event'] ?? '') === 'goal' ? 'The goal each game’s flow sets — an account, a share, a post opened… — whichever game the click went to.' : 'The milestone that sends it, once per click.' }}</span>
                             </label>
                             <x-admin.ui.text-field label="Goal ID in the network" :id="'rg-admin-rule-goal-'.$index" :value="(string) ($rule['goal_code'] ?? '')" hint="The ID the network gave the goal this postback reports; it fills {goal_code}." wire:model.live.blur="draft.rules.{{ $index }}.goal_code" />
-                            <x-admin.ui.switch label="On" :id="'rg-admin-rule-on-'.$index" :checked="(bool) $rule['enabled']" wire:model.live="draft.rules.{{ $index }}.enabled" />
+                            <x-admin.ui.switch label="Status" on="Sending" off="Off" :id="'rg-admin-rule-on-'.$index" :checked="(bool) $rule['enabled']" wire:model.live="draft.rules.{{ $index }}.enabled" />
                         </div>
                         @if (($rule['event'] ?? '') === 'settled')
                             <label class="rg-admin-field">

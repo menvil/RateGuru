@@ -14719,6 +14719,20 @@
         border-top: 1px solid var(--rg-admin-border-default);
     }
 
+    /* A rule's When and the network's goal ID side by side, each with its hint wrapping under it, the switch beside them. */
+    .rg-admin-traffic__rule-head {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 112px;
+        align-items: start;
+        gap: 10px 12px;
+    }
+
+    @media (max-width: 639.98px) {
+        .rg-admin-traffic__rule-head {
+            grid-template-columns: minmax(0, 1fr);
+        }
+    }
+
     .rg-admin-traffic__rule {
         padding: 10px 12px;
         border: 1px solid var(--rg-admin-border-default);
