@@ -14719,12 +14719,24 @@
         border-top: 1px solid var(--rg-admin-border-default);
     }
 
-    /* A rule's When and the network's goal ID side by side, each with its hint wrapping under it, the switch beside them. */
+    /* A rule's When, the network's goal ID and the switch on one line, what they mean in a few lines under them. */
     .rg-admin-traffic__rule-head {
         display: grid;
         grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 112px;
-        align-items: start;
+        align-items: end;
         gap: 10px 12px;
+    }
+
+    .rg-admin-traffic__rule-hint {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        margin: -4px 0 0;
+    }
+
+    .rg-admin-traffic__rule-term {
+        font-weight: var(--rg-admin-weight-medium);
+        color: var(--rg-admin-text-secondary);
     }
 
     @media (max-width: 639.98px) {

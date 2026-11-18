@@ -213,11 +213,19 @@
                                         <option value="{{ $event }}">{{ $event === 'goal' ? 'Flow goal reached' : (\App\Enums\TrafficEvent::tryFrom($event)?->label() ?? $event) }}</option>
                                     @endforeach
                                 </select>
-                                <span class="rg-admin-traffic__note" id="rg-admin-rule-when-{{ $index }}">{{ ($rule['event'] ?? '') === 'goal' ? 'The goal each game’s flow sets — an account, a share, a post opened… — whichever game the click went to.' : 'The milestone that sends it, once per click.' }}</span>
                             </label>
-                            <x-admin.ui.text-field label="Goal ID in the network" :id="'rg-admin-rule-goal-'.$index" :value="(string) ($rule['goal_code'] ?? '')" hint="The ID the network gave the goal this postback reports; it fills {goal_code}." wire:model.live.blur="draft.rules.{{ $index }}.goal_code" />
+                            <x-admin.ui.text-field label="Goal ID in the network" :id="'rg-admin-rule-goal-'.$index" :value="(string) ($rule['goal_code'] ?? '')" aria-describedby="rg-admin-rule-when-{{ $index }}" wire:model.live.blur="draft.rules.{{ $index }}.goal_code" />
                             <x-admin.ui.switch label="Status" on="Sending" off="Off" :id="'rg-admin-rule-on-'.$index" :checked="(bool) $rule['enabled']" wire:model.live="draft.rules.{{ $index }}.enabled" />
                         </div>
+                        {{-- One line of fields; what the event and the goal ID mean, under them in a few lines. --}}
+                        <p class="rg-admin-traffic__note rg-admin-traffic__rule-hint" id="rg-admin-rule-when-{{ $index }}">
+                            @if (($rule['event'] ?? '') === 'goal')
+                                <span><span class="rg-admin-traffic__rule-term">Flow goal reached</span> is the goal each game’s flow sets — an account, a share, a post opened… — whichever game the click went to.</span>
+                            @else
+                                <span><span class="rg-admin-traffic__rule-term">When</span> is the milestone that sends it, once per click.</span>
+                            @endif
+                            <span><span class="rg-admin-traffic__rule-term">Goal ID</span> is the ID the network gave the goal this postback reports; it fills {goal_code}.</span>
+                        </p>
                         @if (($rule['event'] ?? '') === 'settled')
                             <label class="rg-admin-field">
                                 <span class="rg-admin-label">Only a visit that got at least to</span>
