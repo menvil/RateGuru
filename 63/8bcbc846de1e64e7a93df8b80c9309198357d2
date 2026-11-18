@@ -1,0 +1,164 @@
+tests/Pest.php
+  s_4b9dc6ab6b25d3::t_7e811f9704ba06 14838-14856
+  s_4b9dc6ab6b25d3::t_4adaea1c4e2d73 52,117-118
+  s_4b9dc6ab6b25d3::t_4a2cf68f234011 92,104,14568-14581
+resources/views/filament/pages/analytics/experiments.blade.php
+  s_4b9dc6ab6b25d3::t_a65cd609885521 28
+  s_4b9dc6ab6b25d3::t_9e8762b9185773 29
+app/Livewire/Games/PlayGame.php
+  s_4b9dc6ab6b25d3::t_a28a08270f0529 34-35,94-104,140-141,167,530-555
+app/Support/Games/Play/GamePlayView.php
+  s_4b9dc6ab6b25d3::t_1d1b4fb271c2b6 413
+  s_4b9dc6ab6b25d3::t_4a41a71160c66e 89
+  s_4b9dc6ab6b25d3::t_a3532373ce798f 385
+  s_4b9dc6ab6b25d3::t_4477f4af7dca20 337
+  s_4b9dc6ab6b25d3::t_1b3d7250e2f74c 392-399
+tests/Feature/Games/GameActionsAuthorizationTest.php
+  s_4b9dc6ab6b25d3::t_3c69eb242c47d0 10,30,33,111-113
+app/Models/GameTrafficPeriod.php
+  s_4b9dc6ab6b25d3::t_56a56f83ffe6c4 6,21-25,29-31,51-52,65-86,133-142
+  s_4b9dc6ab6b25d3::t_9356be15ed1a48 87,143-144
+app/Filament/Resources/Games/Analytics/GameAnalyticsView.php
+  s_4b9dc6ab6b25d3::t_86ca4686bcd850 18,258-262,798-799,828,831,838
+database/migrations/2026_11_18_100800_add_scope_to_game_traffic_periods_table.php
+  s_4b9dc6ab6b25d3::t_14c761f0ecb534 1-89
+app/Support/Games/Play/VersionTestLink.php
+  s_4b9dc6ab6b25d3::t_1366906ecacca5 1-15,20-24,28-37,40-45
+  s_4b9dc6ab6b25d3::t_b9a89de1566fb6 16-19,25-27,38-39
+app/Actions/Games/AssignGameVersionAction.php
+  s_4b9dc6ab6b25d3::t_86e17d822fbccc 11,20-29,41-46,49,51,60,62,68,71-72,128-131
+tests/Feature/Games/Admin/ExperimentsSplitLabelsTest.php
+  s_4b9dc6ab6b25d3::t_cdd9275a8f45a4 1-51,53,55-78,80-90,92-113
+  s_4b9dc6ab6b25d3::t_b277c40be10b3b 52,54,79,91
+docs/architecture/traffic.md
+  s_4b9dc6ab6b25d3::t_745198daf1f292 31-34
+docs/architecture/games.md
+  s_4b9dc6ab6b25d3::t_1c9abadd943b50 252-254
+  s_4b9dc6ab6b25d3::t_8a258a71b2c4a3 262-263
+  s_4b9dc6ab6b25d3::t_b5bb53abc3c638 24,195-197,203-237,241-251,255-261,264-265,379-380
+  s_4b9dc6ab6b25d3::t_1defd6779de5b0 238-240
+app/Filament/Pages/Analytics/ExperimentsTab.php
+  s_4b9dc6ab6b25d3::t_4cea2ad31b0c89 17,30-31,76,103,111-112,118,128,142
+resources/views/filament/pages/experiments/list.blade.php
+  s_4b9dc6ab6b25d3::t_ee98cc8c0b81e8 6-7,69-74,77-78,97
+  s_4b9dc6ab6b25d3::t_59b19874435c71 75-76
+app/Filament/Resources/Games/Pages/PreviewGame.php
+  s_4b9dc6ab6b25d3::t_6da01a3646816a 12,27-30,131-133
+app/Models/TrafficCampaign.php
+  s_4b9dc6ab6b25d3::t_56a56f83ffe6c4 88-93
+app/Filament/Resources/Games/Pages/GameVersions.php
+  s_4b9dc6ab6b25d3::t_a63026b54f1763 158-166,180,215-217
+app/Actions/Games/PublishGameVersionAction.php
+  s_4b9dc6ab6b25d3::t_0d9c66c044f18e 16,33-35,114,118-119,121-123,125-127
+app/Http/Middleware/CaptureTrafficArrival.php
+  s_4b9dc6ab6b25d3::t_e61b43d2ab3412 9,39-41,105-107
+routes/web.php
+  s_4b9dc6ab6b25d3::t_b4c087985c7bd4 53-54
+  s_4b9dc6ab6b25d3::t_c6ab474511f0b5 5
+app/Filament/Resources/Games/Pages/GameTraffic.php
+  s_4b9dc6ab6b25d3::t_8f945df6a0a2f4 20
+  s_4b9dc6ab6b25d3::t_049dae84871707 291
+  s_4b9dc6ab6b25d3::t_95935589f5076c 6,10-11,19,21,24-25,29,43-49,68-83,117,155-218,220-279,281-290,292-328,330-333
+  s_4b9dc6ab6b25d3::t_a1a9fa11604d09 219,373-454,469,471-472,481-487,489,496,504-514,518,520,523
+  s_4b9dc6ab6b25d3::t_2ba4de10370b8a 280
+  s_4b9dc6ab6b25d3::t_aac24f75010658 14
+  s_4b9dc6ab6b25d3::t_9356be15ed1a48 329
+  s_4b9dc6ab6b25d3::t_8ee92be85165fb 515-517
+tests/Browser/GameTrafficSplitsBrowserTest.php
+  s_4b9dc6ab6b25d3::t_0591f23f2e2ad4 1-21,24-86
+  s_4b9dc6ab6b25d3::t_0d3e63b9a3651f 22-23
+  s_4b9dc6ab6b25d3::t_3d2ba504c65997 87-96
+app/Queries/Games/TrafficPeriodScopesQuery.php
+  s_4b9dc6ab6b25d3::t_cbacf79c6a5ee4 1-59
+tests/Feature/Games/Admin/GameTrafficSplitsPageTest.php
+  s_4b9dc6ab6b25d3::t_8b2b7e70e09bac 84-109
+  s_4b9dc6ab6b25d3::t_3399d24b67f4b3 161,164
+  s_4b9dc6ab6b25d3::t_99ac5f5264e49c 1-6,9-27,31-83,110-160,162-163,165-184
+  s_4b9dc6ab6b25d3::t_1dc2b6fb57fb56 7
+  s_4b9dc6ab6b25d3::t_0fd16de1f836b3 28-30
+app/Queries/Games/ComparisonPeriodsQuery.php
+  s_4b9dc6ab6b25d3::t_8fe0c63a04d4bb 16-17,126-127,137-138
+tests/Feature/Database/GameTrafficPeriodScopeColumnsTest.php
+  s_4b9dc6ab6b25d3::t_e004bead7943e3 1-101
+app/Queries/Games/TestLinkVersionQuery.php
+  s_4b9dc6ab6b25d3::t_120a7bfb442a9d 1-34
+database/seeders/Support/DemoPlaythrough.php
+  s_4b9dc6ab6b25d3::t_5e207c54062316 37
+  s_4b9dc6ab6b25d3::t_b0e71355b74e79 146-148
+app/Actions/Games/EndGameTrafficSplitAction.php
+  s_4b9dc6ab6b25d3::t_6eeb7ade6a7d31 1-16,22-28,31-35,37-50,52-54,56-57
+  s_4b9dc6ab6b25d3::t_e63abdd46032e7 17-21,29-30,36,51,55
+app/Queries/Games/GameTrafficQuery.php
+  s_4b9dc6ab6b25d3::t_e41f93a498ce9e 10-11,13,16-19,23-24,26-27,32-33,39-99,137,149-201,204-227,231
+app/Actions/Games/ApplyGameTrafficAction.php
+  s_4b9dc6ab6b25d3::t_d894980addfa31 13-14,17,35-40,59,65-67,71-74,76,95-99,110,116,120-145
+tests/Browser/AdminAnalyticsExperimentsBrowserTest.php
+  s_4b9dc6ab6b25d3::t_b4b8fe22d822ea 70-84
+  s_4b9dc6ab6b25d3::t_455a51023652da 6-7
+  s_4b9dc6ab6b25d3::t_da84ce43387c2f 15-17
+app/Queries/Analytics/AnalyticsMarkersQuery.php
+  s_4b9dc6ab6b25d3::t_20722147b2d8f7 18-19,56,58-62,64-65
+tests/Feature/Games/GameTrafficSplitsTest.php
+  s_4b9dc6ab6b25d3::t_7d9e5d6a65119a 10,21-22,104,106
+  s_4b9dc6ab6b25d3::t_545e7f62902d79 210,215-216,218,220-221
+  s_4b9dc6ab6b25d3::t_809c6e3fc180b7 1-9,11-20,23-103,105,107-209,211-214,217,219,222-232
+resources/views/filament/pages/game-preview.blade.php
+  s_4b9dc6ab6b25d3::t_6da01a3646816a 10-11,131-134
+app/Filament/Pages/Experiments/ExperimentsView.php
+  s_4b9dc6ab6b25d3::t_c04c396d0b78a9 16,25-29,55,58-63,111,121,165,170-171,177,217,220,234
+resources/views/filament/pages/game-traffic.blade.php
+  s_4b9dc6ab6b25d3::t_715725424dd51d 6-8
+  s_4b9dc6ab6b25d3::t_58a3690d21e0df 81-91
+  s_4b9dc6ab6b25d3::t_0bb33d82f6292d 101-120,139-157,159-173,175,177-183,185-187,189-193
+  s_4b9dc6ab6b25d3::t_767003e34b2ba9 124-137
+  s_4b9dc6ab6b25d3::t_dccb38a077e5fb 74,92,94-96,100,121,138
+  s_4b9dc6ab6b25d3::t_fa53907e07dfb9 4-5,9-11,75-80,93,97-99,122-123,158,174,176,184,188,194-198,220-229
+resources/css/filament/admin/components.css
+  s_4b9dc6ab6b25d3::t_5188de41ed8d9e 18415-18438
+  s_4b9dc6ab6b25d3::t_8962f391b3b308 13908-13922,13931-13943
+  s_4b9dc6ab6b25d3::t_cf5f62d1b02439 13900-13907,13923-13930
+  s_4b9dc6ab6b25d3::t_8a88afed3410a2 14008,14011-14012
+docs/admin/games.md
+  s_4b9dc6ab6b25d3::t_bee847b0cb688f 97
+  s_4b9dc6ab6b25d3::t_b5bb53abc3c638 51-55,87-96,98-99
+tests/Feature/Games/VersionTestLinkTest.php
+  s_4b9dc6ab6b25d3::t_477b4c6dec94b0 24-26
+  s_4b9dc6ab6b25d3::t_eb88d0714218a6 1-23,27-65,67-76,107-126,129-131,133-170
+  s_4b9dc6ab6b25d3::t_595c4013ac61b0 66,127-128,132
+  s_4b9dc6ab6b25d3::t_4bc9ae4a388357 77-106
+app/Livewire/Games/PreviewGame.php
+  s_4b9dc6ab6b25d3::t_a1993dcc34c50a 13,44-48,105,107,113-117,144-154
+  s_4b9dc6ab6b25d3::t_ccc15bf756c9b4 106,108,110-112
+resources/views/filament/pages/games/analytics/cards.blade.php
+  s_4b9dc6ab6b25d3::t_467acf2cd77f9c 321
+app/Http/Controllers/Games/PlayGamePageController.php
+  s_4b9dc6ab6b25d3::t_f0a041f6018b9b 1-27
+tests/Feature/Database/ForeignKeyIndexesTest.php
+  ai_agent 29-30
+app/Support/Games/Traffic/TrafficScope.php
+  s_4b9dc6ab6b25d3::t_40fd8e183a0cfe 1-96
+app/Actions/Games/StartGameAttemptAction.php
+  s_4b9dc6ab6b25d3::t_887cbf617fd880 51-52
+  s_4b9dc6ab6b25d3::t_53fffff910e11f 23,49-50,65-75
+docs/architecture/community-fk-safety.md
+  s_4b9dc6ab6b25d3::t_b5bb53abc3c638 72
+app/Actions/Games/Concerns/AppliesTrafficShares.php
+  s_4b9dc6ab6b25d3::t_819f41d305a9f9 56-57
+  s_4b9dc6ab6b25d3::t_01319423d7d663 10-11,15-19,27,29,34-35,55,63-65
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "638bcbc846de1e64e7a93df8b80c9309198357d2",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
