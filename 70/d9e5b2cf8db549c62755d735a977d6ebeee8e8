@@ -1,0 +1,19 @@
+tests/Browser/AdminExperimentsBrowserTest.php
+  s_4b9dc6ab6b25d3::t_174c7337125456 49-57,59,66,74
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "70d9e5b2cf8db549c62755d735a977d6ebeee8e8",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
