@@ -46,15 +46,24 @@ function experimentsLayout(mixed $page): array
     JS);
 }
 
+/** Opens an Experiments address and waits for the figures it reads once it is in the browser (wire:init). */
+function visitExperiments(string $url, int $width = 1440): mixed
+{
+    $page = visitAdminEditor($url, $width);
+    waitForScript($page, "document.querySelector('.rg-admin-experiments') !== null && document.querySelector('.rg-admin-experiments__loading') === null", true, 10.0);
+
+    return $page;
+}
+
 it('draws the list and a period’s results at every width, never wider than the screen', function (int $width) {
-    $list = visitAdminEditor('/admin/experiments', $width);
+    $list = visitExperiments('/admin/experiments', $width);
 
     expect($list->script("[...document.querySelectorAll('[role=\"columnheader\"]')].map((cell) => cell.textContent.trim())"))
         ->toBe(['Game', 'Group', 'Period', 'Versions', 'Visitors', 'Data', 'Status', 'Results'])
         ->and(experimentsLayout($list))->toBe(['pageOverflows' => false, 'scrollsWhenNarrower' => true]);
     $list->assertNoJavaScriptErrors();
 
-    $period = visitAdminEditor('/admin/experiments?period='.$this->ended->id, $width);
+    $period = visitExperiments('/admin/experiments?period='.$this->ended->id, $width);
 
     expect($period->script("document.getElementById('rg-admin-experiments-period-title')?.textContent.trim()"))->toBe('Trust Your Taste · Anonymous visitors')
         ->and(experimentsLayout($period))->toBe(['pageOverflows' => false, 'scrollsWhenNarrower' => true]);
@@ -62,7 +71,7 @@ it('draws the list and a period’s results at every width, never wider than the
 })->with([1440, 1280, 1024, 390]);
 
 it('opens a period from the list, switches to another, deletes it and brings it back with Undo', function () {
-    $page = visitAdminEditor('/admin/experiments');
+    $page = visitExperiments('/admin/experiments');
 
     expect($page->script("[...document.querySelectorAll('.rg-admin-experiments__row')].map((row) => row.id)"))
         ->toBe(['rg-admin-experiments-period-'.$this->current->id, 'rg-admin-experiments-period-'.$this->ended->id]);
