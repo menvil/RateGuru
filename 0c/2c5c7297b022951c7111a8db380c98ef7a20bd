@@ -1,0 +1,152 @@
+resources/views/filament/pages/experiments/topbar.blade.php
+  s_4b9dc6ab6b25d3::t_cd3d11559c338c 3
+  s_4b9dc6ab6b25d3::t_c04cfcef777f97 1-2,4-5
+tests/Feature/Policies/SanctionedAdministratorPoliciesTest.php
+  s_4b9dc6ab6b25d3::t_6bacdfaddccb02 3,23-27
+app/Queries/Games/ComparisonPeriodsQuery.php
+  s_4b9dc6ab6b25d3::t_e8715a2d264f01 1-87,89-95,98-99,102-132
+  s_4b9dc6ab6b25d3::t_d50c40ab8b6707 88,97,100-101
+  s_4b9dc6ab6b25d3::t_605ade6fded339 96
+resources/views/components/admin/ui/icon.blade.php
+  s_4b9dc6ab6b25d3::t_61b5e220db930a 116-120
+docs/architecture/http-and-database-boundaries.md
+  s_4b9dc6ab6b25d3::t_cf884a07e12874 67-68,72-74
+tools/phpstan/architecture.neon
+  s_4b9dc6ab6b25d3::t_cf884a07e12874 100-105,137,248-252
+tests/Feature/ViewComponents/AdminUiComponentsTest.php
+  s_4b9dc6ab6b25d3::t_07cad1c426bee2 33-42
+app/Enums/PeriodMetric.php
+  s_4b9dc6ab6b25d3::t_ee213c6b7cb2b0 1-30
+app/Support/Analytics/PeriodVersionFunnel.php
+  s_4b9dc6ab6b25d3::t_74a27c14531f7b 1-42
+resources/views/filament/pages/experiments/list.blade.php
+  s_4b9dc6ab6b25d3::t_016b217a9e5d72 54
+  s_4b9dc6ab6b25d3::t_a8a1ebef81e9be 1-10,12-53,55-63,65-72,74-76,78-103
+  s_4b9dc6ab6b25d3::t_8adb0b8933b658 64,73
+  s_4b9dc6ab6b25d3::t_7babfa88ada780 11,77
+app/Actions/Games/HideGameTrafficPeriodAction.php
+  s_4b9dc6ab6b25d3::t_1bcfe8a57671fd 1-82
+resources/views/filament/pages/game-analytics.blade.php
+  s_4b9dc6ab6b25d3::t_cbd7bf950d39c1 16-17
+  s_4b9dc6ab6b25d3::t_c3a1dd8bdd435e 358-360
+tests/Feature/Games/Admin/ExperimentsPageTest.php
+  s_4b9dc6ab6b25d3::t_f86a6a0fdbf18a 59,82,123,134,238-240,350
+  s_4b9dc6ab6b25d3::t_0c2f912033b9e2 46,49-51,99,114,152,178,185,196,201,213,227,254,260-267,269-288,308
+  s_4b9dc6ab6b25d3::t_05f41545b5a24d 1-45,47-48,52-58,60-81,83-98,100-113,115-122,124-133,135-151,153-177,179-184,186-195,197-200,202-212,214-226,228-237,241-253,255-259,268,289-307,309-349,351-376
+tests/Browser/AdminExperimentsBrowserTest.php
+  s_4b9dc6ab6b25d3::t_c398c32d67a49e 75,82
+  s_4b9dc6ab6b25d3::t_bd58afb7574a59 1-72,74,76-79,81,83-96
+  s_4b9dc6ab6b25d3::t_fb844a04765410 73,80
+composer.json
+  s_4b9dc6ab6b25d3::t_cf884a07e12874 84-85
+resources/views/filament/pages/game-traffic.blade.php
+  s_4b9dc6ab6b25d3::t_eba41a9910ac55 81-83
+  s_4b9dc6ab6b25d3::t_8a31c383e1e93e 5-6
+app/Models/GameTrafficPeriod.php
+  s_4b9dc6ab6b25d3::t_1b1caeb49ec192 44
+  s_4b9dc6ab6b25d3::t_8517f663e88b52 25
+  s_4b9dc6ab6b25d3::t_0cf6fc7a7ed41c 17-18
+app/Filament/Pages/TrafficSourcesPage.php
+  s_4b9dc6ab6b25d3::t_175becfaae9bf8 81
+  s_4b9dc6ab6b25d3::t_06a1cd95f6db03 82
+resources/views/filament/pages/experiments/period.blade.php
+  s_4b9dc6ab6b25d3::t_258c39e597b346 1-12,14-82,84-105
+  s_4b9dc6ab6b25d3::t_8adb0b8933b658 83
+  s_4b9dc6ab6b25d3::t_7babfa88ada780 13
+tests/Feature/Games/GameActionsAuthorizationTest.php
+  s_4b9dc6ab6b25d3::t_9c6c4e30f28dde 111-113
+  s_4b9dc6ab6b25d3::t_6bacdfaddccb02 10,59
+tests/Unit/Support/Analytics/PeriodComparisonTest.php
+  s_4b9dc6ab6b25d3::t_091dbb519ec20f 1-85,87-89,91,96-136,138
+  s_4b9dc6ab6b25d3::t_0c2f912033b9e2 86,90,92-95
+  s_4b9dc6ab6b25d3::t_21be4d297a6955 137
+tests/Feature/Database/GameTrafficPeriodHiddenColumnTest.php
+  s_4b9dc6ab6b25d3::t_bce4ff0885be8c 1-50
+app/Support/Analytics/ComparedVersion.php
+  s_4b9dc6ab6b25d3::t_f93f02bcd29178 1-23
+app/Support/Analytics/ActivityDay.php
+  s_4b9dc6ab6b25d3::t_45dd93736bf262 39-49
+app/Models/GameVersion.php
+  s_4b9dc6ab6b25d3::t_b19e4111ef5f0f 5,7
+  s_4b9dc6ab6b25d3::t_d09badc1ef4a78 104-115
+tests/Feature/Queries/ComparisonPeriodsQueryTest.php
+  s_4b9dc6ab6b25d3::t_ccf07255dc593b 1-64,66-120
+  s_4b9dc6ab6b25d3::t_b21c5ae2886220 65
+app/Providers/Filament/AdminPanelProvider.php
+  s_4b9dc6ab6b25d3::t_72e7318cc92912 6
+  s_4b9dc6ab6b25d3::t_f6a22b29baead5 169-174
+tests/Pest.php
+  s_4b9dc6ab6b25d3::t_c937d3f8f520f2 30
+  s_4b9dc6ab6b25d3::t_ea9dbb530ac5a6 14506-14526
+  s_4b9dc6ab6b25d3::t_5f0ec1bd9a584d 28,55-56,58-59,65,14505,14527-14578
+  s_4b9dc6ab6b25d3::t_fb844a04765410 51
+app/Filament/Support/AdminShellNavigation.php
+  s_4b9dc6ab6b25d3::t_99b6fec2f88281 6,61,95-96,101,109
+app/Queries/Games/GameMetricsQuery.php
+  s_4b9dc6ab6b25d3::t_b5f077289af737 13,18,38-39,540-543
+  s_4b9dc6ab6b25d3::t_52f7cbed94e74a 257-268,270-271,273,275-284,286-295,302-312
+app/Enums/PeriodDataState.php
+  s_4b9dc6ab6b25d3::t_a55de48ae0fb49 1-40
+app/Enums/ComparisonEvidence.php
+  s_4b9dc6ab6b25d3::t_454ac4a93a5394 1-32
+app/Filament/Pages/Experiments/ExperimentsView.php
+  s_4b9dc6ab6b25d3::t_7766efc033c110 132,182-187,206-208
+  s_4b9dc6ab6b25d3::t_573ece3264b2f5 245-246
+  s_4b9dc6ab6b25d3::t_0a5fbdca847d19 1-105,123-131,133-181,188-205,209-244,247-325
+  s_4b9dc6ab6b25d3::t_c2c96ca8264ea3 106-122
+app/Filament/Pages/ExperimentsPage.php
+  s_4b9dc6ab6b25d3::t_29bff3d82bff3e 86
+  s_4b9dc6ab6b25d3::t_4f31b80858a78d 198-205
+  s_4b9dc6ab6b25d3::t_83181c96c5676a 1-9,11-36,38-70,73-85,87-91,93-96,116-154,156-197,206-214,219-233,235-236,244-262
+  s_4b9dc6ab6b25d3::t_add2755e3b944d 71-72
+  s_4b9dc6ab6b25d3::t_afaabbe4cfcf09 10,37,92,234,237-243
+  s_4b9dc6ab6b25d3::t_76fdc81e6e6e2d 215-218
+  s_4b9dc6ab6b25d3::t_b136ff5334f0ff 97-115
+  s_4b9dc6ab6b25d3::t_9fd8b92b726f51 155
+app/Support/Analytics/PeriodComparison.php
+  s_4b9dc6ab6b25d3::t_3f48423a0a7253 83-89
+  s_4b9dc6ab6b25d3::t_29bff3d82bff3e 52
+  s_4b9dc6ab6b25d3::t_3e0ced73dc2362 1-51,53-82,90-160,164-227
+  s_4b9dc6ab6b25d3::t_573ece3264b2f5 161-163
+app/Filament/Support/ShowsItemsInPlace.php
+  s_4b9dc6ab6b25d3::t_afaabbe4cfcf09 1-17
+tests/Feature/Queries/GameMetricsQueryTest.php
+  s_4b9dc6ab6b25d3::t_923b91cc76d4d1 23-24,459-460,465-502,504-505,507-523,525
+app/Filament/Resources/Games/Pages/GameTraffic.php
+  s_4b9dc6ab6b25d3::t_a607a1aa8c8898 10,27-28,207,223-224
+tests/Feature/Admin/AdminShellTest.php
+  s_4b9dc6ab6b25d3::t_9c6c4e30f28dde 334-337,340
+  s_4b9dc6ab6b25d3::t_d19842f91046d4 4,50,188-200,226,246
+  s_4b9dc6ab6b25d3::t_a80c7c48a5e76b 341
+  s_4b9dc6ab6b25d3::t_43283f08770b0e 275,294
+resources/views/filament/pages/experiments.blade.php
+  s_4b9dc6ab6b25d3::t_1773c2a6225395 5-7,11-19
+  s_4b9dc6ab6b25d3::t_d801e23468182f 1-4,8-10,20-24
+database/migrations/2026_11_18_100200_add_hidden_at_to_game_traffic_periods_table.php
+  s_4b9dc6ab6b25d3::t_a61ad07fc0277e 1-44
+resources/css/filament/admin/components.css
+  s_4b9dc6ab6b25d3::t_3fe5a4b0030931 17185,17191,17197,17211,17286
+  s_4b9dc6ab6b25d3::t_5d559783e67d86 17134-17139,17142-17184,17186-17190,17192-17196,17198-17210,17212-17238,17240,17243-17285,17287-17370
+  s_4b9dc6ab6b25d3::t_7babfa88ada780 17140-17141
+  s_4b9dc6ab6b25d3::t_324df4790819d7 17239,17241-17242
+app/Filament/Resources/Games/Pages/GameAnalytics.php
+  s_4b9dc6ab6b25d3::t_e44c42a069b5a1 8-9,138-143,186,247,920-928,932,934,943-949,951-952,961,963
+app/Livewire/Admin/Topbar.php
+  s_4b9dc6ab6b25d3::t_99b6fec2f88281 6,33,39-44
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "0c2c5c7297b022951c7111a8db380c98ef7a20bd",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
