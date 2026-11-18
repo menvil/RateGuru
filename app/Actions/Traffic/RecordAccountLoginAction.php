@@ -17,8 +17,10 @@ use Illuminate\Support\Facades\DB;
 
 /**
  * Somebody signs in to an account they already had. The browser is theirs
- * from now on; the visit it is on, unless it is the one their own new
- * account was credited to or a known visitor's already, turns out to be a
+ * from now on; the visit it is on — the paid click holding it, else its
+ * latest visit of the day the tracker counts, before a visit to the rest of
+ * the site such as the sign-in page itself — unless it is the one their own
+ * new account was credited to or a known visitor's already, turns out to be a
  * known visitor's — it brings no account, and is worth the price of a
  * sign-in (MarkTrafficVisitAction works it out). A game they finished in
  * this browser within 7 days reaches the goal "Account confirmed" when the
@@ -45,7 +47,7 @@ final class RecordAccountLoginAction
         DB::transaction(function () use ($user, $browserHash, $now): void {
             $this->browsers->handle((int) $user->id, $browserHash, $now);
             $attribution = AccountAttribution::query()->where('user_id', $user->id)->first();
-            $visit = $this->visits->holding($browserHash, $now) ?? $this->visits->latest($browserHash, $now->subDay());
+            $visit = $this->visits->holding($browserHash, $now) ?? $this->visits->latestTrackedFirst($browserHash, $now->subDay());
 
             // A visit that brought an account — this one's or another's on the same browser — stays that account's: a sign-in doesn't make it a known visitor's.
             // One known as it came stays known for its own reason: its visitor was never new, and signing in again is worth nothing.

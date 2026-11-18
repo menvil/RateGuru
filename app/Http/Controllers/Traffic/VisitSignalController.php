@@ -30,6 +30,7 @@ final class VisitSignalController extends Controller
                 $request->user()?->getAuthIdentifier() === null ? null : (int) $request->user()->getAuthIdentifier(),
                 $signals->read(),
                 CarbonImmutable::now('UTC'),
+                isset($validated['post']) ? (int) $validated['post'] : null,
             );
         }
 

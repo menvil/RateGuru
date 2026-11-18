@@ -47,7 +47,7 @@ function siteClicks(TrafficSource $source, string $site, int $clicks, int $opene
 it('opens the ad networks to their sources at first, and a source to its campaigns when asked', function () {
     $campaign = TrafficCampaign::factory()->create(['source_id' => $this->source->id, 'name' => 'US popunder']);
     siteClicks($this->source, '40123', 3, 3, ['campaign_id' => $campaign->id]);
-    TrafficVisit::factory()->unpaid(TrafficChannel::Search)->create(['arrived_at' => '2026-11-16 10:00:00', 'network_day' => '2026-11-16', 'opened_at' => now()]);
+    TrafficVisit::factory()->unpaid(TrafficChannel::Search)->create(['game_id' => Game::factory(), 'arrived_at' => '2026-11-16 10:00:00', 'network_day' => '2026-11-16', 'opened_at' => now()]);
 
     $labels = fn ($page): array => collect($page->viewData('tree'))->pluck('label')->filter()->values()->all();
     $page = Livewire::test(TrafficSourcesPage::class)->call('load')
@@ -164,7 +164,8 @@ it('keeps the block rule in place and shows the sites and zones it picks out', f
 it('narrows every figure by the type of traffic, the game and the device', function () {
     $game = Game::factory()->create(['title' => 'Taste Test']);
     siteClicks($this->source, '80001', 2, 2, ['game_id' => $game->id]);
-    TrafficVisit::factory()->unpaid(TrafficChannel::Direct)->create(['arrived_at' => '2026-11-16 10:00:00', 'network_day' => '2026-11-16', 'opened_at' => now(), 'device' => 'desktop']);
+    // An unpaid visit to another game.
+    TrafficVisit::factory()->unpaid(TrafficChannel::Direct)->create(['game_id' => Game::factory(), 'arrived_at' => '2026-11-16 10:00:00', 'network_day' => '2026-11-16', 'opened_at' => now(), 'device' => 'desktop']);
 
     $visits = fn (array $query): int => Livewire::withQueryParams($query)->test(TrafficSourcesPage::class)->call('load')->viewData('total')->visits;
 
@@ -260,7 +261,7 @@ it('lays out Sources: networks and banners with their postbacks, spend and click
     TrafficPostbackRule::factory()->create(['source_id' => $this->source->id, 'event' => 'goal']);
     TrafficSource::factory()->create(['name' => 'Cat blog sidebar', 'type' => 'placement', 'link_key' => 'cat', 'spend_mode' => 'fixed', 'fixed_amount' => '120', 'fixed_period' => 'month', 'fixed_from' => '2026-11-01']);
     siteClicks($this->source, '40123', 3, 3);
-    TrafficVisit::factory()->unpaid(TrafficChannel::Search)->create(['arrived_at' => '2026-11-16 10:00:00', 'network_day' => '2026-11-16', 'opened_at' => now()]);
+    TrafficVisit::factory()->unpaid(TrafficChannel::Search)->create(['game_id' => Game::factory(), 'arrived_at' => '2026-11-16 10:00:00', 'network_day' => '2026-11-16', 'opened_at' => now()]);
 
     Livewire::withQueryParams(['tab' => 'sources'])->test(TrafficSourcesPage::class)->call('load')
         ->assertSeeInOrder(['AD NETWORKS', 'PopAds main', '1 postback', 'delivering', 'Flow goal reached', '3 clicks', 'BANNERS', 'Cat blog sidebar', 'No postbacks', 'UNPAID', 'Search', '1 visits'])
@@ -298,7 +299,7 @@ it('shows sign-ups and confirmation by the dimension chosen, ten rows and the re
     TrafficVisit::factory()->count(2)->create(['source_id' => $this->source->id, 'zone_ref' => '70001', ...$signedUp, 'arrived_at' => '2026-11-08 10:00:00', 'network_day' => '2026-11-08', 'signup_at' => '2026-11-08 10:05:00']);
     TrafficVisit::factory()->create(['source_id' => $this->source->id, 'zone_ref' => '70001', ...$signedUp]);
     // Unpaid sign-ups: How accounts come leaves them out, the card does not.
-    TrafficVisit::factory()->unpaid(TrafficChannel::Direct)->count(13)->create([...$signedUp, 'signup_method' => 'google', 'account_at' => '2026-11-16 10:05:00', 'signup_after_seconds' => 300, 'account_after_seconds' => 300]);
+    TrafficVisit::factory()->unpaid(TrafficChannel::Direct)->count(13)->create([...$signedUp, 'game_id' => Game::factory()->create()->id, 'signup_method' => 'google', 'account_at' => '2026-11-16 10:05:00', 'signup_after_seconds' => 300, 'account_after_seconds' => 300]);
 
     $page = Livewire::test(TrafficSourcesPage::class)->call('load')
         ->assertSee('Sign-ups and confirmation')

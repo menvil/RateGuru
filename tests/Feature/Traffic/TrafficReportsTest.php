@@ -44,7 +44,7 @@ it('adds the period up by device and type, with how its accounts came', function
     reportVisit($this->source, ['spend' => '0.10', 'account_at' => now(), 'signup_at' => now(), 'signup_place' => 'post', 'signup_after_seconds' => 900, 'value_real' => '0.5']);
     reportVisit($this->source, ['spend' => '0.10', 'known' => true, 'device' => TrafficDevice::Desktop]);
     reportVisit($this->source, ['spend' => '0.10', 'opened_at' => null]);
-    TrafficVisit::factory()->unpaid()->create(['arrived_at' => '2026-11-15 11:00:00', 'network_day' => '2026-11-15', 'opened_at' => now()]);
+    TrafficVisit::factory()->unpaid()->create(['game_id' => Game::factory(), 'arrived_at' => '2026-11-15 11:00:00', 'network_day' => '2026-11-15', 'opened_at' => now()]);
     // Outside the period: its network day is another, whatever its arrival.
     reportVisit($this->source, ['network_day' => '2026-11-09', 'arrived_at' => '2026-11-10 02:00:00']);
 
@@ -208,12 +208,13 @@ it('counts sign-ups never confirmed up to the moment the window closed and still
 
 it('splits sign-ups by each dimension, unpaid traffic by its channel, on the report’s filters', function (TrafficDimension $dimension, string $column, array $expected) {
     $campaign = TrafficCampaign::factory()->create(['source_id' => $this->source->id]);
+    $game = Game::factory()->create();
     $signedUp = ['signup_at' => now(), 'signup_method' => 'email'];
     reportVisit($this->source, [...$signedUp, 'campaign_id' => $campaign->id, 'site_ref' => 's1', 'zone_ref' => 'z1', 'country' => 'US']);
     reportVisit($this->source, [...$signedUp, 'campaign_id' => $campaign->id, 'site_ref' => 's1', 'zone_ref' => 'z1', 'country' => 'US']);
     reportVisit($this->source, [...$signedUp, 'site_ref' => 's2', 'zone_ref' => 'z2', 'country' => 'DE', 'device' => TrafficDevice::Desktop]);
-    TrafficVisit::factory()->unpaid(TrafficChannel::Search)->count(4)->create(['arrived_at' => '2026-11-15 10:00:00', 'network_day' => '2026-11-15', 'country' => 'FR', 'device' => TrafficDevice::Desktop, ...$signedUp]);
-    TrafficVisit::factory()->unpaid(TrafficChannel::Direct)->create(['arrived_at' => '2026-11-15 10:00:00', 'network_day' => '2026-11-15', 'country' => 'FR', ...$signedUp]);
+    TrafficVisit::factory()->unpaid(TrafficChannel::Search)->count(4)->create(['game_id' => $game->id, 'arrived_at' => '2026-11-15 10:00:00', 'network_day' => '2026-11-15', 'country' => 'FR', 'device' => TrafficDevice::Desktop, ...$signedUp]);
+    TrafficVisit::factory()->unpaid(TrafficChannel::Direct)->create(['game_id' => $game->id, 'arrived_at' => '2026-11-15 10:00:00', 'network_day' => '2026-11-15', 'country' => 'FR', ...$signedUp]);
 
     $rows = app(TrafficReportQuery::class)->signups($this->filter, $dimension);
 
@@ -253,7 +254,7 @@ it('adds the same sign-ups up in the summary as in the rows of any dimension', f
     $cutoff = UnconfirmedAccountsQuery::cutoff();
     reportVisit($this->source, ['arrived_at' => '2026-11-10 02:00:00', 'network_day' => '2026-11-10', 'signup_at' => '2026-11-10 03:00:00']);
     reportVisit($this->source, ['signup_at' => now(), 'account_at' => now(), 'signup_after_seconds' => 60, 'account_after_seconds' => 120, 'device' => TrafficDevice::Desktop]);
-    TrafficVisit::factory()->unpaid(TrafficChannel::Direct)->create(['arrived_at' => '2026-11-15 10:00:00', 'network_day' => '2026-11-15', 'signup_at' => now()]);
+    TrafficVisit::factory()->unpaid(TrafficChannel::Direct)->create(['game_id' => Game::factory(), 'arrived_at' => '2026-11-15 10:00:00', 'network_day' => '2026-11-15', 'signup_at' => now()]);
 
     $summed = fn (iterable $rows) => collect($rows)->reduce(fn (SignupFigures $sum, array $row) => $sum->plus($row['signups'] ?? $row['figures']), new SignupFigures);
     $summary = app(TrafficReportQuery::class)->summary($this->filter, $cutoff);

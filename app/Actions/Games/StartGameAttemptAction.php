@@ -122,7 +122,7 @@ final class StartGameAttemptAction
         $player = $visitor->userId === null ? null : User::query()->find($visitor->userId);
 
         if ($player !== null) {
-            $this->activity->quietly($player, UserActivity::Played, CarbonImmutable::now());
+            $this->activity->quietly($player, UserActivity::Played, null, $visitor->browserHash, CarbonImmutable::now());
         }
 
         return $attempt;

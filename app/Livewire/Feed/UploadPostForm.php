@@ -17,6 +17,7 @@ use App\Models\Tag;
 use App\Models\User;
 use App\Queries\Categories\ActiveCategoriesQuery;
 use App\Services\Media\Exceptions\ImageIngestException;
+use App\Support\Games\Play\GameVisitorResolver;
 use App\Support\Posts\PostContentRules;
 use App\Support\Rating\RatingConfigurationManager;
 use App\Support\Settings\ProjectSettingsManager;
@@ -154,7 +155,7 @@ final class UploadPostForm extends Component
                 $author = auth()->user();
 
                 if ($author instanceof User) {
-                    app(RecordUserActivityAction::class)->quietly($author, UserActivity::Posted, CarbonImmutable::now());
+                    app(RecordUserActivityAction::class)->quietly($author, UserActivity::Posted, (int) $post->id, app(GameVisitorResolver::class)->browserHash(), CarbonImmutable::now());
                 }
 
                 $this->dispatch('post-uploaded', postId: $post->id);

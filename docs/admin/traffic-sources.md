@@ -8,7 +8,12 @@ Growth → Traffic sources (`/admin/traffic-sources`), for active administrators
    fetches one within a minute). GeoLite2 City is the default; DB-IP City Lite
    stands in by itself while GeoLite2 has no usable file.
 2. Switch on **Record visits** and save. Unpaid visits appear under Logs →
-   Clicks, with their country and device.
+   Clicks, with their country and device. **Record site visits**, right under
+   it, records the feed, posts, profiles and the site's own pages too — one
+   visit a browser every 30 minutes, with the visitor cookie on every such
+   page, so update the privacy page first. Those visits are for Analytics:
+   nothing on Traffic sources, no worth and no postback changes with them. It
+   can only be on while Record visits is.
 3. **Add source** → PopAds (or another network). Fill in what the preset asks
    (its note at the top of the editor) and save.
 4. Campaigns → Get the link: choose the source and a game, paste the link as

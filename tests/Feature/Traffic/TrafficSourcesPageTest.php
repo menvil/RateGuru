@@ -1,5 +1,6 @@
 <?php
 
+use App\Actions\Traffic\SaveTrafficSettingsAction;
 use App\Enums\TrafficCampaignStage;
 use App\Enums\TrafficCampaignStatus;
 use App\Enums\TrafficEvent;
@@ -89,6 +90,46 @@ it('switches recording on, and saves new prices as a new set', function () {
         ->and(TrafficPriceSet::current()->id)->not->toBe($before)
         ->and(TrafficPriceSet::current()->account_price)->toBe('0.7500')
         ->and(TrafficPriceSet::current()->login_price)->toBe('0.1500');
+});
+
+it('switches site visits on right under Record visits, keeps them off and out of reach while that is off, and refuses a stale save', function () {
+    $switch = fn ($page): DOMElement => livewireDom($page)->query('//button[@id="rg-admin-traffic-site-capture"]')->item(0);
+    $page = Livewire::withQueryParams(['tab' => 'sources'])->test(TrafficSourcesPage::class)->call('load')
+        ->assertSeeInOrder(['Record visits', 'Record site visits', 'Feed, posts, profiles and pages, one visit per browser every 30 minutes. Needs Record visits.', 'Send postbacks']);
+
+    expect($switch($page)->hasAttribute('disabled'))->toBeTrue()
+        ->and($switch($page)->getAttribute('aria-checked'))->toBe('false');
+
+    $page->set('settings.capture_enabled', true);
+    expect($switch($page)->hasAttribute('disabled'))->toBeFalse();
+
+    $page->set('settings.site_capture_enabled', true)->call('saveSettings')->assertHasNoErrors()->assertDispatched('rg-admin-toast', message: 'Tracking saved');
+
+    expect(TrafficSetting::current())->capture_enabled->toBeTrue()->site_capture_enabled->toBeTrue()
+        ->and(TrafficSetting::captureFlags())->toBe(['capture' => true, 'site' => true])
+        ->and($switch($page)->getAttribute('aria-checked'))->toBe('true');
+
+    // Record visits off takes site visits with it, on the card at once and once saved.
+    $page->set('settings.capture_enabled', false)->assertSet('settings.site_capture_enabled', false);
+    expect($switch($page)->hasAttribute('disabled'))->toBeTrue();
+    $page->call('saveSettings')->assertHasNoErrors();
+
+    expect(TrafficSetting::current())->capture_enabled->toBeFalse()->site_capture_enabled->toBeFalse()
+        ->and(TrafficSetting::captureFlags())->toBe(['capture' => false, 'site' => false]);
+
+    // Saved by someone else meanwhile: nothing changes, and the card says to reload.
+    app(SaveTrafficSettingsAction::class)->handle(User::factory()->admin()->create(), ['postbacks_enabled' => true], TrafficSetting::current()->lock_version);
+    $page->set('settings.capture_enabled', true)->set('settings.site_capture_enabled', true)->call('saveSettings')
+        ->assertDispatched('rg-admin-toast', message: 'Someone saved the tracking settings after you opened it. Reload to see their changes.', tone: 'error');
+
+    expect(TrafficSetting::current())->capture_enabled->toBeFalse()->site_capture_enabled->toBeFalse();
+});
+
+it('never keeps site visits on with Record visits off, whatever it is sent', function () {
+    $settings = app(SaveTrafficSettingsAction::class)->handle($this->admin, ['capture_enabled' => false, 'site_capture_enabled' => true], 1);
+
+    expect($settings->fresh()->site_capture_enabled)->toBeFalse()
+        ->and(TrafficSetting::captureFlags())->toBe(['capture' => false, 'site' => false]);
 });
 
 it('gives a paid source its own account price on Value, beside what its accounts brought, saved with the prices', function () {

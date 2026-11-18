@@ -131,6 +131,44 @@ it('credits the unpaid visit a game opened, and never takes the sign-in that fol
         ->and($unpaid->fresh())->signup_at->not->toBeNull()->login_at->toBeNull()->known->toBeFalse();
 });
 
+it('credits a new account to the browser’s game visit before a later visit to the rest of the site, and to that visit when no game was played', function () {
+    recordTraffic(site: true);
+    $game = Game::factory()->create();
+    $played = TrafficVisit::factory()->unpaid(TrafficChannel::Search)->create(['visitor_hash' => $this->hash, 'game_id' => $game->id, 'arrived_at' => now()->subHours(2), 'last_seen_at' => now()->subHours(2), 'opened_at' => now()->subHours(2)]);
+    // The feed and the sign-up page came after the game: the latest visits, but no game's.
+    $feed = TrafficVisit::factory()->unpaid(TrafficChannel::Internal)->create(['visitor_hash' => $this->hash, 'arrived_at' => now()->subMinutes(10), 'last_seen_at' => now()->subMinutes(2), 'opened_at' => now()->subMinutes(10)]);
+
+    registerIn($this->token);
+
+    expect(AccountAttribution::query()->sole()->credited_visit_id)->toBe($played->id)
+        ->and($played->fresh()->signup_at)->not->toBeNull()
+        ->and($feed->fresh()->signup_at)->toBeNull();
+
+    $other = str_repeat('b', 40);
+    $onlyFeed = TrafficVisit::factory()->unpaid()->create(['visitor_hash' => browserHashOf($other), 'arrived_at' => now()->subMinutes(10), 'last_seen_at' => now()->subMinutes(2), 'opened_at' => now()->subMinutes(10)]);
+    // A game played more than 7 days ago no longer takes it.
+    TrafficVisit::factory()->unpaid()->create(['visitor_hash' => browserHashOf($other), 'game_id' => $game->id, 'arrived_at' => now()->subDays(9), 'last_seen_at' => now()->subDays(8), 'opened_at' => now()->subDays(9)]);
+    $member = registerIn($other, 'second@example.com');
+
+    expect(AccountAttribution::query()->where('user_id', $member->id)->sole()->credited_visit_id)->toBe($onlyFeed->id)
+        ->and($onlyFeed->fresh()->value_real)->toBe('0.00000000');
+});
+
+it('marks a sign-in and a sign-up form shown on the game visit before a later visit to the rest of the site', function () {
+    recordTraffic(site: true);
+    $existing = User::factory()->create(['password' => bcrypt('password')]);
+    $played = TrafficVisit::factory()->unpaid()->create(['visitor_hash' => $this->hash, 'game_id' => Game::factory(), 'arrived_at' => now()->subHour(), 'opened_at' => now()->subHour()]);
+    // The sign-in page itself, recorded as a visit to the rest of the site.
+    $signInPage = TrafficVisit::factory()->unpaid(TrafficChannel::Internal)->create(['visitor_hash' => $this->hash, 'arrived_at' => now()->subMinute(), 'opened_at' => now()->subMinute()]);
+
+    $this->withCookie($this->cookie, $this->token)->withHeaders(['User-Agent' => DESKTOP_CHROME_USER_AGENT])
+        ->post(route('traffic.signal'), ['signal' => 'signup_form'])->assertNoContent();
+    $this->withCookie($this->cookie, $this->token)->post('/login', ['email' => $existing->email, 'password' => 'password'])->assertRedirect();
+
+    expect($played->fresh())->signup_form_at->not->toBeNull()->login_at->not->toBeNull()->known_reason->toBe(TrafficKnownReason::Login)
+        ->and($signInPage->fresh())->signup_form_at->toBeNull()->login_at->toBeNull();
+});
+
 it('confirms an account signed up through Google at once', function () {
     $member = app(RegisterSocialUserAction::class)->execute(new SocialIdentity(SocialProvider::Google, 'g-1', 'g@example.com', 'Gina', null, false));
     $attribution = AccountAttribution::query()->where('user_id', $member->id)->sole();

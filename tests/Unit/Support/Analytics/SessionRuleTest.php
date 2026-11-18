@@ -9,7 +9,8 @@ use Carbon\CarbonImmutable;
  * the site or a page opened with no referrer does, while the last unpaid
  * visit was seen less than the session's minutes ago; anything from outside,
  * a result page reached from anywhere, other tags and a paid click begin
- * their own. The same page from the same place again is the same visit.
+ * their own. The same page from the same place by the same tags again is the
+ * same visit.
  */
 
 const SESSION_NOW = '2026-11-18 12:00:00';
@@ -55,11 +56,13 @@ it('begins a session when the browser has no unpaid visit to continue, and reads
         ->and(SessionRule::continues(TrafficChannel::Internal, false, false, $now->subMinutes(10), $now, 10))->toBeFalse();
 });
 
-it('takes the same page from the same place again within the minutes as the same visit', function () {
+it('takes the same page from the same place by the same tags again within the minutes as the same visit', function () {
     $now = CarbonImmutable::parse(SESSION_NOW);
 
-    expect(SessionRule::repeats('google:organic', 'google:organic', $now->subMinutes(5), $now, 30))->toBeTrue()
-        ->and(SessionRule::repeats('reddit:organic', 'google:organic', $now->subMinutes(5), $now, 30))->toBeFalse()
-        ->and(SessionRule::repeats('google:organic', null, $now->subMinutes(5), $now, 30))->toBeFalse()
-        ->and(SessionRule::repeats('google:organic', 'google:organic', $now->subMinutes(30), $now, 30))->toBeFalse();
+    expect(SessionRule::repeats('google:organic', 'google:organic', false, $now->subMinutes(5), $now, 30))->toBeTrue()
+        ->and(SessionRule::repeats('reddit:organic', 'google:organic', false, $now->subMinutes(5), $now, 30))->toBeFalse()
+        ->and(SessionRule::repeats('google:organic', null, false, $now->subMinutes(5), $now, 30))->toBeFalse()
+        ->and(SessionRule::repeats('google:organic', 'google:organic', false, $now->subMinutes(30), $now, 30))->toBeFalse()
+        // Another link of the same network: another campaign, or none where the visit had one.
+        ->and(SessionRule::repeats('reddit:organic', 'reddit:organic', true, $now->subMinutes(5), $now, 30))->toBeFalse();
 });

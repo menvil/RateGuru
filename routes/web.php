@@ -31,8 +31,9 @@ Route::post('/locale', ChangeLocaleController::class)->name('locale.change')->mi
 
 // What a page's script tells the traffic tracker: the page ran, or a sign-up
 // form was shown (docs/architecture/traffic.md). Outside the guest-viewing
-// check, like the locale: it answers 204 whatever it is sent.
-Route::post('/visit/signal', VisitSignalController::class)->name('traffic.signal')->middleware('throttle:30,1,traffic-signal');
+// check, like the locale: it answers 204 whatever it is sent. Limited per
+// browser, by the limiter of the same name (AppServiceProvider).
+Route::post('/visit/signal', VisitSignalController::class)->name('traffic.signal')->middleware('throttle:traffic-signal');
 
 // Named from the project's settings, so not a static file in public/.
 Route::get('/site.webmanifest', SiteManifestController::class)->name('site-manifest');

@@ -57,4 +57,10 @@ final class BotSignals
     {
         return ($flags & self::CRAWLER) !== 0;
     }
+
+    /** Whether a User-Agent is a crawler's or a link preview's, by itself. */
+    public static function isCrawlerAgent(?string $userAgent): bool
+    {
+        return $userAgent !== null && $userAgent !== '' && preg_match(self::CRAWLER_AGENT, $userAgent) === 1;
+    }
 }

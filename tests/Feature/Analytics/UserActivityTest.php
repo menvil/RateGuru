@@ -60,7 +60,7 @@ function memberSignedUpYesterday(array $attribution = []): User
 
 function recordActivity(User $user, UserActivity $activity, string $at): void
 {
-    app(RecordUserActivityAction::class)->handle($user, $activity, CarbonImmutable::parse($at));
+    app(RecordUserActivityAction::class)->handle($user, $activity, null, null, CarbonImmutable::parse($at));
 }
 
 it('records the day a member casts a new vote on a post, and not one taken back or turned', function () {

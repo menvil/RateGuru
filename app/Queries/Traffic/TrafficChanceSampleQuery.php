@@ -11,8 +11,10 @@ use Carbon\CarbonImmutable;
 
 /**
  * The visits the chances are worked out from, in one pass over the last 120
- * days (docs/architecture/traffic.md, "Worth"): new visitors' visits whose
- * page ran in a browser and that have matured — a paid click 7 days after its
+ * days (docs/architecture/traffic.md, "Worth"): new visitors' visits the
+ * tracker counts — paid clicks and game visits, never a visit to the rest of
+ * the site (TrafficVisit::scopeTracked()) — whose page ran in a browser and
+ * that have matured — a paid click 7 days after its
  * window, by when an unconfirmed account is gone; an unpaid visit after 14
  * days — counted by game, source, channel, device, country and rounds
  * answered: how many reached each step and how many of those became a
@@ -49,6 +51,7 @@ final class TrafficChanceSampleQuery implements RawSqlPersistenceBoundary
         }
 
         return TrafficVisit::query()
+            ->tracked()
             ->where('arrived_at', '>=', $now->subDays(self::DAYS))
             ->whereNotNull('opened_at')
             ->where('known', false)

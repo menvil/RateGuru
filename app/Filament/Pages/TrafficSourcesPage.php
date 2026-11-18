@@ -272,6 +272,11 @@ final class TrafficSourcesPage extends Page
             $this->campaignId = '';
         }
 
+        // Record site visits counts only with Record visits: switching that off switches it off on the card at once.
+        if ($property === 'settings.capture_enabled' && ! (bool) ($this->settings['capture_enabled'] ?? false)) {
+            $this->settings['site_capture_enabled'] = false;
+        }
+
         $this->normalize();
     }
 
@@ -1156,6 +1161,7 @@ final class TrafficSourcesPage extends Page
         $this->settingsLock = (int) ($settings->lock_version ?? 1);
         $this->settings = [
             'capture_enabled' => (bool) $settings->capture_enabled,
+            'site_capture_enabled' => (bool) $settings->capture_enabled && (bool) $settings->site_capture_enabled,
             'postbacks_enabled' => (bool) $settings->postbacks_enabled,
             'geo_edition' => ($settings->geo_edition ?? GeoEdition::GeoLite2City)->value,
             'block_min_spend' => (string) $settings->block_min_spend,

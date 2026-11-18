@@ -17,9 +17,12 @@ use Illuminate\Support\Facades\DB;
  * A new account, as it signs up: what it will be credited to once confirmed
  * — decided now, since the confirmation may come days later on another
  * device. The last game this browser finished within 7 days, and the paid
- * click holding the browser, else its unpaid visit of the last 7 days. With
- * no click holding it but one whose window closed, that click is told the
- * account came late, and the account goes to the unpaid visit or to nobody.
+ * click holding the browser, else its latest unpaid visit to a game of the
+ * last 7 days, else its latest unpaid visit of those days — so a visit to the
+ * feed or the sign-up page never takes the account from the game that
+ * brought it. With no click holding it but one whose window closed, that
+ * click is told the account came late, and the account goes to the unpaid
+ * visit or to nobody.
  * An account signed up through Google or Facebook is confirmed at once.
  */
 final class RecordAccountSignupAction
@@ -47,7 +50,7 @@ final class RecordAccountSignupAction
             $attempt = $browserHash === null ? null : $this->credits->attempt($browserHash, (int) $locked->id, $since);
             $holding = $browserHash === null ? null : $this->visits->holding($browserHash, $now);
             $expired = $holding === null && $browserHash !== null ? $this->visits->latestExpiredPaid($browserHash, $now) : null;
-            $visit = $holding ?? ($browserHash === null ? null : $this->visits->latestUnpaid($browserHash, $since));
+            $visit = $holding ?? ($browserHash === null ? null : $this->visits->latestUnpaidGame($browserHash, $since) ?? $this->visits->latestUnpaid($browserHash, $since));
 
             AccountAttribution::query()->create([
                 'user_id' => $locked->id,

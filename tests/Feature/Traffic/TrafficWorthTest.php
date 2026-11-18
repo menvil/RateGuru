@@ -53,8 +53,8 @@ it('samples only matured visits of new visitors whose page ran', function () {
     maturedVisit(['opened_at' => null]);
     maturedVisit(['known' => true]);
     maturedVisit(['arrived_at' => now()->subDays(130), 'holds_until' => now()->subDays(123), 'opened_at' => now()->subDays(130)]);
-    // An unpaid visit matures 14 days after it arrived.
-    TrafficVisit::factory()->unpaid()->create(['arrived_at' => now()->subDays(15), 'opened_at' => now()->subDays(15)]);
+    // An unpaid visit to a game matures 14 days after it arrived.
+    TrafficVisit::factory()->unpaid()->create(['game_id' => Game::factory(), 'arrived_at' => now()->subDays(15), 'opened_at' => now()->subDays(15)]);
 
     $rows = collect(app(TrafficChanceSampleQuery::class)->rows($this->now));
 
@@ -279,7 +279,7 @@ it('values a paid visit at its source’s own account price from the visit’s o
     $set = TrafficPriceSet::factory()->create(['source_account_prices' => [$exo->id => '0.8000']]);
     $own = TrafficVisit::factory()->create(['source_id' => $exo->id, 'price_set_id' => $set->id, 'opened_at' => now()]);
     $other = TrafficVisit::factory()->create(['source_id' => $pop->id, 'price_set_id' => $set->id, 'opened_at' => now()]);
-    $unpaid = TrafficVisit::factory()->unpaid()->create(['price_set_id' => $set->id, 'opened_at' => now()]);
+    $unpaid = TrafficVisit::factory()->unpaid()->create(['game_id' => Game::factory(), 'price_set_id' => $set->id, 'opened_at' => now()]);
     $worth = app(TrafficVisitWorth::class);
 
     expect((string) $worth->step($own, 'account')['value'])->toBe('0.80000000')

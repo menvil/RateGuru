@@ -8,6 +8,7 @@ use App\Models\TrafficPostback;
 use App\Models\TrafficSpendDay;
 use App\Models\TrafficVisit;
 use App\Models\TrafficVisitDetail;
+use App\Models\TrafficVisitPost;
 use App\Models\UserActivityDay;
 use Carbon\CarbonImmutable;
 use Illuminate\Console\Command;
@@ -16,11 +17,12 @@ use Illuminate\Database\Eloquent\Builder;
 /**
  * Deletes what the tracker recorded once it is past its retention
  * (config/traffic.php): visits after traffic.retention_days.visits (400) with
- * their conversions, a click's details and the postback outbox after 90,
- * spend figures and the block log after 400, and every chance working-out
- * but the newest 30 — and the days members did something on the site after
- * analytics.retention_days.activity (400, config/analytics.php). Sources,
- * campaigns, blocks, prices and attributions stay.
+ * their conversions, a click's details, the posts a visit opened and shared
+ * and the postback outbox after 90, spend figures and the block log after
+ * 400, and every chance working-out but the newest 30 — and the days members
+ * did something on the site after analytics.retention_days.activity (400,
+ * config/analytics.php). Sources, campaigns, blocks, prices and attributions
+ * stay.
  *
  * In small batches by primary key, the cutoffs fixed when the run starts; a
  * retention that is not a positive number of days fails the run without
@@ -70,6 +72,7 @@ final class TrafficPurgeExpiredCommand extends Command
         $now = CarbonImmutable::now('UTC');
         $deleted = [
             'click details' => $this->purge(TrafficVisitDetail::query()->where('created_at', '<', $now->subDays($days['visit_details'])), $chunk, 'visit_id'),
+            'posts of visits' => $this->purge(TrafficVisitPost::query()->where('first_at', '<', $now->subDays($days['visit_details'])), $chunk, 'visit_id'),
             'postbacks' => $this->purge(TrafficPostback::query()->where('created_at', '<', $now->subDays($days['postbacks'])), $chunk),
             'visits' => $this->purge(TrafficVisit::query()->where('arrived_at', '<', $now->subDays($days['visits'])), $chunk),
             'spend figures' => $this->purge(TrafficSpendDay::query()->where('network_day', '<', $now->subDays($days['spend_days'])->format('Y-m-d')), $chunk),
@@ -99,7 +102,8 @@ final class TrafficPurgeExpiredCommand extends Command
                 break;
             }
 
-            $deleted += $expired->getModel()->newQuery()->whereIn($key, $ids)->delete();
+            // Still past its retention: a key a table shares among its rows takes only those.
+            $deleted += (clone $expired)->whereIn($key, $ids)->delete();
         } while ($ids->count() === $chunk);
 
         return $deleted;

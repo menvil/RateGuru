@@ -28,6 +28,10 @@ use Illuminate\Database\Eloquent\Builder;
  * Analytics narrows them (VisitFilter) — each one pass over the period's
  * visits.
  *
+ * Only the visits the tracker counts (TrafficVisit::scopeTracked()): paid
+ * clicks and game visits — a visit to the rest of the site is Analytics',
+ * and leaves every figure here as it was.
+ *
  * A sign-up not confirmed is never confirmed once its account's window to
  * confirm has closed — the account is removed then, with everything it did
  * — and still waiting before; the moment the window closed for sign-ups is
@@ -212,6 +216,7 @@ final class TrafficReportQuery implements RawSqlPersistenceBoundary
                 'started_at' => $period->started_at,
                 'ended_at' => $period->ended_at,
                 'figures' => ReportFigures::fromRow((array) TrafficVisit::query()
+                    ->tracked()
                     ->where('campaign_id', $campaignId)
                     ->where('arrived_at', '>=', $period->started_at)
                     ->when($period->ended_at !== null, fn (Builder $query) => $query->where('arrived_at', '<', $period->ended_at))
@@ -235,6 +240,7 @@ final class TrafficReportQuery implements RawSqlPersistenceBoundary
         [$metrics, $bindings] = self::metrics();
 
         return TrafficVisit::query()
+            ->tracked()
             ->where('game_id', $gameId)
             ->where('arrived_at', '>=', $since)
             ->when($until !== null, fn (Builder $query) => $query->where('arrived_at', '<', $until))
@@ -263,6 +269,7 @@ final class TrafficReportQuery implements RawSqlPersistenceBoundary
     public function gameCampaigns(int $gameId, CarbonImmutable $since, CarbonImmutable $until, ?VisitFilter $visits = null): array
     {
         return TrafficVisit::query()
+            ->tracked()
             ->where('game_id', $gameId)
             ->where('arrived_at', '>=', $since)
             ->where('arrived_at', '<', $until)
@@ -286,6 +293,7 @@ final class TrafficReportQuery implements RawSqlPersistenceBoundary
     {
         [$signups, $bindings] = self::signupMetrics($unconfirmedBefore ?? UnconfirmedAccountsQuery::cutoff());
         $row = (array) TrafficVisit::query()
+            ->tracked()
             ->where('game_id', $gameId)
             ->where('arrived_at', '>=', $since)
             ->where('arrived_at', '<', $until)
@@ -312,6 +320,7 @@ final class TrafficReportQuery implements RawSqlPersistenceBoundary
         $country = TrafficDimension::Country->columns()[0];
 
         return TrafficVisit::query()
+            ->tracked()
             ->where('game_id', $gameId)
             ->whereNotNull($country)
             ->distinct()
@@ -326,6 +335,7 @@ final class TrafficReportQuery implements RawSqlPersistenceBoundary
     private function visits(TrafficReportFilter $filter): Builder
     {
         $query = TrafficVisit::query()
+            ->tracked()
             ->whereBetween('network_day', [$filter->fromDay, $filter->toDay])
             ->where('arrived_at', '>=', $filter->arrivedFrom())
             ->where('arrived_at', '<', $filter->arrivedBefore());

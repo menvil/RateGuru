@@ -125,7 +125,7 @@ final class PostVoting extends Component
 
         // A vote cast where there was none; one taken back or turned the other way is no new vote.
         if ($currentVote === null) {
-            app(RecordUserActivityAction::class)->quietly($user, UserActivity::Voted, CarbonImmutable::now());
+            app(RecordUserActivityAction::class)->quietly($user, UserActivity::Voted, $this->postId, app(GameVisitorResolver::class)->browserHash(), CarbonImmutable::now());
         }
 
         $this->dispatch('post-voted', postId: $this->postId);

@@ -48,7 +48,8 @@ use InvalidArgumentException;
  * one the filter admits, and a visitor when they have such a visit of the
  * game — a guest by the browser's hash, a player by a browser they signed up
  * or in on, or by the visit a play of theirs came on — so a play without a
- * recorded visit drops out. The aggregates are conditional counts and
+ * recorded visit drops out. Visits are only those the tracker counts
+ * (TrafficVisit::scopeTracked()), never a visit to the rest of the site. The aggregates are conditional counts and
  * distinct counts Eloquent has no expression for: the raw SQL is this class's
  * own, the same on PostgreSQL, MariaDB and SQLite, every value in it bound and
  * every visit column named by TrafficDimension. Read-only.
@@ -493,7 +494,7 @@ final class GameMetricsQuery implements RawSqlPersistenceBoundary
     {
         $place = $withPlace ? ['traffic_visits.'.TrafficDimension::Device->columns()[0], 'traffic_visits.'.TrafficDimension::Country->columns()[0]] : [];
         // Visits of the window only: one that ran into it from before counts, one long over does not.
-        $visits = fn (): Builder => TrafficVisit::query()->matching($scope->visits)
+        $visits = fn (): Builder => TrafficVisit::query()->tracked()->matching($scope->visits)
             ->where('traffic_visits.arrived_at', '<', $scope->to)
             ->where('traffic_visits.last_seen_at', '>=', $scope->from);
 
@@ -584,7 +585,7 @@ final class GameMetricsQuery implements RawSqlPersistenceBoundary
             // Of a play's own visit, whichever game it landed on.
             ->when($scope->visits->narrows(), fn (Builder $inner) => $inner->whereIn(
                 'game_attempts.traffic_visit_id',
-                TrafficVisit::query()->matching($scope->visits)->select('traffic_visits.id'),
+                TrafficVisit::query()->tracked()->matching($scope->visits)->select('traffic_visits.id'),
             ));
     }
 

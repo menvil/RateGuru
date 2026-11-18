@@ -8,11 +8,8 @@ use App\Models\Game;
 use App\Models\GameAttempt;
 use App\Models\GameTrafficPeriod;
 use App\Models\GameVersion;
-use App\Models\ProjectSettings;
-use App\Models\TrafficSetting;
 use App\Models\TrafficSource;
 use App\Models\TrafficVisit;
-use App\Models\User;
 use App\Queries\Games\GameMetricsQuery;
 use App\Support\Games\Analytics\GameMetricsScope;
 use Carbon\CarbonImmutable;
@@ -35,21 +32,7 @@ class ShortGameAnalyticsDemoSeeder extends GameAnalyticsDemoSeeder
  * and not — and only once.
  */
 beforeEach(function () {
-    ProjectSettings::factory()->create();
-    $admin = User::factory()->admin()->create(['email' => 'admin@rateguru.test']);
-
-    foreach ([[900, 100], [850, 150], [800, 200], [750, 250], [700, 300], [400, 600], [350, 650], [300, 700], [250, 750], [200, 800]] as [$up, $down]) {
-        gamePost($up, $down);
-    }
-
-    foreach (range(1, 200) as $n) {
-        User::factory()->create(['email' => "fill{$n}@demo.test"]);
-    }
-
-    $this->seed(GamesDemoSeeder::class);
-    // What TrafficDemoSeeder leaves that the history needs: its PopAds source, and visits recorded.
-    TrafficSource::factory()->create(['name' => 'PopAds main', 'link_key' => 'pop', 'preset_key' => 'popads', 'created_by_user_id' => $admin->id]);
-    (new TrafficSetting)->forceFill(['id' => 1, 'capture_enabled' => true, 'postbacks_enabled' => false])->save();
+    demoGameWithMembers();
 });
 
 it('plays the demo game\'s history through, every version on traffic, once', function () {

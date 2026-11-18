@@ -8,6 +8,7 @@ use App\Enums\UserActivity;
 use App\Exceptions\Comments\CannotCommentException;
 use App\Models\Post;
 use App\Models\User;
+use App\Support\Games\Play\GameVisitorResolver;
 use App\Support\Settings\ProjectSettingsManager;
 use Carbon\CarbonImmutable;
 use Illuminate\Contracts\View\View;
@@ -59,7 +60,7 @@ final class CommentForm extends Component
         $user = auth()->user();
 
         if ($user instanceof User) {
-            app(RecordUserActivityAction::class)->quietly($user, UserActivity::Commented, CarbonImmutable::now());
+            app(RecordUserActivityAction::class)->quietly($user, UserActivity::Commented, $this->postId, app(GameVisitorResolver::class)->browserHash(), CarbonImmutable::now());
         }
 
         $this->dispatch('comment-created', postId: $this->postId, commentId: $comment->id);

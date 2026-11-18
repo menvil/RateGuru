@@ -147,7 +147,7 @@ class RatingVoting extends Component
         $this->creditGame(fn (CreditGameSiteActivityAction $credit) => $credit->ratingAnswered($user, $postId, $this->groupKey, app(GameVisitorResolver::class)->browserHash()));
 
         if (! $answered) {
-            app(RecordUserActivityAction::class)->quietly($user, UserActivity::Voted, CarbonImmutable::now());
+            app(RecordUserActivityAction::class)->quietly($user, UserActivity::Voted, $postId, app(GameVisitorResolver::class)->browserHash(), CarbonImmutable::now());
         }
         $this->dispatch($this->votedEventName, postId: $this->post->id, groupKey: $this->groupKey);
     }

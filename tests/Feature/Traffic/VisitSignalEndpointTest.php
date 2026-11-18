@@ -60,10 +60,18 @@ it('refuses a signal it does not know', function () {
     signal(['signal' => 'bought'])->assertSessionHasErrors('signal');
 });
 
-it('holds a browser to 30 signals a minute', function () {
-    foreach (range(1, 30) as $ignored) {
+it('holds an address without the visitor cookie to 120 signals a minute, and a browser with one to 60 of its own', function () {
+    foreach (range(1, 120) as $ignored) {
+        $this->post(route('traffic.signal'), ['signal' => 'signup_form'])->assertNoContent();
+    }
+
+    $this->post(route('traffic.signal'), ['signal' => 'signup_form'])->assertStatus(429);
+
+    // Browsers behind that address are known by their cookies: each has its own minute.
+    foreach (range(1, 60) as $ignored) {
         signal(['signal' => 'signup_form'])->assertNoContent();
     }
 
     signal(['signal' => 'signup_form'])->assertStatus(429);
+    signal(['signal' => 'signup_form'], 'otherBrowserotherBrowserotherBrowserothe')->assertNoContent();
 });

@@ -21,6 +21,7 @@ use App\Queries\Traffic\VisitorVisitQuery;
 use App\Support\Analytics\AnalyticsSource;
 use App\Support\Analytics\CampaignKey;
 use App\Support\Analytics\LandingRoute;
+use App\Support\Analytics\UtmTags;
 use App\Support\Observability\DomainLogger;
 use App\Support\Traffic\Capture\BotSignals;
 use App\Support\Traffic\Capture\ClickParameters;
@@ -46,7 +47,8 @@ use Illuminate\Support\Facades\RateLimiter;
  * and a click of an archived campaign brings it back. Floods from one
  * address are marked, and past a limit not recorded at all. A click is the
  * visit its session begins with, and keeps where it came from: its source,
- * campaign, creative and the page it landed on.
+ * campaign, creative and the page it landed on — by the source's own link,
+ * whatever campaign tags its address carries too, which it keeps beside them.
  */
 final class RecordPaidClickAction
 {
@@ -153,6 +155,7 @@ final class RecordPaidClickAction
             'source_key' => AnalyticsSource::keyFor($channel, (int) $source->id, null),
             'creative_key' => $params->creative,
             'landing_key' => LandingRoute::key($route, $landingGameId, null),
+            ...UtmTags::fromQuery($query)->columns(),
         ];
 
         return DB::transaction(function () use ($source, $params, $attributes, $clickHash, $browserHash, $signals, $now): ?TrafficVisit {

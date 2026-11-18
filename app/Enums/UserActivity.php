@@ -21,4 +21,25 @@ enum UserActivity: string
     {
         return $this->value;
     }
+
+    /** The count of the browser's visit it adds one to (`traffic_visits`), if any: a game started counts on the visit already. */
+    public function visitCounter(): ?string
+    {
+        return match ($this) {
+            self::Voted => 'votes',
+            self::Commented => 'comments',
+            self::Posted => 'posts_created',
+            self::Played => null,
+        };
+    }
+
+    /** The flag it sets on the visit's row of the post it was done on (`traffic_visit_posts`), if any. */
+    public function postFlag(): ?string
+    {
+        return match ($this) {
+            self::Voted => 'voted',
+            self::Commented => 'commented',
+            self::Posted, self::Played => null,
+        };
+    }
 }

@@ -82,6 +82,7 @@ use App\Models\Tag;
 use App\Models\TrafficChanceRun;
 use App\Models\TrafficPriceSet;
 use App\Models\TrafficSetting;
+use App\Models\TrafficSource;
 use App\Models\TrafficStepChance;
 use App\Models\TranslationAiProviderCall;
 use App\Models\User;
@@ -119,6 +120,7 @@ use App\Support\Translations\TranslationCatalogInspector;
 use Carbon\CarbonImmutable;
 use Database\Factories\StudioPlanImageAnalysisFactory;
 use Database\Factories\StudioPlanTextGenerationFactory;
+use Database\Seeders\GamesDemoSeeder;
 use Illuminate\Database\ConnectionInterface;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
@@ -14437,6 +14439,33 @@ function gamePost(int $upvotes, int $downvotes): Post
 }
 
 /**
+ * What the demo seeders that play on the demo game find before them, made
+ * small: the project settings, the demo administrator, ten published posts
+ * with votes enough for the game's rounds, the large dataset's members (by
+ * their fill addresses), the demo game itself, TrafficDemoSeeder's PopAds
+ * source and visits recorded.
+ */
+function demoGameWithMembers(int $members = 200): User
+{
+    ProjectSettings::factory()->create();
+    $admin = User::factory()->admin()->create(['email' => 'admin@rateguru.test']);
+
+    foreach ([[900, 100], [850, 150], [800, 200], [750, 250], [700, 300], [400, 600], [350, 650], [300, 700], [250, 750], [200, 800]] as [$up, $down]) {
+        gamePost($up, $down);
+    }
+
+    foreach (range(1, $members) as $n) {
+        User::factory()->create(['email' => "fill{$n}@demo.test"]);
+    }
+
+    test()->seed(GamesDemoSeeder::class);
+    TrafficSource::factory()->create(['name' => 'PopAds main', 'link_key' => 'pop', 'preset_key' => 'popads', 'created_by_user_id' => $admin->id]);
+    (new TrafficSetting)->forceFill(['id' => 1, 'capture_enabled' => true, 'postbacks_enabled' => false])->save();
+
+    return $admin;
+}
+
+/**
  * A Draft game whose content set and flow can be published as they are:
  * `$rounds` crowd rounds of published posts the crowd plainly decided (90 %
  * against 60 % of 1 000 votes, option A the pick), the suggested result
@@ -14725,13 +14754,16 @@ function tarOf(array $files): string
 }
 
 /**
- * Switches the traffic tracker's recording (and, if asked, its postbacks) on
- * or off, as the administrator does on Traffic sources → Sources.
+ * Switches the traffic tracker's recording (and, if asked, its postbacks and
+ * the visits of the site's own pages) on or off, as the administrator does
+ * on Traffic sources → Sources. The switches are then in the cache, as every
+ * page after the first finds them.
  */
-function recordTraffic(bool $capture = true, bool $postbacks = false): TrafficSetting
+function recordTraffic(bool $capture = true, bool $postbacks = false, bool $site = false): TrafficSetting
 {
     $settings = TrafficSetting::query()->find(1) ?? (new TrafficSetting)->forceFill(['id' => 1]);
-    $settings->forceFill(['capture_enabled' => $capture, 'postbacks_enabled' => $postbacks])->save();
+    $settings->forceFill(['capture_enabled' => $capture, 'postbacks_enabled' => $postbacks, 'site_capture_enabled' => $site])->save();
+    TrafficSetting::captureFlags();
 
     return $settings;
 }

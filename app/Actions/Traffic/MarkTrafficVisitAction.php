@@ -23,6 +23,7 @@ use App\Support\Traffic\Postbacks\MilestoneContext;
 use App\Support\Traffic\Postbacks\PostbackPlanner;
 use App\Support\Traffic\Postbacks\PostbackUrl;
 use App\Support\Traffic\Worth\TrafficStep;
+use App\Support\Traffic\Worth\VisitValue;
 use Carbon\CarbonImmutable;
 
 /**
@@ -38,6 +39,8 @@ use Carbon\CarbonImmutable;
  * it reached ("Settling"). It runs inside the transaction of whatever
  * reached the moment, so all of it is kept or undone with it. While
  * postbacks are switched off, conversions are kept and nothing is queued.
+ * A visit the tracker doesn't count — an unpaid visit to the rest of the
+ * site — keeps its marks and is worth nothing, whatever it reached.
  */
 final class MarkTrafficVisitAction
 {
@@ -65,7 +68,7 @@ final class MarkTrafficVisitAction
             $visit->forceFill(['last_seen_at' => $at]);
         }
 
-        $values = $this->worth->values($visit, $at);
+        $values = $visit->isTracked() ? $this->worth->values($visit, $at) : VisitValue::nothing();
         $visit->forceFill(['value_real' => $values['real'], 'value_expected' => $values['expected']])->save();
 
         $this->convert($visit, $event, $at, $context ?? new MilestoneContext);

@@ -70,7 +70,8 @@ services only decide HOW to delete an already-approved target safely.
 | account_attributions.credited_visit_id / expired_visit_id | traffic_visits | — | SET NULL | protective detach: a visit past its retention leaves the account's attribution without it |
 | user_activity_days.user_id | users | — | **RESTRICT** | accounts become tombstones; an unconfirmed account's purge deletes its activity days, `traffic:purge-expired` those older than 400 days (`docs/architecture/user-lifecycle.md`). Indexed by `user_activity_days_user_day_unique`, which it leads |
 | game_attempts.traffic_visit_id, game_attempts.onward_post_id | traffic_visits / posts | — | no FK | pointers only: a visit is purged on its own schedule, a post by its own deletion rules |
-| traffic_* children (api connection, postback rules, campaign stages, events and prices, visit details, conversions, postbacks and their attempts, chances, spend days of an import) | their traffic parent | — | CASCADE | implementation-owned rows that mean nothing without their parent |
+| traffic_visit_posts.post_id | posts | — | no FK | history only: the posts a visit opened, shared, voted on or commented on, kept 90 days (`traffic:purge-expired`); a post leaves by its own deletion rules |
+| traffic_* children (api connection, postback rules, campaign stages, events and prices, visit details, the posts of a visit, conversions, postbacks and their attempts, chances, spend days of an import) | their traffic parent | — | CASCADE | implementation-owned rows that mean nothing without their parent |
 | sessions.user_id | — | no FK | no FK | framework table, cleaned explicitly by PR-B |
 | notifications.notifiable | — | morph, no FK | morph, no FK | cleaned explicitly by PR-B |
 

@@ -11,9 +11,10 @@ use Illuminate\Contracts\Pagination\Paginator;
 
 /**
  * The four logs of Growth → Traffic sources, newest first, fifty to a page:
- * clicks and visits, the milestones paid clicks reached, the postbacks and
- * what the networks answered, and blocking. A page knows only whether there
- * is a next one, so no log ever counts its rows.
+ * clicks and visits — those the tracker counts, paid clicks and game visits
+ * (TrafficVisit::scopeTracked()) — the milestones paid clicks reached, the
+ * postbacks and what the networks answered, and blocking. A page knows only
+ * whether there is a next one, so no log ever counts its rows.
  */
 final class TrafficLogsQuery implements StablePaginationBoundary
 {
@@ -23,6 +24,7 @@ final class TrafficLogsQuery implements StablePaginationBoundary
     public function clicks(?int $sourceId, ?int $campaignId, int $page): Paginator
     {
         return TrafficVisit::query()
+            ->tracked()
             ->when($sourceId !== null, fn ($query) => $query->where('source_id', $sourceId))
             ->when($campaignId !== null, fn ($query) => $query->where('campaign_id', $campaignId))
             ->with('detail')

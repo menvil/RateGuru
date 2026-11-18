@@ -99,7 +99,9 @@
 </div>
 
 <x-admin.ui.card title="Tracking" data-testid="traffic-tracking">
-    <x-admin.ui.switch label="Record visits" id="rg-admin-traffic-capture" :checked="(bool) $settings['capture_enabled']" on-hint="Paid clicks and visits are recorded." off-hint="Nothing is recorded and no visitor cookie is set." wire:model="settings.capture_enabled" />
+    <x-admin.ui.switch label="Record visits" id="rg-admin-traffic-capture" :checked="(bool) $settings['capture_enabled']" on-hint="Paid clicks and visits are recorded." off-hint="Nothing is recorded and no visitor cookie is set." wire:model.live="settings.capture_enabled" />
+    {{-- Counts only with Record visits, so it is off and can't be turned on while that is off. --}}
+    <x-admin.ui.switch label="Record site visits" id="rg-admin-traffic-site-capture" :checked="(bool) $settings['capture_enabled'] && (bool) ($settings['site_capture_enabled'] ?? false)" :disabled="! $settings['capture_enabled']" on-hint="Feed, posts, profiles and pages, one visit per browser every 30 minutes. Needs Record visits." off-hint="Feed, posts, profiles and pages, one visit per browser every 30 minutes. Needs Record visits." wire:model="settings.site_capture_enabled" />
     <x-admin.ui.switch label="Send postbacks" id="rg-admin-traffic-postbacks" :checked="(bool) $settings['postbacks_enabled']" on-hint="Networks are told of the steps their clicks reach." off-hint="Nothing is sent to any network." wire:model="settings.postbacks_enabled" />
     <x-admin.ui.radio-cards label="IP database" :options="[
         'geolite2_city' => ['label' => 'GeoLite2 City', 'help' => 'MaxMind, updated twice a week. The default.'],

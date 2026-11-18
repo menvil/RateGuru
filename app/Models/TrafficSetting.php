@@ -5,10 +5,13 @@ namespace App\Models;
 use App\Enums\GeoEdition;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 
 /**
  * The tracker's own settings, one row: the block rule, the IP database
- * edition, and the switches that start recording visits and sending postbacks.
+ * edition, and the switches that start recording visits — the games' and
+ * paid clicks', and the rest of the site's — and sending postbacks.
  *
  * @property int $id
  * @property string $block_min_spend
@@ -21,6 +24,7 @@ use Illuminate\Database\Eloquent\Model;
  * @property GeoEdition $geo_edition
  * @property CarbonImmutable|null $geo_refresh_requested_at
  * @property bool $capture_enabled
+ * @property bool $site_capture_enabled
  * @property bool $postbacks_enabled
  * @property int|null $updated_by_user_id
  * @property int $lock_version
@@ -29,6 +33,8 @@ use Illuminate\Database\Eloquent\Model;
  */
 class TrafficSetting extends Model
 {
+    private const string CAPTURE_FLAGS_KEY = 'traffic-capture-flags';
+
     protected $table = 'traffic_settings';
 
     /** @var list<string> */
@@ -48,6 +54,7 @@ class TrafficSetting extends Model
             'geo_edition' => GeoEdition::class,
             'geo_refresh_requested_at' => 'immutable_datetime',
             'capture_enabled' => 'boolean',
+            'site_capture_enabled' => 'boolean',
             'postbacks_enabled' => 'boolean',
             'updated_by_user_id' => 'integer',
             'lock_version' => 'integer',
@@ -71,9 +78,39 @@ class TrafficSetting extends Model
             'geo_edition' => GeoEdition::GeoLite2City->value,
             'geo_refresh_requested_at' => null,
             'capture_enabled' => false,
+            'site_capture_enabled' => false,
             'postbacks_enabled' => false,
             'updated_by_user_id' => null,
             'lock_version' => 1,
         ]);
+    }
+
+    /**
+     * The two recording switches, as every page reads them: whether visits
+     * are recorded, and whether the site's own pages record one too — only
+     * ever with the first. One read of the cache, which keeps them until the
+     * row is saved again; a page that asks costs no query.
+     *
+     * @return array{capture: bool, site: bool}
+     */
+    public static function captureFlags(): array
+    {
+        return Cache::rememberForever(self::CAPTURE_FLAGS_KEY, function (): array {
+            $settings = self::current();
+
+            return ['capture' => (bool) $settings->capture_enabled, 'site' => (bool) $settings->capture_enabled && (bool) $settings->site_capture_enabled];
+        });
+    }
+
+    /** Lets the next page read the switches from the row again. */
+    public static function forgetCaptureFlags(): void
+    {
+        Cache::forget(self::CAPTURE_FLAGS_KEY);
+    }
+
+    protected static function booted(): void
+    {
+        // Whoever saves the row — the Tracking card, a seeder — the switches are read afresh once it is committed.
+        static::saved(fn () => DB::afterCommit(fn () => self::forgetCaptureFlags()));
     }
 }

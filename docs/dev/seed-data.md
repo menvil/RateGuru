@@ -94,6 +94,30 @@ sign-ins to existing accounts. It rewrites what happened after each of
 Both run once and are not called by `DatabaseSeeder`; if the history run stops
 halfway, start again from `migrate:fresh`.
 
+## Demo site visitors
+
+To look at Growth → Analytics with the whole site's visitors in it, add two
+months of them on top of the game's history:
+
+```bash
+php artisan db:seed --class=AnalyticsDemoSeeder
+```
+
+`AnalyticsDemoSeeder` switches on Record visits and Record site visits, then
+plays sixty days of people arriving on the feed or a post: from Reddit through
+a tagged thread and plain links, from Google's results and its tagged ads,
+from Facebook with and without a tagged promotion, from the weekly
+newsletter's tagged links, from Bing, a food blog and a forum, and from
+nowhere. They read posts in the overlay and share some, go on from the feed to
+the game, sign up there or on the feed — confirming at once, minutes later or
+never — and the new accounts come back on the days after to vote, comment,
+post and play, which activates some on days 1 to 7; members of the site come
+back signed in too. Every visit goes through the tracker's own actions with
+the token the middleware would print, so sessions, source and campaign keys,
+tags and landings are written as live capture writes them. It runs after
+`GameAnalyticsDemoSeeder`, adds nothing once the site's own pages have visits,
+takes a minute or two and is not called by `DatabaseSeeder`.
+
 ## Demo accounts
 
 Admin:

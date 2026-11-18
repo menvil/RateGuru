@@ -1,16 +1,22 @@
 <?php
 
+use App\Actions\Traffic\MarkTrafficVisitAction;
+use App\Actions\Traffic\RevalueOpenVisitsAction;
 use App\Enums\GameStatus;
 use App\Enums\TrafficChannel;
+use App\Enums\TrafficEvent;
 use App\Enums\TrafficKnownReason;
 use App\Livewire\Games\PlayGame;
 use App\Models\Game;
 use App\Models\GameAttempt;
 use App\Models\GameResultProfile;
+use App\Models\Post;
 use App\Models\TrafficSource;
 use App\Models\TrafficVisit;
 use App\Models\TrafficVisitDetail;
 use App\Models\User;
+use App\Queries\Traffic\TrafficChanceSampleQuery;
+use App\Services\Traffic\TrafficVisitWorth;
 use App\Support\Traffic\Capture\ArrivalToken;
 use App\Support\Traffic\Capture\TrafficArrival;
 use Carbon\CarbonImmutable;
@@ -29,6 +35,15 @@ use Livewire\Livewire;
  * anything from outside begins a session of its own, as a paid click always
  * does. Staff leave no unpaid visits, and a visit's details keep the page's
  * own path.
+ *
+ * While Record site visits is on, the feed, a post or a profile records a
+ * visit too — one a session, worth nothing, outside the revaluation and the
+ * chances — and a game reached from it continues that session.
+ *
+ * The campaign tags of the address a session entered by are kept on each of
+ * its visits, and name its source with the referrer, its campaign and its
+ * creative; an arrival tagged otherwise begins a session of its own, and a
+ * network's unfilled placeholders are no tags.
  */
 const OPEN_TOKEN = 'openTokenopenTokenopenTokenopenTokenopen';
 
@@ -56,19 +71,19 @@ function arrivedAt(string $slug, array $arrival, string $token = OPEN_TOKEN)
 }
 
 /**
- * The browser holding OPEN_TOKEN asks for a page with only the given headers,
- * and the page runs: a game's page makes its first call with the token it was
- * drawn with, any other page sends its script's signal. Returns the visit a
- * game's steps go to.
+ * The browser holding the token (OPEN_TOKEN unless another is given) asks for
+ * a page with only the given headers, and the page runs: a game's page makes
+ * its first call with the token it was drawn with, any other page sends its
+ * script's signal. Returns the visit a game's steps go to.
  */
-function pageRuns(string $path, array $headers = []): ?int
+function pageRuns(string $path, array $headers = [], string $token = OPEN_TOKEN): ?int
 {
     test()->flushHeaders();
-    $page = clickOn($path, OPEN_TOKEN, $headers)->assertOk();
+    $page = clickOn($path, $token, $headers)->assertOk();
     test()->flushHeaders();
 
     if (preg_match('/<meta name="rg-arrival" content="([^"]+)">/', (string) $page->getContent(), $meta) === 1) {
-        test()->withCookie((string) config('games.visitor_cookie.name'), OPEN_TOKEN)
+        test()->withCookie((string) config('games.visitor_cookie.name'), $token)
             ->withHeaders(['User-Agent' => DESKTOP_CHROME_USER_AGENT, 'Accept-Language' => 'en'])
             ->post(route('traffic.signal'), ['signal' => 'opened', 'arrival' => html_entity_decode($meta[1])])
             ->assertNoContent();
@@ -76,9 +91,9 @@ function pageRuns(string $path, array $headers = []): ?int
         return null;
     }
 
-    return Livewire::withCookie((string) config('games.visitor_cookie.name'), OPEN_TOKEN)
+    return Livewire::withCookie((string) config('games.visitor_cookie.name'), $token)
         ->withHeaders(['User-Agent' => DESKTOP_CHROME_USER_AGENT, 'Accept-Language' => 'en'])
-        ->test(PlayGame::class, ['slug' => explode('/', trim($path, '/'))[1]])
+        ->test(PlayGame::class, ['slug' => explode('/', trim((string) parse_url($path, PHP_URL_PATH), '/'))[1]])
         ->call('init')
         ->get('visitId');
 }
@@ -377,4 +392,236 @@ it('gives a paid click’s landing the version its page shows once it runs, and 
 
     expect(TrafficVisit::query()->count())->toBe(1)
         ->and($click->fresh()->landing_key)->toBe('games.play:'.$this->game->id.':'.$this->version->id);
+});
+
+it('records a visit to the site’s own pages only while Record site visits is on, one a session, from where the session came', function () {
+    $post = Post::factory()->published()->create();
+
+    expect(clickOn('/', OPEN_TOKEN)->assertOk()->getContent())->not->toContain('rg-arrival');
+
+    recordTraffic(site: true);
+    pageRuns('/', ['Referer' => 'https://old.reddit.com/r/pics/']);
+    CarbonImmutable::setTestNow('2026-11-17 12:05:00');
+    pageRuns('/posts/'.$post->id, ['Referer' => url('/')]);
+    $visit = TrafficVisit::query()->sole();
+
+    expect($visit->channel)->toBe(TrafficChannel::Referral)
+        ->and([$visit->game_id, $visit->source_id])->toBe([null, null])
+        ->and($visit->entry_visit_id)->toBe($visit->id)
+        ->and([$visit->source_key, $visit->landing_key])->toBe(['reddit:organic', 'feed'])
+        // The post read in the same session is the same visit, seen again.
+        ->and($visit->last_seen_at->toDateTimeString())->toBe('2026-11-17 12:05:00')
+        ->and(TrafficVisitDetail::query()->sole()->landing_path)->toBe('/');
+
+    // A token the feed was given before the switch went off records nothing once it is.
+    $page = clickOn('/', 'laterBrowserlaterBrowserlaterBrowserlate');
+    recordTraffic();
+    preg_match('/<meta name="rg-arrival" content="([^"]+)">/', (string) $page->getContent(), $meta);
+    $this->withCookie((string) config('games.visitor_cookie.name'), 'laterBrowserlaterBrowserlaterBrowserlate')
+        ->withHeaders(['User-Agent' => DESKTOP_CHROME_USER_AGENT])
+        ->post(route('traffic.signal'), ['signal' => 'opened', 'arrival' => html_entity_decode($meta[1])])
+        ->assertNoContent();
+
+    expect(TrafficVisit::query()->count())->toBe(1);
+});
+
+it('keeps the feed and a game reached from it in one session, the game’s visit inside the site and entered by the feed', function () {
+    recordTraffic(site: true);
+    pageRuns('/', ['Referer' => 'https://old.reddit.com/r/pics/']);
+    CarbonImmutable::setTestNow('2026-11-17 12:05:00');
+    $visitId = pageRuns('/games/'.$this->game->slug, ['Referer' => url('/')]);
+
+    [$feed, $game] = TrafficVisit::query()->orderBy('id')->get()->all();
+
+    expect($visitId)->toBe($game->id)
+        ->and($game->game_id)->toBe($this->game->id)
+        ->and($game->channel)->toBe(TrafficChannel::Internal)
+        ->and($game->origin)->toBe('feed')
+        ->and($game->entry_visit_id)->toBe($feed->id)
+        ->and([$game->source_key, $game->landing_key])->toBe(['reddit:organic', 'feed']);
+});
+
+it('keeps a game Traffic sources counted once as one visit when the feed came from elsewhere in between', function (bool $site, string $feed, array $headers) {
+    recordTraffic(site: $site);
+    pageRuns('/games/'.$this->game->slug, ['Referer' => 'https://old.reddit.com/r/games/']);
+    CarbonImmutable::setTestNow('2026-11-17 12:10:00');
+    // Without site visits the feed carries no token, so nothing of it runs.
+    $site ? pageRuns($feed, $headers) : clickOn($feed, OPEN_TOKEN, $headers)->assertOk();
+    CarbonImmutable::setTestNow('2026-11-17 12:12:00');
+    pageRuns('/games/'.$this->game->slug, ['Referer' => url('/')]);
+
+    $tracked = TrafficVisit::query()->tracked()->sole();
+
+    expect($tracked->channel)->toBe(TrafficChannel::Referral)
+        ->and($tracked->last_seen_at->toDateTimeString())->toBe('2026-11-17 12:12:00')
+        ->and(TrafficVisit::query()->count())->toBe($site ? 2 : 1);
+})->with([
+    'feed from a search, site visits off' => [false, '/', ['Referer' => 'https://www.google.com/']],
+    'feed from a search, site visits on' => [true, '/', ['Referer' => 'https://www.google.com/']],
+    'tagged feed, site visits on' => [true, '/?utm_source=news&utm_medium=email&utm_campaign=w1', []],
+]);
+
+it('values a visit to the rest of the site at nothing, whatever it reaches, and leaves it out of the revaluation and the chances', function () {
+    recordTraffic(site: true);
+    // Chances every slice can lean on: as a visit the tracker counted, the feed's steps would be worth something.
+    finishedChanceRun(['*' => ['opened' => ['chance' => 0.2], 'signup' => ['chance' => 0.5]]]);
+    pageRuns('/', ['Referer' => 'https://www.google.com/']);
+    CarbonImmutable::setTestNow('2026-11-17 12:05:00');
+    pageRuns('/games/'.$this->game->slug, ['Referer' => url('/')]);
+    [$feed, $game] = TrafficVisit::query()->orderBy('id')->get()->all();
+    app(MarkTrafficVisitAction::class)->handle($feed->id, TrafficEvent::Signup, CarbonImmutable::now(), ['signup_at' => CarbonImmutable::now()]);
+
+    expect($feed->fresh())->value_real->toBe('0.00000000')->value_expected->toBe('0.00000000')
+        ->and(app(TrafficVisitWorth::class)->values($feed->fresh(), CarbonImmutable::now())['expected'])->not->toBe('0.00000000')
+        ->and($game->value_expected)->not->toBe('0.00000000');
+
+    // Whatever it holds, the revaluation never works it out again.
+    TrafficVisit::query()->whereKey($feed->id)->update(['value_expected' => '0.3']);
+    app(RevalueOpenVisitsAction::class)->handle(CarbonImmutable::now());
+
+    expect($feed->fresh()->value_expected)->toBe('0.30000000');
+
+    // Once both have matured, the chances are worked out from the game's visit alone.
+    CarbonImmutable::setTestNow('2026-12-02 12:00:00');
+
+    expect(collect(app(TrafficChanceSampleQuery::class)->rows(CarbonImmutable::now()))->sum('visits'))->toBe(1);
+});
+
+it('leaves the paid click holding the browser as it was when a page without a game runs, and opens it on the next game', function () {
+    recordTraffic(site: true);
+    $held = TrafficVisit::factory()->create(['visitor_hash' => browserHashOf(OPEN_TOKEN), 'game_id' => $this->game->id, 'arrived_at' => now()->subMinutes(5), 'last_seen_at' => now()->subMinutes(5), 'holds_until' => now()->addDays(7), 'opened_at' => null]);
+
+    // Its landing sent the visitor to sign in: the sign-in page and the feed run, neither a step of the click's.
+    pageRuns('/login');
+    pageRuns('/');
+
+    expect(TrafficVisit::query()->count())->toBe(1)
+        ->and($held->fresh())->opened_at->toBeNull()->last_seen_at->toDateTimeString()->toBe('2026-11-17 11:55:00')
+        ->and($held->conversions()->count())->toBe(0);
+
+    pageRuns('/games/'.$this->game->slug);
+
+    expect($held->fresh()->opened_at)->not->toBeNull()
+        ->and(TrafficVisit::query()->count())->toBe(1);
+});
+
+it('keeps the tags a session came by on its first visit, naming its source, campaign and creative by them', function () {
+    pageRuns('/games/'.$this->game->slug.'?utm_source=reddit&utm_medium=social&utm_campaign=Launch%20week&utm_term=taste+quiz', ['Referer' => 'https://old.reddit.com/r/games/']);
+    $visit = TrafficVisit::query()->sole();
+
+    expect($visit->only(['utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term']))->toBe([
+        'utm_source' => 'reddit',
+        'utm_medium' => 'social',
+        'utm_campaign' => 'Launch week',
+        'utm_content' => null,
+        'utm_term' => 'taste quiz',
+    ])
+        // The channel stays how the page was reached; the keys say how the session was.
+        ->and($visit->channel)->toBe(TrafficChannel::Referral)
+        ->and($visit->entry_visit_id)->toBe($visit->id)
+        ->and($visit->source_key)->toBe('reddit:organic')
+        ->and($visit->campaign_key)->toBe('tag:Launch week')
+        ->and($visit->creative_key)->toBe('taste quiz')
+        ->and($visit->landing_key)->toBe('games.play:'.$this->game->id.':'.$this->version->id)
+        ->and(TrafficVisitDetail::query()->sole()->landing_path)->toBe('/games/'.$this->game->slug);
+});
+
+it('copies the session’s tags onto the visits that continue it, and takes its own link followed again for the same session', function () {
+    recordTraffic(site: true);
+    $newsletter = '/?utm_source=newsletter&utm_campaign=weekly-12&utm_content=hero';
+
+    pageRuns($newsletter);
+    CarbonImmutable::setTestNow('2026-11-17 12:05:00');
+    pageRuns('/games/'.$this->game->slug, ['Referer' => url('/')]);
+    CarbonImmutable::setTestNow('2026-11-17 12:10:00');
+    pageRuns($newsletter);
+
+    [$feed, $game] = TrafficVisit::query()->orderBy('id')->get()->all();
+    $tags = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term'];
+
+    expect(TrafficVisit::query()->count())->toBe(2)
+        ->and($feed->channel)->toBe(TrafficChannel::Direct)
+        ->and([$feed->source_key, $feed->campaign_key, $feed->creative_key])->toBe(['email:email', 'tag:weekly-12', 'hero'])
+        ->and($game->channel)->toBe(TrafficChannel::Internal)
+        ->and($game->entry_visit_id)->toBe($feed->id)
+        ->and($game->only($tags))->toBe($feed->only($tags))
+        ->and($game->utm_campaign)->toBe('weekly-12')
+        ->and([$game->source_key, $game->campaign_key, $game->creative_key, $game->landing_key])->toBe([$feed->source_key, $feed->campaign_key, $feed->creative_key, 'feed'])
+        // The newsletter's link opened again is the feed's visit of the same session, seen again.
+        ->and($feed->last_seen_at->toDateTimeString())->toBe('2026-11-17 12:10:00');
+});
+
+it('begins a session of its own on tags other than the session’s, whether with no referrer, inside the site or from the same network', function () {
+    recordTraffic(site: true);
+    $post = Post::factory()->published()->create();
+
+    pageRuns('/?utm_source=newsletter&utm_campaign=weekly-12');
+    CarbonImmutable::setTestNow('2026-11-17 12:05:00');
+    pageRuns('/?utm_source=newsletter&utm_campaign=weekly-13');
+    CarbonImmutable::setTestNow('2026-11-17 12:10:00');
+    pageRuns('/games/'.$this->game->slug.'?utm_campaign=house-promo', ['Referer' => url('/')]);
+    CarbonImmutable::setTestNow('2026-11-17 12:15:00');
+    pageRuns('/posts/'.$post->id.'?utm_source=reddit&utm_campaign=a', ['Referer' => 'https://www.reddit.com/r/pics/']);
+    CarbonImmutable::setTestNow('2026-11-17 12:20:00');
+    pageRuns('/posts/'.$post->id.'?utm_source=reddit&utm_campaign=b', ['Referer' => 'https://www.reddit.com/r/pics/']);
+    // The second reddit link followed again: a reload of its own visit.
+    CarbonImmutable::setTestNow('2026-11-17 12:25:00');
+    pageRuns('/posts/'.$post->id.'?utm_source=reddit&utm_campaign=b', ['Referer' => 'https://www.reddit.com/r/pics/']);
+
+    $visits = TrafficVisit::query()->orderBy('id')->get();
+
+    expect($visits)->toHaveCount(5)
+        ->and($visits->every(fn (TrafficVisit $visit): bool => $visit->entry_visit_id === $visit->id))->toBeTrue()
+        ->and($visits->pluck('campaign_key')->all())->toBe(['tag:weekly-12', 'tag:weekly-13', 'tag:house-promo', 'tag:a', 'tag:b'])
+        ->and($visits->pluck('source_key')->all())->toBe(['email:email', 'email:email', 'internal', 'reddit:organic', 'reddit:organic'])
+        ->and($visits[2]->channel)->toBe(TrafficChannel::Internal)
+        ->and($visits[4]->last_seen_at->toDateTimeString())->toBe('2026-11-17 12:25:00');
+});
+
+it('counts utm_source=reddit without a medium and a reddit referrer under one key, a person once however many of its hosts they came through', function () {
+    recordTraffic(site: true);
+    $other = 'otherBrowserotherBrowserotherBrowserothe';
+
+    // Reddit's app opens the link with no referrer; its tag says where it came from.
+    pageRuns('/?utm_source=reddit');
+    CarbonImmutable::setTestNow('2026-11-17 12:05:00');
+    pageRuns('/games/'.$this->game->slug, ['Referer' => 'https://out.reddit.com/t3_1abc']);
+    CarbonImmutable::setTestNow('2026-11-17 12:40:00');
+    pageRuns('/', ['Referer' => 'https://old.reddit.com/r/pics/']);
+    pageRuns('/', ['Referer' => 'https://www.reddit.com/r/pics/'], $other);
+
+    $visits = TrafficVisit::query()->orderBy('id')->get();
+
+    expect($visits)->toHaveCount(4)
+        ->and($visits->pluck('utm_source')->all())->toBe(['reddit', null, null, null])
+        ->and($visits->every(fn (TrafficVisit $visit): bool => $visit->entry_visit_id === $visit->id))->toBeTrue()
+        ->and(TrafficVisit::query()->distinct()->pluck('source_key')->all())->toBe(['reddit:organic'])
+        ->and(TrafficVisit::query()->where('source_key', 'reddit:organic')->distinct()->count('visitor_hash'))->toBe(2)
+        ->and(TrafficVisit::query()->where('source_key', 'reddit:organic')->where('visitor_hash', browserHashOf(OPEN_TOKEN))->distinct()->count('visitor_hash'))->toBe(1);
+});
+
+it('gives search tagged as paid a key of its own beside the search engine’s own visitors', function () {
+    pageRuns('/games/'.$this->game->slug.'?utm_source=google&utm_medium=cpc&utm_campaign=brand', ['Referer' => 'https://www.google.com/']);
+    pageRuns('/games/'.$this->game->slug, ['Referer' => 'https://www.google.com/'], 'otherBrowserotherBrowserotherBrowserothe');
+
+    [$tagged, $organic] = TrafficVisit::query()->orderBy('id')->get()->all();
+
+    expect([$tagged->channel, $organic->channel])->each->toBe(TrafficChannel::Search)
+        ->and([$tagged->source_id, $tagged->holds_until])->toBe([null, null])
+        ->and([$tagged->source_key, $tagged->campaign_key])->toBe(['google:paid', 'tag:brand'])
+        ->and([$organic->source_key, $organic->campaign_key])->toBe(['google:organic', null]);
+});
+
+it('takes a network’s unfilled placeholders for no tags at all', function () {
+    pageRuns('/games/'.$this->game->slug.'?utm_source={source}&utm_medium=[MEDIUM]&utm_campaign=%23%23CAMPAIGN%23%23&utm_content=${CREATIVE}&utm_term=%257Bkeyword%257D', ['Referer' => 'https://www.google.com/']);
+    $visit = TrafficVisit::query()->sole();
+
+    expect($visit->only(['utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term']))->each->toBeNull()
+        ->and([$visit->source_key, $visit->campaign_key, $visit->creative_key])->toBe(['google:organic', null, null]);
+
+    // Nor do they take the browser out of its session.
+    CarbonImmutable::setTestNow('2026-11-17 12:05:00');
+    pageRuns('/games/'.$this->game->slug.'?utm_campaign={campaign}', ['Referer' => 'https://www.google.com/']);
+
+    expect(TrafficVisit::query()->sole()->last_seen_at->toDateTimeString())->toBe('2026-11-17 12:05:00');
 });

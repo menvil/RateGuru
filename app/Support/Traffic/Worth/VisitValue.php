@@ -99,6 +99,17 @@ final class VisitValue
     }
 
     /** When a visit stops bringing anything new: 7 days after its paid window, 14 after an unpaid arrival. */
+    /**
+     * What a visit the tracker doesn't count — an unpaid visit to the rest of
+     * the site — is worth: nothing so far, and nothing still to come.
+     *
+     * @return array{real: string, expected: string}
+     */
+    public static function nothing(): array
+    {
+        return ['real' => TrafficMoney::stored(0), 'expected' => TrafficMoney::stored(0)];
+    }
+
     public static function closesAt(CarbonImmutable $arrivedAt, ?CarbonImmutable $holdsUntil): CarbonImmutable
     {
         return $holdsUntil !== null ? $holdsUntil->addDays(self::PAID_CLOSES_AFTER_WINDOW_DAYS) : $arrivedAt->addDays(self::UNPAID_CLOSES_AFTER_DAYS);

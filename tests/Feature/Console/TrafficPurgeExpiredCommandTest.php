@@ -5,15 +5,16 @@ use App\Models\TrafficPostback;
 use App\Models\TrafficSpendDay;
 use App\Models\TrafficVisit;
 use App\Models\TrafficVisitDetail;
+use App\Models\TrafficVisitPost;
 use App\Models\UserActivityDay;
 use Carbon\CarbonImmutable;
 use Illuminate\Console\Scheduling\Schedule;
 
 /**
  * traffic:purge-expired deletes what the tracker recorded past its retention
- * — visits after 400 days with their conversions, a click's details and the
- * outbox after 90, spend figures after 400 — in small batches, and nothing
- * younger.
+ * — visits after 400 days with their conversions, a click's details, the
+ * posts of a visit and the outbox after 90, spend figures after 400 — in
+ * small batches, and nothing younger.
  */
 beforeEach(function () {
     CarbonImmutable::setTestNow('2026-11-17 03:00:00');
@@ -47,6 +48,21 @@ it('deletes what is past its retention and keeps the rest', function () {
         ->and(TrafficVisitDetail::query()->pluck('visit_id')->all())->toBe([$fresh->id])
         ->and(TrafficPostback::query()->find($oldPostback->id))->toBeNull()
         ->and(TrafficSpendDay::query()->pluck('id')->all())->toBe([$keptDay->id]);
+});
+
+it('deletes the posts a visit opened after 90 days from the first, the visit staying', function () {
+    $visit = TrafficVisit::factory()->create(['arrived_at' => now()->subDays(91)]);
+    $fresh = TrafficVisit::factory()->create();
+    // The first of a visit's posts opened just before the 90 days were up, the second just after.
+    TrafficVisitPost::query()->forceCreate(['visit_id' => $visit->id, 'post_id' => 11, 'views' => 2, 'first_at' => now()->subDays(90)->subMinute()]);
+    TrafficVisitPost::query()->forceCreate(['visit_id' => $visit->id, 'post_id' => 12, 'first_at' => now()->subDays(90)->addMinute()]);
+    TrafficVisitPost::query()->forceCreate(['visit_id' => $fresh->id, 'post_id' => 11, 'first_at' => now()->subDay()]);
+
+    $this->artisan('traffic:purge-expired', ['--chunk' => 1])->assertSuccessful()->expectsOutput('Deleted 1 posts of visits.');
+
+    expect(TrafficVisitPost::query()->orderBy('visit_id')->orderBy('post_id')->get(['visit_id', 'post_id'])->map(fn (TrafficVisitPost $row): array => [$row->visit_id, $row->post_id])->all())
+        ->toBe([[$visit->id, 12], [$fresh->id, 11]])
+        ->and(TrafficVisit::query()->whereKey($visit->id)->exists())->toBeTrue();
 });
 
 it('deletes the days members did something after 400 days, without a new environment variable', function () {

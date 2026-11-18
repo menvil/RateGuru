@@ -2,12 +2,14 @@
 
 namespace App\Livewire\Posts;
 
+use App\Livewire\Concerns\CountsPostViews;
 use App\Models\Post;
 use App\Queries\Posts\PublishedPostDetailsQuery;
 use App\Services\Feed\FeedPostDeletionService;
 use App\Support\Rating\RatingConfigurationManager;
 use App\Support\Seo\PostOpenGraph;
 use App\Support\Settings\ProjectSettingsManager;
+use App\Support\Traffic\Capture\TrafficArrival;
 use App\Support\View\AppLayoutData;
 use Illuminate\Contracts\View\View;
 use Livewire\Attributes\Locked;
@@ -17,6 +19,8 @@ use Livewire\Component;
 /** @property-read Post $post */
 final class PostShow extends Component
 {
+    use CountsPostViews;
+
     private PublishedPostDetailsQuery $publishedPostDetails;
 
     public int $postId;
@@ -48,6 +52,12 @@ final class PostShow extends Component
         $this->askGroups = is_string($ask)
             ? array_slice(array_values(array_filter(explode(',', $ask), fn (string $key): bool => preg_match('/^[a-z0-9]+(?:_[a-z0-9]+)*$/', $key) === 1)), 0, 8)
             : [];
+
+        // A page given no arrival token — Record site visits is off and no paid click landed here — sends no
+        // signal to count it by, so it is counted now, on the visit the browser is on, as the feed counts a post.
+        if (app(TrafficArrival::class)->pending() === null) {
+            $this->countPostView($post->id);
+        }
     }
 
     public function getPostProperty(): Post

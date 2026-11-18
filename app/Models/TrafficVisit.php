@@ -21,10 +21,15 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 
 /**
- * One visit: a paid click, or an unpaid arrival on a game. Every report is a
+ * One visit: a paid click, an unpaid arrival on a game, or — while Record site
+ * visits is on — an unpaid visit to the site's other pages. Every report is a
  * sum over these rows, so each carries its dimensions, the moments it reached,
  * what it cost and what it is worth (docs/architecture/traffic.md) — and the
- * visit its session began with, with where that one came from.
+ * visit its session began with, with where that one came from and the
+ * campaign tags it came by (`utm_*`), and the new votes, comments and posts
+ * a member made on it; the posts it opened and shared are its rows in
+ * `traffic_visit_posts`. The tracker itself counts only the visits it
+ * tracks: paid clicks and game visits.
  *
  * @property int $id
  * @property TrafficChannel $channel
@@ -93,6 +98,14 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
  * @property string|null $campaign_key
  * @property string|null $creative_key
  * @property string|null $landing_key
+ * @property string|null $utm_source
+ * @property string|null $utm_medium
+ * @property string|null $utm_campaign
+ * @property string|null $utm_content
+ * @property string|null $utm_term
+ * @property int $votes
+ * @property int $comments
+ * @property int $posts_created
  */
 class TrafficVisit extends Model
 {
@@ -155,6 +168,9 @@ class TrafficVisit extends Model
             'signup_after_seconds' => 'integer',
             'account_after_seconds' => 'integer',
             'rounds_answered' => 'integer',
+            'votes' => 'integer',
+            'comments' => 'integer',
+            'posts_created' => 'integer',
             'cost' => 'decimal:8',
             'spend' => 'decimal:8',
             'spend_basis' => TrafficSpendBasis::class,
@@ -172,6 +188,31 @@ class TrafficVisit extends Model
     public function reached(TrafficEvent $event): bool
     {
         return $this->getAttribute($event->column()) !== null;
+    }
+
+    /**
+     * Whether the tracker counts the visit: a paid click, or an unpaid visit
+     * to a game. An unpaid visit to the rest of the site is worth nothing and
+     * stays out of Traffic sources, the chances and the revaluation.
+     */
+    public function isTracked(): bool
+    {
+        return $this->game_id !== null || $this->source_id !== null;
+    }
+
+    /**
+     * The visits the tracker counts, as isTracked() tells them: every read
+     * behind Traffic sources, a game's Analytics and the worth goes through it.
+     *
+     * @param  Builder<self>  $query
+     * @return Builder<self>
+     */
+    public function scopeTracked(Builder $query): Builder
+    {
+        $game = $query->qualifyColumn('game_id');
+        $source = $query->qualifyColumn('source_id');
+
+        return $query->where(fn (Builder $either) => $either->whereNotNull($game)->orWhereNotNull($source));
     }
 
     /**
@@ -234,5 +275,11 @@ class TrafficVisit extends Model
     public function conversions(): HasMany
     {
         return $this->hasMany(TrafficConversion::class, 'visit_id');
+    }
+
+    /** @return HasMany<TrafficVisitPost, $this> */
+    public function posts(): HasMany
+    {
+        return $this->hasMany(TrafficVisitPost::class, 'visit_id');
     }
 }

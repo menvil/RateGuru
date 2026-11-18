@@ -31,6 +31,7 @@ use App\Support\Auth\RememberSessionGenerationOnLogin;
 use App\Support\Auth\SocialProviderAvailability;
 use App\Support\Feed\FeedAddress;
 use App\Support\Games\Play\ClaimGameAttemptsOnSignIn;
+use App\Support\Games\Play\GameVisitorResolver;
 use App\Support\Geo\GeoDatabaseLocator;
 use App\Support\Geo\GeoLookup;
 use App\Support\Geo\MmdbGeoLookup;
@@ -61,9 +62,12 @@ use App\Support\VisualRegression\VisualScreenshotRunner;
 use Illuminate\Auth\Events\Login;
 use Illuminate\Auth\Events\Registered;
 use Illuminate\Auth\Events\Verified;
+use Illuminate\Cache\RateLimiting\Limit;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\View;
 use Illuminate\Support\ServiceProvider;
 use Livewire\Livewire;
@@ -134,6 +138,18 @@ class AppServiceProvider extends ServiceProvider
         // A moment of a play becomes its visit's mark, conversion and
         // postbacks, inside the game action's own transaction.
         Event::listen(GameMilestoneReached::class, RecordGameMilestoneOnVisit::class);
+
+        // What pages' scripts tell the traffic tracker (docs/architecture/
+        // traffic.md): 60 signals a minute for a browser, known by its
+        // visitor cookie; without one, 120 a minute from an address, which a
+        // carrier's or a café's many browsers may share.
+        RateLimiter::for('traffic-signal', function (Request $request): Limit {
+            $browser = (new GameVisitorResolver($request))->browserHash();
+
+            return $browser !== null
+                ? Limit::perMinute(60)->by('browser:'.$browser)
+                : Limit::perMinute(120)->by('address:'.$request->ip());
+        });
 
         // A component drawn on the feed, a post or a profile keeps that
         // page's guest check on every later request it makes.

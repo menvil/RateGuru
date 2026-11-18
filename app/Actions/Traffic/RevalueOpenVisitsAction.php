@@ -14,7 +14,8 @@ use Illuminate\Support\Facades\DB;
  * Brings the worth of the visits still open up to date after the chances
  * were worked out anew, or as they age: new visitors' visits without an
  * account that may still bring one, and accounts whose bonuses' windows are
- * open. In batches by key, each visit locked while it is worked out; a value
+ * open — of the visits the tracker counts; a visit to the rest of the site
+ * is worth nothing for good (TrafficVisit::scopeTracked()). In batches by key, each visit locked while it is worked out; a value
  * is written only when it moved, and a visit that closed goes to 0.
  */
 final class RevalueOpenVisitsAction
@@ -38,6 +39,7 @@ final class RevalueOpenVisitsAction
 
         do {
             $ids = TrafficVisit::query()
+                ->tracked()
                 ->where('id', '>', $after)
                 ->whereNotNull('opened_at')
                 ->where('known', false)
