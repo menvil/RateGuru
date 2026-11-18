@@ -1,0 +1,77 @@
+app/Queries/Games/GameUnpublishedChangesQuery.php
+  s_4b9dc6ab6b25d3::t_ab9497378c5e01 233
+  s_4b9dc6ab6b25d3::t_53dc5b1634f51d 210
+  s_4b9dc6ab6b25d3::t_6799d3616e64c3 44-48,54,57-61,67,80,84-88,99-146
+  s_4b9dc6ab6b25d3::t_be342a2040f3c1 32-34
+  s_4b9dc6ab6b25d3::t_80cfc8f3def7f0 14-17,24-31,39-42,70-74,81-83,89-98,147-173,177,190,198-209,211-214
+tests/Feature/Games/Admin/GameUnpublishedChangesTest.php
+  s_4b9dc6ab6b25d3::t_000d641658a8de 244-268,271-292
+  s_4b9dc6ab6b25d3::t_6943fe2702e97b 269-270
+  s_4b9dc6ab6b25d3::t_ec809112595702 22-25,49,65,69,80-81,83-86
+  s_4b9dc6ab6b25d3::t_21ca6a66ed3231 63-64
+  s_4b9dc6ab6b25d3::t_c1f22e8235e001 14-16,18,173-243,293-321
+tests/Feature/Games/Admin/GameFlowPageTest.php
+  s_4b9dc6ab6b25d3::t_c8c884da6028d9 158-160
+  s_4b9dc6ab6b25d3::t_797653692c9923 154-157,161-182
+docs/admin/games.md
+  s_4b9dc6ab6b25d3::t_b1c2cd8adbf1de 62-70
+resources/views/filament/pages/games/unpublished-changes-list.blade.php
+  s_4b9dc6ab6b25d3::t_859c78b8f43c67 1-23
+app/Filament/Resources/Games/Pages/EditGameFlow.php
+  s_4b9dc6ab6b25d3::t_c9df0f09c7700b 60-61
+app/Support/Games/Publishing/VersionChanges.php
+  s_4b9dc6ab6b25d3::t_62dd0e38e01e31 5,20,282,367
+  s_4b9dc6ab6b25d3::t_f5b9e5950618a9 84-95,97-99,136-140,143,172-173,177-181,254-257,443-451
+  s_4b9dc6ab6b25d3::t_50e8db5b1737e4 121,123,167,169,470-480
+  s_4b9dc6ab6b25d3::t_ca4bdf69aae405 1-4,6-19,21-83,96,100-120,122,124-135,141-142,144-166,168,170-171,174-176,182-253,258-281,283-366,368-442,452-469,481-499
+app/Filament/Resources/Games/Pages/GameVersions.php
+  s_4b9dc6ab6b25d3::t_e3dbdfb8ef3085 170
+  s_4b9dc6ab6b25d3::t_859c78b8f43c67 193
+  s_4b9dc6ab6b25d3::t_546ec5fa0b3ec3 194
+docs/design/admin/design-contract.md
+  s_4b9dc6ab6b25d3::t_6e64453972cce5 1290-1294
+  s_4b9dc6ab6b25d3::t_b1c2cd8adbf1de 208-210,1333-1334,1339
+resources/views/filament/pages/games/flow/settings.blade.php
+  s_4b9dc6ab6b25d3::t_7f4b5900b12889 6-7
+  s_4b9dc6ab6b25d3::t_52987e08f71ad3 202-204,206-208
+resources/views/filament/pages/game-flow.blade.php
+  s_4b9dc6ab6b25d3::t_c9df0f09c7700b 9
+tests/Unit/Support/Games/VersionChangesTest.php
+  s_4b9dc6ab6b25d3::t_4c1c7f4c79b7f6 421-465
+  s_4b9dc6ab6b25d3::t_3cebbdc7ada3f8 367
+  s_4b9dc6ab6b25d3::t_d691be36b4c3c0 1-366,368-420
+tests/Browser/AdminGamesBrowserTest.php
+  s_4b9dc6ab6b25d3::t_169055208bcdc1 176,178-179
+  s_4b9dc6ab6b25d3::t_6af072ae89a0b0 168-175,177,180-207
+resources/views/filament/pages/game-versions.blade.php
+  s_4b9dc6ab6b25d3::t_45ad5b8318b3eb 58
+  s_4b9dc6ab6b25d3::t_859c78b8f43c67 59-61
+resources/views/filament/pages/games/editor-header.blade.php
+  s_4b9dc6ab6b25d3::t_eaaf1230d8b20d 61-62,64-67,69-70,72
+  s_4b9dc6ab6b25d3::t_29b9ba56be6996 8-10
+  s_4b9dc6ab6b25d3::t_859c78b8f43c67 68
+resources/css/filament/admin/components.css
+  s_4b9dc6ab6b25d3::t_5436ba473a7cca 11129,11133-11187
+  s_4b9dc6ab6b25d3::t_932f49f58b353f 13613-13617,13622-13623
+app/Filament/Resources/Games/Concerns/InteractsWithGameEditor.php
+  s_4b9dc6ab6b25d3::t_cecc0916b9ed7d 118-122
+  s_4b9dc6ab6b25d3::t_3e7d7604bebe42 161-164
+app/Data/Games/UnpublishedChanges.php
+  s_4b9dc6ab6b25d3::t_7a21b22888b4ae 6-9,15-22,28-29,31-64
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "ee4416adb4320dfc537a541f70ab528d31097e36",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
