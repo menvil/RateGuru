@@ -1,0 +1,83 @@
+app/Actions/Traffic/ConfirmAccountAttributionAction.php
+  s_4b9dc6ab6b25d3::t_0426440c523021 22-24,69-74
+app/Enums/TrafficEvent.php
+  s_4b9dc6ab6b25d3::t_3b6b95b2e9dc70 9-10,36,96,125
+app/Enums/UserActivity.php
+  s_4b9dc6ab6b25d3::t_6f2e129222ef59 1-24
+database/migrations/2026_11_18_100000_create_user_activity_days_table.php
+  s_4b9dc6ab6b25d3::t_734529eb11798f 1-41
+app/Livewire/Posts/PostVoting.php
+  s_4b9dc6ab6b25d3::t_33e46e0b13b1a4 5,8,16,126-129
+tests/Unit/Support/Analytics/ActivityDayTest.php
+  s_4b9dc6ab6b25d3::t_7ff5bc8d79bd2f 1-44
+tests/Feature/Analytics/UserActivityTest.php
+  s_4b9dc6ab6b25d3::t_70bc4d737b8138 1-5,7-95,97-138,140-143,145,153,156,159-176,179-297
+  s_4b9dc6ab6b25d3::t_e8df8bb7f23ae7 6,96,139,144,146-152,154-155,157-158,177-178
+tests/Feature/Console/TrafficPurgeExpiredCommandTest.php
+  s_4b9dc6ab6b25d3::t_3a2c9e457691de 8,52-62,70-77
+database/migrations/2026_11_18_100100_add_activated_at_to_account_attributions_and_traffic_visits.php
+  s_4b9dc6ab6b25d3::t_ff31259255dac9 1-39
+tests/Unit/Support/Traffic/TrafficVocabularyTest.php
+  s_4b9dc6ab6b25d3::t_3a2c9e457691de 47,51-52
+tests/Feature/Actions/PurgeUnconfirmedAccountActionTest.php
+  s_4b9dc6ab6b25d3::t_3a2c9e457691de 24,206-217
+app/Livewire/Comments/CommentsSection.php
+  s_4b9dc6ab6b25d3::t_7ffd6902b50a8d 5,8,15,19,187-191
+app/Models/UserActivityDay.php
+  s_4b9dc6ab6b25d3::t_5f1db062962c69 1-57
+app/Support/Analytics/ActivityDay.php
+  s_4b9dc6ab6b25d3::t_1080b061a2ea66 1-39
+app/Console/Commands/TrafficPurgeExpiredCommand.php
+  s_4b9dc6ab6b25d3::t_0858dd6aa5a21c 11,21-23,54-61,77
+app/Actions/Games/StartGameAttemptAction.php
+  s_4b9dc6ab6b25d3::t_c27314fe06d2d6 5,11,17,23,42,48-49,78,121-128
+app/Actions/Analytics/RecordUserActivityAction.php
+  s_4b9dc6ab6b25d3::t_d801dd195e8c72 65
+  s_4b9dc6ab6b25d3::t_d5cc36e1927d67 1-64,66-105
+app/Actions/Users/PurgeUnconfirmedAccountAction.php
+  s_4b9dc6ab6b25d3::t_0858dd6aa5a21c 26,120-123,126
+docs/architecture/traffic.md
+  s_4b9dc6ab6b25d3::t_36ed87035803d7 47-56,212-216
+app/Support/Traffic/Worth/TrafficStep.php
+  s_4b9dc6ab6b25d3::t_f4bea0ded9c777 50,55
+app/Models/TrafficVisit.php
+  s_4b9dc6ab6b25d3::t_ad0797843470f0 77,144
+app/Models/AccountAttribution.php
+  s_4b9dc6ab6b25d3::t_ad0797843470f0 31,60
+app/Livewire/Voting/RatingVoting.php
+  s_4b9dc6ab6b25d3::t_33e46e0b13b1a4 5,8,20,130-136,148-151
+tests/Feature/Database/CommunityFkSafetyTest.php
+  s_4b9dc6ab6b25d3::t_3a2c9e457691de 21,238-244
+app/Livewire/Comments/CommentForm.php
+  s_4b9dc6ab6b25d3::t_7ffd6902b50a8d 5,7,10,12,59-63
+config/analytics.php
+  s_4b9dc6ab6b25d3::t_27934638702080 1-42
+docs/architecture/user-lifecycle.md
+  s_4b9dc6ab6b25d3::t_36ed87035803d7 131,270
+database/factories/UserActivityDayFactory.php
+  s_4b9dc6ab6b25d3::t_1eaa90589cae1b 1-30
+tests/Feature/Database/UserActivityTablesTest.php
+  s_4b9dc6ab6b25d3::t_256cc12bb7200b 1-63
+app/Livewire/Feed/UploadPostForm.php
+  s_4b9dc6ab6b25d3::t_4ed1e13b184899 5,11,17,23,154-158
+docs/architecture/community-fk-safety.md
+  s_4b9dc6ab6b25d3::t_36ed87035803d7 71
+tests/Feature/Database/ForeignKeyIndexesTest.php
+  s_4b9dc6ab6b25d3::t_3a2c9e457691de 27
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "b96bc534901185a11f6b150fbc45ab6b01d97f6a",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
