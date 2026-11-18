@@ -2,10 +2,11 @@
     A source's editor, as the reference draws it: one draft in four panes —
     Link & parameters (the preset it started from and what it filled in,
     the API connection, name, key, the link's parameters, the window and the
-    network's day), Spend, Postbacks and Blocking — what a saved source has
-    blocked, where those blocks stand and how blocking works — saved together
-    with its state; its API connected or disconnected at once, the key never
-    shown again. A pane holding a refusal is marked.
+    network's day), Spend, Postbacks and Blocking — the block rule's general
+    thresholds or the source's own, what a saved source has blocked, where
+    those blocks stand and how blocking works — saved together with its
+    state; its API connected or disconnected at once, the key never shown
+    again. A pane holding a refusal is marked.
 --}}
 @php
     $s = $draft['source'];
@@ -256,6 +257,46 @@
                 <x-admin.ui.switch label="Block bots and losing sites by itself" id="rg-admin-source-auto" :checked="(bool) ($s['block_auto'] ?? false)" on-hint="Every 5 minutes, through the network’s API, within the day’s cap." off-hint="Only you block, from Report → Sites & zones." wire:model="draft.source.block_auto" />
                 @error('block_auto')<p class="rg-admin-games__note rg-admin-games__note--danger">{{ $message }}</p>@enderror
 
+                @if ($editor['thresholds'] !== null)
+                    @php
+                        $general = $editor['thresholds']['general'];
+                        $names = \App\Support\Traffic\Blocking\BlockRule::names();
+                        $inputs = [
+                            'block_bot_clicks' => ['type' => 'number', 'min' => 1],
+                            'block_open_below' => ['type' => 'number', 'min' => 1, 'max' => 100],
+                            'block_open_below_average' => ['type' => 'number', 'min' => 1, 'max' => 100],
+                            'block_min_spend' => ['type' => 'text'],
+                            'block_min_clicks' => ['type' => 'number', 'min' => 1],
+                            'block_roi_below' => ['type' => 'number', 'max' => 0],
+                            'block_grace_days' => ['type' => 'number', 'min' => 0, 'max' => 30],
+                            'block_target_multiple' => ['type' => 'text'],
+                            'block_start_clicks' => ['type' => 'number', 'min' => 1],
+                            'block_start_percent' => ['type' => 'number', 'min' => 1, 'max' => 100],
+                        ];
+                        // Each line of the rule as Report → Worth blocking words it: a threshold where its value goes, with what stands either side of it.
+                        $lines = [
+                            ['Likely bots', [': at least ', ['block_bot_clicks', '', ''], ' clicks, and fewer opened the page than ', ['block_open_below', '', '%'], ' and than ', ['block_open_below_average', '', '%'], ' of the source’s own average.']],
+                            ['Losing', [': ROI below ', ['block_roi_below', '', '%'], ' once it has spent ', ['block_target_multiple', '', ''], ' × the target price of an account where its campaign or this source has one — else at least ', ['block_min_spend', '$', ''], ' spent or ', ['block_min_clicks', '', ''], ' clicks — from ', ['block_grace_days', '', ''], ' days after its first click.']],
+                            ['Weak start', [': at least ', ['block_start_clicks', '', ''], ' clicks and the game started below ', ['block_start_percent', '', '%'], ' as often as on the source’s other places.']],
+                        ];
+                    @endphp
+                    {{-- The general rule, or the source's own thresholds: an empty one keeps the general value it shows. Back to the general rule empties them all in the draft, so Save clears them; until then they are kept here, and come back on returning to the source's own. --}}
+                    <div class="rg-admin-field" data-testid="traffic-source-thresholds" x-data="{ thresholds: @js($editor['thresholds']['own'] ? 'own' : 'general'), keys: @js(\App\Support\Traffic\Blocking\BlockRule::KEYS), kept: {} }" x-init="$watch('thresholds', (value) => keys.forEach((key) => { if (value === 'general') { kept[key] = $wire.get('draft.source.' + key); $wire.$set('draft.source.' + key, null, false) } else if (key in kept) { $wire.$set('draft.source.' + key, kept[key], false) } }))">
+                        <span class="rg-admin-label">Thresholds</span>
+                        <x-admin.ui.segmented label="Thresholds" :options="['general' => 'General rule', 'own' => 'Own thresholds for this source']" :value="$editor['thresholds']['own'] ? 'own' : 'general'" x-model="thresholds" compact />
+                        <div class="rg-admin-traffic__rule" x-bind:class="{ 'rg-admin-traffic__rule--read': thresholds === 'general' }">
+                            @foreach ($lines as [$title, $parts])
+                                <p class="rg-admin-traffic__rule-line"><strong>{{ $title }}</strong>@foreach ($parts as $part)@if (is_array($part))<strong x-show="thresholds === 'general'">{{ $part[1] }}{{ str_replace('-', '−', $general[$part[0]]) }}{{ $part[2] }}</strong><span x-show="thresholds === 'own'" x-cloak>{{ $part[1] }}<input @class(['rg-admin-input', 'rg-admin-traffic__rule-input', 'rg-admin-input--invalid' => $field($part[0]) !== null]) type="{{ $inputs[$part[0]]['type'] }}" @if ($inputs[$part[0]]['type'] === 'text') inputmode="decimal" @endif @isset($inputs[$part[0]]['min']) min="{{ $inputs[$part[0]]['min'] }}" @endisset @isset($inputs[$part[0]]['max']) max="{{ $inputs[$part[0]]['max'] }}" @endisset placeholder="{{ $general[$part[0]] }}" aria-label="{{ ucfirst($names[$part[0]]) }}" @if ($field($part[0]) !== null) aria-invalid="true" @endif wire:model="draft.source.{{ $part[0] }}" />{{ $part[2] }}</span>@else{{ $part }}@endif @endforeach</p>
+                            @endforeach
+                            <span class="rg-admin-traffic__note" x-show="thresholds === 'general'">As Report → Worth blocking sets them for every source.</span>
+                            <span class="rg-admin-traffic__note" x-show="thresholds === 'own'" x-cloak>An empty field keeps the general rule’s value, shown in it. Saved with the source.</span>
+                            @foreach ($inputs as $key => $input)
+                                @error($key)<p class="rg-admin-games__note rg-admin-games__note--danger">{{ $message }}</p>@enderror
+                            @endforeach
+                        </div>
+                    </div>
+                @endif
+
                 @if ($editor['blocking'] !== null)
                     @php
                         $b = $editor['blocking'];
@@ -315,11 +356,20 @@
                         </span>
                     </div>
 
+                    @php
+                        // The thresholds that apply to this source as saved, each of its own marked so.
+                        $own = fn (string $key): string => in_array($key, $b['own'], true) ? ' (this source’s)' : '';
+                        $share = fn (float $value): string => (abs($value - round($value)) < 0.05 ? number_format($value, 0) : number_format($value, 1)).'%';
+                        $average = $b['average'];
+                        $minimums = 'at least '.$r['min_spend'].$own('block_min_spend').' spent or '.number_format($r['min_clicks']).' clicks'.$own('block_min_clicks');
+                        $multiple = $r['target_multiple'].$own('block_target_multiple').' × the target price of an account';
+                    @endphp
                     <div class="rg-admin-traffic__preset-card" data-testid="traffic-source-blocking-how">
                         <strong>How blocking works</strong>
                         <ol class="rg-admin-traffic__block-steps">
-                            <li>Every 5 minutes the rule reads each {{ $noun }}’s last 30 days. <strong>Likely bots</strong>: at least {{ number_format($r['bot_clicks']) }} clicks and fewer than {{ $percent($r['open_below']) }} opened the page. <strong>Losing</strong>: at least {{ $r['min_spend'] }} spent or {{ number_format($r['min_clicks']) }} clicks, and ROI below {{ $percent($r['roi_below']) }}, {{ $b['worth']['known'] ? 'judged now that the worth stands on '.number_format($b['worth']['accounts']).' accounts' : 'only once the worth is known: '.number_format($b['worth']['accounts']).' of the '.$b['worth']['needed'].' accounts it needs so far' }}.</li>
-                            <li>It blocks only those with a click in the last 3 days, the most spent first, up to {{ number_format($b['cap']) }} a day; one you unblock stays unblocked for 30 days. Change the thresholds in Report → Worth blocking.</li>
+                            <li>Every 5 minutes the rule reads each {{ $noun }}’s last 30 days. <strong>Likely bots</strong>: at least {{ number_format($r['bot_clicks']) }} clicks{{ $own('block_bot_clicks') }}, and fewer opened the page than {{ $percent($r['open_below']) }}{{ $own('block_open_below') }} and than {{ $r['open_below_average'] }}%{{ $own('block_open_below_average') }} of the source’s own average{{ match (true) { $average === null => '', $average['rate'] === null => ': no clicks from it in the last 30 days yet, so '.$percent($r['open_below']).' alone counts', default => ': its clicks opened the page '.$share($average['rate'] * 100).' of the time, so under '.$share($average['below']).' counts' } }}.</li>
+                            <li><strong>Losing</strong>: ROI below {{ $percent($r['roi_below']) }}{{ $own('block_roi_below') }} once a {{ $noun }} has cost enough — {{ match (true) { $b['target'] !== null => $multiple.': its campaign’s own where it has one, else this source’s '.$b['target']['amount'].', so '.$b['target']['spend'], $b['campaignTargets'] > 0 => $multiple.' where its campaign has one, else '.$minimums, default => $minimums.', as neither this source nor its campaigns have a target price of an account' } }} — from {{ $r['grace_days'] }} {{ \Illuminate\Support\Str::plural('day', $r['grace_days']) }}{{ $own('block_grace_days') }} after its first click, so its accounts can arrive; {{ $b['worth']['known'] ? 'judged now that the worth stands on '.number_format($b['worth']['accounts']).' accounts' : 'and only once the worth is known: '.number_format($b['worth']['accounts']).' of the '.$b['worth']['needed'].' accounts it needs so far' }}.</li>
+                            <li>It blocks only those with a click in the last 3 days, the most spent first, up to {{ number_format($b['cap']) }} a day; one you unblock stays unblocked for 30 days. {{ $b['own'] === [] ? 'These are the general thresholds, from Report → Worth blocking: give this source its own under Thresholds above.' : 'Those marked (this source’s) are its own, set under Thresholds above; the rest are the general ones from Report → Worth blocking.' }}</li>
                             <li>You block by hand in Report → Sites & zones: tick them, then Block, or Copy IDs.</li>
                             <li>With the API connected, a block reaches the network within a minute; otherwise copy the IDs into the network’s blacklist.</li>
                         </ol>

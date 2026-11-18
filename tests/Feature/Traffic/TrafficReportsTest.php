@@ -90,6 +90,27 @@ it('lists the networks’ sites with enough clicks, and the campaign they came t
         ->and($zones)->toHaveCount(3);
 });
 
+it('gives each network site and zone its first click, keyed as its block, a site’s the first of all its zones’', function () {
+    reportVisit($this->source, ['site_ref' => 's1', 'zone_ref' => 'z1', 'arrived_at' => '2026-11-14 08:00:00', 'network_day' => '2026-11-14']);
+    reportVisit($this->source, ['site_ref' => 's1', 'zone_ref' => 'z1', 'arrived_at' => '2026-11-16 08:00:00', 'network_day' => '2026-11-16']);
+    reportVisit($this->source, ['site_ref' => 's1', 'zone_ref' => 'z2', 'arrived_at' => '2026-11-12 09:30:00', 'network_day' => '2026-11-12']);
+    reportVisit($this->source, ['site_ref' => 's2', 'zone_ref' => null]);
+    // Before the period, and traffic that isn't a network's: neither counts.
+    reportVisit($this->source, ['site_ref' => 's2', 'arrived_at' => '2026-11-01 10:00:00', 'network_day' => '2026-11-01']);
+    TrafficVisit::factory()->unpaid(TrafficChannel::Search)->create(['site_ref' => 's3', 'arrived_at' => '2026-11-15 10:00:00', 'network_day' => '2026-11-15']);
+
+    $first = array_map(fn (CarbonImmutable $at): string => $at->toDateTimeString(), app(TrafficReportQuery::class)->firstClicks($this->filter));
+    ksort($first);
+    $id = $this->source->id;
+
+    expect($first)->toBe([
+        "{$id}:site:s1" => '2026-11-12 09:30:00',
+        "{$id}:site:s2" => '2026-11-15 10:00:00',
+        "{$id}:zone:z1" => '2026-11-14 08:00:00',
+        "{$id}:zone:z2" => '2026-11-12 09:30:00',
+    ]);
+});
+
 it('adds up campaigns, and each stage of one while it lasted', function () {
     $campaign = TrafficCampaign::factory()->create(['source_id' => $this->source->id]);
     TrafficCampaignStagePeriod::query()->create(['campaign_id' => $campaign->id, 'stage' => TrafficCampaignStage::Test, 'started_at' => '2026-11-14 00:00:00', 'ended_at' => '2026-11-15 12:00:00']);

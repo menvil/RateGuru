@@ -11,7 +11,7 @@
         'all' => ['All', 'var(--rg-admin-text-tertiary)', ''],
         'block' => ['Worth blocking', 'var(--rg-admin-status-danger-fg)', 'Likely bots, losing, or a weak start: see the rule under Worth blocking'],
         'profit' => ['Profitable', 'var(--rg-admin-status-success-fg)', 'Enough data and value above spend'],
-        'watch' => ['Below the line', 'var(--rg-admin-status-warning-dot)', 'Enough data, losing a little, not yet bad enough to block'],
+        'watch' => ['Below the line', 'var(--rg-admin-status-warning-dot)', 'Enough data, losing a little, not yet bad enough to block — or losing, but still within the days the rule waits after a first click'],
         'early' => ['Too early', 'var(--rg-admin-border-strong)', 'Not enough spend or clicks to judge the money; bots and a weak start still show'],
         'blocked' => ['Blocked', 'var(--rg-admin-text-secondary)', 'Blocked already; tick them to unblock'],
     ];
@@ -21,7 +21,6 @@
     ];
     $pageTicked = $list['selectable'] !== [] && array_diff($list['selectable'], $selected) === [];
     $noun = $list['noun'];
-    $rule = $settings;
 @endphp
 
 <div class="rg-admin-traffic__list-tools">
@@ -98,13 +97,12 @@
             </div>
             @foreach ($list['rows'] as $row)
                 @php($tickable = $segment === 'blocked' ? $row['blocked'] : ! $row['blocked'])
-                @php($early = $row['state'] === 'early' && ! $row['blocked'] && $row['figures']->visits < $rule['block_min_clicks'])
                 <div @class(['rg-admin-traffic__perf-row', 'rg-admin-traffic__perf-row--blocked' => $row['blocked'], 'rg-admin-traffic__perf-row--ticked' => in_array($row['key'], $selected, true)]) role="row" wire:key="site-{{ md5($row['key']) }}" data-testid="traffic-site-row">
                     <span class="rg-admin-traffic__perf-name" role="gridcell">
                         <input type="checkbox" class="rg-admin-traffic__tick" aria-label="Tick {{ $row['level'] }} {{ $row['ref'] }}" @checked(in_array($row['key'], $selected, true)) @disabled(! $tickable) wire:click="toggleSelected(@js($row['key']))" />
                         <span class="rg-admin-traffic__perf-label">
                             <span class="rg-admin-traffic__perf-title rg-admin-traffic__mono">{{ $row['level'] }} {{ $row['ref'] }}</span>
-                            <span class="rg-admin-traffic__note">{{ implode(' · ', array_filter([$row['site'] !== null ? 'site '.$row['site'] : null, $row['source'], $row['campaign'], $early ? 'too early: '.number_format($row['figures']->visits).' of '.number_format($rule['block_min_clicks']).' clicks' : null])) }}</span>
+                            <span class="rg-admin-traffic__note">{{ implode(' · ', array_filter([$row['site'] !== null ? 'site '.$row['site'] : null, $row['source'], $row['campaign'], $row['early']])) }}</span>
                         </span>
                         @if ($row['flag'] !== null)
                             <x-admin.ui.badge :tone="$row['flag']['tone']" :title="$row['flag']['tip']">{{ $row['flag']['label'] }}</x-admin.ui.badge>

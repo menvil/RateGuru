@@ -8,12 +8,14 @@ use App\Enums\TrafficBlockMethod;
 use App\Enums\TrafficBlockVerdict;
 use App\Enums\TrafficSourceStatus;
 use App\Models\TrafficBlock;
+use App\Models\TrafficCampaign;
 use App\Models\TrafficSetting;
 use App\Models\TrafficSource;
 use App\Queries\Traffic\TrafficBlocksQuery;
 use App\Queries\Traffic\TrafficReportQuery;
 use App\Services\Traffic\Connectors\ConnectorRegistry;
 use App\Support\Traffic\Blocking\BlockJudge;
+use App\Support\Traffic\Blocking\BlockRule;
 use App\Support\Traffic\Reports\ReportFigures;
 use App\Support\Traffic\Reports\TrafficReportFilter;
 use Carbon\CarbonImmutable;
@@ -22,13 +24,16 @@ use Illuminate\Console\Command;
 /**
  * Blocks by itself the sites or zones the block rule calls bots or losing,
  * for the sources set to (docs/architecture/traffic.md, "Blocking"): active,
- * connected to a verified API that blocks their level. Only ones with a
- * click in the last 3 days, the most spent first, no more a UTC day than the
- * source allows; never one blocked or queued already, nor one an
- * administrator unblocked in the last 30 days; a weak start stays a hint.
- * The blocks are queued for traffic:sync-networks to apply. Scheduled every
- * five minutes: with no source set to block by itself a run reads no figures
- * and only records that it ran, for the sources' Blocking pane.
+ * connected to a verified API that blocks their level. Each source's sites
+ * are judged by its own thresholds where it set them, against its own
+ * average over the same 30 days, and by the target price of an account of
+ * their campaign or the source. Only ones with a click in the last 3 days,
+ * the most spent first, no more a UTC day than the source allows; never one
+ * blocked or queued already, nor one an administrator unblocked in the last
+ * 30 days; a weak start stays a hint. The blocks are queued for
+ * traffic:sync-networks to apply. Scheduled every five minutes: with no
+ * source set to block by itself a run reads no figures and only records that
+ * it ran, for the sources' Blocking pane.
  */
 final class TrafficBlockLosersCommand extends Command
 {
@@ -44,13 +49,15 @@ final class TrafficBlockLosersCommand extends Command
         $queued = 0;
 
         if ($sources->isNotEmpty()) {
-            $settings = TrafficSetting::current();
-            $rule = $settings->only(['block_min_spend', 'block_min_clicks', 'block_roi_below', 'block_open_below', 'block_bot_clicks', 'block_start_clicks', 'block_start_percent']);
+            $general = TrafficSetting::current()->only(BlockRule::KEYS);
             $worthKnown = $blocks->worthAccounts() >= TrafficBlocksQuery::WORTH_KNOWN_AT;
             $month = TrafficReportFilter::lastDays(30, $now);
+            $monthFrom = CarbonImmutable::parse($month->fromDay, 'UTC');
             $recent = TrafficReportFilter::lastDays(3, $now);
 
             foreach ($sources as $source) {
+                $rule = BlockRule::effective($general, $source->only(BlockRule::KEYS));
+                $targets = TrafficCampaign::query()->where('source_id', $source->id)->whereNotNull('target_cpa')->pluck('target_cpa', 'id');
                 $byZone = $source->block_level === TrafficBlockLevel::Zone;
                 $filter = new TrafficReportFilter($month->fromDay, $month->toDay, ['source_id' => $source->id]);
                 $rows = $reports->zones($filter, $byZone);
@@ -71,7 +78,8 @@ final class TrafficBlockLosersCommand extends Command
                         continue;
                     }
 
-                    $verdict = BlockJudge::judge($row['figures'], $totals->startRate(), $worthKnown && $sourceValue->isPositive(), $rule)['verdict'];
+                    $target = BlockRule::target($row['campaign_id'] !== null ? $targets->get($row['campaign_id']) : null, $source->target_cpa);
+                    $verdict = BlockJudge::judge($row['figures'], $rule, $totals->startRate(), $totals->openRate(), $worthKnown && $sourceValue->isPositive(), $target['amount'] ?? null, $row['first_at'], $now, $monthFrom)['verdict'];
 
                     if (in_array($verdict, [TrafficBlockVerdict::Bots, TrafficBlockVerdict::Losing], true)) {
                         $candidates[] = ['ref' => $ref, 'verdict' => $verdict, 'spend' => (float) $row['figures']->spend];

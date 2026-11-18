@@ -28,6 +28,7 @@ use App\Models\TrafficSource;
 use App\Models\TrafficStepChance;
 use App\Models\TrafficVisit;
 use App\Models\User;
+use App\Support\Traffic\Blocking\BlockRule;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
 use Livewire\Livewire;
@@ -545,17 +546,111 @@ it('explains on Blocking how blocking works, with the rule’s thresholds as set
     $open()->assertSeeHtmlInOrder([
         'data-testid="traffic-source-blocking-how"', 'How blocking works',
         'Every 5 minutes the rule reads each zone’s last 30 days.',
-        'at least 45 clicks and fewer than 40% opened the page.',
-        'at least $3.50 spent or 150 clicks, and ROI below −25%, only once the worth is known: 0 of the 30 accounts it needs so far.',
+        'at least 45 clicks, and fewer opened the page than 40% and than 50% of the source’s own average.',
+        'ROI below −25% once a zone has cost enough — at least $3.50 spent or 150 clicks, as neither this source nor its campaigns have a target price of an account — from 3 days after its first click, so its accounts can arrive; and only once the worth is known: 0 of the 30 accounts it needs so far.',
         'only those with a click in the last 3 days, the most spent first, up to 7 a day; one you unblock stays unblocked for 30 days.',
+        'These are the general thresholds, from Report → Worth blocking: give this source its own under Thresholds above.',
         'You block by hand in Report → Sites &amp; zones',
         'With the API connected, a block reaches the network within a minute; otherwise copy the IDs into the network’s blacklist.',
     ]);
 
+    // In a browser it reads the source's last 30 days: no clicks yet, so the rule's own share counts.
+    $open()->call('load')->assertSee('of the source’s own average: no clicks from it in the last 30 days yet, so 40% alone counts.');
+
     $run = TrafficChanceRun::query()->forceCreate(['status' => 'finished', 'reason' => 'nightly', 'price_set_id' => TrafficPriceSet::current()->id, 'matured_before' => now(), 'started_at' => now(), 'finished_at' => now()]);
     TrafficStepChance::query()->forceCreate(['run_id' => $run->id, 'slice_key' => '*', 'step' => 'opened', 'visitors' => 900, 'accounts' => 42, 'slice_accounts' => 42, 'chance' => '0.04666667', 'thin' => false, 'stands_on' => '*']);
 
-    $open()->assertSee('ROI below −25%, judged now that the worth stands on 42 accounts.');
+    $open()->assertSee('after its first click, so its accounts can arrive; judged now that the worth stands on 42 accounts.');
+});
+
+it('explains on Blocking the thresholds that apply to a source — its own marked — against its own average and its target price of an account', function () {
+    $source = TrafficSource::factory()->create(['block_level' => TrafficBlockLevel::Site, 'target_cpa' => '0.60', 'block_bot_clicks' => 45, 'block_roi_below' => -25, 'block_grace_days' => 5, 'block_target_multiple' => '3']);
+    // Pop traffic: 40 of its 100 clicks in the last 30 days opened the page.
+    TrafficVisit::factory()->count(100)->sequence(fn ($sequence): array => ['opened_at' => $sequence->index < 40 ? now() : null])
+        ->create(['source_id' => $source->id, 'site_ref' => '40123', 'arrived_at' => now()->subDays(2), 'network_day' => now()->subDays(2)->toDateString()]);
+
+    Livewire::withQueryParams(['tab' => 'sources', 'edit' => (string) $source->id])->test(TrafficSourcesPage::class)->call('load')
+        ->assertViewHas('editor', fn (array $editor): bool => $editor['blocking']['own'] === ['block_bot_clicks', 'block_roi_below', 'block_grace_days', 'block_target_multiple']
+            && $editor['blocking']['average']['below'] === 20.0)
+        ->assertSeeHtmlInOrder([
+            'data-testid="traffic-source-blocking-how"',
+            'at least 45 clicks (this source’s), and fewer opened the page than 50% and than 50% of the source’s own average: its clicks opened the page 40% of the time, so under 20% counts.',
+            'ROI below −25% (this source’s) once a site has cost enough — 3 (this source’s) × the target price of an account: its campaign’s own where it has one, else this source’s $0.60, so $1.80 — from 5 days (this source’s) after its first click',
+            'Those marked (this source’s) are its own, set under Thresholds above; the rest are the general ones from Report → Worth blocking.',
+        ]);
+});
+
+it('keeps a network on the general block rule, or saves its own thresholds with it, refused as the general ones are', function () {
+    TrafficSetting::current()->forceFill(['block_bot_clicks' => 35])->save();
+    $source = TrafficSource::factory()->create(['name' => 'PopAds main', 'block_level' => TrafficBlockLevel::Site]);
+    $page = Livewire::withQueryParams(['tab' => 'sources', 'edit' => (string) $source->id])->test(TrafficSourcesPage::class)
+        ->assertViewHas('editor', fn (array $editor): bool => $editor['thresholds']['own'] === false && $editor['thresholds']['general']['block_bot_clicks'] === '35' && $editor['thresholds']['general']['block_target_multiple'] === '2'
+            && $editor['thresholds']['general']['block_min_spend'] === '2.00')
+        ->assertSeeHtmlInOrder([
+            'data-testid="traffic-source-thresholds"', 'General rule', 'Own thresholds for this source',
+            '<strong>Likely bots</strong>', 'placeholder="35"', 'aria-label="Clicks before bots show"', 'wire:model="draft.source.block_bot_clicks"',
+            '<strong>Losing</strong>', 'placeholder="2"', 'wire:model="draft.source.block_target_multiple"', '<strong x-show="thresholds === \'general\'">$2.00</strong>', 'placeholder="2.00"', 'wire:model="draft.source.block_min_spend"',
+            'placeholder="3"', 'wire:model="draft.source.block_grace_days"',
+            '<strong>Weak start</strong>', 'wire:model="draft.source.block_start_percent"',
+        ]);
+
+    // Refused by its fields, as Worth blocking refuses the general ones; nothing saved.
+    $page->set('draft.source.block_open_below', 0)->set('draft.source.block_roi_below', 10)->set('draft.source.block_target_multiple', '0.2')->set('draft.source.block_min_spend', 'lots')
+        ->call('saveSource')
+        ->assertHasErrors(['block_open_below', 'block_roi_below', 'block_target_multiple', 'block_min_spend'])
+        ->assertSee('The opened below, percent field must be at least 1.');
+    // Each refused field marked so, the rest as they were.
+    expect($page->html())->toMatch('/<input class="[^"]*rg-admin-input--invalid"[^>]*aria-label="Opened below, percent"[^>]*aria-invalid="true"/')
+        ->not->toMatch('/<input class="[^"]*rg-admin-input--invalid"[^>]*aria-label="Clicks before bots show"/')
+        ->and($source->fresh()->block_open_below)->toBeNull();
+
+    // A multiple keeps one decimal place, and says so.
+    $page->set('draft.source.block_target_multiple', '1.25')->call('saveSource')
+        ->assertHasErrors(['block_target_multiple'])
+        ->assertSee('Use a number from 0.5 to 20 with at most one decimal place, such as 1.5.');
+
+    $page->set('draft.source.block_open_below', '')->set('draft.source.block_roi_below', -25)->set('draft.source.block_target_multiple', '1.5')->set('draft.source.block_min_spend', '3.5')->set('draft.source.block_bot_clicks', '45')
+        ->call('saveSource')
+        ->assertHasNoErrors()
+        ->assertViewHas('editor', fn (array $editor): bool => $editor['thresholds']['own'] === true);
+
+    expect($source->fresh()->only(BlockRule::KEYS))->toBe([
+        'block_bot_clicks' => 45, 'block_open_below' => null, 'block_open_below_average' => null, 'block_min_spend' => '3.50', 'block_min_clicks' => null,
+        'block_roi_below' => -25, 'block_grace_days' => null, 'block_target_multiple' => '1.5', 'block_start_clicks' => null, 'block_start_percent' => null,
+    ]);
+
+    // Saved by someone else meanwhile: the editor's draft is refused whole.
+    $source->fresh()->forceFill(['lock_version' => $source->fresh()->lock_version + 1])->save();
+    $page->set('draft.source.block_bot_clicks', '50')->call('saveSource')
+        ->assertDispatched('rg-admin-toast', message: 'Someone saved this source after you opened it. Reload to see their changes.', tone: 'error');
+    expect($source->fresh()->block_bot_clicks)->toBe(45);
+
+    // Back on the general rule — the switch empties every one of its own in the draft — saved with the source.
+    $page->call('openEditor', (string) $source->id);
+
+    foreach (BlockRule::KEYS as $key) {
+        $page->set('draft.source.'.$key, null);
+    }
+
+    $page->call('saveSource')->assertHasNoErrors();
+    expect(array_filter($source->fresh()->only(BlockRule::KEYS), fn (mixed $value): bool => $value !== null))->toBe([]);
+});
+
+it('keeps no thresholds of its own for a banner, and gives a new network the general rule to start from', function () {
+    $banner = TrafficSource::factory()->placement()->create();
+
+    Livewire::withQueryParams(['tab' => 'sources', 'edit' => (string) $banner->id])->test(TrafficSourcesPage::class)
+        ->assertViewHas('editor', fn (array $editor): bool => $editor['thresholds'] === null)
+        ->assertDontSee('traffic-source-thresholds');
+
+    Livewire::test(TrafficSourcesPage::class)->call('openEditor', 'new:popads')
+        ->assertViewHas('editor', fn (array $editor): bool => $editor['thresholds']['own'] === false)
+        ->set('draft.source.name', 'PopAds main')
+        ->set('draft.source.block_bot_clicks', '60')
+        ->call('saveSource')
+        ->assertHasNoErrors();
+
+    expect(TrafficSource::query()->where('name', 'PopAds main')->sole()->block_bot_clicks)->toBe(60);
 });
 
 it('says on Blocking why the rule can’t block for a source by itself', function (array $source, ?TrafficConnectionStatus $connection, bool $verified, string $why) {

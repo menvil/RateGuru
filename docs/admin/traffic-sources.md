@@ -73,6 +73,32 @@ chosen; the pane lists what is missing. A site you unblock stays unblocked: the
 rule leaves it alone for 30 days. The cap counts every block the rule queued
 that UTC day, so unblocking one frees no room for another until the next day.
 
+The rule is gentle with traffic it can't judge yet:
+
+- **Likely bots** means fewer clicks opened the page than the rule's share
+  (50 %) *and* than half the source's own average. Pop traffic opens the page
+  far less often than banners: with a pop source averaging 40 %, a site is
+  bots under 20 %; with banners averaging 85 %, under 42.5 %. Set the share
+  of the average higher (Worth blocking → "of the source's own average") to
+  let the rule's own 50 % be the line for banners.
+- **Losing** waits 3 days after a site's first click in the last 30 days,
+  so its accounts can arrive; until then such a site shows "Judged from …"
+  under Below the line. The report counts those days the same way whatever
+  period it shows, so a site losing for weeks isn't "new" on Yesterday.
+  Where the click's campaign — else the source — has a target price of an
+  account, a site is judged once it has spent twice that target (a $0.60
+  target: from $1.20); without one, from $2 spent or 200 clicks. The badge on
+  a site says which applied.
+- Weak starts and bots wait for neither.
+
+Each network can keep the general rule or set **Own thresholds for this
+source** in its editor → Blocking: any field left empty keeps the general
+value shown in it, and **General rule** empties them all when you save.
+Switch back to **Own thresholds for this source** before saving and they come
+back as they were. They are saved with the source. Worth blocking names the sources with thresholds of their own,
+and How blocking works on the pane shows the values that apply, marking the
+source's own, with its average over the last 30 days.
+
 The Blocking pane shows what the source has blocked now — sites and zones, by
 hand and by the rule — and the rule's blocks today against the cap, and when
 the rule last ran. With an API connected it shows where the blocks it sent

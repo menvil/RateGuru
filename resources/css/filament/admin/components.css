@@ -16004,6 +16004,11 @@
         color: var(--rg-admin-text-strong);
     }
 
+    /* The rule read rather than edited: no inputs in its lines, so the body's leading instead of the inputs' 32px. */
+    .rg-admin-traffic__rule--read .rg-admin-traffic__rule-line {
+        line-height: var(--rg-admin-leading-body);
+    }
+
     .rg-admin-traffic__rule-input {
         display: inline-block;
         width: 72px;

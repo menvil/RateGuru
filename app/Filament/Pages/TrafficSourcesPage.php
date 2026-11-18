@@ -35,6 +35,7 @@ use App\Models\TrafficSource;
 use App\Models\User;
 use App\Services\Traffic\TrafficPresetCatalog;
 use App\Support\Geo\Countries;
+use App\Support\Traffic\Blocking\BlockRule;
 use App\Support\Traffic\Presets\SourceDefaults;
 use App\Support\Traffic\Reports\SiteZoneList;
 use App\Support\Traffic\Reports\TrafficReportFilter;
@@ -1164,13 +1165,8 @@ final class TrafficSourcesPage extends Page
             'site_capture_enabled' => (bool) $settings->capture_enabled && (bool) $settings->site_capture_enabled,
             'postbacks_enabled' => (bool) $settings->postbacks_enabled,
             'geo_edition' => ($settings->geo_edition ?? GeoEdition::GeoLite2City)->value,
-            'block_min_spend' => (string) $settings->block_min_spend,
-            'block_min_clicks' => (int) $settings->block_min_clicks,
-            'block_roi_below' => (int) $settings->block_roi_below,
-            'block_open_below' => (int) $settings->block_open_below,
-            'block_bot_clicks' => (int) $settings->block_bot_clicks,
-            'block_start_clicks' => (int) $settings->block_start_clicks,
-            'block_start_percent' => (int) $settings->block_start_percent,
+            // The block rule's general thresholds, an amount as its column keeps it ("2.00", "2.0").
+            ...BlockRule::effective($settings->only(BlockRule::KEYS)),
         ];
     }
 

@@ -289,7 +289,49 @@ Sites and zones are blocked by hand — marked, their IDs copied for the network
 list — or queued for the API and applied per campaign. A click the network
 still sends an hour after a block is counted. `BlockJudge` calls a site bots,
 losing (judged only once 30 accounts are measured) or off to a weak start by
-its last 30 days; `traffic:block-losers` queues bots and losing ones by itself
+its last 30 days, a pure function of the site's figures, its source's
+figures over the same window and the thresholds that apply:
+
+- **Bots**: at least `block_bot_clicks` clicks, and fewer opened the page than
+  `block_open_below` % *and* than `block_open_below_average` % of the source's
+  own average over the same rows the judge reads — the lower share is the
+  line. Pop traffic opens the page far less often than a banner, so the same
+  absolute share would call a whole pop source bots: averaging 40 %, its sites
+  are bots under 20 %. A source with no clicks to average is held to the
+  absolute share alone; one none of whose clicks opened the page holds its
+  sites below nothing, so none is bots by this rule.
+- **Losing**: ROI below `block_roi_below` % once the site has cost enough:
+  `block_target_multiple` × the target price of an account of the campaign
+  its clicks came through (a site in several campaigns takes its source's),
+  else of its source (`target_cpa`), else `block_min_spend` spent or
+  `block_min_clicks` clicks. Only once the worth stands on 30 accounts, and
+  not before `block_grace_days` days after the site's first click in the
+  rule's 30 days (`MIN(arrived_at)`; the rule reads it in the same pass as
+  its figures): accounts confirm within 7 days, and the worth already counts
+  what the steps reached are expected to bring. A site first clicked on the
+  window's first day waits for no days — the window can't see further back,
+  so it was most likely there before it opened, and counting from there
+  would keep a long-losing site waiting for ever once the days come near
+  30. A site that would be losing inside those days is `waiting` — Below
+  the line in Sites & zones, a "Judged from …" badge, never blocked. The
+  report judges its period's figures but takes each site's and zone's first
+  click from the rule's own 30 days (`TrafficReportQuery::firstClicks()`,
+  one grouped read a render), so a short period never shows a long-running
+  site as new.
+- **Weak start**: below `block_min_spend` and `block_min_clicks`, at least
+  `block_start_clicks` clicks and the game started below
+  `block_start_percent` % as often as on the source. Bots and a weak start
+  wait for neither the days nor the target; once a target is reached and the
+  worth is known, the money's verdict takes the place of a weak start.
+
+`BlockRule` holds the thresholds: the general ones on `traffic_settings`, and
+a network source's own — the same column names on `traffic_sources`, null
+keeping the general one — merged per source (`BlockRule::effective()`), with
+one set of validation rules for both editors. The rule, Sites & zones, the
+report's tree, Worth blocking and Campaigns' counts judge each site by its own
+source's thresholds and target, row by row in a view of every source; each
+badge's tip names the values that applied, the source's average among them.
+`traffic:block-losers` queues bots and losing ones by itself
 every five minutes for an active source set to, with a verified API that
 blocks its level: only those with a click in the last 3 days, the most spent
 first, within the source's daily cap (a UTC day), never one blocked or queued

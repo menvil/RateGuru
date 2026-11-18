@@ -20,8 +20,9 @@ use function Pest\Laravel\actingAs;
  * to the pointer lit while only the start is chosen, the report reading the
  * range the moment its end is picked; a fixed price's days in one calendar,
  * given an end by keys, left with none by No end and by closing after a
- * start, each saved as chosen; a campaign's price from the day clicked; and
- * a source's blocked sites opened from its editor at the list itself.
+ * start, each saved as chosen; a campaign's price from the day clicked; a
+ * source's blocked sites opened from its editor at the list itself; and a
+ * source switched between the general block rule and its own thresholds.
  */
 beforeEach(function () {
     ProjectSettings::factory()->create();
@@ -268,4 +269,51 @@ it('opens a source’s blocked sites from its Blocking pane at the list itself, 
     expect($list->script("document.querySelector('#traffic-performance').textContent"))->toContain('site 40123')->toContain('Blocked');
 
     $list->assertNoJavaScriptErrors();
+});
+
+it('switches a source between the general block rule and its own thresholds on its Blocking pane, saving each with the source', function () {
+    $source = TrafficSource::factory()->create(['name' => 'PopAds main', 'block_level' => TrafficBlockLevel::Site]);
+    $page = visitAdminEditor('/admin/traffic-sources?tab=sources&edit='.$source->id);
+    $pane = '[data-testid="traffic-source-thresholds"]';
+    $bots = $pane.' input[aria-label="Clicks before bots show"]';
+    $wire = "window.Livewire.all().find((component) => component.name.endsWith('TrafficSourcesPage')).\$wire";
+    // Saves the draft and waits for the editor to read the source back.
+    $save = function () use ($page, $wire): void {
+        $version = $page->script("{$wire}.get('draftLockVersion')");
+        $page->click('#rg-admin-traffic-source button:has-text("Save"):visible');
+        waitForScript($page, "{$wire}.get('draftLockVersion')", $version + 1, 10.0);
+    };
+
+    waitForScript($page, "document.querySelector('#rg-admin-traffic-source [role=\"tab\"][aria-selected=\"true\"]') !== null");
+    $page->click('#rg-admin-traffic-source [role="tab"]:has-text("Blocking")');
+    waitForScript($page, "document.querySelector('{$pane}').offsetParent !== null");
+
+    // The general rule: its values read out at the body's leading, no field to type in.
+    expect($page->script("[...document.querySelectorAll('{$pane} input')].filter((input) => input.offsetParent !== null).length"))->toBe(0)
+        ->and($page->script("document.querySelector('{$pane} .rg-admin-traffic__rule-line').innerText"))->toBe('Likely bots: at least 30 clicks, and fewer opened the page than 50% and than 50% of the source’s own average.');
+
+    // Its own thresholds: each field empty, the general value shown in it.
+    $page->click($pane.' [role="radio"]:has-text("Own thresholds for this source")');
+    waitForScript($page, "document.querySelector('{$bots}').offsetParent !== null");
+    expect($page->script("document.querySelector('{$bots}').placeholder"))->toBe('30');
+    $page->type($bots, '45');
+    $save();
+
+    expect($source->fresh()->block_bot_clicks)->toBe(45);
+    waitForScript($page, "document.querySelector('{$bots}').value", '45');
+
+    // Back on the general rule its own are emptied in the draft, and come back on returning before saving.
+    $page->click($pane.' [role="radio"]:has-text("General rule")');
+    waitForScript($page, "{$wire}.get('draft.source.block_bot_clicks')", null);
+    expect($page->script("getComputedStyle(document.querySelector('{$pane} .rg-admin-traffic__rule-line')).lineHeight"))->toBe('22px');
+    $page->click($pane.' [role="radio"]:has-text("Own thresholds for this source")');
+    waitForScript($page, "document.querySelector('{$bots}').value", '45');
+
+    // Back on the general rule and saved, they are emptied.
+    $page->click($pane.' [role="radio"]:has-text("General rule")');
+    waitForScript($page, "{$wire}.get('draft.source.block_bot_clicks')", null);
+    $save();
+
+    expect($source->fresh()->block_bot_clicks)->toBeNull();
+    $page->assertNoJavaScriptErrors();
 });

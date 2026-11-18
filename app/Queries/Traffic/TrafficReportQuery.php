@@ -109,9 +109,10 @@ final class TrafficReportQuery implements RawSqlPersistenceBoundary
 
     /**
      * One level of the tree under the path the filter carries, biggest first
-     * — by accounts, then visits — at most 2 000 groups.
+     * — by accounts, then visits — at most 2 000 groups, each with its first
+     * click in the period.
      *
-     * @return list<array{keys: array<string, int|string|null>, figures: ReportFigures}>
+     * @return list<array{keys: array<string, int|string|null>, first_at: CarbonImmutable, figures: ReportFigures}>
      */
     public function level(TrafficReportFilter $filter, TrafficDimension $dimension): array
     {
@@ -121,22 +122,27 @@ final class TrafficReportQuery implements RawSqlPersistenceBoundary
         return $this->visits($filter)
             ->groupBy(...$columns)
             ->select(...$columns)
-            ->selectRaw($metrics, $bindings)
+            ->selectRaw('MIN(arrived_at) AS first_at, '.$metrics, $bindings)
             ->orderByRaw('SUM(CASE WHEN account_at IS NOT NULL THEN 1 ELSE 0 END) DESC, COUNT(*) DESC', [])
             ->orderBy($columns[0])
             ->limit(self::MOST_GROUPS)
             ->toBase()
             ->get()
-            ->map(fn (object $row): array => ['keys' => array_intersect_key((array) $row, array_flip($columns)), 'figures' => ReportFigures::fromRow($row)])
+            ->map(fn (object $row): array => [
+                'keys' => array_intersect_key((array) $row, array_flip($columns)),
+                'first_at' => CarbonImmutable::parse((string) $row->first_at),
+                'figures' => ReportFigures::fromRow($row),
+            ])
             ->all();
     }
 
     /**
      * The networks' sites — or zones — with at least so many clicks: their
-     * figures, and the campaign they came through when it was one.
+     * figures, their first click in the period, and the campaign they came
+     * through when it was one.
      *
      * @param  list<int>|null  $campaignIds
-     * @return list<array{source_id: int, site_ref: string|null, zone_ref: string|null, campaign_id: int|null, campaigns: int, figures: ReportFigures}>
+     * @return list<array{source_id: int, site_ref: string|null, zone_ref: string|null, campaign_id: int|null, campaigns: int, first_at: CarbonImmutable, figures: ReportFigures}>
      */
     public function zones(TrafficReportFilter $filter, bool $byZone, int $minVisits = 1, ?array $campaignIds = null): array
     {
@@ -148,7 +154,7 @@ final class TrafficReportQuery implements RawSqlPersistenceBoundary
             ->when($campaignIds !== null, fn (Builder $query) => $query->whereIn('campaign_id', $campaignIds))
             ->groupBy(...$columns)
             ->select(...$columns)
-            ->selectRaw('MIN(campaign_id) AS campaign_id, COUNT(DISTINCT campaign_id) AS campaigns, '.$metrics, $bindings)
+            ->selectRaw('MIN(campaign_id) AS campaign_id, COUNT(DISTINCT campaign_id) AS campaigns, MIN(arrived_at) AS first_at, '.$metrics, $bindings)
             ->havingRaw('COUNT(*) >= ?', [$minVisits])
             ->orderBy('source_id')
             ->orderBy('site_ref')
@@ -160,9 +166,43 @@ final class TrafficReportQuery implements RawSqlPersistenceBoundary
                 'zone_ref' => $byZone ? $row->zone_ref : null,
                 'campaign_id' => (int) $row->campaigns === 1 && $row->campaign_id !== null ? (int) $row->campaign_id : null,
                 'campaigns' => (int) $row->campaigns,
+                'first_at' => CarbonImmutable::parse((string) $row->first_at),
                 'figures' => ReportFigures::fromRow($row),
             ])
             ->all();
+    }
+
+    /**
+     * Each network site's and zone's first click in the period, keyed as its
+     * block is — "source:site:ref", "source:zone:ref" — a site's the first of
+     * all its zones': from when the block rule may call one losing, whatever
+     * narrower view the report reads its figures in.
+     *
+     * @return array<string, CarbonImmutable>
+     */
+    public function firstClicks(TrafficReportFilter $filter): array
+    {
+        $first = [];
+        $rows = $this->visits($filter)
+            ->where('channel', TrafficChannel::Network)
+            ->groupBy('source_id', 'site_ref', 'zone_ref')
+            ->select('source_id', 'site_ref', 'zone_ref')
+            ->selectRaw('MIN(arrived_at) AS first_at', [])
+            ->toBase()
+            ->get();
+
+        // One column, one format: its moments compare as text, and only each key's earliest is parsed.
+        foreach ($rows as $row) {
+            foreach (['site' => $row->site_ref, 'zone' => $row->zone_ref] as $level => $ref) {
+                $key = $row->source_id.':'.$level.':'.$ref;
+
+                if ((string) $ref !== '' && (! isset($first[$key]) || strcmp((string) $row->first_at, $first[$key]) < 0)) {
+                    $first[$key] = (string) $row->first_at;
+                }
+            }
+        }
+
+        return array_map(fn (string $at): CarbonImmutable => CarbonImmutable::parse($at), $first);
     }
 
     /**

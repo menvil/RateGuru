@@ -251,6 +251,9 @@ it('blocks by itself the sites the rule calls bots, within the day’s cap, only
         TrafficVisit::factory()->count($clicks)->create(['source_id' => $this->popads->id, 'site_ref' => $site, 'arrived_at' => now()->subHour(), 'network_day' => '2026-11-17', 'opened_at' => null, 'spend' => '0.01']);
     }
 
+    // A sound site, every click opening the page: the source's own average, which the bots fall far below.
+    TrafficVisit::factory()->count(106)->create(['source_id' => $this->popads->id, 'site_ref' => 'sound', 'arrived_at' => now()->subHour(), 'network_day' => '2026-11-17', 'opened_at' => now()->subHour(), 'spend' => '0.01']);
+
     $this->artisan('traffic:block-losers')->assertSuccessful();
     expect(TrafficBlock::query()->count())->toBe(0);
 

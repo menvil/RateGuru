@@ -7,12 +7,15 @@ use App\Filament\Pages\TrafficSourcesPage;
 use App\Models\Game;
 use App\Models\TrafficBlock;
 use App\Models\TrafficCampaign;
+use App\Models\TrafficChanceRun;
 use App\Models\TrafficConversion;
 use App\Models\TrafficPostback;
 use App\Models\TrafficPostbackRule;
+use App\Models\TrafficPriceSet;
 use App\Models\TrafficSetting;
 use App\Models\TrafficSource;
 use App\Models\TrafficSpendDay;
+use App\Models\TrafficStepChance;
 use App\Models\TrafficVisit;
 use App\Models\TrafficVisitDetail;
 use App\Models\User;
@@ -159,6 +162,126 @@ it('keeps the block rule in place and shows the sites and zones it picks out', f
         ->assertSet('segment', 'block');
 
     expect(TrafficSetting::current()->block_bot_clicks)->toBe(40);
+});
+
+it('saves Worth blocking’s general thresholds — the share of the source’s average, the days after a first click and the multiple of a target — refused by their fields', function () {
+    TrafficSource::factory()->create(['name' => 'Banner network', 'block_bot_clicks' => 60]);
+    TrafficSource::factory()->placement()->create(['name' => 'Cat blog sidebar']);
+
+    $page = Livewire::test(TrafficSourcesPage::class)->call('load')
+        ->call('toggleBlockRule')
+        ->assertSet('settings.block_open_below_average', 50)
+        ->assertSet('settings.block_grace_days', 3)
+        ->assertSet('settings.block_target_multiple', '2.0')
+        ->assertSeeHtmlInOrder([
+            'data-testid="traffic-block-rule"',
+            'wire:model="settings.block_bot_clicks"', 'wire:model="settings.block_open_below"', 'wire:model="settings.block_open_below_average"', 'of the source’s own average.',
+            'wire:model="settings.block_roi_below"', 'wire:model="settings.block_target_multiple"', '× the target price of an account where its campaign or its source has one',
+            'wire:model="settings.block_min_spend"', 'wire:model="settings.block_min_clicks"', 'wire:model="settings.block_grace_days"', 'days after its first click.',
+            'data-testid="traffic-block-rule-own"', 'Banner network has thresholds of its own, set in the source’s editor → Blocking; the rest are judged by these.',
+        ]);
+
+    $page->set('settings.block_target_multiple', '0.2')->set('settings.block_grace_days', 31)->set('settings.block_open_below_average', '')
+        ->call('saveSettings')
+        ->assertHasErrors(['block_target_multiple', 'block_grace_days', 'block_open_below_average'])
+        ->assertSee('The times the target price of an account field must be at least 0.5.');
+    // Each refused field marked so, the rest as they were.
+    expect($page->html())->toMatch('/<input class="[^"]*rg-admin-input--invalid"[^>]*wire:model="settings.block_grace_days"[^>]*aria-invalid="true"/')
+        ->not->toMatch('/<input class="[^"]*rg-admin-input--invalid"[^>]*wire:model="settings.block_bot_clicks"/')
+        ->and(TrafficSetting::current()->exists)->toBeFalse();
+
+    // A multiple keeps one decimal place, and says so.
+    $page->set('settings.block_target_multiple', '1.25')->call('saveSettings')
+        ->assertHasErrors(['block_target_multiple'])
+        ->assertSee('Use a number from 0.5 to 20 with at most one decimal place, such as 1.5.');
+
+    $page->set('settings.block_target_multiple', '1.5')->set('settings.block_grace_days', 5)->set('settings.block_open_below_average', 40)
+        ->call('saveSettings')
+        ->assertHasNoErrors()
+        ->assertSet('settings.block_target_multiple', '1.5');
+
+    expect(TrafficSetting::current())->block_open_below_average->toBe(40)->block_grace_days->toBe(5)->block_target_multiple->toBe('1.5');
+});
+
+it('judges Sites & zones by each source’s own thresholds and against its own average, and says why in each badge', function () {
+    // Pop traffic opening the page 44 times in 140: half that average, 15.7%, calls a site bots.
+    siteClicks($this->source, '50001', 100, 40);
+    siteClicks($this->source, '50002', 40, 4);
+    // Another network waits for 60 clicks before it calls a site bots.
+    $patient = TrafficSource::factory()->create(['name' => 'Patient network', 'block_bot_clicks' => 60]);
+    siteClicks($patient, '60001', 40, 0);
+    siteClicks($patient, '60002', 40, 40);
+
+    $page = Livewire::withQueryParams(['view' => 'sites', 'list' => 'site'])->test(TrafficSourcesPage::class)->call('load');
+    $rows = collect($page->viewData('list')['rows'])->keyBy('ref');
+
+    expect($rows->map(fn (array $row): string => $row['state'])->sortKeys()->all())->toBe(['50001' => 'early', '50002' => 'bots', '60001' => 'early', '60002' => 'early'])
+        ->and($page->viewData('worthBlocking'))->toBe(1)
+        ->and($rows['50002']['flag']['tip'])->toBe('Meets the block rule: 10% of 40 clicks opened the page, under 15.7%: 50% of the source’s average of 31.4%');
+
+    $page->assertSee('Meets the block rule: 10% of 40 clicks opened the page, under 15.7%: 50% of the source’s average of 31.4%');
+
+    // Back on the general rule, the other network's site is bots too: under half its source's 50% average.
+    $patient->forceFill(['block_bot_clicks' => null])->save();
+    $page = Livewire::withQueryParams(['view' => 'sites', 'list' => 'site'])->test(TrafficSourcesPage::class)->call('load');
+
+    expect(collect($page->viewData('list')['rows'])->firstWhere('ref', '60001')['state'])->toBe('bots')
+        ->and($page->viewData('worthBlocking'))->toBe(2);
+});
+
+it('waits days after a site’s first click before calling it losing, and for twice its target price of an account, saying so on the site', function () {
+    // The worth stands on 30 accounts.
+    $run = TrafficChanceRun::query()->forceCreate(['status' => 'finished', 'reason' => 'nightly', 'price_set_id' => TrafficPriceSet::current()->id, 'matured_before' => now(), 'started_at' => now(), 'finished_at' => now()]);
+    TrafficStepChance::query()->forceCreate(['run_id' => $run->id, 'slice_key' => '*', 'step' => 'opened', 'visitors' => 900, 'accounts' => 30, 'slice_accounts' => 30, 'chance' => '0.03333333', 'thin' => false, 'stands_on' => '*']);
+    $this->source->forceFill(['target_cpa' => '0.50'])->save();
+    // Ten clicks a site, every one opening the page, each worth 30% of its price.
+    $site = fn (string $ref, string $firstAt, string $price, string $worth) => TrafficVisit::factory()->count(10)->create([
+        'source_id' => $this->source->id, 'site_ref' => $ref, 'arrived_at' => $firstAt, 'network_day' => substr($firstAt, 0, 10), 'opened_at' => $firstAt, 'spend' => $price, 'value_real' => $worth,
+    ]);
+    $site('70001', '2026-11-12 10:00:00', '0.10', '0.03');
+    $site('70002', '2026-11-16 10:00:00', '0.10', '0.03');
+    $site('70003', '2026-11-12 10:00:00', '0.08', '0.024');
+
+    $page = Livewire::withQueryParams(['view' => 'sites', 'list' => 'site'])->test(TrafficSourcesPage::class)->call('load');
+    $rows = collect($page->viewData('list')['rows'])->keyBy('ref');
+
+    expect($rows->map(fn (array $row): string => $row['state'])->sortKeys()->all())->toBe(['70001' => 'losing', '70002' => 'waiting', '70003' => 'early'])
+        ->and($page->viewData('list')['counts'])->toMatchArray(['block' => 1, 'watch' => 1, 'early' => 1])
+        ->and($rows['70001']['flag']['tip'])->toBe('Meets the block rule: ROI −70%, below −40%, with $1.00 spent — past 2 × the source’s target price of an account, $0.50, so $1.00')
+        ->and($rows['70002']['flag'])->toMatchArray(['label' => 'Judged from 19 Nov', 'tone' => 'warning'])
+        ->and($rows['70002']['flag']['tip'])->toBe('ROI −70% is below −40%, but the rule waits 3 days after its first click in the last 30 days, on 16 Nov, so its accounts can arrive: losing is judged from 19 Nov 10:00.')
+        ->and($rows['70003']['early'])->toBe('too early: $0.80 of $1.00 spent');
+
+    $page->assertSee('Judged from 19 Nov')->assertSee('too early: $0.80 of $1.00 spent');
+});
+
+it('counts a site’s days of waiting from its first click in the rule’s own 30 days, whatever the period shows', function () {
+    // The worth stands on 30 accounts.
+    $run = TrafficChanceRun::query()->forceCreate(['status' => 'finished', 'reason' => 'nightly', 'price_set_id' => TrafficPriceSet::current()->id, 'matured_before' => now(), 'started_at' => now(), 'finished_at' => now()]);
+    TrafficStepChance::query()->forceCreate(['run_id' => $run->id, 'slice_key' => '*', 'step' => 'opened', 'visitors' => 900, 'accounts' => 30, 'slice_accounts' => 30, 'chance' => '0.03333333', 'thin' => false, 'stands_on' => '*']);
+    $campaign = TrafficCampaign::factory()->create(['source_id' => $this->source->id]);
+    // Ten clicks a day at $0.25, each worth 30% of its price: $2.50 a day, past the rule's $2.
+    $clicks = fn (string $ref, string $at) => TrafficVisit::factory()->count(10)->create([
+        'source_id' => $this->source->id, 'campaign_id' => $campaign->id, 'site_ref' => $ref, 'arrived_at' => $at, 'network_day' => substr($at, 0, 10), 'opened_at' => $at, 'spend' => '0.25', 'value_real' => '0.075',
+    ]);
+    // Losing for ten days, and new yesterday.
+    $clicks('80001', '2026-11-07 10:00:00');
+    $clicks('80001', '2026-11-16 10:00:00');
+    $clicks('80002', '2026-11-16 10:00:00');
+
+    $page = Livewire::withQueryParams(['view' => 'sites', 'list' => 'site', 'period' => 'yesterday'])->test(TrafficSourcesPage::class)->call('load');
+    $rows = collect($page->viewData('list')['rows'])->keyBy('ref');
+
+    expect($rows->map(fn (array $row): string => $row['state'])->sortKeys()->all())->toBe(['80001' => 'losing', '80002' => 'waiting'])
+        ->and($page->viewData('worthBlocking'))->toBe(1)
+        ->and($rows['80001']['flag']['label'])->toBe('Losing')
+        ->and($rows['80002']['flag']['tip'])->toBe('ROI −70% is below −40%, but the rule waits 3 days after its first click in the last 30 days, on 16 Nov, so its accounts can arrive: losing is judged from 19 Nov 10:00.');
+
+    // Its row in the tree, under its source's campaign, reads the same.
+    $page->set('reportView', 'sources')->set('open', ['type=network', 'type=network|source='.$this->source->id, 'type=network|source='.$this->source->id.'|campaign='.$campaign->id]);
+    $flags = collect($page->viewData('tree'))->filter(fn (array $row): bool => ($row['flag'] ?? null) !== null)->mapWithKeys(fn (array $row): array => [$row['label'] => $row['flag']['label']])->all();
+
+    expect($flags)->toBe(['site 80001' => 'Losing', 'site 80002' => 'Judged from 19 Nov']);
 });
 
 it('narrows every figure by the type of traffic, the game and the device', function () {

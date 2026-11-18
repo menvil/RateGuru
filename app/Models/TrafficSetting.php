@@ -10,15 +10,20 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 
 /**
- * The tracker's own settings, one row: the block rule, the IP database
- * edition, and the switches that start recording visits — the games' and
- * paid clicks', and the rest of the site's — and sending postbacks.
+ * The tracker's own settings, one row: the block rule's general thresholds
+ * — a network source may set its own in place of any (BlockRule) — the IP
+ * database edition, and the switches that start recording visits — the
+ * games' and paid clicks', and the rest of the site's — and sending
+ * postbacks.
  *
  * @property int $id
  * @property string $block_min_spend
  * @property int $block_min_clicks
  * @property int $block_roi_below
  * @property int $block_open_below
+ * @property int $block_open_below_average
+ * @property int $block_grace_days
+ * @property string $block_target_multiple
  * @property int $block_bot_clicks
  * @property int $block_start_clicks
  * @property int $block_start_percent
@@ -51,6 +56,9 @@ class TrafficSetting extends Model
             'block_min_clicks' => 'integer',
             'block_roi_below' => 'integer',
             'block_open_below' => 'integer',
+            'block_open_below_average' => 'integer',
+            'block_grace_days' => 'integer',
+            'block_target_multiple' => 'decimal:1',
             'block_bot_clicks' => 'integer',
             'block_start_clicks' => 'integer',
             'block_start_percent' => 'integer',
@@ -75,6 +83,9 @@ class TrafficSetting extends Model
             'block_min_clicks' => 200,
             'block_roi_below' => -40,
             'block_open_below' => 50,
+            'block_open_below_average' => 50,
+            'block_grace_days' => 3,
+            'block_target_multiple' => '2.0',
             'block_bot_clicks' => 30,
             'block_start_clicks' => 60,
             'block_start_percent' => 60,

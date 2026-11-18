@@ -48,6 +48,16 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
  * @property TrafficBlockLevel $block_level
  * @property bool $block_auto
  * @property int $block_daily_cap
+ * @property int|null $block_bot_clicks
+ * @property int|null $block_open_below
+ * @property int|null $block_open_below_average
+ * @property string|null $block_min_spend
+ * @property int|null $block_min_clicks
+ * @property int|null $block_roi_below
+ * @property int|null $block_grace_days
+ * @property string|null $block_target_multiple
+ * @property int|null $block_start_clicks
+ * @property int|null $block_start_percent
  * @property string|null $place_site
  * @property string|null $place_position
  * @property list<string>|null $creatives
@@ -89,6 +99,17 @@ class TrafficSource extends Model
             'block_level' => TrafficBlockLevel::class,
             'block_auto' => 'boolean',
             'block_daily_cap' => 'integer',
+            // Its own block rule thresholds: null keeps the general one (BlockRule).
+            'block_bot_clicks' => 'integer',
+            'block_open_below' => 'integer',
+            'block_open_below_average' => 'integer',
+            'block_min_spend' => 'decimal:2',
+            'block_min_clicks' => 'integer',
+            'block_roi_below' => 'integer',
+            'block_grace_days' => 'integer',
+            'block_target_multiple' => 'decimal:1',
+            'block_start_clicks' => 'integer',
+            'block_start_percent' => 'integer',
             'creatives' => 'array',
             'created_by_user_id' => 'integer',
             'updated_by_user_id' => 'integer',

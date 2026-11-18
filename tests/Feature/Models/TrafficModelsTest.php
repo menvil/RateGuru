@@ -50,6 +50,8 @@ it('starts the tracker switched off, with the prototype\'s block rule and GeoLit
         ->and($settings->geo_edition)->toBe(GeoEdition::GeoLite2City)
         ->and([$settings->block_min_spend, $settings->block_min_clicks, $settings->block_roi_below, $settings->block_open_below, $settings->block_bot_clicks, $settings->block_start_clicks, $settings->block_start_percent])
         ->toBe(['2.00', 200, -40, 50, 30, 60, 60])
+        // Gentler on its own: half the source's average, three days after a first click, twice a target price.
+        ->and([$settings->block_open_below_average, $settings->block_grace_days, $settings->block_target_multiple])->toBe([50, 3, '2.0'])
         ->and(DB::table('traffic_settings')->count())->toBe(0);
 });
 

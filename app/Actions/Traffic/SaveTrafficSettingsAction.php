@@ -7,6 +7,7 @@ use App\Enums\GeoEdition;
 use App\Exceptions\Traffic\CannotManageTrafficException;
 use App\Models\TrafficSetting;
 use App\Models\User;
+use App\Support\Traffic\Blocking\BlockRule;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\ValidationException;
@@ -16,7 +17,8 @@ use Illuminate\Validation\ValidationException;
  * whether the site's own pages record them too, and whether postbacks are
  * sent (all off until the administrator turns them on), the IP database
  * edition and a refresh asked for — which only records the request, the
- * download runs in geo:update — and the block rule's limits. One row, saved
+ * download runs in geo:update — and the block rule's general thresholds,
+ * which a source may set its own in place of (BlockRule). One row, saved
  * at the version the screen was drawn from. Site visits are recorded only
  * with every other visit, so switching Record visits off switches them off
  * too. Once it is committed, the switches every page reads from the cache
@@ -38,14 +40,9 @@ final class SaveTrafficSettingsAction
             'site_capture_enabled' => ['sometimes', 'boolean'],
             'postbacks_enabled' => ['sometimes', 'boolean'],
             'geo_edition' => ['sometimes', 'in:'.implode(',', array_map(fn (GeoEdition $edition): string => $edition->value, GeoEdition::cases()))],
-            'block_min_spend' => ['sometimes', 'numeric', 'regex:/^\d{1,10}(\.\d{1,8})?$/', 'min:0', 'max:10000'],
-            'block_min_clicks' => ['sometimes', 'integer', 'min:1', 'max:1000000'],
-            'block_roi_below' => ['sometimes', 'integer', 'min:-100', 'max:0'],
-            'block_open_below' => ['sometimes', 'integer', 'min:1', 'max:100'],
-            'block_bot_clicks' => ['sometimes', 'integer', 'min:1', 'max:100000'],
-            'block_start_clicks' => ['sometimes', 'integer', 'min:1', 'max:100000'],
-            'block_start_percent' => ['sometimes', 'integer', 'min:1', 'max:100'],
-        ])->validate();
+            // The general block rule: every threshold a value, as a source's own may be empty.
+            ...array_map(fn (array $rules): array => ['sometimes', 'required', ...$rules], BlockRule::validation()),
+        ], BlockRule::messages(), BlockRule::names())->validate();
 
         $saved = DB::transaction(function () use ($admin, $changes, $lockVersion): TrafficSetting {
             $locked = $this->lockAdministrator($admin);
@@ -56,7 +53,7 @@ final class SaveTrafficSettingsAction
             }
 
             $settings->forceFill([
-                ...array_intersect_key($changes, array_flip(['capture_enabled', 'site_capture_enabled', 'postbacks_enabled', 'geo_edition', 'block_min_spend', 'block_min_clicks', 'block_roi_below', 'block_open_below', 'block_bot_clicks', 'block_start_clicks', 'block_start_percent'])),
+                ...array_intersect_key($changes, array_flip(['capture_enabled', 'site_capture_enabled', 'postbacks_enabled', 'geo_edition', ...BlockRule::KEYS])),
                 'id' => 1,
                 'updated_by_user_id' => $locked->id,
                 'lock_version' => $settings->exists ? $settings->lock_version + 1 : 2,

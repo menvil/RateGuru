@@ -66,13 +66,19 @@ final class SiteZoneList
         ];
     }
 
-    /** @param  array{state: string, blocked: bool}  $row */
+    /**
+     * A row's segment: a site losing money while the rule still waits after
+     * its first click is below the line, not worth blocking yet.
+     *
+     * @param  array{state: string, blocked: bool}  $row
+     */
     public static function segmentOf(array $row): string
     {
         return match (true) {
             $row['blocked'] => 'blocked',
             in_array($row['state'], ['bots', 'losing', 'weak_start'], true) => 'block',
             in_array($row['state'], ['profit', 'watch'], true) => $row['state'],
+            $row['state'] === 'waiting' => 'watch',
             default => 'early',
         };
     }

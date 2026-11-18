@@ -8,6 +8,7 @@ use App\Enums\GeoEdition;
 use App\Enums\TrafficBlockLevel;
 use App\Enums\TrafficBlockMethod;
 use App\Enums\TrafficBlockNetworkState;
+use App\Enums\TrafficBlockVerdict;
 use App\Enums\TrafficCampaignStatus;
 use App\Enums\TrafficChannel;
 use App\Enums\TrafficConnectionStatus;
@@ -50,6 +51,7 @@ use App\Services\Traffic\Connectors\EditsBlockLists;
 use App\Services\Traffic\TrafficPresetCatalog;
 use App\Support\Geo\Countries;
 use App\Support\Traffic\Blocking\BlockJudge;
+use App\Support\Traffic\Blocking\BlockRule;
 use App\Support\Traffic\Links\LinkInspector;
 use App\Support\Traffic\Links\TrackingLinkBuilder;
 use App\Support\Traffic\Money\TrafficMoney;
@@ -117,8 +119,11 @@ final class TrafficSourcesView
     /** How many rows a level of the tree shows before the rest fold into one. */
     private const int CAP = 10;
 
-    /** @var array<string, array{rule: array<string, mixed>, startRates: array<int, float|null>, worthKnown: bool, blocks: Collection<string, TrafficBlock>}> what the block rule needs, by filter, for this render */
+    /** @var array<string, array{general: array<string, int|string>, rules: array<int, array<string, int|string>>, startRates: array<int, float|null>, openRates: array<int, float|null>, campaignTargets: array<int, string>, sourceTargets: array<int, string|null>, worthKnown: bool, blocks: Collection<string, TrafficBlock>, firstClicks: array<string, CarbonImmutable>, windowFrom: CarbonImmutable, now: CarbonImmutable}> what the block rule needs, by filter, for this render */
     private array $judged = [];
+
+    /** @var array<string, array<string, CarbonImmutable>> each network site's and zone's first click in the rule's 30 days, by the source read ('*' for all), for this render */
+    private array $firstClicks = [];
 
     public function __construct(
         private readonly TrafficReportQuery $reports,
@@ -134,7 +139,7 @@ final class TrafficSourcesView
     {
         $values = $source->only(['type', 'name', 'link_key', 'preset_key', 'status', 'attribution_days', 'click_id_ttl_hours', 'target_cpa', 'reporting_timezone', 'link_params', 'response_rules',
             'spend_mode', 'spend_estimate', 'cost_unit', 'rate_unit', 'rate_mobile', 'rate_desktop', 'fixed_amount', 'fixed_period', 'fixed_from', 'fixed_to',
-            'block_level', 'block_auto', 'block_daily_cap', 'place_site', 'place_position', 'creatives']);
+            'block_level', 'block_auto', 'block_daily_cap', ...BlockRule::KEYS, 'place_site', 'place_position', 'creatives']);
 
         return [
             'source' => array_map(fn (mixed $value): mixed => $value instanceof BackedEnum ? $value->value : $value, $values),
@@ -240,6 +245,8 @@ final class TrafficSourcesView
             'tree' => $list === null ? $this->tree($page, $filter, $sources, $labels) : [],
             'list' => $list,
             'worthBlocking' => $list['counts']['block'] ?? $this->worthBlocking($filter, $sources),
+            // The networks Worth blocking's general thresholds don't wholly apply to: each set some of its own.
+            'ownRules' => $sources->filter(fn (TrafficSource $source): bool => $source->isNetwork() && BlockRule::own($source->only(BlockRule::KEYS)) !== [])->pluck('name')->values()->all(),
             'unallocated' => $extra,
         ];
     }
@@ -368,8 +375,11 @@ final class TrafficSourcesView
 
             if ($judge !== null && isset($keys['source_id'])) {
                 $ref = (string) ($keys[$dimension->columns()[0]] ?? '');
-                $block = $judge['blocks']->get($keys['source_id'].':'.$dimension->value.':'.$ref);
-                $row['flag'] = $this->flag(BlockJudge::judge($group['figures'], $judge['startRates'][$keys['source_id']] ?? null, $judge['worthKnown'], $judge['rule'])['state'], $block);
+                $blockKey = $keys['source_id'].':'.$dimension->value.':'.$ref;
+                $block = $judge['blocks']->get($blockKey);
+                // A site under a campaign's row came through that campaign.
+                $campaignId = isset($filter->where['campaign_id']) ? (int) $filter->where['campaign_id'] : null;
+                $row['flag'] = $this->flag($this->judgeRow($judge, $blockKey, (int) $keys['source_id'], $group['figures'], $campaignId, $group['first_at'] ?? null, $block === null), $block);
             }
 
             $rows[] = $row;
@@ -429,10 +439,16 @@ final class TrafficSourcesView
     }
 
     /**
-     * What the block rule needs to judge a site or zone: its thresholds,
-     * each source's start rate, whether worth is measured yet, and the blocks.
+     * What the block rule needs to judge a site or zone on the filters: the
+     * general thresholds and each source's — its own where it set them —
+     * each source's start and opened rates over the same visits, the target
+     * prices of an account of the campaigns and the sources, whether worth is
+     * measured yet, the blocks, each site's and zone's first click in the
+     * rule's own 30 days with the day they start — the days a losing site
+     * waits run from there, as traffic:block-losers counts them, whatever
+     * period the report shows — and the moment it judges at.
      *
-     * @return array{rule: array<string, mixed>, startRates: array<int, float|null>, worthKnown: bool, blocks: Collection<string, TrafficBlock>}
+     * @return array{general: array<string, int|string>, rules: array<int, array<string, int|string>>, startRates: array<int, float|null>, openRates: array<int, float|null>, campaignTargets: array<int, string>, sourceTargets: array<int, string|null>, worthKnown: bool, blocks: Collection<string, TrafficBlock>, firstClicks: array<string, CarbonImmutable>, windowFrom: CarbonImmutable, now: CarbonImmutable}
      */
     private function judgeContext(TrafficReportFilter $filter): array
     {
@@ -442,26 +458,125 @@ final class TrafficSourcesView
             return $this->judged[$id];
         }
 
-        $settings = TrafficSetting::current();
+        $now = CarbonImmutable::now();
+        $month = TrafficReportFilter::lastDays(30, $now);
+        $general = BlockRule::effective(TrafficSetting::current()->only(BlockRule::KEYS));
+        $sources = TrafficSource::query()->get(['id', 'target_cpa', ...BlockRule::KEYS]);
         $run = TrafficChanceRun::query()->where('status', 'finished')->orderByDesc('id')->first();
         $startRates = [];
+        $openRates = [];
 
         foreach ($this->reports->level(new TrafficReportFilter($filter->fromDay, $filter->toDay, array_diff_key($filter->where, array_flip(['site_ref', 'zone_ref', 'campaign_id']))), TrafficDimension::Source) as $group) {
             if ($group['keys']['source_id'] !== null) {
                 $startRates[(int) $group['keys']['source_id']] = $group['figures']->startRate();
+                $openRates[(int) $group['keys']['source_id']] = $group['figures']->openRate();
             }
         }
 
         return $this->judged[$id] = [
-            'rule' => $settings->only(['block_min_spend', 'block_min_clicks', 'block_roi_below', 'block_open_below', 'block_bot_clicks', 'block_start_clicks', 'block_start_percent']),
+            'general' => $general,
+            'rules' => $sources->mapWithKeys(fn (TrafficSource $source): array => [(int) $source->id => BlockRule::effective($general, $source->only(BlockRule::KEYS))])->all(),
             'startRates' => $startRates,
+            'openRates' => $openRates,
+            'campaignTargets' => TrafficCampaign::query()->whereNotNull('target_cpa')->pluck('target_cpa', 'id')->map(fn (mixed $target): string => (string) $target)->all(),
+            'sourceTargets' => $sources->mapWithKeys(fn (TrafficSource $source): array => [(int) $source->id => $source->target_cpa])->all(),
             'worthKnown' => $run !== null && (int) TrafficStepChance::query()->where('run_id', $run->id)->where('slice_key', '*')->where('step', 'opened')->value('slice_accounts') >= 30,
             'blocks' => TrafficBlock::query()->get()->keyBy(fn (TrafficBlock $block): string => $block->source_id.':'.$block->level->value.':'.$block->ref),
+            'firstClicks' => $this->firstClicks($month, isset($filter->where['source_id']) ? (int) $filter->where['source_id'] : null),
+            'windowFrom' => CarbonImmutable::parse($month->fromDay, 'UTC'),
+            'now' => $now,
         ];
     }
 
-    /** @return array{label: string, tone: string, tip: string}|null */
-    private function flag(string $state, ?TrafficBlock $block): ?array
+    /**
+     * Each network site's and zone's first click in the rule's 30 days, of
+     * one source or of all: read once a render, the read of all serving any
+     * source.
+     *
+     * @return array<string, CarbonImmutable>
+     */
+    private function firstClicks(TrafficReportFilter $month, ?int $sourceId): array
+    {
+        if (isset($this->firstClicks['*'])) {
+            return $this->firstClicks['*'];
+        }
+
+        return $this->firstClicks[$sourceId ?? '*'] ??= $this->reports->firstClicks(
+            new TrafficReportFilter($month->fromDay, $month->toDay, $sourceId === null ? [] : ['source_id' => $sourceId]),
+        );
+    }
+
+    /**
+     * One site or zone — by its key, as its block's — judged by its source's
+     * thresholds and the target price of an account of its campaign — when
+     * it came through one — or of its source, its days of waiting counted
+     * from its first click in the rule's 30 days (the period's only for one
+     * the rule's days never saw); and, when asked, why, in the words its
+     * badge's tip says it.
+     *
+     * @param  array{general: array<string, int|string>, rules: array<int, array<string, int|string>>, startRates: array<int, float|null>, openRates: array<int, float|null>, campaignTargets: array<int, string>, sourceTargets: array<int, string|null>, worthKnown: bool, blocks: Collection<string, TrafficBlock>, firstClicks: array<string, CarbonImmutable>, windowFrom: CarbonImmutable, now: CarbonImmutable}  $judge
+     * @return array{verdict: TrafficBlockVerdict|null, state: string, tip: string|null, from: CarbonImmutable|null}
+     */
+    private function judgeRow(array $judge, string $key, int $sourceId, ReportFigures $figures, ?int $campaignId, ?CarbonImmutable $periodFirstAt, bool $explain = false): array
+    {
+        $rule = $judge['rules'][$sourceId] ?? $judge['general'];
+        $openRate = $judge['openRates'][$sourceId] ?? null;
+        $target = BlockRule::target($campaignId !== null ? ($judge['campaignTargets'][$campaignId] ?? null) : null, $judge['sourceTargets'][$sourceId] ?? null);
+        $firstAt = $judge['firstClicks'][$key] ?? $periodFirstAt;
+        $judged = BlockJudge::judge($figures, $rule, $judge['startRates'][$sourceId] ?? null, $openRate, $judge['worthKnown'], $target['amount'] ?? null, $firstAt, $judge['now'], $judge['windowFrom']);
+        $from = BlockJudge::judgedFrom($rule, $firstAt, $judge['windowFrom']);
+
+        return [...$judged, 'tip' => $explain ? $this->verdictTip($judged['state'], $figures, $rule, $openRate, $target, $firstAt, $from) : null, 'from' => $from];
+    }
+
+    /**
+     * Why the rule calls a site what it does, with the values that applied:
+     * the share it opened the page at against the share it is held to and
+     * its source's average; its ROI against the line, and what it had to
+     * spend first — so many times its campaign's or its source's target, or
+     * the rule's spend or clicks; and, while it waits, until when.
+     *
+     * @param  array<string, int|string>  $rule
+     * @param  array{amount: string, from: 'campaign'|'source'}|null  $target
+     */
+    private function verdictTip(string $state, ReportFigures $figures, array $rule, ?float $openRate, ?array $target, ?CarbonImmutable $firstAt, ?CarbonImmutable $from): ?string
+    {
+        $percent = fn (float $value): string => (abs($value - round($value)) < 0.05 ? number_format($value, 0) : number_format($value, 1)).'%';
+        $signed = fn (float $value): string => ($value < 0 ? '−' : '').$percent(abs($value));
+        $needed = BlockJudge::spendNeeded($rule, $target['amount'] ?? null);
+        $money = $target !== null && $needed !== null
+            ? self::multiple((string) $rule['block_target_multiple']).' × the '.($target['from'] === 'campaign' ? 'campaign’s' : 'source’s').' target price of an account, '.TrafficMoney::format($target['amount']).', so '.TrafficMoney::format($needed)
+            : TrafficMoney::format($rule['block_min_spend']).' spent or '.number_format((int) $rule['block_min_clicks']).' clicks';
+        $roi = $figures->roi();
+
+        return match ($state) {
+            'bots' => 'Meets the block rule: '.$percent($figures->opened * 100 / max(1, $figures->visits)).' of '.number_format($figures->visits).' clicks opened the page, under '
+                .(BlockJudge::openBelowFromAverage($rule, $openRate)
+                    ? $percent(BlockJudge::openBelow($rule, $openRate)).': '.(int) $rule['block_open_below_average'].'% of the source’s average of '.$percent(($openRate ?? 0) * 100)
+                    : 'the rule’s '.(int) $rule['block_open_below'].'%'.($openRate !== null ? ' (the source averages '.$percent($openRate * 100).')' : '')),
+            'losing' => 'Meets the block rule: ROI '.$signed((float) $roi).', below '.$signed((float) (int) $rule['block_roi_below']).', with '.TrafficMoney::format($figures->spend).' spent — past '.$money,
+            'waiting' => 'ROI '.$signed((float) $roi).' is below '.$signed((float) (int) $rule['block_roi_below']).', but the rule waits '.(int) $rule['block_grace_days'].' '.Str::plural('day', (int) $rule['block_grace_days']).' after its first click in the last 30 days'
+                .($firstAt !== null ? ', on '.$firstAt->format('j M') : '').', so its accounts can arrive: losing is judged from '.$from?->format('j M H:i').'.',
+            'weak_start' => 'Starts the game far less often than the source’s other places',
+            'profit' => 'Enough data, value above spend',
+            default => null,
+        };
+    }
+
+    /** A multiple of the target price as it reads: 2, 1.5. */
+    private static function multiple(string $multiple): string
+    {
+        return str_contains($multiple, '.') ? rtrim(rtrim($multiple, '0'), '.') : $multiple;
+    }
+
+    /**
+     * A site's or zone's badge: its block, else what the rule calls it, with
+     * why in its tip.
+     *
+     * @param  array{state: string, tip: string|null, from: CarbonImmutable|null}  $judged
+     * @return array{label: string, tone: string, tip: string}|null
+     */
+    private function flag(array $judged, ?TrafficBlock $block): ?array
     {
         if ($block !== null) {
             $still = $block->clicks_after > 0;
@@ -473,11 +588,12 @@ final class TrafficSourcesView
             }.($still ? ' · '.$block->clicks_after.' clicks since' : '')];
         }
 
-        return match ($state) {
-            'bots' => ['label' => 'Likely bots', 'tone' => 'danger', 'tip' => 'Meets the block rule: few clicks open the page'],
-            'losing' => ['label' => 'Losing', 'tone' => 'danger', 'tip' => 'Meets the block rule: enough data and ROI below the line'],
-            'weak_start' => ['label' => 'Weak start', 'tone' => 'warning', 'tip' => 'Starts the game far less often than the source’s other places'],
-            'profit' => ['label' => 'Profitable', 'tone' => 'success', 'tip' => 'Enough data, value above spend'],
+        return match ($judged['state']) {
+            'bots' => ['label' => 'Likely bots', 'tone' => 'danger', 'tip' => (string) $judged['tip']],
+            'losing' => ['label' => 'Losing', 'tone' => 'danger', 'tip' => (string) $judged['tip']],
+            'waiting' => ['label' => 'Judged from '.$judged['from']?->format('j M'), 'tone' => 'warning', 'tip' => (string) $judged['tip']],
+            'weak_start' => ['label' => 'Weak start', 'tone' => 'warning', 'tip' => (string) $judged['tip']],
+            'profit' => ['label' => 'Profitable', 'tone' => 'success', 'tip' => (string) $judged['tip']],
             default => null,
         };
     }
@@ -508,14 +624,21 @@ final class TrafficSourcesView
         }
 
         $early = $all->filter(fn (array $row): bool => SiteZoneList::segmentOf($row) === 'early');
-        $rule = TrafficSetting::current();
+        $judge = $this->judgeContext($filter);
+        // One source on screen: its own thresholds; every source: the general ones, which a source may have set its own in place of.
+        $one = isset($filter->where['source_id']) ? (int) $filter->where['source_id'] : null;
+        $rule = $one !== null ? ($judge['rules'][$one] ?? $judge['general']) : $judge['general'];
+        $targets = $one !== null ? (BlockRule::target(null, $judge['sourceTargets'][$one] ?? null) !== null || $judge['campaignTargets'] !== []) : ($judge['campaignTargets'] !== [] || array_filter($judge['sourceTargets']) !== []);
+        $own = $one === null && collect($judge['rules'])->contains(fn (array $sourceRule): bool => $sourceRule !== $judge['general']);
 
         return [
             ...$list,
             'noun' => $page->listBy === 'site' ? 'sites' : 'zones',
             'insight' => $all->isEmpty() ? null : $all->count().' '.($page->listBy === 'site' ? 'sites' : 'zones').'.'
                 .($biggest > 0 ? ' The '.$biggest.' biggest take 80% of the spend: sort by Spend and start there.' : '')
-                .($early->isNotEmpty() ? ' '.$early->count().' are too early to judge the money (under '.TrafficMoney::format($rule->block_min_spend).' and '.$rule->block_min_clicks.' clicks each) yet spent '.TrafficMoney::format($early->sum(fn (array $row): float => (float) $row['figures']->spend)).' together; bots show after '.$rule->block_bot_clicks.' clicks and a weak start after '.$rule->block_start_clicks.', so those are caught early.' : ''),
+                .($early->isNotEmpty() ? ' '.$early->count().' are too early to judge the money (under '.TrafficMoney::format($rule['block_min_spend']).' and '.number_format((int) $rule['block_min_clicks']).' clicks each'
+                    .($targets ? ', or under '.self::multiple((string) $rule['block_target_multiple']).' × the target price of an account where one is set' : '').') yet spent '.TrafficMoney::format($early->sum(fn (array $row): float => (float) $row['figures']->spend)).' together; bots show after '.number_format((int) $rule['block_bot_clicks']).' clicks and a weak start after '.number_format((int) $rule['block_start_clicks']).', so those are caught early.'
+                    .($own ? ' Sources with thresholds of their own are judged by them.' : '') : ''),
             'selectable' => collect($list['rows'])->filter(fn (array $row): bool => $page->segment === 'blocked' ? $row['blocked'] : ! $row['blocked'])->pluck('key')->values()->all(),
             'selected' => count($page->selected),
             'selectedBlocked' => collect($rows)->whereIn('key', $page->selected)->where('blocked', true)->count(),
@@ -529,7 +652,7 @@ final class TrafficSourcesView
      * The networks' sites or zones on the filters, judged: a zone where the
      * network names zones, else its site.
      *
-     * @return list<array{key: string, ref: string, level: string, source: string, source_id: int, campaign: string|null, state: string, blocked: bool, flag: array<string, string>|null, figures: ReportFigures}>
+     * @return list<array{key: string, ref: string, level: string, source: string, source_id: int, campaign: string|null, state: string, early: string|null, blocked: bool, flag: array<string, string>|null, figures: ReportFigures}>
      */
     private function siteRows(TrafficSourcesPage $page, TrafficReportFilter $filter, $sources): array
     {
@@ -549,7 +672,8 @@ final class TrafficSourcesView
 
             $level = $zone ? 'zone' : 'site';
             $block = $judge['blocks']->get($row['source_id'].':'.$level.':'.$ref);
-            $state = BlockJudge::judge($row['figures'], $judge['startRates'][$row['source_id']] ?? null, $judge['worthKnown'], $judge['rule'])['state'];
+            $judged = $this->judgeRow($judge, $row['source_id'].':'.$level.':'.$ref, $row['source_id'], $row['figures'], $row['campaign_id'], $row['first_at'], $block === null);
+            $state = $judged['state'];
             $campaign = $row['campaign_id'] !== null ? $campaigns->get($row['campaign_id']) : null;
             $out[] = [
                 'key' => $row['source_id'].':'.$level.':'.$ref,
@@ -560,8 +684,9 @@ final class TrafficSourcesView
                 'source_id' => $row['source_id'],
                 'campaign' => $campaign !== null ? ($campaign->name ?? 'Campaign '.$campaign->external_id) : ($row['campaigns'] > 1 ? 'In '.$row['campaigns'].' campaigns' : null),
                 'state' => $state,
+                'early' => $state === 'early' && $block === null ? $this->earlyNote($judge, $row['source_id'], $row['campaign_id'], $row['figures']) : null,
                 'blocked' => $block !== null,
-                'flag' => $this->flag($state, $block),
+                'flag' => $this->flag($judged, $block),
                 'figures' => $row['figures'],
             ];
         }
@@ -589,14 +714,37 @@ final class TrafficSourcesView
                     'source_id' => (int) $block->source_id,
                     'campaign' => null,
                     'state' => 'early',
+                    'early' => null,
                     'blocked' => true,
-                    'flag' => $this->flag('early', $block),
+                    'flag' => $this->flag(['state' => 'early', 'tip' => null, 'from' => null], $block),
                     'figures' => new ReportFigures,
                 ];
             }
         }
 
         return $out;
+    }
+
+    /**
+     * How far a site too early to judge the money still has to go: its spend
+     * against so many times its target price of an account, or its clicks
+     * against the rule's; null once that is reached and the money only waits
+     * for the worth.
+     *
+     * @param  array{general: array<string, int|string>, rules: array<int, array<string, int|string>>, startRates: array<int, float|null>, openRates: array<int, float|null>, campaignTargets: array<int, string>, sourceTargets: array<int, string|null>, worthKnown: bool, blocks: Collection<string, TrafficBlock>, firstClicks: array<string, CarbonImmutable>, windowFrom: CarbonImmutable, now: CarbonImmutable}  $judge
+     */
+    private function earlyNote(array $judge, int $sourceId, ?int $campaignId, ReportFigures $figures): ?string
+    {
+        $rule = $judge['rules'][$sourceId] ?? $judge['general'];
+        $target = BlockRule::target($campaignId !== null ? ($judge['campaignTargets'][$campaignId] ?? null) : null, $judge['sourceTargets'][$sourceId] ?? null);
+        $needed = BlockJudge::spendNeeded($rule, $target['amount'] ?? null);
+        $spend = TrafficMoney::of($figures->spend);
+
+        return match (true) {
+            $needed !== null => $spend->isLessThan($needed) ? 'too early: '.TrafficMoney::format($spend).' of '.TrafficMoney::format($needed).' spent' : null,
+            $figures->visits < (int) $rule['block_min_clicks'] && $spend->isLessThan(TrafficMoney::of($rule['block_min_spend'])) => 'too early: '.number_format($figures->visits).' of '.number_format((int) $rule['block_min_clicks']).' clicks',
+            default => null,
+        };
     }
 
     /** How many sites and zones the block rule picks out on the filters, not blocked yet. */
@@ -608,9 +756,10 @@ final class TrafficSourcesView
         foreach ($this->reports->zones($filter, true) as $row) {
             $zone = $row['zone_ref'] !== null && $row['zone_ref'] !== '';
             $ref = (string) ($zone ? $row['zone_ref'] : $row['site_ref']);
-            $state = BlockJudge::judge($row['figures'], $judge['startRates'][$row['source_id']] ?? null, $judge['worthKnown'], $judge['rule'])['state'];
+            $key = $row['source_id'].':'.($zone ? 'zone' : 'site').':'.$ref;
+            $state = $this->judgeRow($judge, $key, $row['source_id'], $row['figures'], $row['campaign_id'], $row['first_at'])['state'];
 
-            if ($ref !== '' && in_array($state, ['bots', 'losing', 'weak_start'], true) && ! $judge['blocks']->has($row['source_id'].':'.($zone ? 'zone' : 'site').':'.$ref)) {
+            if ($ref !== '' && in_array($state, ['bots', 'losing', 'weak_start'], true) && ! $judge['blocks']->has($key)) {
                 $count++;
             }
         }
@@ -843,9 +992,10 @@ final class TrafficSourcesView
 
             $zone = $row['zone_ref'] !== null && $row['zone_ref'] !== '';
             $ref = (string) ($zone ? $row['zone_ref'] : $row['site_ref']);
-            $state = BlockJudge::judge($row['figures'], $judge['startRates'][$row['source_id']] ?? null, $judge['worthKnown'], $judge['rule'])['state'];
+            $key = $row['source_id'].':'.($zone ? 'zone' : 'site').':'.$ref;
+            $state = $this->judgeRow($judge, $key, $row['source_id'], $row['figures'], $row['campaign_id'], $row['first_at'])['state'];
 
-            if ($ref !== '' && in_array($state, ['bots', 'losing', 'weak_start'], true) && ! $judge['blocks']->has($row['source_id'].':'.($zone ? 'zone' : 'site').':'.$ref)) {
+            if ($ref !== '' && in_array($state, ['bots', 'losing', 'weak_start'], true) && ! $judge['blocks']->has($key)) {
                 $counts[$row['campaign_id']] = ($counts[$row['campaign_id']] ?? 0) + 1;
             }
         }
@@ -1292,26 +1442,52 @@ final class TrafficSourcesView
                 PostbackTemplate::sharedGoals($page->draft['rules']),
             ),
             'timezones' => ['UTC', 'America/New_York', 'Europe/London', 'Europe/Berlin', 'Asia/Singapore'],
-            'blocking' => $source !== null && $source->type === TrafficSourceType::Network ? $this->blocking($source) : null,
+            'thresholds' => ($source !== null ? $source->type : TrafficSourceType::tryFrom((string) ($page->draft['source']['type'] ?? ''))) === TrafficSourceType::Network ? $this->thresholds($page) : null,
+            'blocking' => $source !== null && $source->type === TrafficSourceType::Network ? $this->blocking($source, $page->ready) : null,
+        ];
+    }
+
+    /**
+     * A network's own block rule thresholds in its editor: the general value
+     * each one stands in for, shown in its empty field, and whether the draft
+     * sets any of its own.
+     *
+     * @return array{general: array<string, string>, own: bool}
+     */
+    private function thresholds(TrafficSourcesPage $page): array
+    {
+        $general = BlockRule::effective(TrafficSetting::current()->only(BlockRule::KEYS));
+
+        return [
+            // A multiple as it reads (2, 1.5); the spend as money is written, to its cents.
+            'general' => [
+                ...array_map(fn (int|string $value): string => is_int($value) ? (string) $value : self::multiple($value), $general),
+                'block_min_spend' => (string) $general['block_min_spend'],
+            ],
+            'own' => BlockRule::own($page->draft['source']) !== [],
         ];
     }
 
     /**
      * A saved network's Blocking pane, read as the source is saved: the block
-     * rule's thresholds as set and whether the worth is known yet; the source's
+     * rule's thresholds that apply to it — its own where it set them, which
+     * it names — its opened rate over the rule's 30 days and the share that
+     * calls a site bots against it, the target price of an account its
+     * money waits for, and whether the worth is known yet; the source's
      * blocks in force — sites and zones, by an administrator or by the rule —
      * and where every block stands with the network; the rule's blocks today
-     * against the source's cap and when the rule last ran; why the rule can't
-     * block for it, if it can't; and the ways to its blocked sites and zones
-     * in the report and to its blocks log. A bounded few reads, however many
-     * blocks.
+     * against the source's cap and when the rule last ran; why the rule
+     * can't block for it, if it can't; and the ways to its blocked sites and
+     * zones in the report and to its blocks log. A bounded few reads, however
+     * many blocks; its visits only once the page is in a browser.
      *
      * @return array<string, mixed>
      */
-    private function blocking(TrafficSource $source): array
+    private function blocking(TrafficSource $source, bool $ready): array
     {
         $counts = $this->blocks->counts((int) $source->id, CarbonImmutable::now());
-        $settings = TrafficSetting::current();
+        $own = $source->only(BlockRule::KEYS);
+        $rule = BlockRule::effective(TrafficSetting::current()->only(BlockRule::KEYS), $own);
         $accounts = $this->blocks->worthAccounts();
         $connection = $source->apiConnection;
         $connector = $source->connector === null ? null : $this->connectors->connector($source->connector);
@@ -1323,6 +1499,14 @@ final class TrafficSourcesView
             $counts['sites'] > 0 => 'site',
             default => $source->block_level->value,
         };
+        // Its own average over the rule's 30 days, which the share calling a site bots may lean on.
+        $month = TrafficReportFilter::lastDays(30, CarbonImmutable::now());
+        $average = $ready
+            ? collect($this->reports->level(new TrafficReportFilter($month->fromDay, $month->toDay, ['source_id' => (int) $source->id]), TrafficDimension::Source))
+                ->reduce(fn (ReportFigures $sum, array $group): ReportFigures => $sum->plus($group['figures']), new ReportFigures)->openRate()
+            : null;
+        $target = BlockRule::target(null, $source->target_cpa);
+        $needed = BlockJudge::spendNeeded($rule, $target['amount'] ?? null);
 
         return [
             'counts' => $counts,
@@ -1330,12 +1514,20 @@ final class TrafficSourcesView
             'auto' => (bool) $source->block_auto,
             'ranAt' => TrafficSetting::blockRuleRanAt(),
             'rule' => [
-                'bot_clicks' => (int) $settings->block_bot_clicks,
-                'open_below' => (int) $settings->block_open_below,
-                'min_spend' => TrafficMoney::format($settings->block_min_spend),
-                'min_clicks' => (int) $settings->block_min_clicks,
-                'roi_below' => (int) $settings->block_roi_below,
+                'bot_clicks' => (int) $rule['block_bot_clicks'],
+                'open_below' => (int) $rule['block_open_below'],
+                'open_below_average' => (int) $rule['block_open_below_average'],
+                'min_spend' => TrafficMoney::format($rule['block_min_spend']),
+                'min_clicks' => (int) $rule['block_min_clicks'],
+                'roi_below' => (int) $rule['block_roi_below'],
+                'grace_days' => (int) $rule['block_grace_days'],
+                'target_multiple' => self::multiple((string) $rule['block_target_multiple']),
             ],
+            'own' => BlockRule::own($own),
+            // Read only once the page is in a browser: until then the share stands as the rule sets it.
+            'average' => $ready ? ['rate' => $average, 'below' => BlockJudge::openBelow($rule, $average), 'fromAverage' => BlockJudge::openBelowFromAverage($rule, $average)] : null,
+            'target' => $target === null || $needed === null ? null : ['amount' => TrafficMoney::format($target['amount']), 'spend' => TrafficMoney::format($needed)],
+            'campaignTargets' => TrafficCampaign::query()->where('source_id', $source->id)->where('target_cpa', '>', 0)->count(),
             'worth' => ['accounts' => $accounts, 'needed' => TrafficBlocksQuery::WORTH_KNOWN_AT, 'known' => $accounts >= TrafficBlocksQuery::WORTH_KNOWN_AT],
             'connected' => $connection?->status === TrafficConnectionStatus::Connected,
             // What keeps the rule from blocking for this source by itself, in the order it asks.

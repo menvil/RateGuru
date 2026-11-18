@@ -21,6 +21,7 @@ use App\Models\TrafficSource;
 use App\Models\TrafficVisit;
 use App\Models\User;
 use App\Services\Traffic\Connectors\ConnectorRegistry;
+use App\Support\Traffic\Blocking\BlockRule;
 use App\Support\Traffic\Links\LinkParams;
 use App\Support\Traffic\Money\TrafficMoney;
 use App\Support\Traffic\Postbacks\PostbackTemplate;
@@ -32,11 +33,12 @@ use Illuminate\Validation\ValidationException;
 
 /**
  * Saves a traffic source as its editor holds it — every tab of it at once:
- * the link and its parameters, the postback rules, spend and blocking — or
- * creates one from the defaults its preset gave (SourceDefaults). A source
- * is never deleted; its key and its reporting time zone stay as they are
- * once a visit has come through it, since visits and spend are filed by
- * them. Pausing or ending it cancels the postbacks still waiting to be sent.
+ * the link and its parameters, the postback rules, spend and blocking, with
+ * the block rule's thresholds a network sets for itself — or creates one
+ * from the defaults its preset gave (SourceDefaults). A source is never
+ * deleted; its key and its reporting time zone stay as they are once a visit
+ * has come through it, since visits and spend are filed by them. Pausing or
+ * ending it cancels the postbacks still waiting to be sent.
  *
  * Errors come back keyed by the editor's fields (`link_key`,
  * `link_params.2.param`, `rules.0.url_template`).
@@ -168,6 +170,8 @@ final class SaveTrafficSourceAction
             'source.block_level' => ['required', Rule::enum(TrafficBlockLevel::class)],
             'source.block_auto' => ['boolean'],
             'source.block_daily_cap' => ['required', 'integer', 'min:1', 'max:100'],
+            // Its own block rule thresholds, refused as the general ones are; empty keeps the general one.
+            ...collect(BlockRule::validation())->mapWithKeys(fn (array $rules, string $key): array => ['source.'.$key => ['nullable', ...$rules]])->all(),
             'source.place_site' => ['nullable', 'string', 'max:120'],
             'source.place_position' => ['nullable', 'string', 'max:120'],
             'source.creatives' => ['nullable', 'array', 'max:20'],
@@ -179,7 +183,7 @@ final class SaveTrafficSourceAction
             'rules.*.needs_event' => ['nullable', Rule::in(array_map(fn (TrafficEvent $event): string => $event->value, TrafficEvent::settledFloors()))],
             'rules.*.url_template' => ['present', 'nullable', 'string', 'max:'.PostbackTemplate::MAX_LENGTH],
             'rules.*.enabled' => ['boolean'],
-        ], [], ['source.link_key' => 'key', 'source.name' => 'name']);
+        ], collect(BlockRule::messages())->mapWithKeys(fn (string $message, string $key): array => ['source.'.$key => $message])->all(), ['source.link_key' => 'key', 'source.name' => 'name', ...collect(BlockRule::names())->mapWithKeys(fn (string $name, string $key): array => ['source.'.$key => $name])->all()]);
 
         $validator->after(function ($validator) use ($network, $source, $rules): void {
             if ($network) {
@@ -273,6 +277,8 @@ final class SaveTrafficSourceAction
             'block_level' => TrafficBlockLevel::from((string) $source['block_level']),
             'block_auto' => (bool) ($source['block_auto'] ?? false),
             'block_daily_cap' => (int) $source['block_daily_cap'],
+            // A banner is never judged by the block rule: it keeps no thresholds of its own.
+            ...array_combine(BlockRule::KEYS, array_map(fn (string $key): int|string|null => $network ? BlockRule::stored($key, $source[$key] ?? null) : null, BlockRule::KEYS)),
             'place_site' => $network ? null : (($source['place_site'] ?? '') !== '' ? trim((string) $source['place_site']) : null),
             'place_position' => $network ? null : (($source['place_position'] ?? '') !== '' ? trim((string) $source['place_position']) : null),
             'creatives' => $network ? null : array_values((array) ($source['creatives'] ?? [])),
