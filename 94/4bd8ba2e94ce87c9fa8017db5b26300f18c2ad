@@ -1,0 +1,22 @@
+resources/css/filament/admin/components.css
+  s_4b9dc6ab6b25d3::t_3f07078430cadf 14722-14724,14726-14735
+  s_4b9dc6ab6b25d3::t_ebe596f2feaa67 14725
+resources/views/filament/pages/traffic-sources/source-editor.blade.php
+  s_4b9dc6ab6b25d3::t_3f07078430cadf 208,219
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "944bd8ba2e94ce87c9fa8017db5b26300f18c2ad",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
