@@ -23,7 +23,8 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
 /**
  * One visit: a paid click, or an unpaid arrival on a game. Every report is a
  * sum over these rows, so each carries its dimensions, the moments it reached,
- * what it cost and what it is worth (docs/architecture/traffic.md).
+ * what it cost and what it is worth (docs/architecture/traffic.md) — and the
+ * visit its session began with, with where that one came from.
  *
  * @property int $id
  * @property TrafficChannel $channel
@@ -87,6 +88,11 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
  * @property bool $spend_estimated
  * @property string $value_real
  * @property string $value_expected
+ * @property int|null $entry_visit_id
+ * @property string|null $source_key
+ * @property string|null $campaign_key
+ * @property string|null $creative_key
+ * @property string|null $landing_key
  */
 class TrafficVisit extends Model
 {
@@ -112,6 +118,7 @@ class TrafficVisit extends Model
             'device' => TrafficDevice::class,
             'game_id' => 'integer',
             'version_id' => 'integer',
+            'entry_visit_id' => 'integer',
             'price_set_id' => 'integer',
             'worth_percent' => 'integer',
             'bot_flags' => 'integer',

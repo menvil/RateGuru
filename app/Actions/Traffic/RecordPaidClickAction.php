@@ -18,6 +18,9 @@ use App\Models\TrafficSource;
 use App\Models\TrafficVisit;
 use App\Models\TrafficVisitDetail;
 use App\Queries\Traffic\VisitorVisitQuery;
+use App\Support\Analytics\AnalyticsSource;
+use App\Support\Analytics\CampaignKey;
+use App\Support\Analytics\LandingRoute;
 use App\Support\Observability\DomainLogger;
 use App\Support\Traffic\Capture\BotSignals;
 use App\Support\Traffic\Capture\ClickParameters;
@@ -41,7 +44,9 @@ use Illuminate\Support\Facades\RateLimiter;
  * for another browser. A click without an id — a banner — is the same visit
  * again within 30 minutes. A campaign id not seen before adds the campaign,
  * and a click of an archived campaign brings it back. Floods from one
- * address are marked, and past a limit not recorded at all.
+ * address are marked, and past a limit not recorded at all. A click is the
+ * visit its session begins with, and keeps where it came from: its source,
+ * campaign, creative and the page it landed on.
  */
 final class RecordPaidClickAction
 {
@@ -65,6 +70,8 @@ final class RecordPaidClickAction
      * or one too many to record.
      *
      * @param  array<array-key, mixed>  $query
+     * @param  string|null  $route  the name of the route the click landed on
+     * @param  string|null  $gameSlug  the game the page belongs to, on a game's page or one of its result pages
      */
     public function handle(
         TrafficSource $source,
@@ -72,6 +79,7 @@ final class RecordPaidClickAction
         string $browserHash,
         bool $browserIsNew,
         ?int $userId,
+        ?string $route,
         ?string $gameSlug,
         VisitorSignals $signals,
         CarbonImmutable $now,
@@ -105,15 +113,19 @@ final class RecordPaidClickAction
         $known = $userId !== null ? TrafficKnownReason::SignedIn : (! $browserIsNew && $this->visits->isKnownBrowser($browserHash) ? TrafficKnownReason::Browser : null);
         $prices = TrafficPriceSet::current();
         $group = $prices->groupOf($signals->location->countryCode);
-        $gameId = $gameSlug === null ? null : Game::query()->where('slug', $gameSlug)->value('id');
+        $landingGameId = $gameSlug === null ? null : Game::query()->where('slug', $gameSlug)->value('id');
+        $landingGameId = $landingGameId === null ? null : (int) $landingGameId;
+        // The game played is the game of its own page; a result page only names it.
+        $gameId = $route === 'games.play' ? $landingGameId : null;
         $cost = $params->cost === null ? null : TrafficMoney::of($params->cost)->dividedBy($source->cost_unit->divisor(), TrafficMoney::SCALE, RoundingMode::HalfUp);
 
         if ($cost !== null && $cost->isGreaterThan(10)) {
             $cost = null;
         }
 
+        $channel = $source->type === TrafficSourceType::Network ? TrafficChannel::Network : TrafficChannel::Placement;
         $attributes = [
-            'channel' => $source->type === TrafficSourceType::Network ? TrafficChannel::Network : TrafficChannel::Placement,
+            'channel' => $channel,
             'source_id' => $source->id,
             'site_ref' => $params->site,
             'zone_ref' => $params->zone,
@@ -126,7 +138,7 @@ final class RecordPaidClickAction
             'country' => $signals->location->countryCode,
             'region' => $signals->location->region,
             'city' => $signals->location->city,
-            'game_id' => $gameId === null ? null : (int) $gameId,
+            'game_id' => $gameId,
             'price_set_id' => $prices->id,
             'country_group' => $group['key'],
             'worth_percent' => $group['percent'],
@@ -138,16 +150,22 @@ final class RecordPaidClickAction
             'cost' => $cost === null ? null : (string) $cost,
             'spend' => '0',
             'spend_basis' => TrafficSpendBasis::None,
+            'source_key' => AnalyticsSource::keyFor($channel, (int) $source->id, null),
+            'creative_key' => $params->creative,
+            'landing_key' => LandingRoute::key($route, $landingGameId, null),
         ];
 
         return DB::transaction(function () use ($source, $params, $attributes, $clickHash, $browserHash, $signals, $now): ?TrafficVisit {
             $attributes['campaign_id'] = $this->campaignId($source, $params, $now, true);
+            $attributes['campaign_key'] = CampaignKey::paid($attributes['campaign_id']);
             $attributes = [...$attributes, ...$this->clickSpend($source, $attributes['campaign_id'] === null ? null : TrafficCampaign::query()->find($attributes['campaign_id']), $attributes['cost'], $signals->device, $now)];
 
             try {
                 $visit = DB::transaction(function () use ($attributes): TrafficVisit {
                     $visit = new TrafficVisit;
                     $visit->forceFill($attributes)->save();
+                    // A paid click always begins a session of its own.
+                    $visit->forceFill(['entry_visit_id' => $visit->id])->save();
 
                     return $visit;
                 });

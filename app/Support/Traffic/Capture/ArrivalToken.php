@@ -8,7 +8,9 @@ use Illuminate\Support\Facades\Crypt;
 /**
  * What a page knows about how its visitor arrived, handed to the browser and
  * back with the first call its script makes — the paid visit the click
- * recorded, or the channel and origin an unpaid arrival was found to have.
+ * recorded, or the channel and origin an unpaid arrival was found to have,
+ * with the referrer's host, the page's route and path, and whether it is a
+ * game's result page: the call that hands it back is made from elsewhere.
  * Encrypted and tied to the browser's hash, and good for two hours, so a
  * token cannot be made up, replayed from another browser or kept.
  */
@@ -17,14 +19,14 @@ final class ArrivalToken
     private const int LIFETIME = 7200;
 
     /**
-     * @param  array{visit?: int, channel?: string, origin?: string|null, slug?: string|null, result?: bool}  $arrival
+     * @param  array{visit?: int, channel?: string, origin?: string|null, slug?: string|null, result?: bool, route?: string|null, path?: string, host?: string|null}  $arrival
      */
     public static function make(array $arrival, string $browserHash, int $now): string
     {
         return Crypt::encryptString(json_encode([...$arrival, 'browser' => $browserHash, 'at' => $now], JSON_THROW_ON_ERROR));
     }
 
-    /** @return array{visit?: int, channel?: string, origin?: string|null, slug?: string|null, result?: bool}|null */
+    /** @return array{visit?: int, channel?: string, origin?: string|null, slug?: string|null, result?: bool, route?: string|null, path?: string, host?: string|null}|null */
     public static function read(?string $token, string $browserHash, int $now): ?array
     {
         if ($token === null || $token === '' || strlen($token) > 2048) {

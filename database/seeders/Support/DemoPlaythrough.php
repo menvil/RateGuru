@@ -119,7 +119,7 @@ final class DemoPlaythrough
         if ($arrival['kind'] === 'paid') {
             /** @var TrafficSource $source */
             $source = $arrival['source'];
-            $visit = app(RecordPaidClickAction::class)->handle($source, $arrival['query'], $visitor->browserHash, $first, null, GamesDemoSeeder::SLUG, $signals, $at);
+            $visit = app(RecordPaidClickAction::class)->handle($source, $arrival['query'], $visitor->browserHash, $first, null, 'games.play', GamesDemoSeeder::SLUG, $signals, $at);
 
             if ($visit === null) {
                 return null;
@@ -149,7 +149,14 @@ final class DemoPlaythrough
         }
 
         $this->counts['views']++;
-        $token = ArrivalToken::make($paid ? ['visit' => $visitId] : ['channel' => $arrival['channel'], 'origin' => $arrival['origin'] ?? null, 'slug' => GamesDemoSeeder::SLUG], $visitor->browserHash, $at->getTimestamp());
+        $token = ArrivalToken::make($paid ? ['visit' => $visitId] : [
+            'channel' => $arrival['channel'],
+            'origin' => $arrival['origin'] ?? null,
+            'slug' => GamesDemoSeeder::SLUG,
+            'route' => 'games.play',
+            'path' => '/games/'.GamesDemoSeeder::SLUG,
+            'host' => self::referrerHost($arrival),
+        ], $visitor->browserHash, $at->getTimestamp());
         $visitId = app(OpenTrafficVisitAction::class)->handle($token, $visitor->browserHash, $userId, (int) $this->game->id, (int) $assignment->version_id, $signals, $at) ?? $visitId;
         $this->counts['returns'] += $arrival['kind'] === 'return' ? 1 : 0;
 
@@ -517,6 +524,24 @@ final class DemoPlaythrough
     private static function returnChannel(): array
     {
         return [['channel' => 'direct', 'origin' => null], ['channel' => 'search', 'origin' => 'google'], ['channel' => 'shared', 'origin' => 'result page'], ['channel' => 'internal', 'origin' => 'feed']][mt_rand(0, 3)];
+    }
+
+    /**
+     * The host an unpaid arrival's referrer would have had: another site's
+     * own, a search engine's main one, none for the rest.
+     *
+     * @param  array<string, mixed>  $arrival
+     */
+    private static function referrerHost(array $arrival): ?string
+    {
+        $origin = is_string($arrival['origin'] ?? null) ? $arrival['origin'] : null;
+
+        return match (true) {
+            $origin === null => null,
+            str_contains($origin, '.') => $origin,
+            ($arrival['channel'] ?? null) === 'search' => $origin.'.com',
+            default => null,
+        };
     }
 
     private static function roll(int $percent): bool

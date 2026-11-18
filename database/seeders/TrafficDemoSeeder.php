@@ -25,6 +25,9 @@ use App\Models\TrafficVisit;
 use App\Models\TrafficVisitDetail;
 use App\Models\User;
 use App\Services\Traffic\TrafficPresetCatalog;
+use App\Support\Analytics\AnalyticsSource;
+use App\Support\Analytics\CampaignKey;
+use App\Support\Analytics\LandingRoute;
 use App\Support\Traffic\Presets\SourceDefaults;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Seeder;
@@ -102,9 +105,15 @@ final class TrafficDemoSeeder extends Seeder
             $completed = $started && mt_rand(1, 100) <= 70;
             $account = $completed && mt_rand(1, 100) <= 12;
             $group = $prices->groupOf($country);
+            $channel = $paid ? TrafficChannel::Network : [TrafficChannel::Direct, TrafficChannel::Search, TrafficChannel::Shared][mt_rand(0, 2)];
+            $host = $channel === TrafficChannel::Search ? 'www.google.com' : null;
 
             $visit = TrafficVisit::query()->create([
-                'channel' => $paid ? TrafficChannel::Network : [TrafficChannel::Direct, TrafficChannel::Search, TrafficChannel::Shared][mt_rand(0, 2)],
+                'channel' => $channel,
+                // Each visit begins its own session, keyed as capture keys one.
+                'source_key' => AnalyticsSource::keyFor($channel, $campaign?->source_id, $host),
+                'campaign_key' => CampaignKey::paid($campaign?->id),
+                'landing_key' => LandingRoute::key($game === null ? null : 'games.play', $game?->id, $opened ? $version?->id : null),
                 'source_id' => $campaign?->source_id,
                 'campaign_id' => $campaign?->id,
                 'site_ref' => $paid ? (string) mt_rand(40100, 40130) : null,
@@ -139,6 +148,8 @@ final class TrafficDemoSeeder extends Seeder
                 'spend_basis' => $paid ? TrafficSpendBasis::ClickCost : TrafficSpendBasis::None,
                 'value_real' => $account ? '0.50' : '0',
             ]);
+
+            $visit->forceFill(['entry_visit_id' => $visit->id])->save();
 
             if ($paid) {
                 TrafficVisitDetail::query()->forceCreate(['visit_id' => $visit->id, 'click_id' => 'demo-'.$i, 'landing_path' => '/games/trust-your-taste', 'created_at' => $arrived]);

@@ -10,9 +10,10 @@ use Carbon\CarbonImmutable;
  * A browser's visits, as the tracker credits them: the paid click that holds
  * it — the latest one whose window is still open, so a later click of a
  * network with a short window that has already closed never hides an earlier
- * one still open — the latest paid click whose window has closed, and a
- * recent unpaid visit to the same game. Reads only; an action locks what it
- * found and asks again.
+ * one still open — the latest paid click whose window has closed, a recent
+ * unpaid visit to the same game, and the latest unpaid visit, whose session
+ * a new arrival may continue. Reads only; an action locks what it found and
+ * asks again.
  */
 final class VisitorVisitQuery
 {
@@ -54,6 +55,22 @@ final class VisitorVisitQuery
             ->where('visitor_hash', $browserHash)
             ->whereNull('source_id')
             ->where('last_seen_at', '>=', $since)
+            ->orderByDesc('id')
+            ->first();
+    }
+
+    /**
+     * The browser's unpaid visit seen last since the given moment — the one a
+     * session continues from, which a reload of an earlier page may have made
+     * the most recent though a later visit has the higher id.
+     */
+    public function lastSeenUnpaid(string $browserHash, CarbonImmutable $since): ?TrafficVisit
+    {
+        return TrafficVisit::query()
+            ->where('visitor_hash', $browserHash)
+            ->whereNull('source_id')
+            ->where('last_seen_at', '>=', $since)
+            ->orderByDesc('last_seen_at')
             ->orderByDesc('id')
             ->first();
     }

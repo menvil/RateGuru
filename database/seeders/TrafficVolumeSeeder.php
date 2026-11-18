@@ -7,6 +7,8 @@ use App\Enums\TrafficSpendBasis;
 use App\Models\TrafficPriceSet;
 use App\Models\TrafficSource;
 use App\Models\TrafficVisit;
+use App\Support\Analytics\AnalyticsSource;
+use App\Support\Analytics\LandingRoute;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Seeder;
 
@@ -45,9 +47,13 @@ final class TrafficVolumeSeeder extends Seeder
             for ($i = 0; $i < self::CHUNK; $i++) {
                 $arrived = $now->subSeconds(mt_rand(0, 30 * 86400));
                 $opened = mt_rand(1, 100) <= 70;
+                $source = $sources[mt_rand(0, count($sources) - 1)];
                 $rows[] = [
                     'channel' => TrafficChannel::Network->value,
-                    'source_id' => $sources[mt_rand(0, count($sources) - 1)],
+                    'source_id' => $source,
+                    // Keyed as capture keys a click, which reports read; the entry id, which only a visitor's journey reads, stays unset.
+                    'source_key' => AnalyticsSource::keyFor(TrafficChannel::Network, (int) $source, null),
+                    'landing_key' => LandingRoute::key(null, null, null),
                     'site_ref' => (string) mt_rand(1, 3000),
                     'zone_ref' => (string) mt_rand(1, 20000),
                     'visitor_hash' => hash('sha256', 'volume-'.$done.'-'.$i),

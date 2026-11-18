@@ -29,6 +29,28 @@ through an encrypted arrival token or the game's `wire:init`), so a crawler that
 runs no script leaves no row. The visitor's browser is the `rg_game_visitor`
 cookie's SHA-256 — the same as the games use.
 
+Every visit belongs to a session: `traffic_visits.entry_visit_id` is the visit
+the session began with, and where that one came from — its source
+(`source_key`, `App\Support\Analytics\AnalyticsSource`: `paid:{source_id}`, a
+known network and the class of its traffic, an unknown host, `shared`,
+`direct`, `internal`), campaign (`campaign_key`), creative (`creative_key`) and
+landing page (`landing_key`, `LandingRoute`: route, game, version) — is copied
+on each of its visits as it is recorded, so a read groups and counts people by
+a column of the visit itself. A paid click always begins a session of its own.
+An unpaid arrival continues the session of the browser's last unpaid visit
+when it moves inside the site or opens a page with no referrer, while that
+visit was seen less than `analytics.session_minutes` ago (`SessionRule`): the
+same visit again on the same game, a new visit of the session otherwise.
+Another site's referrer, a search or a result page reached from outside the
+site or with no referrer begins a new session, while a result page reached
+from the site's own pages continues it; a page the session entered by,
+reached again from the same place — a reload — is the same visit. Channels
+are found as before. A signed-in member of staff or Persona leaves no unpaid
+visit, while paid clicks are recorded for everyone: the owner
+checks the networks' links. The page's path, route and referrer host travel in
+the arrival token, since the call that hands it back is made from another
+address, and the visit's details keep the page's own path.
+
 ## Accounts
 
 A new account records, as it signs up, what it will be credited to

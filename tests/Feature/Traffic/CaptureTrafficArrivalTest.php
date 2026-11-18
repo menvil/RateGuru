@@ -5,6 +5,7 @@ use App\Enums\TrafficCampaignStatus;
 use App\Enums\TrafficChannel;
 use App\Enums\TrafficDevice;
 use App\Enums\TrafficSourceStatus;
+use App\Models\GameResultProfile;
 use App\Models\Post;
 use App\Models\ProjectSettings;
 use App\Models\TrafficCampaign;
@@ -14,6 +15,7 @@ use App\Models\TrafficVisitDetail;
 use App\Models\User;
 use App\Support\Settings\ProjectSettingsManager;
 use App\Support\Traffic\Capture\ArrivalToken;
+use App\Support\Traffic\Capture\TrafficArrival;
 use Carbon\CarbonImmutable;
 
 /**
@@ -149,10 +151,41 @@ it('costs a page without rg_src that is no game nothing', function () {
 });
 
 it('carries an unpaid arrival on a game page in its token, and records no visit for the page itself', function () {
-    $page = clickOn('/games/'.$this->slug, headers: ['Referer' => 'https://www.google.com/'])->assertOk();
+    $page = clickOn('/games/'.$this->slug, headers: ['Referer' => 'https://www.google.co.uk/search?q=taste'])->assertOk();
 
     expect(TrafficVisit::query()->count())->toBe(0)
-        ->and($page->getContent())->not->toContain('name="rg-arrival"');
+        ->and($page->getContent())->not->toContain('name="rg-arrival"')
+        // The game's player took the token, with the page's own route and path: its first call comes from elsewhere.
+        ->and(ArrivalToken::read(app(TrafficArrival::class)->take(), browserHashOf('browserAbrowserAbrowserAbrowserAbrowserA'), now()->getTimestamp()))->toBe([
+            'channel' => 'search',
+            'origin' => 'google',
+            'slug' => $this->slug,
+            'result' => false,
+            'route' => 'games.play',
+            'path' => '/games/'.$this->slug,
+            'host' => 'google.co.uk',
+        ]);
+});
+
+it('begins a session with every paid click, keeping its source, campaign, creative and the page it landed on', function () {
+    $post = Post::factory()->published()->create();
+
+    clickOn('/games/'.$this->slug.'?rg_src=exo&cid=entry-1&campaign=5521904&rg_cr=video-03');
+    clickOn('/posts/'.$post->id.'?rg_src=exo&cid=entry-2');
+    clickOn('/games/'.$this->slug.'/v1/'.GameResultProfile::query()->value('key').'?rg_src=exo&cid=entry-3');
+
+    [$onGame, $onPost, $onResult] = TrafficVisit::query()->orderBy('id')->get()->all();
+
+    expect([$onGame->entry_visit_id, $onPost->entry_visit_id, $onResult->entry_visit_id])->toBe([$onGame->id, $onPost->id, $onResult->id])
+        ->and([$onGame->source_key, $onPost->source_key, $onResult->source_key])->each->toBe('paid:'.$this->source->id)
+        ->and($onGame->campaign_key)->toBe('paid:'.TrafficCampaign::query()->sole()->id)
+        ->and($onPost->campaign_key)->toBeNull()
+        ->and([$onGame->creative_key, $onPost->creative_key])->toBe(['video-03', null])
+        ->and($onGame->landing_key)->toBe('games.play:'.$this->draft['game']->id)
+        ->and($onPost->landing_key)->toBe('posts.show')
+        // A result page names its game as the landing; the game played stays the one of a game's own page.
+        ->and($onResult->landing_key)->toBe('games.result:'.$this->draft['game']->id)
+        ->and($onResult->game_id)->toBeNull();
 });
 
 it('draws the page whatever goes wrong while recording the click', function () {

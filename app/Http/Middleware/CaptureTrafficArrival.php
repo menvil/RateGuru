@@ -25,10 +25,10 @@ use Throwable;
  * drawn — before the guest-viewing check can send the visitor to sign in,
  * before a switched-off section answers 404 — and gives the browser its
  * cookie. A game page or a game's result page reached otherwise carries the
- * unpaid channel it was reached through; that visit is recorded only when
- * the page's script runs. A page without rg_src that is no game costs
- * nothing: no query, no cookie. Whatever goes wrong here is reported and the
- * page is drawn as ever.
+ * unpaid channel it was reached through, the referrer's host and the page's
+ * own route and path; that visit is recorded only when the page's script
+ * runs. A page without rg_src that is no game costs nothing: no query, no
+ * cookie. Whatever goes wrong here is reported and the page is drawn as ever.
  */
 final class CaptureTrafficArrival
 {
@@ -74,18 +74,28 @@ final class CaptureTrafficArrival
         }
 
         $referrer = $request->headers->get('referer');
+        $referrer = is_string($referrer) ? $referrer : null;
+        $landsOnResult = $route !== 'games.play';
         $found = ChannelClassifier::classify(
-            is_string($referrer) ? $referrer : null,
+            $referrer,
             (string) $request->getHost(),
-            $route !== 'games.play',
+            $landsOnResult,
             $this->routeOf($referrer, (string) $request->getHost()),
             $request->userAgent(),
         );
+        $host = ChannelClassifier::host($referrer);
+        // A host is plain ASCII, punycode included; anything else a bot sends would only swell the token past what is read back.
+        $host = $host !== null && preg_match('/^[\x21-\x7E]{1,190}$/', $host) === 1 ? $host : null;
 
+        // The page itself, for the visit and its details: the call that hands the token back is made from another address.
         $this->arrival->set(ArrivalToken::make([
             'channel' => $found['channel']->value,
             'origin' => $found['origin'],
             'slug' => is_string($request->route('slug')) ? $request->route('slug') : null,
+            'result' => $landsOnResult,
+            'route' => $route,
+            'path' => mb_substr('/'.ltrim($request->path(), '/'), 0, 255),
+            'host' => $host,
         ], $this->visitors->ensureBrowserHash(), CarbonImmutable::now('UTC')->getTimestamp()));
     }
 
@@ -112,7 +122,8 @@ final class CaptureTrafficArrival
             $hash,
             $this->visitors->issuedNow(),
             $request->user()?->getAuthIdentifier() === null ? null : (int) $request->user()->getAuthIdentifier(),
-            $route === 'games.play' && is_string($request->route('slug')) ? $request->route('slug') : null,
+            $route,
+            in_array($route, self::GAME_ROUTES, true) && is_string($request->route('slug')) ? $request->route('slug') : null,
             app(RequestSignals::class)->read(),
             $now,
         );
