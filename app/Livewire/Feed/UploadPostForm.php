@@ -2,21 +2,25 @@
 
 namespace App\Livewire\Feed;
 
+use App\Actions\Analytics\RecordUserActivityAction;
 use App\Actions\Import\StoreImportedImageAction;
 use App\Actions\Posts\CreatePostAction;
 use App\Data\Posts\CreatePostData;
 use App\Enums\ImageInputSource;
 use App\Enums\PostStatus;
+use App\Enums\UserActivity;
 use App\Exceptions\Abuse\RateLimitExceededException;
 use App\Exceptions\Import\UrlImportDisabledException;
 use App\Models\Post;
 use App\Models\RatingGroup;
 use App\Models\Tag;
+use App\Models\User;
 use App\Queries\Categories\ActiveCategoriesQuery;
 use App\Services\Media\Exceptions\ImageIngestException;
 use App\Support\Posts\PostContentRules;
 use App\Support\Rating\RatingConfigurationManager;
 use App\Support\Settings\ProjectSettingsManager;
+use Carbon\CarbonImmutable;
 use Illuminate\Contracts\View\View;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Validation\Rule;
@@ -146,6 +150,12 @@ final class UploadPostForm extends Component
                     categoryId: $this->categoryId !== '' ? (int) $this->categoryId : null,
                     authorAnswerOptionIds: $this->selectedAuthorAnswerOptionIds(),
                 ));
+
+                $author = auth()->user();
+
+                if ($author instanceof User) {
+                    app(RecordUserActivityAction::class)->quietly($author, UserActivity::Posted, CarbonImmutable::now());
+                }
 
                 $this->dispatch('post-uploaded', postId: $post->id);
                 // A trusted author's post is published at once; anyone else's

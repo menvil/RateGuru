@@ -74,6 +74,7 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
  * @property CarbonImmutable|null $post_published_at
  * @property CarbonImmutable|null $returned_at
  * @property CarbonImmutable|null $settled_at
+ * @property CarbonImmutable|null $activated_at
  * @property CarbonImmutable|null $late_signup_at
  * @property AccountSignupPlace|null $signup_place
  * @property AccountSignupMethod|null $signup_method
@@ -140,6 +141,7 @@ class TrafficVisit extends Model
             'post_published_at' => 'immutable_datetime',
             'returned_at' => 'immutable_datetime',
             'settled_at' => 'immutable_datetime',
+            'activated_at' => 'immutable_datetime',
             'late_signup_at' => 'immutable_datetime',
             'signup_place' => AccountSignupPlace::class,
             'signup_method' => AccountSignupMethod::class,

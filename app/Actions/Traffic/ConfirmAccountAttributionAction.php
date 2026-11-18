@@ -19,8 +19,9 @@ use Illuminate\Support\Facades\DB;
  * A new account confirmed — its email, or Google or Facebook — counted once,
  * for what it was credited to when it signed up: the play gets
  * `account_confirmed` and, when the flow's goal is an account, its goal; the
- * visit gets its account. Every way of confirming calls it, and only the
- * first does anything.
+ * visit gets its account, and its activation when the account was activated
+ * before it was confirmed (RecordUserActivityAction). Every way of confirming
+ * calls it, and only the first does anything.
  */
 final class ConfirmAccountAttributionAction
 {
@@ -65,6 +66,12 @@ final class ConfirmAccountAttributionAction
                 $this->marks->handle((int) $visit->id, TrafficEvent::Account, $now, [
                     'account_after_seconds' => max(0, (int) $visit->arrived_at->diffInSeconds($now, true)),
                 ]);
+
+                // Activated before it was confirmed: the visit is marked now, beside its account,
+                // and keeps the moment the account was activated.
+                if ($attribution->activated_at !== null) {
+                    $this->marks->handle((int) $visit->id, TrafficEvent::Activated, $now, ['activated_at' => $attribution->activated_at]);
+                }
             }
         });
     }

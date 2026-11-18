@@ -28,6 +28,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property bool $late
  * @property CarbonImmutable|null $first_post_at
  * @property CarbonImmutable|null $returned_at
+ * @property CarbonImmutable|null $activated_at
  * @property CarbonImmutable $created_at
  * @property CarbonImmutable $updated_at
  */
@@ -56,6 +57,7 @@ class AccountAttribution extends Model
             'late' => 'boolean',
             'first_post_at' => 'immutable_datetime',
             'returned_at' => 'immutable_datetime',
+            'activated_at' => 'immutable_datetime',
             'created_at' => 'immutable_datetime',
             'updated_at' => 'immutable_datetime',
         ];

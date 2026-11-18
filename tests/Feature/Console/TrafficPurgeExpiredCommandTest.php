@@ -5,6 +5,7 @@ use App\Models\TrafficPostback;
 use App\Models\TrafficSpendDay;
 use App\Models\TrafficVisit;
 use App\Models\TrafficVisitDetail;
+use App\Models\UserActivityDay;
 use Carbon\CarbonImmutable;
 use Illuminate\Console\Scheduling\Schedule;
 
@@ -48,6 +49,17 @@ it('deletes what is past its retention and keeps the rest', function () {
         ->and(TrafficSpendDay::query()->pluck('id')->all())->toBe([$keptDay->id]);
 });
 
+it('deletes the days members did something after 400 days, without a new environment variable', function () {
+    $old = UserActivityDay::factory()->create(['day' => '2025-10-12']);
+    $kept = UserActivityDay::factory()->create(['user_id' => $old->user_id, 'day' => '2025-10-13']);
+
+    $this->artisan('traffic:purge-expired', ['--chunk' => 1])->assertSuccessful()->expectsOutput('Deleted 1 activity days.');
+
+    expect(config('analytics.retention_days.activity'))->toBe(400)
+        ->and(file_get_contents(config_path('analytics.php')))->not->toContain('env(')
+        ->and(UserActivityDay::query()->pluck('id')->all())->toBe([$kept->id]);
+});
+
 it('deletes nothing when a retention is not a positive number of days', function () {
     config(['traffic.retention_days.visits' => 0]);
     TrafficVisit::factory()->create(['arrived_at' => now()->subDays(900)]);
@@ -55,6 +67,14 @@ it('deletes nothing when a retention is not a positive number of days', function
     $this->artisan('traffic:purge-expired')->assertFailed();
 
     expect(TrafficVisit::query()->count())->toBe(1);
+
+    config(['traffic.retention_days.visits' => 400, 'analytics.retention_days.activity' => 'a year']);
+    UserActivityDay::factory()->create(['day' => '2020-01-01']);
+
+    $this->artisan('traffic:purge-expired')->assertFailed();
+
+    expect(TrafficVisit::query()->count())->toBe(1)
+        ->and(UserActivityDay::query()->count())->toBe(1);
 });
 
 it('runs every day without overlapping', function () {

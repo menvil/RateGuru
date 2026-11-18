@@ -44,9 +44,11 @@ it('puts halfway at the middle round, whatever the length of the game', function
     [8, 'round_4'],
 ]);
 
-it('gives no step to the goal, the sign-up form or the bonuses', function () {
+it('gives no step to the goal, the sign-up form, the bonuses or an account activated', function () {
     expect(TrafficStep::ofEvent(TrafficEvent::Goal, 5))->toBeNull()
         ->and(TrafficStep::ofEvent(TrafficEvent::SignupForm, 5))->toBeNull()
         ->and(TrafficStep::ofEvent(TrafficEvent::PostPublished, 5))->toBeNull()
+        ->and(TrafficStep::ofEvent(TrafficEvent::Activated, 5))->toBeNull()
+        ->and(TrafficEvent::Activated->canPostBack())->toBeFalse()
         ->and(TrafficStep::ofEvent(TrafficEvent::Started, 5))->toBe('started');
 });

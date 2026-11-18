@@ -6,7 +6,8 @@ namespace App\Enums;
  * The moments of a visitor's way the tracker records, each once per visit,
  * in its own column (`traffic_visits.{event}_at`). Twelve of them, the
  * confirmed account and the visit settling can be reported to the network
- * that sent the visitor; the rest are counted only.
+ * that sent the visitor; the rest are counted only — an account activated
+ * among them, which never makes a conversion.
  */
 enum TrafficEvent: string
 {
@@ -32,6 +33,7 @@ enum TrafficEvent: string
     case PostPublished = 'post_published';
     case Returned = 'returned';
     case Settled = 'settled';
+    case Activated = 'activated';
 
     public function column(): string
     {
@@ -91,6 +93,7 @@ enum TrafficEvent: string
             self::PostPublished => 'Published a post',
             self::Returned => 'Came back',
             self::Settled => 'Visit settled',
+            self::Activated => 'Account activated',
         };
     }
 
@@ -119,6 +122,7 @@ enum TrafficEvent: string
             self::PostPublished => 'A first post published within 30 days of signing up',
             self::Returned => 'Back on another day within 7 days of signing up',
             self::Settled => 'Came to rest — its account confirmed, 30 minutes without a new step, or a day after the click — with the best worth it reached',
+            self::Activated => 'The confirmed account came back on one of the 7 days after signing up and voted, commented, posted or started a game',
         };
     }
 }

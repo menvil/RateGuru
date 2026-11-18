@@ -21,6 +21,7 @@ use App\Models\SocialAccount;
 use App\Models\TrafficConversion;
 use App\Models\TrafficVisit;
 use App\Models\User;
+use App\Models\UserActivityDay;
 use App\Queries\Users\UnconfirmedAccountsQuery;
 use Illuminate\Auth\Notifications\VerifyEmail;
 
@@ -201,4 +202,17 @@ it('lets go of what the tracker credited to an account that never confirmed, and
         ->and($conversion->fresh()->attempt_id)->toBeNull()
         ->and($visit->fresh()->signup_at)->not->toBeNull()
         ->and($visit->fresh()->account_at)->toBeNull();
+});
+
+it('leaves neither the days an account that never confirmed did something nor its activation', function () {
+    $bot = unconfirmedMember();
+    $member = User::factory()->create();
+    AccountAttribution::factory()->create(['user_id' => $bot->id, 'signed_up_at' => $bot->created_at, 'activated_at' => $bot->created_at->addDay()]);
+    UserActivityDay::factory()->create(['user_id' => $bot->id, 'day' => $bot->created_at->addDay()->format('Y-m-d')]);
+    UserActivityDay::factory()->create(['user_id' => $bot->id, 'day' => $bot->created_at->addDays(2)->format('Y-m-d'), 'day_number' => 2]);
+    $kept = UserActivityDay::factory()->create(['user_id' => $member->id]);
+
+    expect(purgeUnconfirmed($bot))->toBe(UnconfirmedAccountPurgeOutcome::Purged)
+        ->and(UserActivityDay::query()->pluck('id')->all())->toBe([$kept->id])
+        ->and(AccountAttribution::query()->where('user_id', $bot->id)->exists())->toBeFalse();
 });

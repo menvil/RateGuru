@@ -2,8 +2,10 @@
 
 namespace App\Livewire\Voting;
 
+use App\Actions\Analytics\RecordUserActivityAction;
 use App\Actions\Games\CreditGameSiteActivityAction;
 use App\Actions\Rating\VoteRatingOptionAction;
+use App\Enums\UserActivity;
 use App\Exceptions\Rating\CannotVoteForRatingOptionException;
 use App\Livewire\Concerns\CreditsGameSiteActivity;
 use App\Livewire\Concerns\OpensAuthModal;
@@ -15,6 +17,7 @@ use App\Support\Games\Play\GameVisitorResolver;
 use App\Support\Observability\GuestVoteAttemptLog;
 use App\Support\Rating\RatingConfigurationManager;
 use App\Support\Rating\RatingVoteDistribution;
+use Carbon\CarbonImmutable;
 use Illuminate\Contracts\View\View;
 use Livewire\Attributes\On;
 use Livewire\Component;
@@ -124,6 +127,13 @@ class RatingVoting extends Component
             return;
         }
 
+        // Whether the question had an answer of theirs already: a changed answer is no new vote.
+        $answered = RatingVote::query()
+            ->where('user_id', $user->id)
+            ->where('post_id', $this->post->id)
+            ->where('rating_group_id', $option->rating_group_id)
+            ->exists();
+
         try {
             $voteRatingOption->handle($user, $this->post, $option);
         } catch (CannotVoteForRatingOptionException $e) {
@@ -135,6 +145,10 @@ class RatingVoting extends Component
         $this->hasPreloadedState = false;
         $postId = (int) $this->post->id;
         $this->creditGame(fn (CreditGameSiteActivityAction $credit) => $credit->ratingAnswered($user, $postId, $this->groupKey, app(GameVisitorResolver::class)->browserHash()));
+
+        if (! $answered) {
+            app(RecordUserActivityAction::class)->quietly($user, UserActivity::Voted, CarbonImmutable::now());
+        }
         $this->dispatch($this->votedEventName, postId: $this->post->id, groupKey: $this->groupKey);
     }
 

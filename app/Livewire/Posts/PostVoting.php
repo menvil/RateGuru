@@ -2,8 +2,10 @@
 
 namespace App\Livewire\Posts;
 
+use App\Actions\Analytics\RecordUserActivityAction;
 use App\Actions\Games\CreditGameSiteActivityAction;
 use App\Actions\Votes\VotePostAction;
+use App\Enums\UserActivity;
 use App\Enums\VoteType;
 use App\Exceptions\Votes\CannotVoteException;
 use App\Livewire\Concerns\CreditsGameSiteActivity;
@@ -11,6 +13,7 @@ use App\Livewire\Concerns\OpensAuthModal;
 use App\Models\Post;
 use App\Support\Games\Play\GameVisitorResolver;
 use App\Support\Observability\GuestVoteAttemptLog;
+use Carbon\CarbonImmutable;
 use Illuminate\Contracts\View\View;
 use Livewire\Attributes\Locked;
 use Livewire\Attributes\On;
@@ -119,6 +122,11 @@ final class PostVoting extends Component
         unset($this->post);
 
         $this->creditGame(fn (CreditGameSiteActivityAction $credit) => $credit->postVoteChanged($user, $this->postId, app(GameVisitorResolver::class)->browserHash()));
+
+        // A vote cast where there was none; one taken back or turned the other way is no new vote.
+        if ($currentVote === null) {
+            app(RecordUserActivityAction::class)->quietly($user, UserActivity::Voted, CarbonImmutable::now());
+        }
 
         $this->dispatch('post-voted', postId: $this->postId);
     }

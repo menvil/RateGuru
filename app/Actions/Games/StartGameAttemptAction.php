@@ -2,21 +2,25 @@
 
 namespace App\Actions\Games;
 
+use App\Actions\Analytics\RecordUserActivityAction;
 use App\Enums\GameAttemptStatus;
 use App\Enums\GameEventType;
 use App\Enums\GameFlowStepType;
 use App\Enums\GameMilestone;
 use App\Enums\GameOnwardKind;
+use App\Enums\UserActivity;
 use App\Exceptions\Games\CannotPlayGameException;
 use App\Models\Game;
 use App\Models\GameAttempt;
 use App\Models\GameVersion;
 use App\Models\TrafficVisit;
+use App\Models\User;
 use App\Queries\Games\GameTrafficQuery;
 use App\Support\AbuseGuards\ActionRateLimiter;
 use App\Support\AbuseGuards\RateLimitKey;
 use App\Support\Games\Flow\GameFlowRunner;
 use App\Support\Games\Play\GameVisitor;
+use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -35,12 +39,14 @@ final class StartGameAttemptAction
         private readonly ActionRateLimiter $limiter,
         private readonly GameEventRecorder $events,
         private readonly GameMilestoneRecorder $milestones,
+        private readonly RecordUserActivityAction $activity,
     ) {}
 
     /**
      * The attempt is started under the traffic tracker's visit the page was
      * credited to, when it is this browser's: the visit then shows the game
-     * version the attempt plays, and its later steps go to it.
+     * version the attempt plays, and its later steps go to it. A signed-in
+     * member's start is a day they played, once the attempt is in.
      *
      * @throws CannotPlayGameException
      */
@@ -69,7 +75,7 @@ final class StartGameAttemptAction
         $visit = $visitId === null || $visitor->browserHash === null ? null
             : TrafficVisit::query()->whereKey($visitId)->where('visitor_hash', $visitor->browserHash)->first(['id', 'game_id', 'version_id']);
 
-        return DB::transaction(function () use ($game, $visitor, $locale, $replay, $assignment, $version, $visit, $from): GameAttempt {
+        $attempt = DB::transaction(function () use ($game, $visitor, $locale, $replay, $assignment, $version, $visit, $from): GameAttempt {
             $gameStep = GameFlowRunner::ofType($version->read()->flowSteps(), GameFlowStepType::Game);
 
             $attempt = new GameAttempt;
@@ -112,6 +118,14 @@ final class StartGameAttemptAction
 
             return $attempt;
         });
+
+        $player = $visitor->userId === null ? null : User::query()->find($visitor->userId);
+
+        if ($player !== null) {
+            $this->activity->quietly($player, UserActivity::Played, CarbonImmutable::now());
+        }
+
+        return $attempt;
     }
 
     /**

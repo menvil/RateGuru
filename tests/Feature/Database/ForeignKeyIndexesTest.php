@@ -24,6 +24,7 @@ it('indexes the foreign keys that reads go through', function (string $table, ar
     'the posts with a picture' => ['posts', ['image_asset_id']],
     'the accounts with a picture' => ['users', ['avatar_asset_id']],
     'a tag\'s posts' => ['post_tag', ['tag_id']],
+    'the days an account did something' => ['user_activity_days', ['user_id', 'day']],
 ]);
 
 it('drops the indexes it made on the way down, and makes them again on the way up', function () {

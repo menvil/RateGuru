@@ -44,6 +44,16 @@ was a known visitor's already as it came — and reaches the goal "Account
 confirmed". A first post within 30 days and a return on another day are the
 account's bonuses.
 
+A member who votes on a post or answers a rating question for the first time,
+comments or replies, posts, or starts a game while signed in has that day
+recorded (`RecordUserActivityAction`, `user_activity_days`): one row a UTC day
+with a flag for each, and the day of the account's life — whole UTC days since
+the day it signed up. Personas and staff record nothing, and Content Studio's
+votes never reach it. Doing something on day 1 to 7 (`analytics.activation_days`)
+activates a new account once: its attribution gets `activated_at`, and once the
+account is confirmed its credited visit gets the Activated mark — counted, never
+told to a network. The day it signed up never activates it.
+
 ## Presets
 
 `config/traffic_presets.php` holds eight networks and "Other ad network" as data:
@@ -199,11 +209,11 @@ visits.
 
 ## Retention
 
-`traffic:purge-expired`, daily: visits, conversions, spend figures and the block
-log after 400 days, click details and postbacks after 90, all but the last 30
-runs of chances. Sources, campaigns, prices and attributions stay. A purged
-unconfirmed account takes its attribution and browsers with it
-(docs/architecture/user-lifecycle.md).
+`traffic:purge-expired`, daily: visits, conversions, spend figures, the block
+log and members' activity days after 400 days, click details and postbacks
+after 90, all but the last 30 runs of chances. Sources, campaigns, prices and
+attributions stay. A purged unconfirmed account takes its attribution, browsers
+and activity days with it (docs/architecture/user-lifecycle.md).
 
 ## Privacy
 

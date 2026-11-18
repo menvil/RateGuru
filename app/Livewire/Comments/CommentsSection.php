@@ -2,17 +2,21 @@
 
 namespace App\Livewire\Comments;
 
+use App\Actions\Analytics\RecordUserActivityAction;
 use App\Actions\Comments\DeleteCommentAction;
 use App\Actions\Comments\HideCommentAction;
+use App\Enums\UserActivity;
 use App\Enums\VoteType;
 use App\Exceptions\Comments\CannotCommentException;
 use App\Exceptions\Comments\CannotDeleteCommentException;
 use App\Exceptions\Comments\CannotHideCommentException;
 use App\Models\Comment;
 use App\Models\CommentVote;
+use App\Models\User;
 use App\Queries\Comments\CommentListQuery;
 use App\Services\Comments\CommentReplyService;
 use App\Support\Settings\ProjectSettingsManager;
+use Carbon\CarbonImmutable;
 use Illuminate\Contracts\View\View;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Gate;
@@ -179,6 +183,12 @@ final class CommentsSection extends Component
         unset($this->comments);
         unset($this->totalComments);
         unset($this->totalRenderableTopLevel);
+
+        $user = auth()->user();
+
+        if ($user instanceof User) {
+            app(RecordUserActivityAction::class)->quietly($user, UserActivity::Commented, CarbonImmutable::now());
+        }
 
         $this->dispatch('comment-created', postId: $this->postId, commentId: $comment->id);
     }

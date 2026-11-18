@@ -23,6 +23,7 @@ use App\Models\RatingVote;
 use App\Models\Report;
 use App\Models\TrafficConversion;
 use App\Models\User;
+use App\Models\UserActivityDay;
 use App\Queries\Users\UnconfirmedAccountsQuery;
 use App\Services\Comments\CommentPhysicalDeletionService;
 use App\Services\Posts\PostGraphDeletionService;
@@ -116,12 +117,13 @@ final class PurgeUnconfirmedAccountAction
 
         $this->eraseGames($id);
 
-        // What the account was credited to, and the browsers it was known
-        // by: an account that was never confirmed was never counted. The
-        // visit it signed up on keeps its sign-up, as one that never
-        // confirmed.
+        // What the account was credited to, the browsers it was known by and
+        // the days it did something on the site: an account that was never
+        // confirmed was never counted, nor its activation. The visit it signed
+        // up on keeps its sign-up, as one that never confirmed.
         AccountAttribution::query()->where('user_id', $id)->delete();
         AccountBrowser::query()->where('user_id', $id)->delete();
+        UserActivityDay::query()->where('user_id', $id)->delete();
     }
 
     /**
