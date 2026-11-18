@@ -21,7 +21,7 @@ router.
 | --- | --- | --- |
 | Draft | `games`, `game_content_sets`, `game_rounds`, `game_round_options`, `game_result_profiles`, `game_flows`, `game_flow_steps` | the editors' actions, under `lock_version` — renaming and restoring a set or a flow too |
 | Version | `game_versions` (snapshot JSON), `game_version_assets`, `game_version_posts` | `PublishGameVersionAction` only |
-| Traffic | `game_traffic_periods`, `game_traffic_shares` | `ApplyGameTrafficAction`, `PublishGameVersionAction` (taking traffic over) |
+| Traffic | `game_traffic_periods`, `game_traffic_shares` | `ApplyGameTrafficAction`, `EndGameTrafficSplitAction`, `PublishGameVersionAction` (taking traffic over) |
 | Runtime | `game_assignments`, `game_attempts`, `game_answers`, `game_email_captures`, `game_events` | the player's actions |
 
 Writes live in `app/Actions/Games`, reads in `app/Queries/Games`, and pure
@@ -192,12 +192,76 @@ since — after a publish that took a version's traffic over, say.
 A visitor is assigned deterministically: `hash(game, period, identity) mod 100`
 over the playable versions in number order. The assignment
 (`game_assignments`, one open row per visitor through `active_key` and a unique
-index, inserted in a savepoint) lasts as long as its version keeps a share and
-stays playable. A started attempt always finishes on its own version.
+index, inserted in a savepoint) lasts as long as its version keeps a share in
+any open period of the audience — the general split's or a split for a source —
+and stays playable. A started attempt always finishes on its own version.
 
 The page itself stores nothing: the first Livewire request (`wire:init`)
 assigns and records the `view`, so a client that runs no script is neither
 assigned nor counted.
+
+### Splits for a source
+
+A period has a scope (`TrafficScope`): everyone — the general split, with
+`source_id` and `campaign_id` empty — or the paid clicks of one traffic source
+(`source_id`), or of one of its campaigns (`campaign_id` too). A game has one
+open period per audience and scope: `open_scope` holds `everyone`,
+`source:{id}` or `campaign:{id}` while the period is open and is cleared when
+it ends, under the unique index `game_traffic_periods_open_scope_unique`
+(game, audience, open scope) — NULLs repeat, so ended periods do too, on every
+engine. Sources and campaigns are never deleted, so both references restrict.
+
+Splits are for anonymous visitors only. The arrival's scope is the paid click
+that brought the visitor to this game: the click `CaptureTrafficArrival`
+recorded before the page was drawn, named by the page's arrival token
+(`PlayGame` reads it once, at mount, for both the drawn version and the
+assignment `init` makes), or the visit `StartGameAttemptAction` starts the
+attempt under — in either case only when the click's game is this game. A
+signed-in player, an unpaid arrival and a visitor whose click went to another
+game get the general split. While Record visits is off no click is recorded,
+so splits give nobody anything.
+
+`GameTrafficQuery::assignable()` picks the open period that covers the arrival
+most closely and has a playable share — the campaign's split, then the
+source's, then the general one — and the versions with a playable share in any
+open period of the audience, which a visitor already given one keeps. So a
+visitor who comes back from another source keeps their version; only the
+visitors a split gave a version are in its period (`game_assignments.period_id`),
+so comparisons never mix; and a version taken out of a split moves only the
+visitors who have it nowhere else. A split none of whose versions can be played
+sends its clicks on to the next split that covers them. Without splits this is
+the general period alone, as before.
+
+A split is applied like the general split (`ApplyGameTrafficAction` with a
+scope: the same share rules and stale check, at least one share and one
+playable version, anonymous visitors only), and ended by
+`EndGameTrafficSplitAction`: the split's period ends and stays in the history,
+even one nobody was sent through — never deleted, as a visitor being assigned
+at that moment may already be writing into it. A version
+published to take another's place takes its share in every split too. Each
+split is its own comparison period: Growth → Experiments, Analytics →
+Experiments, the game's Traffic history and its Analytics periods name it by
+its source and campaign (`TrafficPeriodScopesQuery`), and a general period
+that ran beside a split reads as “Everyone else”. Value, postbacks and Traffic
+sources stay per game.
+
+### Test links
+
+A game's Preview offers, for a published version still active, a test link
+(`VersionTestLink`): the game's public page with `v`, signed
+(`URL::temporarySignedRoute`) for seven days. Only `v` and `expires` are
+checked against the signature, so a parameter a channel adds on the way —
+`fbclid`, `utm_*` — leaves the link working. `PlayGamePageController`, the
+action of `games.play`, draws the version through the admin preview's
+component (`PreviewGame`) for a valid link to an active version of that game —
+whatever the game's own status — as whoever holds it, a signed-in player or an
+anonymous visitor, in the site's language, under the preview's banner.
+Nothing is recorded: `CaptureTrafficArrival` leaves the request alone (no
+click, arrival token or cookie), and the preview assigns nobody and keeps its
+picks in its own locked state — no attempt, answer, email, event, milestone or
+conversion; its result's share links go straight to each provider, never
+through the share counter. A link unsigned, tampered with or expired, or to a version archived
+or of another game, is the game's ordinary page.
 
 ## Visitors and attempts
 
@@ -312,7 +376,8 @@ Public routes sit inside the guest-viewing check and behind
 default — which guards every Livewire request of the player as well. The admin
 pages and the preview (`/games/{game}/preview`) need `manage-games`
 (administrators with the privileged panel). The preview plays a draft or a
-version as any kind of visitor in any language and records nothing; `start`
+version as any kind of visitor in any language and records nothing — on the
+game's public page too, for a valid test link (“Test links”); `start`
 takes the landing, a round, a result for a number of matches or any step of
 the flow, `framed` leaves out its banner inside an editor's device frame, and
 `shape` frames every pair landscape, square or portrait.

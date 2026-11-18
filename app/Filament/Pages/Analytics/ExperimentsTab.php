@@ -14,6 +14,7 @@ use App\Models\GameTrafficPeriod;
 use App\Models\GameVersion;
 use App\Queries\Games\ComparisonPeriodsQuery;
 use App\Queries\Games\GameMetricsQuery;
+use App\Queries\Games\TrafficPeriodScopesQuery;
 use App\Support\Analytics\ActivityDay;
 use App\Support\Analytics\AnalyticsFilter;
 use App\Support\Analytics\ComparedVersion;
@@ -26,7 +27,8 @@ use Carbon\CarbonImmutable;
 /**
  * Analytics → Experiments, as the reference draws it: the latest traffic
  * periods that compare two versions or more to choose from, and the one
- * chosen — the address's, else the latest — with its game and audience,
+ * chosen — the address's, else the latest — with its game, audience and
+ * scope (a split's source and campaign, or “Everyone else” beside one),
  * whether it is still open, its days, shares, primary metric and visitors,
  * each version's content and steps, what the figures say so far, and every
  * metric of every version against the reference version with how sure the
@@ -71,6 +73,7 @@ final class ExperimentsTab implements AnalyticsTab
     public function __construct(
         private readonly ComparisonPeriodsQuery $periods,
         private readonly GameMetricsQuery $metrics,
+        private readonly TrafficPeriodScopesQuery $scopes,
     ) {}
 
     /** @return array<string, mixed> */
@@ -97,6 +100,7 @@ final class ExperimentsTab implements AnalyticsTab
         }
 
         $chosen->loadMissing(['versions.flow', 'versions.contentSet']);
+        $scopes = $this->scopes->labels($latest);
 
         return [
             'empty' => false,
@@ -104,14 +108,14 @@ final class ExperimentsTab implements AnalyticsTab
             'allUrl' => $allUrl,
             'choices' => $latest->map(fn (GameTrafficPeriod $period): array => [
                 'id' => (int) $period->id,
-                // Periods of one game differ by audience: the chip says which, as the title does.
-                'name' => $period->game->title.' · '.$period->audience->label(),
+                // Periods of one game differ by audience and scope: the chip says which, as the title does.
+                'name' => ExperimentsView::title($period, $scopes[(int) $period->id] ?? null),
                 'audience' => $period->audience->label(),
                 'icon' => ExperimentsView::AUDIENCE_ICONS[$period->audience->value],
                 'meta' => self::when($period, $today, withStatus: true),
                 'chosen' => (int) $period->id === (int) $chosen->id,
             ])->values()->all(),
-            ...$this->chosen($chosen, $today),
+            ...$this->chosen($chosen, $scopes[(int) $chosen->id] ?? null, $today),
         ];
     }
 
@@ -121,7 +125,7 @@ final class ExperimentsTab implements AnalyticsTab
      *
      * @return array<string, mixed>
      */
-    private function chosen(GameTrafficPeriod $period, CarbonImmutable $today): array
+    private function chosen(GameTrafficPeriod $period, ?string $scope, CarbonImmutable $today): array
     {
         $id = (int) $period->id;
         $comparison = ExperimentsView::comparison($period, $period->audience, $this->metrics->periodFunnel([$id], ExperimentsView::maturedBefore())[$id] ?? []);
@@ -135,7 +139,7 @@ final class ExperimentsTab implements AnalyticsTab
         return [
             'periodId' => $id,
             'title' => implode(' vs ', array_map(fn (ComparedVersion $version): string => $version->label(), $comparison->versions)),
-            'subtitle' => $period->game->title.' · '.$period->audience->label(),
+            'subtitle' => ExperimentsView::title($period, $scope),
             'status' => match ($status) {
                 'current' => ['label' => 'Current', 'tone' => 'success', 'dot' => true],
                 'paused' => ['label' => 'Paused', 'tone' => 'warning', 'dot' => false],

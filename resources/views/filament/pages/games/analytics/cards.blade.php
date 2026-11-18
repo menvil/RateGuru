@@ -318,7 +318,7 @@
                 @foreach ($periodRows as $row)
                     <li class="rg-admin-games__profile">
                         <span class="rg-admin-games__mechanic-text">
-                            <span class="rg-admin-games__mechanic-name">{{ $row['dates'] }}</span>
+                            <span class="rg-admin-games__mechanic-name">{{ $row['dates'] }}{{ $row['scope'] !== null ? ' · '.$row['scope'] : '' }}</span>
                             <span class="rg-admin-games__note">{{ $row['shares'] }} · {{ $row['figures'] }}</span>
                         </span>
                         <span class="rg-admin-games__period-visitors">{{ $row['visitors'] }}</span>

@@ -15,6 +15,7 @@ use App\Models\TrafficPriceSet;
 use App\Models\TrafficSetting;
 use App\Models\TrafficSource;
 use App\Queries\Games\GameMetricsQuery;
+use App\Queries\Games\TrafficPeriodScopesQuery;
 use App\Queries\Traffic\TrafficReportQuery;
 use App\Queries\Users\UnconfirmedAccountsQuery;
 use App\Support\Games\Analytics\GameFunnel;
@@ -254,7 +255,11 @@ final class GameAnalyticsView
         $names = TrafficSource::query()->whereIn('id', $paid->pluck('source_id')->unique())->orderBy('name')->pluck('name', 'id');
         $sourceId = $names->has($sourceId) ? $sourceId : 0;
         $rows = $sourceId === 0 ? $paid : $paid->where('source_id', $sourceId);
-        $shares = GameTrafficPeriod::query()->where('game_id', $game->id)->where('audience', GameAudience::Anonymous->value)->whereNull('ended_at')->with('versions')->first()
+        // The shares the chosen source's clicks get now: its own split's when it has one, else the general split's.
+        $open = GameTrafficPeriod::query()->where('game_id', $game->id)->where('audience', GameAudience::Anonymous->value)->whereNull('ended_at')->whereNull('campaign_id')
+            ->where(fn (Builder $query) => $query->whereNull('source_id')->when($sourceId !== 0, fn (Builder $either) => $either->orWhere('source_id', $sourceId)))
+            ->with('versions')->orderByDesc('id')->get();
+        $shares = ($open->first(fn (GameTrafficPeriod $period): bool => $sourceId !== 0 && $period->source_id === $sourceId) ?? $open->first(fn (GameTrafficPeriod $period): bool => $period->source_id === null))
             ?->versions->mapWithKeys(fn (GameVersion $version): array => [(int) $version->id => (int) $version->getRelation('pivot')->getAttribute('share_percent')]) ?? collect();
         $byVersion = $rows->where('version_id', '!==', null)->groupBy('version_id')->map(fn (Collection $group): ReportFigures => self::sum($group))
             ->filter(fn (ReportFigures $figures, int|string $id): bool => $versions->has((int) $id) && $figures->newVisitors() > 0)
@@ -790,7 +795,8 @@ final class GameAnalyticsView
     }
 
     /**
-     * The audience's traffic periods, newest first, with their shares, the
+     * The audience's traffic periods, newest first, with their scope (a
+     * split's source and campaign, or “Everyone else” beside one), their shares, the
      * visitors sent to a version in each and what they started and
      * completed, and whether its versions can be compared yet — the badge
      * Growth → Experiments gives the period, from the same rule
@@ -819,15 +825,17 @@ final class GameAnalyticsView
         $attempts = $metrics->periods((int) $game->id, $version?->id);
         $funnels = $metrics->periodFunnel($periods->map(fn (GameTrafficPeriod $period): int => (int) $period->id)->all(), ExperimentsView::maturedBefore());
         $results = ExperimentsPage::canAccess();
+        $scopes = app(TrafficPeriodScopesQuery::class)->labels($periods);
 
         return $periods
-            ->map(function (GameTrafficPeriod $period) use ($attempts, $funnels, $audience, $version, $results): array {
+            ->map(function (GameTrafficPeriod $period) use ($attempts, $funnels, $audience, $version, $results, $scopes): array {
                 $visitors = (int) $period->assignments_count;
                 $comparison = ExperimentsView::comparison($period, $audience, $funnels[(int) $period->id] ?? []);
                 $state = $comparison->versions === [] ? null : $comparison->state();
 
                 return [
                     'dates' => $period->started_at->format('d M Y').' — '.($period->ended_at?->format('d M Y') ?? 'now'),
+                    'scope' => $scopes[(int) $period->id] ?? null,
                     'shares' => $period->versions->map(fn (GameVersion $each): string => $each->label().' '.((int) $each->getRelation('pivot')->getAttribute('share_percent')).'%')->implode(' · ') ?: 'No traffic',
                     'figures' => ($version !== null ? $version->label().': ' : '')
                         .number_format($attempts[(int) $period->id]['started'] ?? 0).' started · '

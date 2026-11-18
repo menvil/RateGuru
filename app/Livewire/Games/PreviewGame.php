@@ -10,6 +10,7 @@ use App\Models\Game;
 use App\Models\GameVersion;
 use App\Queries\Games\GameDraftQuery;
 use App\Queries\Games\GameFlowVisitorQuery;
+use App\Queries\Games\TestLinkVersionQuery;
 use App\Services\Games\GamePreviewDrafts;
 use App\Support\Games\Drafts\ContentSetReport;
 use App\Support\Games\Flow\FlowStepDraft;
@@ -40,6 +41,11 @@ use Livewire\Component;
  * Nothing is recorded: no assignment, attempt, answer, email or event. The
  * picks live in the page's own locked state and are judged the way the game
  * judges them; sign-up and sharing only say what they would do.
+ *
+ * The game's public page draws it too, for a valid test link to an active
+ * version (VersionTestLink, PlayGamePageController): that version, from the
+ * landing, as whoever holds the link — a signed-in player or an anonymous
+ * visitor — in the site's language, with the banner saying it is a preview.
  */
 final class PreviewGame extends Component
 {
@@ -96,8 +102,19 @@ final class PreviewGame extends Component
 
     private ?GameVersionSnapshot $snapshotRead = null;
 
-    public function mount(int $game): void
+    /**
+     * @param  int  $game  the game, from the admin preview's address; none on the game's public page, which names it by its slug — a test link
+     */
+    public function mount(int $game = 0): void
     {
+        $slug = request()->route('slug');
+
+        if ($game === 0 && is_string($slug)) {
+            $this->mountTestLink($slug);
+
+            return;
+        }
+
         $model = Game::query()->find($game);
         abort_if($model === null, 404);
 
@@ -122,6 +139,19 @@ final class PreviewGame extends Component
         app()->setLocale($this->locale);
 
         $this->start((string) $request->query('start', 'landing'));
+    }
+
+    /** The version a valid test link names, played from the landing as whoever holds the link; anything else is not found. */
+    private function mountTestLink(string $slug): void
+    {
+        $version = app(TestLinkVersionQuery::class)->find(request(), $slug);
+        abort_if($version === null, 404);
+
+        $this->gameId = (int) $version->game_id;
+        $this->versionId = (int) $version->id;
+        $this->visitorMode = auth()->check() ? 'authenticated' : 'anonymous';
+        $this->locale = app()->getLocale();
+        $this->start('landing');
     }
 
     public function hydrate(): void

@@ -20,6 +20,7 @@ use App\Support\AbuseGuards\ActionRateLimiter;
 use App\Support\AbuseGuards\RateLimitKey;
 use App\Support\Games\Flow\GameFlowRunner;
 use App\Support\Games\Play\GameVisitor;
+use App\Support\Games\Traffic\TrafficScope;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -45,8 +46,10 @@ final class StartGameAttemptAction
     /**
      * The attempt is started under the traffic tracker's visit the page was
      * credited to, when it is this browser's: the visit then shows the game
-     * version the attempt plays, and its later steps go to it. A signed-in
-     * member's start is a day they played, once the attempt is in.
+     * version the attempt plays, and its later steps go to it. A paid click
+     * that brought the visitor to this game gives a visitor not yet assigned
+     * its split for a source or campaign. A signed-in member's start is a day
+     * they played, once the attempt is in.
      *
      * @throws CannotPlayGameException
      */
@@ -59,7 +62,17 @@ final class StartGameAttemptAction
         [$most, $per] = config('games.rate_limits.start');
         $this->limiter->hitOrFail(RateLimitKey::gameVisitorAction('game-start', $visitor->identityKey()), (int) $most, (int) $per);
 
-        $assignment = $this->assign->handle($game, $visitor);
+        $visit = $visitId === null || $visitor->browserHash === null ? null
+            : TrafficVisit::query()->whereKey($visitId)->where('visitor_hash', $visitor->browserHash)->first(['id', 'game_id', 'version_id', 'source_id', 'campaign_id']);
+
+        // A paid click that brought the visitor to this game gives them its split, as the page did.
+        $arrival = $visit === null ? TrafficScope::everyone() : TrafficScope::ofVisit(
+            (int) $game->id,
+            $visit->game_id === null ? null : (int) $visit->game_id,
+            $visit->source_id === null ? null : (int) $visit->source_id,
+            $visit->campaign_id === null ? null : (int) $visit->campaign_id,
+        );
+        $assignment = $this->assign->handle($game, $visitor, arrival: $arrival);
         $version = $assignment !== null ? GameVersion::query()->find($assignment->version_id) : null;
 
         if ($version === null || $this->traffic->unplayableVersionIds([(int) $version->id]) !== []) {
@@ -71,9 +84,6 @@ final class StartGameAttemptAction
         if (! $game->status->acceptsNewAttempts()) {
             throw CannotPlayGameException::becauseGameIsNotLive();
         }
-
-        $visit = $visitId === null || $visitor->browserHash === null ? null
-            : TrafficVisit::query()->whereKey($visitId)->where('visitor_hash', $visitor->browserHash)->first(['id', 'game_id', 'version_id']);
 
         $attempt = DB::transaction(function () use ($game, $visitor, $locale, $replay, $assignment, $version, $visit, $from): GameAttempt {
             $gameStep = GameFlowRunner::ofType($version->read()->flowSteps(), GameFlowStepType::Game);

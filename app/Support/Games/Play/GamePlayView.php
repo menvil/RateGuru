@@ -86,7 +86,7 @@ final readonly class GamePlayView
             ]);
         }
 
-        $result = $attempt !== null && $attempt->status === GameAttemptStatus::Completed ? self::result($game, $versionId, $snapshot, $attempt, $visitor, $locale) : null;
+        $result = $attempt !== null && $attempt->status === GameAttemptStatus::Completed ? self::result($game, $versionId, $snapshot, $attempt, $visitor, $locale, $preview) : null;
 
         return new self('step', $title, [
             'game' => $gameData,
@@ -334,7 +334,7 @@ final readonly class GamePlayView
     }
 
     /** @return array<string, mixed> */
-    private static function result(Game $game, int $versionId, GameVersionSnapshot $snapshot, GameAttempt $attempt, GameVisitor $visitor, string $locale): array
+    private static function result(Game $game, int $versionId, GameVersionSnapshot $snapshot, GameAttempt $attempt, GameVisitor $visitor, string $locale, bool $preview): array
     {
         $outcomes = $attempt->answers->sortBy('round_index')->pluck('outcome')->values()->all();
         $result = GameScorer::result($snapshot, $outcomes);
@@ -382,15 +382,21 @@ final readonly class GamePlayView
                 // What the card names after the score: the player, or the site.
                 'byline' => $player ?? DisplayHost::of($shareUrl),
                 'text' => $shareText,
-                'links' => self::shareLinks($game, $versionNumber, $profile?->key, $played ? $attempt->public_id : null, $shareUrl, $shareText, $title, $site),
+                'links' => self::shareLinks($game, $versionNumber, $profile?->key, $played ? $attempt->public_id : null, $shareUrl, $shareText, $title, $site, $preview),
             ],
             // Signed up or in from this attempt: the name is on the card now.
             'named' => $player !== null && $attempt->account_outcome !== null ? $player : null,
         ];
     }
 
-    /** @return list<array{provider: string, label: string, url: string|null}> */
-    private static function shareLinks(Game $game, int $versionNumber, ?string $profileKey, ?string $attemptId, string $url, string $text, string $title, string $site): array
+    /**
+     * Each provider's link: through the share counter while the share is of a
+     * played result; straight to the provider in a preview — the admin's or a
+     * test link's — which counts nothing.
+     *
+     * @return list<array{provider: string, label: string, url: string|null}>
+     */
+    private static function shareLinks(Game $game, int $versionNumber, ?string $profileKey, ?string $attemptId, string $url, string $text, string $title, string $site, bool $preview): array
     {
         $links = [];
         $metadata = new ShareMetadata(title: $title, shareText: $text, description: $text, url: $url, imageUrl: null, siteName: $site);
@@ -404,7 +410,7 @@ final readonly class GamePlayView
                 'provider' => $provider->value,
                 'label' => __('games.play.share_'.$provider->value),
                 'url' => match (true) {
-                    ! $provider->sharesThroughRedirect() => app(ShareUrlBuilder::class)->build($provider, $metadata),
+                    $preview || ! $provider->sharesThroughRedirect() => app(ShareUrlBuilder::class)->build($provider, $metadata),
                     $attemptId !== null => route('games.player-share', ['slug' => $game->slug, 'attempt' => $attemptId, 'provider' => $provider->value]),
                     $profileKey !== null && $versionNumber > 0 => route('games.share', ['slug' => $game->slug, 'version' => $versionNumber, 'profile' => $profileKey, 'provider' => $provider->value]),
                     default => app(ShareUrlBuilder::class)->build($provider, $metadata),

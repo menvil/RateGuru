@@ -25,7 +25,8 @@
                     data-period="{{ $choice['id'] }}"
                 >
                     <x-admin.ui.icon :name="$choice['icon']" :size="14" class="rg-admin-experiments__choice-icon" />
-                    <span class="rg-admin-experiments__choice-name">{{ $choice['name'] }}</span>
+                    {{-- Cut short where a wide screen's chip is narrow, the whole name on hover; wrapped whole on a phone. --}}
+                    <span class="rg-admin-experiments__choice-name" title="{{ $choice['name'] }}">{{ $choice['name'] }}</span>
                     <span class="rg-admin-experiments__choice-meta">{{ $choice['meta'] }}</span>
                 </button>
             @endforeach

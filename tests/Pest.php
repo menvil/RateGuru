@@ -49,6 +49,7 @@ use App\Jobs\Translations\GenerateProjectTranslationChunkJob;
 use App\Livewire\Admin\StudioPlanDiscussionEditor;
 use App\Livewire\Admin\StudioPlanDiscussionVotesEditor;
 use App\Livewire\Admin\StudioPlanPostVotesEditor;
+use App\Livewire\Games\PlayGame;
 use App\Models\AccountAttribution;
 use App\Models\Category;
 use App\Models\Comment;
@@ -88,6 +89,7 @@ use App\Models\TrafficStepChance;
 use App\Models\TrafficVisit;
 use App\Models\TranslationAiProviderCall;
 use App\Models\User;
+use App\Queries\Games\GameTrafficQuery;
 use App\Services\Media\GeneratedMediaVariant;
 use App\Services\Media\ImageVariantProcessor;
 use App\Services\Media\MediaReferenceChecker;
@@ -99,6 +101,7 @@ use App\Support\Analytics\AnalyticsSource;
 use App\Support\Games\Flow\FlowStepDraft;
 use App\Support\Games\Flow\GameFlowValidator;
 use App\Support\Games\Results\ResultProfileCoverage;
+use App\Support\Games\Traffic\TrafficScope;
 use App\Support\Geo\GeoDatabaseLocator;
 use App\Support\Import\Dns\HostResolver;
 use App\Support\Import\ImportFetchPolicy;
@@ -111,6 +114,8 @@ use App\Support\Settings\PresetSettingsBuilder;
 use App\Support\Settings\ProjectSettingsManager;
 use App\Support\Studio\StudioExecutionSwitch;
 use App\Support\Studio\StudioVerifiedAdults;
+use App\Support\Traffic\Capture\ArrivalToken;
+use App\Support\Traffic\Capture\TrafficArrival;
 use App\Support\TranslationEngine\Contracts\TranslationProvider;
 use App\Support\TranslationEngine\Data\TranslationBatchRequest;
 use App\Support\TranslationEngine\Data\TranslationItem;
@@ -14561,6 +14566,22 @@ function liveGame(array $draft): GameVersion
 }
 
 /**
+ * A split of a game's anonymous visitors for a source or one of its
+ * campaigns, applied as the Traffic tab applies it (version id => share):
+ * its open period.
+ *
+ * @param  array{admin: User, game: Game}  $draft
+ * @param  array<int, int>  $shares
+ */
+function gameSplit(array $draft, TrafficScope $scope, array $shares): GameTrafficPeriod
+{
+    app(ApplyGameTrafficAction::class)->handle($draft['admin'], $draft['game'], GameAudience::Anonymous, $shares, null, $scope);
+
+    return app(GameTrafficQuery::class)->currentPeriod((int) $draft['game']->id, GameAudience::Anonymous, $scope)
+        ?? throw new RuntimeException('the split was not applied');
+}
+
+/**
  * A traffic period of a game — of anonymous visitors unless told otherwise —
  * started at a moment and ended at another when one is given, sharing its
  * visitors between the game's versions by number (number => share); a version
@@ -14812,6 +14833,25 @@ function clickOn(string $path, string $token = 'browserAbrowserAbrowserAbrowserA
 function browserHashOf(string $token): string
 {
     return hash('sha256', $token);
+}
+
+/** The visitor token of the browser a game page is opened in, unless a test names another. */
+const OPEN_TOKEN = 'openTokenopenTokenopenTokenopenTokenopen';
+
+/**
+ * The game page as drawn with the given arrival — a paid click's visit, or
+ * an unpaid arrival's channel and page — played by the browser holding the
+ * token (OPEN_TOKEN unless another is given).
+ *
+ * @param  array<string, mixed>  $arrival
+ */
+function arrivedAt(string $slug, array $arrival, string $token = OPEN_TOKEN): Testable
+{
+    app(TrafficArrival::class)->set(ArrivalToken::make($arrival, browserHashOf($token), now()->getTimestamp()));
+
+    return Livewire::withCookie((string) config('games.visitor_cookie.name'), $token)
+        ->withHeaders(['User-Agent' => DESKTOP_CHROME_USER_AGENT, 'Accept-Language' => 'en'])
+        ->test(PlayGame::class, ['slug' => $slug]);
 }
 
 /**

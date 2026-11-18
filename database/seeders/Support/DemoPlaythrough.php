@@ -34,6 +34,7 @@ use App\Models\SocialAccount;
 use App\Models\TrafficSource;
 use App\Models\TrafficVisit;
 use App\Models\User;
+use App\Queries\Games\GameTrafficQuery;
 use App\Support\Games\Flow\FlowStepDraft;
 use App\Support\Games\Flow\GameFlowRunner;
 use App\Support\Games\Play\GameVisitor;
@@ -142,7 +143,9 @@ final class DemoPlaythrough
         $at = $at->addSeconds(mt_rand(2, 12));
         self::clock($at);
         $player = new GameVisitor($member ? GameAudience::Authenticated : GameAudience::Anonymous, $userId, $member ? null : $visitor->browserHash, $visitor->browserHash);
-        $assignment = app(AssignGameVersionAction::class)->handle($this->game, $player, viewed: true);
+        // A paid click gives the visitor its split for a source or campaign, where the game has one, as the page does.
+        $scope = $paid && $visitId !== null ? app(GameTrafficQuery::class)->arrivalScope((int) $this->game->id, $visitId, $visitor->browserHash) : null;
+        $assignment = app(AssignGameVersionAction::class)->handle($this->game, $player, viewed: true, arrival: $scope);
 
         if ($assignment === null) {
             return null;

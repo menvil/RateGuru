@@ -45,8 +45,6 @@ use Livewire\Livewire;
  * creative; an arrival tagged otherwise begins a session of its own, and a
  * network's unfilled placeholders are no tags.
  */
-const OPEN_TOKEN = 'openTokenopenTokenopenTokenopenTokenopen';
-
 beforeEach(function () {
     CarbonImmutable::setTestNow('2026-11-17 12:00:00');
     recordTraffic();
@@ -59,16 +57,6 @@ beforeEach(function () {
 afterEach(function () {
     CarbonImmutable::setTestNow();
 });
-
-/** The game page as drawn with the given arrival, played by the browser holding OPEN_TOKEN. */
-function arrivedAt(string $slug, array $arrival, string $token = OPEN_TOKEN)
-{
-    app(TrafficArrival::class)->set(ArrivalToken::make($arrival, browserHashOf($token), now()->getTimestamp()));
-
-    return Livewire::withCookie((string) config('games.visitor_cookie.name'), $token)
-        ->withHeaders(['User-Agent' => DESKTOP_CHROME_USER_AGENT, 'Accept-Language' => 'en'])
-        ->test(PlayGame::class, ['slug' => $slug]);
-}
 
 /**
  * The browser holding the token (OPEN_TOKEN unless another is given) asks for

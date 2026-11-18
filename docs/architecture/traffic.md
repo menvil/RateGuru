@@ -28,8 +28,10 @@ site visits (`site_capture_enabled`) is on too, so do the site's own pages —
 the feed, a post, a profile, the static pages, signing in and up, saved posts
 (`CaptureTrafficArrival::SITE_ROUTES`) — when asked for as a page; one that
 turns out to be none, a redirect or an error, takes back the cookie it gave.
-The administration, a game's preview, share redirects and the health check are
-never among them, and any other page reads nothing at all. Both switches come
+The administration, a game's preview, a game page opened by a valid test link
+to one of its versions (`VersionTestLink`, docs/architecture/games.md "Test
+links"), share redirects and the health check are never among them, and any
+other page reads nothing at all. Both switches come
 from one read of the cache (`TrafficSetting::captureFlags()`), kept until the
 row is saved again, so with recording off such a page asks the database
 nothing. Only a game's result page reached from outside the site is a shared

@@ -31,6 +31,8 @@ use App\Support\Games\Play\GameSessionAttempts;
 use App\Support\Games\Play\GameVisitor;
 use App\Support\Games\Play\GameVisitorResolver;
 use App\Support\Games\Snapshot\GameVersionSnapshot;
+use App\Support\Games\Traffic\TrafficScope;
+use App\Support\Traffic\Capture\ArrivalToken;
 use App\Support\Traffic\Capture\RequestSignals;
 use App\Support\Traffic\Capture\TrafficArrival;
 use App\Support\View\AppLayoutData;
@@ -89,6 +91,17 @@ final class PlayGame extends Component
     #[Locked]
     public ?int $visitId = null;
 
+    /**
+     * The paid click that brought an anonymous visitor to the game, by its
+     * source and campaign, as the arrival token named it: a split for that
+     * source or campaign gives them its own shares.
+     */
+    #[Locked]
+    public ?int $paidSourceId = null;
+
+    #[Locked]
+    public ?int $paidCampaignId = null;
+
     public string $email = '';
 
     public bool $consent = false;
@@ -124,7 +137,8 @@ final class PlayGame extends Component
             return;
         }
 
-        $versionId = app(AssignGameVersionAction::class)->preview($game, $visitor);
+        $this->readPaidClick($visitor);
+        $versionId = app(AssignGameVersionAction::class)->preview($game, $visitor, $this->arrivalScope());
 
         if ($versionId === null || app(GameTrafficQuery::class)->unplayableVersionIds([$versionId]) !== []) {
             $this->unavailable = 'unavailable';
@@ -150,7 +164,7 @@ final class PlayGame extends Component
         }
 
         if ($this->unavailable === null && $this->attemptId === null) {
-            $assignment = app(AssignGameVersionAction::class)->handle($game, $this->visitor(), viewed: true);
+            $assignment = app(AssignGameVersionAction::class)->handle($game, $this->visitor(), viewed: true, arrival: $this->arrivalScope());
 
             // The shares changed between the page and now: start from the version given.
             if ($assignment !== null && (int) $assignment->version_id !== $this->versionId) {
@@ -511,6 +525,34 @@ final class PlayGame extends Component
     private function currentType(): ?GameFlowStepType
     {
         return GameFlowRunner::find($this->snapshot()->flowSteps(), $this->stepKey)?->type;
+    }
+
+    /**
+     * The source and campaign of the paid click the arrival token names —
+     * recorded for this browser, before the page was drawn — when it brought
+     * an anonymous visitor to this game. A signed-in player's arrival and an
+     * unpaid one have none.
+     */
+    private function readPaidClick(GameVisitor $visitor): void
+    {
+        if (! $visitor->isAnonymous() || $visitor->browserHash === null || $this->arrival === '') {
+            return;
+        }
+
+        $arrival = ArrivalToken::read($this->arrival, $visitor->browserHash, CarbonImmutable::now('UTC')->getTimestamp());
+
+        if (! isset($arrival['visit'])) {
+            return;
+        }
+
+        $scope = app(GameTrafficQuery::class)->arrivalScope($this->gameId, (int) $arrival['visit'], $visitor->browserHash);
+        $this->paidSourceId = $scope->sourceId;
+        $this->paidCampaignId = $scope->campaignId;
+    }
+
+    private function arrivalScope(): TrafficScope
+    {
+        return TrafficScope::of($this->paidSourceId, $this->paidCampaignId);
     }
 
     /** Hands the arrival back to the tracker; a failure there never stops the game. */

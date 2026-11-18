@@ -6,6 +6,7 @@ use App\Actions\Traffic\RecordPaidClickAction;
 use App\Models\Post;
 use App\Models\TrafficSetting;
 use App\Models\TrafficSource;
+use App\Queries\Games\TestLinkVersionQuery;
 use App\Support\Analytics\UtmTags;
 use App\Support\Games\Play\GameVisitorResolver;
 use App\Support\Observability\DomainLogger;
@@ -35,8 +36,9 @@ use Throwable;
  * the static pages, signing in and up, saved posts — asked for as a page,
  * and one that turns out to be none (a redirect, an error) takes its cookie
  * back. The administration, a game's preview, share redirects and the health
- * check are never among them. A post's own page carries its post as well,
- * paid click or not, counted opened when the page's script runs.
+ * check are never among them, nor a game page opened by a valid test link to
+ * one of its versions (VersionTestLink). A post's own page carries its post
+ * as well, paid click or not, counted opened when the page's script runs.
  *
  * A page without rg_src that is neither costs nothing: no query, no cookie.
  * One that is reads the two switches, one read of the cache, and with
@@ -97,6 +99,12 @@ final class CaptureTrafficArrival
         $onSite = in_array($route, self::SITE_ROUTES, true);
 
         if (! $paid && ! $onGame && ! $onSite) {
+            return false;
+        }
+
+        // A game's test link plays its version and records nothing: no click, no arrival, no cookie.
+        if ($route === 'games.play' && $request->query->has('v') && is_string($request->route('slug'))
+            && app(TestLinkVersionQuery::class)->find($request, $request->route('slug')) !== null) {
             return false;
         }
 

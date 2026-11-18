@@ -48,7 +48,11 @@ Prepare and preview a game first; switch games on when it is live.
    on Share, which then offers the way to the feed.
 6. **Preview.** Play the draft or any version as an anonymous visitor or a
    logged-in player, in any language, from the landing, from a given round,
-   or straight to a result. Nothing is recorded.
+   or straight to a result. Nothing is recorded. With a published version
+   still active chosen, **Copy test link** copies a link to the game's page
+   that plays that version for whoever opens it, signed in or not, for seven
+   days — before the game is live too — and records nothing; once it expires,
+   or the version is archived, it opens the ordinary game page.
 
 Games are not created in the admin: each arrives with the release that adds
 it, as a draft in Growth → Games — the first is **Trust Your Taste** (Versus),
@@ -80,6 +84,19 @@ version, give it traffic and set it live.
   finishes on the version it started on. If the shares changed after you
   opened Traffic — someone published and took a version's traffic over —
   Apply changes nothing and shows the shares in effect now.
+- **Splits for a source.** Under the general split, **Split for a source**
+  gives anonymous visitors from one paid source — an ad network or a banner of
+  Traffic sources — or from one of its campaigns shares of their own: choose
+  the source, a campaign or every campaign, share the versions as above and
+  save. The closest split wins: the campaign's, then the source's, then the
+  general one, which then reads as "Everyone else". Logged-in players and
+  unpaid visitors always get the general split, and the ad link stays one per
+  game. A visitor keeps their version when they come back from another source.
+  Each split is its own period in Experiments and Analytics, named by its
+  source and campaign; **Edit** changes it, **End** sends its clicks back to
+  the general split and keeps the split in the history as an ended period.
+  Splits need Traffic sources → **Record visits** on: only a recorded click
+  knows its source.
 - **Status.** Go live once a version has traffic. Pause stops new games but
   lets started ones finish. Archive ends the game; its shared result pages say
   it has ended.

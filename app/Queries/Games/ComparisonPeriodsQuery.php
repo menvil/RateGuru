@@ -13,7 +13,8 @@ use Illuminate\Support\Collection;
 
 /**
  * The traffic periods of Growth → Experiments: every period of a game not
- * archived, both audiences, that gave its visitors to at least one version
+ * archived, both audiences, the general split's and each split's for a
+ * source or campaign alike, that gave its visitors to at least one version
  * and was not hidden from the list — searched over the game's public title,
  * internal name and slug, narrowed to comparisons (two versions or more) and
  * to current or ended periods, the latest started first across every game.
@@ -122,7 +123,8 @@ final class ComparisonPeriodsQuery implements RawSqlPersistenceBoundary, StableP
     }
 
     /**
-     * The periods of one game and audience that a period's page can switch
+     * The periods of one game, audience and scope — the general split's, or
+     * one split's for a source or campaign — that a period's page can switch
      * to: those with shares and not hidden, the latest started first.
      *
      * @return Collection<int, GameTrafficPeriod>
@@ -132,6 +134,8 @@ final class ComparisonPeriodsQuery implements RawSqlPersistenceBoundary, StableP
         return GameTrafficPeriod::query()
             ->where('game_id', $period->game_id)
             ->where('audience', $period->audience->value)
+            ->when($period->source_id === null, fn (Builder $query) => $query->whereNull('source_id'), fn (Builder $query) => $query->where('source_id', $period->source_id))
+            ->when($period->campaign_id === null, fn (Builder $query) => $query->whereNull('campaign_id'), fn (Builder $query) => $query->where('campaign_id', $period->campaign_id))
             ->whereNull('hidden_at')
             ->has('versions')
             ->with('versions')

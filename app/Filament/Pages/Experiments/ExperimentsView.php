@@ -13,6 +13,7 @@ use App\Models\GameTrafficPeriod;
 use App\Models\GameVersion;
 use App\Queries\Games\ComparisonPeriodsQuery;
 use App\Queries\Games\GameMetricsQuery;
+use App\Queries\Games\TrafficPeriodScopesQuery;
 use App\Support\Analytics\ActivityDay;
 use App\Support\Analytics\ComparedVersion;
 use App\Support\Analytics\PeriodComparison;
@@ -21,10 +22,11 @@ use Carbon\CarbonImmutable;
 
 /**
  * What Growth → Experiments shows (ExperimentsPage): the list of traffic
- * periods — each with its game, audience, days, shares, visitors and whether
- * its versions can be compared yet, all of a page's figures read at once —
- * or one period's page: its status, the periods of the same game and
- * audience to switch to, what the figures say so far, every version's rates
+ * periods — each with its game, audience and scope (a split's source and
+ * campaign, or “Everyone else” beside one), days, shares, visitors and
+ * whether its versions can be compared yet, all of a page's figures read at
+ * once — or one period's page: its status, the periods of the same game,
+ * audience and scope to switch to, what the figures say so far, every version's rates
  * against the reference version, and the ways into the game's Traffic,
  * Versions and Analytics tabs. Reads only; hiding a period is the page's,
  * through an Action.
@@ -50,7 +52,14 @@ final class ExperimentsView
     public function __construct(
         private readonly ComparisonPeriodsQuery $periods,
         private readonly GameMetricsQuery $metrics,
+        private readonly TrafficPeriodScopesQuery $scopes,
     ) {}
+
+    /** A period's game, audience and scope: “Trust Your Taste · Anonymous visitors · ExoClick tests”. */
+    public static function title(GameTrafficPeriod $period, ?string $scope): string
+    {
+        return implode(' · ', array_filter([$period->game->title, $period->audience->label(), $scope]));
+    }
 
     /**
      * The moment an account must have signed up before for its activation to
@@ -99,6 +108,7 @@ final class ExperimentsView
         $funnels = $this->metrics->periodFunnel(array_map(fn (GameTrafficPeriod $period): int => (int) $period->id, $periods), self::maturedBefore());
         $filtered = trim($search) !== '' || $show !== 'all' || $status !== 'all';
         $today = CarbonImmutable::now('UTC');
+        $scopes = $this->scopes->labels($periods);
 
         return [
             'paginator' => $paginator,
@@ -108,7 +118,7 @@ final class ExperimentsView
             'emptyText' => $paginator->total() > 0 ? null : ($filtered || $this->periods->anyListed()
                 ? 'No periods match these filters.'
                 : 'No traffic periods yet. Each Apply in a game’s Traffic tab starts one.'),
-            'rows' => array_map(fn (GameTrafficPeriod $period): array => $this->row($period, $funnels[(int) $period->id] ?? [], $today), $periods),
+            'rows' => array_map(fn (GameTrafficPeriod $period): array => $this->row($period, $funnels[(int) $period->id] ?? [], $scopes[(int) $period->id] ?? null, $today), $periods),
         ];
     }
 
@@ -152,17 +162,19 @@ final class ExperimentsView
         $visitors = $comparison->assigned();
         $ended = $period->ended_at !== null;
         $days = self::days($period, $today);
+        $scope = $this->scopes->labels([$period])[(int) $period->id] ?? null;
 
         return [
             'notFound' => false,
             'periodId' => (int) $period->id,
-            'title' => $game->title.' · '.$audience->label(),
+            'title' => self::title($period, $scope),
+            'scope' => $scope,
             'ended' => $ended,
             'hidden' => $period->hidden_at !== null,
             'canDelete' => $ended && $period->hidden_at === null,
             'state' => ['label' => $state->label(), 'tone' => $state->tone()],
             'meta' => self::dates($period, false).' · '.number_format($days).' '.str('day')->plural($days).' · '.number_format($visitors).' '.str('visitor')->plural($visitors),
-            'group' => mb_strtolower($audience->label()),
+            'group' => implode(' · ', array_filter([mb_strtolower($audience->label()), $period->source_id === null ? null : $scope])),
             'switcher' => $this->periods->siblings($period)->map(fn (GameTrafficPeriod $each): array => [
                 'label' => self::dates($each, true, $today),
                 'mix' => self::mix($each),
@@ -202,9 +214,10 @@ final class ExperimentsView
      * A row of the list.
      *
      * @param  array<int, PeriodVersionFunnel>  $funnels
+     * @param  string|null  $scope  the period's scope in words, if it reads as more than its audience
      * @return array<string, mixed>
      */
-    private function row(GameTrafficPeriod $period, array $funnels, CarbonImmutable $today): array
+    private function row(GameTrafficPeriod $period, array $funnels, ?string $scope, CarbonImmutable $today): array
     {
         $comparison = self::comparison($period, $period->audience, $funnels);
         $state = $comparison->state();
@@ -218,6 +231,7 @@ final class ExperimentsView
             'icon' => $period->game->mechanic->icon(),
             'audience' => $period->audience->label(),
             'audienceIcon' => self::AUDIENCE_ICONS[$period->audience->value],
+            'scope' => $scope,
             'dates' => self::dates($period, false),
             'days' => number_format($days).' '.str('day')->plural($days),
             'mix' => self::mix($period),

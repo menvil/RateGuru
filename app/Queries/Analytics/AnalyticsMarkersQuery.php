@@ -15,7 +15,8 @@ use Illuminate\Database\Eloquent\Builder;
  * What happened in an Analytics period that a chart marks on its day: a
  * game's version published, a paid campaign's first click, and a traffic
  * period that started sharing its visitors between two versions or more —
- * still listed in Growth → Experiments — with the audience it shares. Only
+ * still listed in Growth → Experiments — with the audience it shares and, for
+ * a split for a source, that source and campaign. Only
  * what the filter's source and campaign can have had a part in: a paid
  * campaign's start only with no source chosen or its own paid source, and no
  * campaign chosen or itself. The newest first, at most the number asked for.
@@ -52,11 +53,16 @@ final class AnalyticsMarkersQuery
             }
         }
 
-        foreach (GameTrafficPeriod::query()->with(['game:id,title', 'versions'])->whereNull('hidden_at')->has('versions', '>=', 2)
+        $periods = GameTrafficPeriod::query()->with(['game:id,title', 'versions'])->whereNull('hidden_at')->has('versions', '>=', 2)
             ->where('started_at', '>=', $from)->where('started_at', '<', $before)
-            ->orderByDesc('started_at')->orderByDesc('id')->limit($most)->get() as $period) {
+            ->orderByDesc('started_at')->orderByDesc('id')->limit($most)->get();
+        // A split for a source names its source and campaign; the general split's periods read as they always have.
+        $periods->whereNotNull('source_id')->load(['source:id,name', 'campaign:id,source_id,external_id,name']);
+
+        foreach ($periods as $period) {
             $versions = $period->versions->map(fn (GameVersion $version): string => 'V'.$version->number)->implode(' · ');
-            $markers[] = ['at' => $period->started_at, 'text' => ($period->game->title ?? 'A game').': '.$versions.' comparison started for '.mb_strtolower($period->audience->label())];
+            $scope = $period->scopeLabel();
+            $markers[] = ['at' => $period->started_at, 'text' => ($period->game->title ?? 'A game').': '.$versions.' comparison started for '.mb_strtolower($period->audience->label()).($scope !== null ? ' · '.$scope : '')];
         }
 
         usort($markers, fn (array $a, array $b): int => $b['at'] <=> $a['at']);

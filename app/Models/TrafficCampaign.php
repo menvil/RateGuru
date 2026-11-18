@@ -85,6 +85,12 @@ class TrafficCampaign extends Model
         ];
     }
 
+    /** The campaign as the admin names it: its own name, or “Campaign {its id in the network}”. */
+    public function label(): string
+    {
+        return $this->name ?? 'Campaign '.$this->external_id;
+    }
+
     /** The target cost per account in force: the campaign's own, else its source's. */
     public function targetCpa(): ?string
     {

@@ -3,6 +3,8 @@
 use App\Enums\GameStatus;
 use App\Models\Game;
 use App\Models\ProjectSettings;
+use App\Models\TrafficCampaign;
+use App\Models\TrafficSource;
 use App\Models\User;
 
 use function Pest\Laravel\actingAs;
@@ -10,8 +12,9 @@ use function Pest\Laravel\actingAs;
 /**
  * Analytics → Experiments in a real browser: the tab at each width, its
  * table scrolling inside its card with the metric column held in place while
- * the versions scroll under it, and never the page; and another comparison
- * chosen from the chooser, shown and put in the address.
+ * the versions scroll under it, and never the page; each chip's whole name
+ * on a phone, a split's scope included; and another comparison chosen from
+ * the chooser, shown and put in the address.
  */
 beforeEach(function () {
     ProjectSettings::factory()->create();
@@ -63,6 +66,21 @@ it('draws the tab at every width, the table scrolling inside its card with the m
 
     $page->assertNoJavaScriptErrors();
 })->with([1440, 1280, 1024, 390]);
+
+it('shows each chip’s whole name on a phone, a split’s source and campaign included', function () {
+    $source = TrafficSource::factory()->create(['name' => 'PopAds main']);
+    $campaign = TrafficCampaign::factory()->create(['source_id' => $source->id, 'external_id' => '881377', 'name' => null]);
+    $this->current->forceFill(['source_id' => $source->id, 'campaign_id' => $campaign->id])->save();
+
+    $page = visitAnalyticsExperiments('/admin/analytics?tab=experiments', 390);
+
+    // Wrapped, never cut: a phone has no hover to read a cut name by.
+    expect($page->script("[...document.querySelectorAll('.rg-admin-experiments__choice-name')].map((name) => name.scrollWidth <= name.clientWidth)"))->toBe([true, true])
+        ->and($page->script("document.querySelector('.rg-admin-experiments__choice[data-period=\"{$this->current->id}\"] .rg-admin-experiments__choice-name').textContent"))->toContain('PopAds main · Campaign 881377')
+        ->and($page->script('document.documentElement.scrollWidth > window.innerWidth'))->toBeFalse();
+
+    $page->assertNoJavaScriptErrors();
+});
 
 it('shows another comparison chosen from the chooser, and puts it in the address', function () {
     $page = visitAnalyticsExperiments('/admin/analytics?tab=experiments');

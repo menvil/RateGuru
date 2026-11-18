@@ -9,6 +9,7 @@ use App\Models\GameContentSet;
 use App\Models\GameFlow;
 use App\Models\GameFlowStep;
 use App\Models\GameVersion;
+use App\Support\Games\Play\VersionTestLink;
 use App\Support\Locale\LocaleManager;
 use App\Support\Settings\ProjectSettingsManager;
 use Filament\Resources\Pages\Page;
@@ -23,6 +24,10 @@ use Livewire\Attributes\Url;
  * language; light or dark. Journey lists the flow's
  * steps, marks the one on screen and starts the game again at any of them, or
  * at the result for a number of matches. Nothing it does is recorded.
+ *
+ * A published version still active has a test link to copy: the game's
+ * public page playing that version for seven days for whoever holds it —
+ * nobody need sign in — recording nothing either (VersionTestLink).
  */
 final class PreviewGame extends Page
 {
@@ -123,6 +128,9 @@ final class PreviewGame extends Page
             ], $steps),
             'results' => collect(range(0, $rounds))->mapWithKeys(fn (int $matches): array => ['result:'.$matches => $matches.' of '.$rounds.' '.($rounds === 1 ? 'match' : 'matches')])->all(),
             'frameUrl' => route('games.preview', $params),
+            // A published version still active can be played by anyone holding its test link, recording nothing.
+            'testLink' => $version !== null && $version->isActive() ? VersionTestLink::url($game->slug, (int) $version->id) : null,
+            'testLabel' => $version?->label(),
             'address' => preg_replace('#\Ahttps?://#', '', url('/games/'.$game->slug)),
             'tabTitle' => $game->title.' · '.app(ProjectSettingsManager::class)->current()->siteName(),
         ];

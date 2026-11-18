@@ -13898,6 +13898,50 @@
     }
 
     /*
+     * Traffic · Splits for a source: each open split with its actions at the end of its row, under its text on a
+     * phone, where Split for a source goes under the card's text too. The form keeps the width a share row reads at.
+     */
+    .rg-admin-games__split-form {
+        max-width: 760px;
+    }
+
+    .rg-admin-games__split-actions {
+        display: flex;
+        flex: none;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+        gap: var(--rg-admin-space-2);
+    }
+
+    .rg-admin-games__split-shares {
+        display: flex;
+        flex-direction: column;
+        gap: var(--rg-admin-space-4);
+    }
+
+    @media (max-width: 639.98px) {
+        .rg-admin-games__splits > .rg-admin-card__header--aside {
+            flex-wrap: wrap;
+        }
+
+        .rg-admin-games__splits > .rg-admin-card__header--aside > .rg-admin-card__heading {
+            flex-basis: 100%;
+        }
+
+        .rg-admin-games__split {
+            flex-wrap: wrap;
+        }
+
+        .rg-admin-games__split > .rg-admin-games__mechanic-text {
+            flex-basis: 100%;
+        }
+
+        .rg-admin-games__split-actions {
+            justify-content: flex-start;
+        }
+    }
+
+    /*
      * Growth → Games · Preview, as the reference draws it: the switches in a band, then the stage — the game in an
      * iPhone, in a browser window or across the page, on the sunken ground — and Journey beside it (300). Fullscreen
      * lays the whole of it over the window.
@@ -13961,8 +14005,11 @@
         white-space: nowrap;
     }
 
+    /* On a phone the buttons wrap to a second line rather than run off the screen. */
     .rg-admin-games__preview-actions {
         display: flex;
+        flex-wrap: wrap;
+        justify-content: flex-end;
         gap: var(--rg-admin-space-2);
         margin-left: auto;
     }
@@ -18363,6 +18410,30 @@
         font-size: var(--rg-admin-text-micro);
         line-height: var(--rg-admin-leading-micro);
         color: var(--rg-admin-text-tertiary);
+    }
+
+    /*
+     * On a phone a chip's name wraps rather than being cut: its scope comes
+     * last, and splits started the same day differ by nothing else. There is
+     * no hover there to read a cut name by.
+     */
+    @media (max-width: 639.98px) {
+        .rg-admin-experiments__choice {
+            height: auto;
+            min-height: 36px;
+            padding-block: var(--rg-admin-space-2);
+            white-space: normal;
+            text-align: left;
+        }
+
+        .rg-admin-experiments__choice-name {
+            overflow: visible;
+            text-overflow: clip;
+        }
+
+        .rg-admin-experiments__choice-meta {
+            white-space: nowrap;
+        }
     }
 
     .rg-admin-experiments__all {

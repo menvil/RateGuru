@@ -2,6 +2,7 @@
 
 use App\Enums\SocialProvider;
 use App\Http\Controllers\Games\GameResultController;
+use App\Http\Controllers\Games\PlayGamePageController;
 use App\Http\Controllers\Games\ShareGameResultController;
 use App\Http\Controllers\Locale\ChangeLocaleController;
 use App\Http\Controllers\Profile\ConnectedAccountController;
@@ -15,7 +16,6 @@ use App\Http\Middleware\EnsureDevEnvironment;
 use App\Http\Middleware\EnsureGamesAreEnabled;
 use App\Http\Middleware\RequireSignInWhileGuestViewingIsOff;
 use App\Livewire\Feed\FeedPage;
-use App\Livewire\Games\PlayGame;
 use App\Livewire\Games\PreviewGame;
 use App\Livewire\Posts\PostShow;
 use App\Livewire\Posts\RecentlyDeletedPostsPage;
@@ -50,7 +50,8 @@ Route::middleware(RequireSignInWhileGuestViewingIsOff::class)->group(function ()
     // player's own — and a share on its way to a provider. None of them
     // exists while Project settings has games off.
     Route::middleware(EnsureGamesAreEnabled::class)->group(function () {
-        Route::get('/games/{slug}', PlayGame::class)->where('slug', '[a-z0-9-]+')->name('games.play');
+        // The game played, or — for a valid test link to one of its versions — that version, recording nothing.
+        Route::get('/games/{slug}', PlayGamePageController::class)->where('slug', '[a-z0-9-]+')->name('games.play');
         Route::get('/games/{slug}/v{version}/{profile}', GameResultController::class)
             ->where(['slug' => '[a-z0-9-]+', 'version' => '[0-9]+', 'profile' => '[a-z0-9-]+'])
             ->name('games.result');

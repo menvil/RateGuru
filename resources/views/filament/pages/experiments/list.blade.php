@@ -3,7 +3,8 @@
      * The list of Growth → Experiments: the header band, then one card — the
      * search over the games, Show and Status, how many periods match — and
      * the periods, the latest started first (TBL-01): each with its game,
-     * the audience it shares, its days, its versions' shares, its visitors,
+     * the audience it shares — with the split's source and campaign, or
+     * “Everyone else” beside a split — its days, its versions' shares, its visitors,
      * whether its versions can be compared yet and whether it is still
      * open. A row, and its Results, open the period's results. Header and
      * rows share one grid; where the card is narrower, it scrolls sideways.
@@ -65,7 +66,16 @@
                                 </div>
                             </div>
                             <div class="rg-admin-table__cell rg-admin-experiments__group" role="cell">
-                                <x-admin.ui.icon :name="$row['audienceIcon']" :size="14" />{{ $row['audience'] }}
+                                <x-admin.ui.icon :name="$row['audienceIcon']" :size="14" />
+                                @if ($row['scope'] === null)
+                                    {{ $row['audience'] }}
+                                @else
+                                    <div class="rg-admin-table__stack">
+                                        <span>{{ $row['audience'] }}</span>
+                                        {{-- Wrapped rather than cut: a campaign often has no name but its number, the very part that tells two splits apart. --}}
+                                        <span class="rg-admin-table__meta rg-admin-table__meta--small" data-testid="experiments-scope">{{ $row['scope'] }}</span>
+                                    </div>
+                                @endif
                             </div>
                             <div class="rg-admin-table__cell" role="cell">
                                 <div class="rg-admin-table__stack">
@@ -84,7 +94,7 @@
                                 <x-admin.ui.badge :tone="$row['current'] ? 'success' : 'neutral'" :dot="$row['current']">{{ $row['current'] ? 'Current' : 'Ended' }}</x-admin.ui.badge>
                             </div>
                             <div class="rg-admin-table__cell rg-admin-table__cell--end" role="cell">
-                                <x-admin.ui.button size="sm" trailing-icon="arrow-right" :href="$row['url']" :aria-label="'Results of '.$row['game'].', '.$row['audience'].', '.$row['dates']">Results</x-admin.ui.button>
+                                <x-admin.ui.button size="sm" trailing-icon="arrow-right" :href="$row['url']" :aria-label="'Results of '.$row['game'].', '.$row['audience'].($row['scope'] !== null ? ', '.$row['scope'] : '').', '.$row['dates']">Results</x-admin.ui.button>
                             </div>
                         </div>
                     @endforeach

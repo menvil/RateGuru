@@ -155,6 +155,15 @@ final class GameVersions extends Page
             $shares[$audience->value] = $period?->shares() ?? [];
         }
 
+        // How many splits for a source give each version a share: a version in one alone is in traffic too.
+        $splits = [];
+
+        foreach ($traffic->currentSplits((int) $game->id, GameAudience::Anonymous) as $split) {
+            foreach (array_keys($split->shares()) as $versionId) {
+                $splits[$versionId] = ($splits[$versionId] ?? 0) + 1;
+            }
+        }
+
         $reports = [];
 
         foreach ($sets as $set) {
@@ -168,7 +177,7 @@ final class GameVersions extends Page
             : null;
         $latestFromPair = $versions->first(fn (GameVersion $version): bool => (int) $version->content_set_id === $this->publishSetId && (int) $version->flow_id === $this->publishFlowId);
         $changedSince = $latestFromPair === null ? null : app(GameUnpublishedChangesQuery::class)->sinceVersion($game, $latestFromPair, $this->publishSetId, $this->publishFlowId);
-        $inTraffic = array_values(array_unique(array_merge(array_keys($shares['anonymous']), array_keys($shares['authenticated']))));
+        $inTraffic = array_values(array_unique(array_merge(array_keys($shares['anonymous']), array_keys($shares['authenticated']), array_keys($splits))));
         $unplayable = $traffic->unplayableVersionIds($versions->modelKeys());
 
         return [
@@ -203,7 +212,9 @@ final class GameVersions extends Page
                 'set' => $version->contentSet->name,
                 'flow' => $version->flow->name,
                 'rounds' => $version->round_count,
-                'traffic' => collect(GameAudience::cases())->map(fn (GameAudience $audience): ?string => isset($shares[$audience->value][(int) $version->id]) ? ($audience === GameAudience::Anonymous ? 'Anonymous' : 'Logged in').' '.$shares[$audience->value][(int) $version->id].'%' : null)->filter()->implode(' · '),
+                'traffic' => collect(GameAudience::cases())->map(fn (GameAudience $audience): ?string => isset($shares[$audience->value][(int) $version->id]) ? ($audience === GameAudience::Anonymous ? 'Anonymous' : 'Logged in').' '.$shares[$audience->value][(int) $version->id].'%' : null)
+                    ->push(isset($splits[(int) $version->id]) ? $splits[(int) $version->id].' '.str('source split')->plural($splits[(int) $version->id]) : null)
+                    ->filter()->implode(' · '),
                 'published' => $version->published_at->format('d M Y, H:i'),
                 'by' => $version->publishedBy->display_name ?? $version->publishedBy->username ?? null,
                 'attempts' => (int) $version->attempts_count,
