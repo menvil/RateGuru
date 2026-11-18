@@ -187,7 +187,17 @@
 
         @if ($network)
             <div class="rg-admin-traffic__pane" x-show="pane === 'postbacks'" x-cloak>
-                <p class="rg-admin-traffic__note">Each rule tells the network of a milestone its clicks reach, once per click, with its worth in {value}. Send test calls the address with a made-up click ID and writes nothing.</p>
+                <p class="rg-admin-traffic__note">Each rule tells the network of a milestone its clicks reach, once per click, with its worth in {value}. Games set their goals; here you choose which milestones the network hears and under which of its own goal IDs. Send test calls the address with a made-up click ID and writes nothing.</p>
+                @php
+                    $on = collect($draft['rules'])->filter(fn (array $rule): bool => (bool) ($rule['enabled'] ?? false))->pluck('event');
+                    $together = collect($editor['sharedGoals'])->contains(fn (array $events): bool => in_array('Flow goal reached', $events, true) && in_array('New account confirmed', $events, true));
+                @endphp
+                {{-- Both fire for one click when a game's goal is the account; sent to one goal of the network, the warning below says so instead. --}}
+                @if ($on->contains('goal') && $on->contains('account') && ! $together)
+                    <x-admin.ui.inline-notice tone="info" data-testid="traffic-rules-goal-and-account">
+                        For a game whose goal is a new account, “Flow goal reached” and “New account confirmed” happen together, so the network gets both, each under its own goal ID. Optimise the campaign on one of them in the network.
+                    </x-admin.ui.inline-notice>
+                @endif
                 @foreach ($editor['sharedGoals'] as $events)
                     <x-admin.ui.inline-notice tone="warning" data-testid="traffic-rules-shared-goal">
                         {{ count(array_unique($events)) === 1 ? count($events).' postbacks on “'.$events[0].'”' : \Illuminate\Support\Arr::join($events, ', ', ' and ') }} go to the same goal of the network. It counts each as another conversion of the same click and adds up their values, so one visitor looks like several and their worth is counted more than once. Give each its own goal in the network, or keep one of them.
@@ -198,13 +208,14 @@
                         <div class="rg-admin-traffic__row">
                             <label class="rg-admin-field">
                                 <span class="rg-admin-label">When</span>
-                                <select class="rg-admin-traffic__select" wire:model.live="draft.rules.{{ $index }}.event" aria-label="Event">
+                                <select class="rg-admin-traffic__select" wire:model.live="draft.rules.{{ $index }}.event" aria-label="Event" aria-describedby="rg-admin-rule-when-{{ $index }}">
                                     @foreach ($editor['events'] as $event)
                                         <option value="{{ $event }}">{{ $event === 'goal' ? 'Flow goal reached' : (\App\Enums\TrafficEvent::tryFrom($event)?->label() ?? $event) }}</option>
                                     @endforeach
                                 </select>
+                                <span class="rg-admin-traffic__note" id="rg-admin-rule-when-{{ $index }}">{{ ($rule['event'] ?? '') === 'goal' ? 'The goal each game’s flow sets — an account, a share, a post opened… — whichever game the click went to.' : 'The milestone that sends it, once per click.' }}</span>
                             </label>
-                            <x-admin.ui.text-field label="Goal code" :id="'rg-admin-rule-goal-'.$index" :value="(string) ($rule['goal_code'] ?? '')" wire:model.live.blur="draft.rules.{{ $index }}.goal_code" />
+                            <x-admin.ui.text-field label="Goal ID in the network" :id="'rg-admin-rule-goal-'.$index" :value="(string) ($rule['goal_code'] ?? '')" hint="The ID the network gave the goal this postback reports; it fills {goal_code}." wire:model.live.blur="draft.rules.{{ $index }}.goal_code" />
                             <x-admin.ui.switch label="On" :id="'rg-admin-rule-on-'.$index" :checked="(bool) $rule['enabled']" wire:model.live="draft.rules.{{ $index }}.enabled" />
                         </div>
                         @if (($rule['event'] ?? '') === 'settled')

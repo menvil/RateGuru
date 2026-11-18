@@ -375,6 +375,31 @@ it('warns when two postbacks of a source go to the same goal of the network', fu
         ->assertDontSee('go to the same goal of the network');
 });
 
+it('names the network’s goal ID for what it is, and says a goal and an account postback may both fire for one click', function () {
+    $address = fn (string $goal): string => 'https://s.magsrv.com/tag.php?goal='.$goal.'&tag={click_id}&value={value}';
+    $page = Livewire::test(TrafficSourcesPage::class)
+        ->call('openEditor', 'new:exoclick')
+        ->call('addRule')
+        ->set('draft.rules.0.event', 'goal')
+        ->set('draft.rules.0.goal_code', '123456')
+        ->set('draft.rules.0.url_template', $address('{goal_code}'))
+        ->set('draft.rules.0.enabled', true)
+        ->assertSee('Goal ID in the network')
+        ->assertSee('The goal each game’s flow sets', false)
+        ->assertDontSee('happen together, so the network gets both')
+        ->call('addRule')
+        ->set('draft.rules.1.event', 'account')
+        ->set('draft.rules.1.goal_code', '123457')
+        ->set('draft.rules.1.url_template', $address('{goal_code}'))
+        ->set('draft.rules.1.enabled', true)
+        ->assertSee('“Flow goal reached” and “New account confirmed” happen together, so the network gets both', false);
+
+    // Under one goal ID the warning about counting a click twice says it instead.
+    $page->set('draft.rules.1.goal_code', '123456')
+        ->assertDontSee('happen together, so the network gets both')
+        ->assertSee('go to the same goal of the network');
+});
+
 it('asks a rule turned to a settled visit for one that started the game, and keeps that floor only on such a rule', function () {
     $page = Livewire::test(TrafficSourcesPage::class)
         ->call('openEditor', 'new:popads')
