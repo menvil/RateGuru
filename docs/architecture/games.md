@@ -271,6 +271,17 @@ visitor was actually sent.
 | Shared | attempts in the window whose result was shared; in the funnel, the people who shared |
 | Played again | people with more than one attempt in the window |
 
+Narrowed to a device or country (a `VisitFilter` in the scope), or split by
+them, the figures read the recorded visits, since the game's tables keep no
+device or country: an attempt counts when the visit it started on
+(`game_attempts.traffic_visit_id`) is one the filter admits, and a visitor
+when they have such a visit of the game — a guest by the browser's hash, a
+player by an account the browser signed up or in on (`account_browsers`) or
+by the visit a play of theirs came on. A play with no recorded visit is left
+out, and a visitor who came from two places counts in each. A country group
+is the current price set's: the countries it names, or for the last group
+every country the others don't name and an unknown one.
+
 The funnel counts people at every step, and each step's rate names the step it
 is a share of — not always the one above it: Sign-up begun and New accounts
 are shares of the people who completed, Email captured of those who finished a

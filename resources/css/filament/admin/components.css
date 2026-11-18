@@ -14074,10 +14074,222 @@
 
     .rg-admin-games__analytics-scope {
         display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: var(--rg-admin-space-2) var(--rg-admin-space-3);
+    }
+
+    .rg-admin-games__analytics-spacer {
+        flex: 1;
+    }
+
+    /* The audiences on the segmented track, each with its visitors over the period. */
+    .rg-admin-games__audiences .rg-admin-segmented__option {
+        font-size: var(--rg-admin-text-body);
+    }
+
+    .rg-admin-games__audience-count {
+        color: var(--rg-admin-text-tertiary);
+        font-weight: var(--rg-admin-weight-regular);
+        font-variant-numeric: tabular-nums;
+    }
+
+    /* Long menus — every country with visits, twenty paid sources — scroll inside themselves. */
+    .rg-admin-games__country .rg-admin-filter-dropdown__menu,
+    .rg-admin-games__paid-source .rg-admin-filter-dropdown__menu {
+        max-height: 360px;
+        overflow-y: auto;
+    }
+
+    /* Both open leftwards from their trigger, which sits towards the bar's right end. */
+    .rg-admin-games__country .rg-admin-filter-dropdown__menu,
+    .rg-admin-games__paid-source .rg-admin-filter-dropdown__menu {
+        right: 0;
+        left: auto;
+    }
+
+    .rg-admin-games__visit-note {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+    }
+
+    .rg-admin-games__period-visitors {
+        flex: none;
+        color: var(--rg-admin-text-secondary);
+        font-size: var(--rg-admin-text-body);
+        font-variant-numeric: tabular-nums;
+        white-space: nowrap;
+    }
+
+    /* The period picker the report pages share: the trigger, then presets beside a range of days. */
+    .rg-admin-period {
+        position: relative;
+        flex-shrink: 0;
+        max-width: 100%;
+    }
+
+    .rg-admin-period__trigger {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--rg-admin-space-2);
+        max-width: 100%;
+        height: var(--rg-admin-control-md);
+        padding: 0 var(--rg-admin-space-3);
+        border: 1px solid var(--rg-admin-border-default);
+        border-radius: var(--rg-admin-radius-control);
+        background: var(--rg-admin-surface-sunken);
+        box-shadow: var(--rg-admin-shadow-xs);
+        color: var(--rg-admin-text-strong);
+        font-family: var(--rg-admin-font-sans);
+        font-size: var(--rg-admin-text-body);
+        white-space: nowrap;
+        cursor: pointer;
+    }
+
+    .rg-admin-period__trigger:hover {
+        background: var(--rg-admin-surface-pill);
+    }
+
+    .rg-admin-period__trigger:focus-visible {
+        outline: 2px solid var(--rg-admin-focus-ring);
+        outline-offset: 1px;
+    }
+
+    .rg-admin-period__icon {
+        flex: none;
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-period__name {
+        font-weight: var(--rg-admin-weight-medium);
+    }
+
+    .rg-admin-period__dates {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-period__panel {
+        position: absolute;
+        top: calc(100% + 6px);
+        left: 0;
+        z-index: 50;
+        display: grid;
+        grid-template-columns: 168px minmax(0, 1fr);
+        width: 560px;
+        max-width: calc(100vw - 32px);
+        overflow: hidden;
+        border: 1px solid var(--rg-admin-border-default);
+        border-radius: var(--rg-admin-radius-popover);
+        background: var(--rg-admin-surface-card);
+        box-shadow: var(--rg-admin-shadow-popover);
+    }
+
+    .rg-admin-period--end .rg-admin-period__panel {
+        right: 0;
+        left: auto;
+    }
+
+    .rg-admin-period__presets {
+        display: flex;
         flex-direction: column;
-        align-items: flex-end;
-        margin-left: auto;
-        text-align: right;
+        gap: 2px;
+        padding: var(--rg-admin-space-2);
+        border-right: 1px solid var(--rg-admin-border-default);
+    }
+
+    .rg-admin-period__preset {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: var(--rg-admin-space-2);
+        min-height: var(--rg-admin-menu-item-height);
+        padding: 0 10px;
+        border: 0;
+        border-radius: var(--rg-admin-radius-item);
+        background: transparent;
+        color: var(--rg-admin-text-strong);
+        font-family: var(--rg-admin-font-sans);
+        font-size: var(--rg-admin-text-body);
+        text-align: left;
+        cursor: pointer;
+    }
+
+    .rg-admin-period__preset:hover,
+    .rg-admin-period__preset:focus-visible {
+        outline: none;
+        background: var(--rg-admin-surface-hover);
+    }
+
+    .rg-admin-period__preset:focus-visible {
+        box-shadow: inset 0 0 0 2px var(--rg-admin-focus-ring);
+    }
+
+    .rg-admin-period__preset[aria-pressed='true'] {
+        background: var(--rg-admin-surface-pill);
+        font-weight: var(--rg-admin-weight-medium);
+    }
+
+    .rg-admin-period__preset[aria-pressed='false'] .rg-admin-period__check {
+        visibility: hidden;
+    }
+
+    .rg-admin-period__range {
+        display: flex;
+        flex-direction: column;
+        gap: var(--rg-admin-space-3);
+        min-width: 0;
+        padding: var(--rg-admin-space-4);
+    }
+
+    .rg-admin-period__title {
+        margin: 0;
+        font-size: var(--rg-admin-text-ui);
+        font-weight: var(--rg-admin-weight-medium);
+        color: var(--rg-admin-text-strong);
+    }
+
+    .rg-admin-period__fields {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+        gap: var(--rg-admin-space-3);
+    }
+
+    .rg-admin-period__foot {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: var(--rg-admin-space-2);
+        padding-top: var(--rg-admin-space-3);
+        border-top: 1px solid var(--rg-admin-border-default);
+    }
+
+    .rg-admin-period__summary {
+        flex: 1;
+        min-width: 0;
+        font-size: var(--rg-admin-text-caption);
+        color: var(--rg-admin-text-secondary);
+    }
+
+    @media (max-width: 767.98px) {
+        .rg-admin-period__panel {
+            grid-template-columns: minmax(0, 1fr);
+        }
+
+        .rg-admin-period--end .rg-admin-period__panel,
+        .rg-admin-games__paid-source .rg-admin-filter-dropdown__menu {
+            right: auto;
+            left: 0;
+        }
+
+        .rg-admin-period__presets {
+            flex-direction: row;
+            flex-wrap: wrap;
+            border-right: 0;
+            border-bottom: 1px solid var(--rg-admin-border-default);
+        }
     }
 
     .rg-admin-games__kpis {
@@ -14153,6 +14365,11 @@
     @media (max-width: 767.98px) {
         .rg-admin-games .rg-admin-card__header--aside:has(.rg-admin-games__card-tools) {
             flex-wrap: wrap;
+        }
+
+        /* On a phone the heading has the first line to itself; the tools go under it. */
+        .rg-admin-games .rg-admin-card__header--aside:has(.rg-admin-games__card-tools) > .rg-admin-card__heading {
+            flex-basis: 100%;
         }
 
         .rg-admin-games__card-tools {

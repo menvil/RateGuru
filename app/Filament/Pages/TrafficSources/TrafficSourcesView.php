@@ -53,6 +53,7 @@ use App\Support\Traffic\Postbacks\PostbackSchedule;
 use App\Support\Traffic\Postbacks\PostbackTemplate;
 use App\Support\Traffic\Postbacks\PostbackUrl;
 use App\Support\Traffic\Reports\ReportFigures;
+use App\Support\Traffic\Reports\ReportPeriod;
 use App\Support\Traffic\Reports\SignupFigures;
 use App\Support\Traffic\Reports\SiteZoneList;
 use App\Support\Traffic\Reports\TrafficReportFilter;
@@ -159,8 +160,7 @@ final class TrafficSourcesView
             'deviceOptions' => [['value' => '', 'label' => 'All devices'], ['value' => 'mobile', 'label' => 'Mobile'], ['value' => 'desktop', 'label' => 'Desktop']],
             'gameOptions' => [['value' => '', 'label' => 'All games', 'trigger' => 'All games'], ...Game::query()->orderBy('title')->get(['id', 'title'])->map(fn (Game $game): array => ['value' => (string) $game->id, 'label' => $game->title])->all()],
             'campaignOptions' => [['value' => '', 'label' => 'All campaigns', 'trigger' => 'All'], ...TrafficCampaign::query()->when(is_numeric($page->source), fn ($query) => $query->where('source_id', (int) $page->source))->orderByDesc('first_click_at')->limit(100)->get(['id', 'name', 'external_id'])->map(fn (TrafficCampaign $campaign): array => ['value' => (string) $campaign->id, 'label' => $campaign->name ?? 'Campaign '.$campaign->external_id])->all()],
-            'periodOptions' => collect(TrafficSourcesPage::PERIODS)->map(fn (string $label, string $value): array => ['value' => $value, 'label' => $label])->values()->all(),
-            'periodLabel' => TrafficSourcesPage::PERIODS[$page->period].' · '.$filter->fromDay.($filter->fromDay === $filter->toDay ? '' : ' – '.$filter->toDay),
+            'periodDays' => ReportPeriod::span(CarbonImmutable::parse($filter->fromDay, 'UTC'), CarbonImmutable::parse($filter->toDay, 'UTC')),
             'capture' => (bool) $settings->capture_enabled,
             'postbacks' => (bool) $settings->postbacks_enabled,
             'geo' => $this->geo($settings->geo_edition ?? GeoEdition::GeoLite2City),
@@ -1244,7 +1244,7 @@ final class TrafficSourcesView
                 'own' => $set->worth()->hasOwnAccountPrice((int) $source->id),
                 'site' => (string) $set->account_price,
                 // The same period, at the card where it is set.
-                'url' => TrafficSourcesPage::getUrl(array_filter(['tab' => 'value', 'period' => $page->period === '30d' ? null : $page->period])).'#traffic-value-sources',
+                'url' => TrafficSourcesPage::getUrl(array_filter(['tab' => 'value', 'period' => $page->period === '30d' ? null : $page->period, 'from' => $page->from, 'to' => $page->to])).'#traffic-value-sources',
             ],
             'preset' => $preset,
             'connector' => $connector === null ? null : [...($this->presets->connector($connector->value) ?? []), 'verified' => $this->connectors->verified($connector)],

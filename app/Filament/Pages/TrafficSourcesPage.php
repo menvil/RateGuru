@@ -21,6 +21,7 @@ use App\Enums\TrafficEvent;
 use App\Enums\TrafficSourceType;
 use App\Exceptions\Abuse\RateLimitExceededException;
 use App\Exceptions\Traffic\CannotManageTrafficException;
+use App\Filament\Concerns\ChoosesReportPeriod;
 use App\Filament\Pages\TrafficSources\TrafficSourcesView;
 use App\Filament\Support\AdminNavigationGroup;
 use App\Models\Game;
@@ -58,6 +59,7 @@ use UnitEnum;
  */
 final class TrafficSourcesPage extends Page
 {
+    use ChoosesReportPeriod;
     use WithFileUploads;
 
     public const array TABS = ['report' => 'Report', 'campaigns' => 'Campaigns', 'value' => 'Value', 'spend' => 'Spend', 'sources' => 'Sources', 'logs' => 'Logs'];
@@ -80,9 +82,6 @@ final class TrafficSourcesPage extends Page
 
     #[Url(except: 'report')]
     public mixed $tab = 'report';
-
-    #[Url(except: '30d')]
-    public mixed $period = '30d';
 
     /** A source's id, or every source. */
     #[Url(except: '')]
@@ -260,11 +259,11 @@ final class TrafficSourcesPage extends Page
 
     public function updated(string $property): void
     {
-        if (in_array($property, ['tab', 'period', 'source', 'type', 'campaignId', 'game', 'device', 'log', 'logFilter', 'reportView', 'listBy', 'q', 'minClicks', 'segment'], true)) {
+        if (in_array($property, ['tab', 'period', 'from', 'to', 'source', 'type', 'campaignId', 'game', 'device', 'log', 'logFilter', 'reportView', 'listBy', 'q', 'minClicks', 'segment'], true)) {
             $this->pageNumber = 1;
         }
 
-        if (in_array($property, ['period', 'source', 'type', 'campaignId', 'game', 'device', 'reportView', 'listBy'], true)) {
+        if (in_array($property, ['period', 'from', 'to', 'source', 'type', 'campaignId', 'game', 'device', 'reportView', 'listBy'], true)) {
             $this->selected = [];
         }
 
@@ -273,6 +272,19 @@ final class TrafficSourcesPage extends Page
         }
 
         $this->normalize();
+    }
+
+    /** Visits are kept so long; no range may start before. */
+    protected function keptDays(): int
+    {
+        return (int) config('traffic.retention_days.visits');
+    }
+
+    /** A new period starts the list over, and nothing ticked stays ticked. */
+    protected function periodChanged(): void
+    {
+        $this->pageNumber = 1;
+        $this->selected = [];
     }
 
     public function showTab(mixed $tab): void
@@ -1060,21 +1072,26 @@ final class TrafficSourcesPage extends Page
     /** @return array<string, mixed> */
     protected function getViewData(): array
     {
-        return app(TrafficSourcesView::class)->data($this, $this->filter());
+        $filter = $this->filter();
+        $data = app(TrafficSourcesView::class)->data($this, $filter);
+
+        return [...$data, 'periodPicker' => $this->periodPicker($data['periodDays'], [$filter->fromDay, $filter->toDay])];
     }
 
     public function filter(): TrafficReportFilter
     {
-        $days = match ($this->period) {
+        $period = $this->reportPeriod();
+        $days = match ($period->preset) {
             'yesterday' => 1,
             '7d' => 7,
             '90d' => 90,
             default => 30,
         };
-        $base = TrafficReportFilter::lastDays($days, now()->toImmutable());
-        $filter = $this->period === 'yesterday'
-            ? new TrafficReportFilter(now()->utc()->subDay()->toDateString(), now()->utc()->subDay()->toDateString())
-            : $base;
+        $filter = match (true) {
+            $period->fromDay !== null && $period->toDay !== null => new TrafficReportFilter($period->fromDay, $period->toDay),
+            $period->preset === 'yesterday' => new TrafficReportFilter(now()->utc()->subDay()->toDateString(), now()->utc()->subDay()->toDateString()),
+            default => TrafficReportFilter::lastDays($days, now()->toImmutable()),
+        };
         $where = array_filter([
             'source_id' => is_numeric($this->source) ? (int) $this->source : null,
             'channel' => in_array($this->type, ['network', 'placement'], true) ? $this->type : null,
@@ -1094,7 +1111,7 @@ final class TrafficSourcesPage extends Page
     private function normalize(): void
     {
         $this->tab = is_string($this->tab) && array_key_exists($this->tab, self::TABS) ? $this->tab : 'report';
-        $this->period = is_string($this->period) && array_key_exists($this->period, self::PERIODS) ? $this->period : '30d';
+        $this->settlePeriod();
         $this->source = is_numeric($this->source) ? (string) (int) $this->source : '';
         $this->type = in_array($this->type, ['network', 'placement', 'unpaid'], true) ? $this->type : '';
         $this->campaignId = is_numeric($this->campaignId) ? (string) (int) $this->campaignId : '';

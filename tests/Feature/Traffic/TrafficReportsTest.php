@@ -25,6 +25,7 @@ use App\Queries\Traffic\TrafficSpendQuery;
 use App\Queries\Users\UnconfirmedAccountsQuery;
 use App\Support\Traffic\Reports\SignupFigures;
 use App\Support\Traffic\Reports\TrafficReportFilter;
+use App\Support\Traffic\Reports\VisitFilter;
 use Carbon\CarbonImmutable;
 
 beforeEach(function () {
@@ -115,6 +116,31 @@ it('splits a game’s traffic by type, source, version and device in one pass', 
     expect($rows)->toHaveCount(2)
         ->and($paid['figures']->visits)->toBe(2)
         ->and($paid['first_at']->toDateString())->toBe('2026-11-15');
+});
+
+it('narrows a game’s traffic, campaigns and sign-ups to a device and countries, and lists the countries its visits came from', function () {
+    $game = Game::factory()->create();
+    $campaign = TrafficCampaign::factory()->create(['source_id' => $this->source->id]);
+    reportVisit($this->source, ['game_id' => $game->id, 'campaign_id' => $campaign->id, 'country' => 'DE', 'signup_at' => now()]);
+    reportVisit($this->source, ['game_id' => $game->id, 'country' => 'FR', 'device' => TrafficDevice::Desktop]);
+    reportVisit($this->source, ['game_id' => $game->id, 'country' => null]);
+    // Another game's visit names no country of this one.
+    reportVisit($this->source, ['country' => 'BR']);
+    $since = now()->subDays(30)->toImmutable();
+    $until = now()->addSecond()->toImmutable();
+    $visits = fn (?VisitFilter $filter): int => collect(app(TrafficReportQuery::class)->gameBreakdown($game->id, $since, $until, $filter))->sum(fn (array $row): int => $row['figures']->visits);
+
+    expect($visits(null))->toBe(3)
+        ->and($visits(new VisitFilter(TrafficDevice::Mobile)))->toBe(2)
+        ->and($visits(new VisitFilter(countries: ['DE', 'FR'])))->toBe(2)
+        ->and($visits(new VisitFilter(TrafficDevice::Desktop, ['DE'])))->toBe(0)
+        // Every country but those named, and the one not known.
+        ->and($visits(new VisitFilter(countries: ['DE'], otherCountries: true)))->toBe(2)
+        ->and(app(TrafficReportQuery::class)->gameCampaigns($game->id, $since, $until, new VisitFilter(countries: ['FR'])))->toBe([])
+        ->and(app(TrafficReportQuery::class)->gameCampaigns($game->id, $since, $until, new VisitFilter(countries: ['DE'])))->toBe([$this->source->id => 1])
+        ->and(app(TrafficReportQuery::class)->gameSignups($game->id, $since, $until, visits: new VisitFilter(TrafficDevice::Desktop))['visits'])->toBe(1)
+        ->and(app(TrafficReportQuery::class)->gameSignups($game->id, $since, $until, visits: new VisitFilter(countries: ['DE']))['figures']->signedUp)->toBe(1)
+        ->and(app(TrafficReportQuery::class)->gameCountries($game->id))->toBe(['DE', 'FR']);
 });
 
 it('reconciles a source’s days, and keeps spend no visit took', function () {

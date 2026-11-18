@@ -67,6 +67,7 @@ The reviewed boundaries are:
 - `FeedQuery` for arithmetic vote ordering and literal LIKE searches.
 - `GameMetricsQuery` for a game's figures: conditional and distinct counts of
   its attempts, answers, emails and events, per version, flow or content set,
+  or per device, country or country group of the recorded visits behind them,
   and the people who started more than one attempt.
 - `GamePostPickerQuery` for literal LIKE searches over the titles and author usernames of the posts a game round may show.
 - `GamesQuery` for literal LIKE searches over game titles, internal names and slugs.

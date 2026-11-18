@@ -293,3 +293,45 @@ it('asks a rule turned to a settled visit for one that started the game, and kee
         ->call('saveSource')
         ->assertHasErrors(['rules.0.needs_event']);
 });
+
+it('reads its period from the address — a preset or a range of network days — and the last 30 days for anything it cannot read', function () {
+    $source = TrafficSource::factory()->create(['name' => 'PopAds main']);
+    TrafficVisit::factory()->create(['source_id' => $source->id, 'arrived_at' => '2026-11-03 10:00:00', 'network_day' => '2026-11-03', 'opened_at' => now()]);
+    $open = fn (array $query) => Livewire::withQueryParams($query)->test(TrafficSourcesPage::class);
+    $days = fn ($page): array => [$page->instance()->filter()->fromDay, $page->instance()->filter()->toDay];
+
+    // The period picker the game Analytics shares, in the header band.
+    $page = $open([])
+        ->assertSeeInOrder(['Traffic sources', 'Last 30 days', '19 Oct — 17 Nov 2026', 'Yesterday', 'Last 7 days', 'Last 30 days', 'Last 90 days', 'Custom range'])
+        ->assertDontSee('All time');
+    expect($days($page))->toBe(['2026-10-19', '2026-11-17']);
+
+    $page = $open(['from' => '2026-11-01', 'to' => '2026-11-05', 'tab' => 'value'])
+        ->assertSet('from', '2026-11-01')
+        ->assertViewHas('periodPicker', fn (array $picker): bool => $picker['label'] === 'Custom range' && $picker['dates'] === '01 Nov — 05 Nov 2026' && $picker['min'] === '2025-10-14' && $picker['max'] === '2026-11-17');
+    expect($days($page))->toBe(['2026-11-01', '2026-11-05']);
+
+    $yesterday = $open(['period' => 'yesterday']);
+    expect($days($yesterday))->toBe(['2026-11-16', '2026-11-16']);
+
+    // Reversed, past today, longer than visits are kept, no such day: the preset in the address, else the default.
+    foreach ([['2026-11-05', '2026-11-01'], ['2026-11-10', '2026-11-18'], ['2025-10-13', '2026-11-17'], ['2026-04-31', '2026-05-02']] as [$from, $to]) {
+        $fallen = $open(['period' => '7d', 'from' => $from, 'to' => $to])->assertSet('period', '7d')->assertSet('from', '')->assertSet('to', '');
+        expect($days($fallen))->toBe(['2026-11-11', '2026-11-17']);
+    }
+
+    $open(['period' => 'all'])->assertSet('period', '30d');
+
+    // A new period starts the list over and unticks what was ticked; a forged one is read the same way.
+    $page->set('pageNumber', 3)->set('selected', ['1:site:40123'])
+        ->call('applyRange', '2026-11-02', '2026-11-04')
+        ->assertSet('pageNumber', 1)
+        ->assertSet('selected', [])
+        ->assertSet('to', '2026-11-04')
+        ->call('choosePeriod', 'yesterday')
+        ->assertSet('period', 'yesterday')
+        ->assertSet('from', '')
+        ->set('from', '2026-11-01')
+        ->assertSet('from', '')
+        ->assertSet('period', 'yesterday');
+});

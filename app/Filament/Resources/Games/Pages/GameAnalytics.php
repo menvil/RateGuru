@@ -5,12 +5,15 @@ namespace App\Filament\Resources\Games\Pages;
 use App\Enums\GameAudience;
 use App\Enums\GameFlowStepType;
 use App\Enums\GameStepAudience;
+use App\Enums\TrafficDevice;
+use App\Filament\Concerns\ChoosesReportPeriod;
 use App\Filament\Pages\TrafficSourcesPage;
 use App\Filament\Resources\Games\Concerns\InteractsWithGameEditor;
 use App\Filament\Resources\Games\GameResource;
 use App\Models\Game;
 use App\Models\GameTrafficPeriod;
 use App\Models\GameVersion;
+use App\Models\TrafficPriceSet;
 use App\Models\TrafficSetting;
 use App\Models\TrafficSource;
 use App\Queries\Games\GameMetricsQuery;
@@ -18,10 +21,13 @@ use App\Queries\Traffic\TrafficReportQuery;
 use App\Queries\Users\UnconfirmedAccountsQuery;
 use App\Support\Games\Analytics\GameFunnel;
 use App\Support\Games\Analytics\GameMetricsScope;
+use App\Support\Geo\Countries;
 use App\Support\Traffic\Money\TrafficMoney;
 use App\Support\Traffic\Reports\ReportFigures;
+use App\Support\Traffic\Reports\ReportPeriod;
 use App\Support\Traffic\Reports\SignupFigures;
 use App\Support\Traffic\Reports\TwoProportionTest;
+use App\Support\Traffic\Reports\VisitFilter;
 use Brick\Math\BigDecimal;
 use Brick\Math\RoundingMode;
 use Carbon\CarbonImmutable;
@@ -33,27 +39,37 @@ use Livewire\Attributes\Url;
 
 /**
  * A game's Analytics tab: how far its visitors got — anonymous visitors and
- * logged-in players apart — over a window, for every version or one, against
- * the window before it: the figures and what the visits were worth, the
- * versions on paid traffic compared, the visitors by where they came from,
- * the funnel, who signed up and whether they confirmed, how many attempts
- * reached each round, which results players earned, the versions, flows or
- * content sets side by side, and the traffic periods the figures were made
- * in.
+ * logged-in players apart — over a period, for every version or one, from
+ * every device and country or one, against the window of the same length
+ * before it: the figures and what the visits were worth, the versions on
+ * paid traffic compared, the visitors by where they came from, the funnel,
+ * who signed up and whether they confirmed, how many attempts reached each
+ * round, which results players earned, the versions, flows, content sets,
+ * devices, countries or country groups side by side, and the traffic periods
+ * the figures were made in.
  *
  * Playing figures are read from what playing recorded (GameMetricsQuery);
  * worth, spend, where visitors came from and the sign-ups from Traffic
  * sources (TrafficReportQuery), since an account that never confirmed is
- * removed with everything it did, and the game's own figures with it.
+ * removed with everything it did, and the game's own figures with it. The
+ * game's tables know no device or country: with one chosen, both read the
+ * recorded visits, and a play that came on none drops out (VisitFilter).
  */
 final class GameAnalytics extends Page
 {
+    use ChoosesReportPeriod;
     use InteractsWithGameEditor;
 
-    /** The windows a game's figures are read over, by days; all time has none. */
+    /** The windows a game's figures are read over, by days up to now; all time has none. */
     public const PERIODS = ['7d' => 'Last 7 days', '30d' => 'Last 30 days', '90d' => 'Last 90 days', 'all' => 'All time'];
 
-    public const BREAKDOWNS = ['version' => 'Version', 'flow' => 'Flow', 'set' => 'Content set'];
+    /** How many days each window but all time reaches back. */
+    private const array PERIOD_DAYS = ['7d' => 7, '30d' => 30, '90d' => 90];
+
+    public const BREAKDOWNS = ['version' => 'Version', 'flow' => 'Flow', 'set' => 'Content set', 'device' => 'Device', 'country' => 'Country', 'group' => 'Group'];
+
+    /** What a country chosen as a group is named by in the address: `group:` and the group's key. */
+    private const string GROUP_PREFIX = 'group:';
 
     protected static string $resource = GameResource::class;
 
@@ -64,26 +80,63 @@ final class GameAnalytics extends Page
     #[Url(as: 'group', except: 'anonymous')]
     public string $audience = 'anonymous';
 
-    #[Url(except: '30d')]
-    public string $period = '30d';
+    /** Every version ('0'), or one by id: text, as the Versions menu's values are, so the one chosen is checked there. */
+    #[Url(except: '0')]
+    public mixed $version = '0';
 
-    #[Url(except: 0)]
-    public int $version = 0;
+    /** Every device, or one: a TrafficDevice. */
+    #[Url(except: '')]
+    public mixed $device = '';
+
+    /** Every country, a country's code, or a country group of the price set as `group:` and its key. */
+    #[Url(except: '')]
+    public mixed $country = '';
 
     #[Url(as: 'by', except: 'version')]
     public string $breakdown = 'version';
 
-    /** Versions on paid traffic: every paid source, or one, by id. */
-    #[Url(as: 'paid', except: 0)]
-    public int $paidSource = 0;
+    /** Versions on paid traffic: every paid source ('0'), or one by id, as text like the version. */
+    #[Url(as: 'paid', except: '0')]
+    public mixed $paidSource = '0';
 
-    /** Traffic sources: every device, or one. */
-    #[Url(as: 'device', except: 'all')]
+    /** Traffic sources: every device, or one, while the page itself is of every device. */
+    #[Url(as: 'sources_device', except: 'all')]
     public string $sourcesDevice = 'all';
 
     public function mount(int|string $record): void
     {
         $this->mountGame($record);
+        $this->normalizeFilters();
+    }
+
+    public function updated(): void
+    {
+        $this->normalizeFilters();
+    }
+
+    /**
+     * Puts every filter back as it is read — the period, the audience, a
+     * version of this game, the device, the country, the breakdown and the
+     * sources card's own device — so the address, the screen and the figures
+     * agree on whatever the address or an update sent.
+     */
+    private function normalizeFilters(): void
+    {
+        $this->settlePeriod();
+        $this->audience = (GameAudience::tryFrom($this->audience) ?? GameAudience::Anonymous)->value;
+        $version = is_numeric($this->version) ? (int) $this->version : 0;
+        $this->version = (string) ($version > 0 && GameVersion::query()->where('game_id', $this->gameId)->whereKey($version)->exists() ? $version : 0);
+        $this->paidSource = (string) (is_numeric($this->paidSource) ? max(0, (int) $this->paidSource) : 0);
+        $this->device = is_string($this->device) && TrafficDevice::tryFrom($this->device) !== null ? $this->device : '';
+        $this->country = self::visitFilter(null, $this->country, TrafficPriceSet::current()->country_groups)[0];
+        $this->breakdown = array_key_exists($this->breakdown, self::BREAKDOWNS) ? $this->breakdown : 'version';
+        $this->sourcesDevice = in_array($this->sourcesDevice, ['mobile', 'desktop'], true) ? $this->sourcesDevice : 'all';
+    }
+
+    /** The figures go back as far as both the game's events and the recorded visits are kept. */
+    protected function keptDays(): int
+    {
+        return min((int) config('games.retention_days.events'), (int) config('traffic.retention_days.visits'));
     }
 
     protected function getViewData(): array
@@ -92,42 +145,62 @@ final class GameAnalytics extends Page
         abort_if($game === null, 404);
 
         $audience = GameAudience::tryFrom($this->audience) ?? GameAudience::Anonymous;
-        $period = array_key_exists($this->period, self::PERIODS) ? $this->period : '30d';
+        $period = $this->reportPeriod();
         $breakdown = array_key_exists($this->breakdown, self::BREAKDOWNS) ? $this->breakdown : 'version';
         /** @var Collection<int, GameVersion> $versions */
         $versions = GameVersion::query()->where('game_id', $game->id)->with(['contentSet', 'flow'])->orderByDesc('number')->get()->keyBy('id');
-        $versionId = $versions->has($this->version) ? $this->version : null;
+        $versionId = $versions->has((int) $this->version) ? (int) $this->version : null;
+        /** @var list<array{key: string, name: string, percent: int, countries: list<string>}> $groups */
+        $groups = TrafficPriceSet::current()->country_groups;
+        $device = is_string($this->device) ? TrafficDevice::tryFrom($this->device) : null;
+        [$country, $visits] = self::visitFilter($device, $this->country, $groups);
+        $countryGroups = array_map(fn (array $group): array => $group['countries'], array_slice($groups, 0, -1));
         // Up to and including the current second: the database keeps whole seconds.
         $now = CarbonImmutable::now()->startOfSecond()->addSecond();
-        $from = self::windowStart($period, $now);
+        [$from, $until] = self::window($period, $now);
         // The window before, as long, to compare with; all time has none.
-        $before = $period === 'all' ? null : $from->subSeconds((int) $from->diffInSeconds($now));
-        $scope = new GameMetricsScope((int) $game->id, $audience, $from, $now, $versionId);
+        $before = $period->preset === 'all' ? null : $from->subSeconds((int) $from->diffInSeconds($until));
+        // The days before are compared only while they are still kept.
+        $beforeGone = $before !== null && $before->lessThan($now->subDays($this->keptDays()));
+        $before = $beforeGone ? null : $before;
+        $scope = new GameMetricsScope((int) $game->id, $audience, $from, $until, $versionId, $visits);
         $metrics = app(GameMetricsQuery::class);
         $reports = app(TrafficReportQuery::class);
 
         $total = $metrics->funnels($scope)[0];
-        $earlier = $before !== null ? $metrics->funnels(new GameMetricsScope((int) $game->id, $audience, $before, $from, $versionId))[0] : null;
+        $earlier = $before !== null ? $metrics->funnels($scope->with(from: $before, to: $from))[0] : null;
         $byVersion = $metrics->funnels($scope, 'version');
         $ofVersion = fn (array $row): bool => $versionId === null || $row['version_id'] === $versionId;
-        $traffic = collect($reports->gameBreakdown((int) $game->id, $from, $now))->filter($ofVersion)->values();
+        $traffic = collect($reports->gameBreakdown((int) $game->id, $from, $until, $visits))->filter($ofVersion)->values();
         $worth = self::sum($traffic);
-        $worthBefore = $before !== null ? self::sum(collect($reports->gameBreakdown((int) $game->id, $before, $from))->filter($ofVersion)) : null;
+        $worthBefore = $before !== null ? self::sum(collect($reports->gameBreakdown((int) $game->id, $before, $from, $visits))->filter($ofVersion)) : null;
         $goals = ($versionId !== null ? $versions->only([$versionId]) : $versions)->map(fn (GameVersion $version): string => $version->flowGoal()->label())->unique()->values();
-        $window = strtolower(self::PERIODS[$period]);
+        $window = $period->isCustom() ? self::dates($from, $until) : strtolower(self::PERIODS[$period->preset]);
         // Of the versions the figures are of: the one chosen, or every one.
         $emailVersions = ($versionId !== null ? $versions->only([$versionId]) : $versions)->filter(fn (GameVersion $version): bool => self::asksForEmail($version))->keys()->all();
         $finishedWithEmail = array_sum(array_map(fn (GameFunnel $funnel): int => $funnel->finishers, array_intersect_key($byVersion, array_flip($emailVersions))));
         $focus = $versionId !== null ? $versions->get($versionId) : self::busiest($versions, $byVersion);
+        $other = $audience === GameAudience::Anonymous ? GameAudience::Authenticated : GameAudience::Anonymous;
+        $visitorCounts = [$audience->value => $total->visitors, $other->value => $metrics->visitors($scope->with(audience: $other))];
+        // Traffic sources follows the page's device; its own switch narrows it only while the page is of every device.
+        $sourcesDevice = $device !== null ? $device->value : (in_array($this->sourcesDevice, ['mobile', 'desktop'], true) ? $this->sourcesDevice : 'all');
+        // The links to Traffic sources carry the period, and the device each card is of.
+        $paidLinks = [...self::reportPeriodParameters($period), 'device' => $device?->value];
+        $sourceLinks = [...self::reportPeriodParameters($period), 'device' => $sourcesDevice !== 'all' ? $sourcesDevice : null];
 
         return [
             'header' => $this->editorHeader($game, 'analytics'),
             'audience' => $audience->value,
             'anonymous' => $audience === GameAudience::Anonymous,
             'audiences' => ['anonymous' => 'Anonymous visitors', 'authenticated' => 'Logged-in players'],
-            'period' => $period,
-            'periods' => self::PERIODS,
-            'version' => $versionId ?? 0,
+            'audienceCounts' => array_map(number_format(...), $visitorCounts),
+            'periodPicker' => $this->periodPicker(
+                $period->preset === 'all' ? null : self::dates($from, $until),
+                // The days the trigger names, to start a range from; all time's, the last 30.
+                $period->preset === 'all'
+                    ? [$now->subSecond()->subDays(29)->toDateString(), $now->subSecond()->toDateString()]
+                    : [$from->toDateString(), $until->subSecond()->toDateString()],
+            ),
             'versionOptions' => [
                 ['value' => '0', 'label' => 'All versions', 'trigger' => 'All'],
                 ...$versions->map(fn (GameVersion $version): array => [
@@ -136,10 +209,21 @@ final class GameAnalytics extends Page
                     'trigger' => $version->label(),
                 ])->values()->all(),
             ],
+            'device' => $device === null ? '' : $device->value,
+            'deviceOptions' => [['value' => '', 'label' => 'All devices', 'trigger' => 'All'], ...array_map(fn (TrafficDevice $each): array => ['value' => $each->value, 'label' => $each->label()], TrafficDevice::cases())],
+            'country' => $country,
+            'countryOptions' => self::countryOptions($groups, $reports->gameCountries((int) $game->id), $country),
+            'visitNote' => $visits->narrows() ? 'Only plays that came on a visit Traffic sources recorded are counted while a device or country is chosen.' : null,
             'breakdown' => $breakdown,
             'breakdowns' => self::BREAKDOWNS,
-            'scopeText' => implode(' · ', [$audience === GameAudience::Anonymous ? 'Anonymous visitors' : 'Logged-in players', self::PERIODS[$period], $versionId !== null ? $versions->get($versionId)?->label() : 'all versions']),
-            'datesText' => $before === null ? null : self::dates($from, $now).' · compared with '.self::dates($before, $from),
+            'breakdownNote' => in_array($breakdown, ['device', 'country', 'group'], true)
+                ? 'Each play by the recorded visit it came on, each visitor by their visits of the game: plays without one are left out, and a visitor who came from two places counts in each.'
+                : 'Versions are a fair comparison only inside one traffic period; a person who saw two versions counts in each.',
+            'datesText' => match (true) {
+                $before !== null => self::dates($from, $until).' · compared with '.self::dates($before, $from),
+                $beforeGone => self::dates($from, $until).' · the days before are no longer kept, nothing to compare with',
+                default => 'All time · nothing earlier to compare with',
+            },
             'valueUrl' => GameResource::getUrl('value', ['record' => $game]),
             'noVersions' => $versions->isEmpty(),
             'noData' => $total->isEmpty(),
@@ -150,20 +234,108 @@ final class GameAnalytics extends Page
             ),
             'compared' => $earlier !== null,
             'focus' => $focus !== null ? self::focus($focus, $metrics, $scope, $byVersion[(int) $focus->id] ?? new GameFunnel, $versionId === null) : null,
-            'breakdownRows' => self::breakdownRows($breakdown, $breakdown === 'version' ? $byVersion : $metrics->funnels($scope, $breakdown), $versions, $audience),
+            'breakdownRows' => self::breakdownRows($breakdown, $breakdown === 'version' ? $byVersion : $metrics->funnels($scope, $breakdown, $countryGroups), $versions, $audience, $groups),
             'signups' => $audience === GameAudience::Anonymous
-                ? self::signups($reports->gameSignups((int) $game->id, $from, $now, $versionId, UnconfirmedAccountsQuery::cutoff()), (bool) TrafficSetting::current()->capture_enabled, $versionId !== null)
+                ? self::signups($reports->gameSignups((int) $game->id, $from, $until, $versionId, UnconfirmedAccountsQuery::cutoff(), $visits), (bool) TrafficSetting::current()->capture_enabled, $versionId !== null)
                 : null,
-            'periodRows' => self::periodRows($game, $audience, $metrics->periods((int) $game->id, $versionId), $versionId !== null ? $versions->get($versionId) : null),
+            'periodRows' => self::periodRows($game, $audience, $metrics->periods((int) $game->id, $versionId), $metrics->periodVersions((int) $game->id, $audience), $versionId !== null ? $versions->get($versionId) : null),
             'periodVersion' => $versionId !== null ? $versions->get($versionId)?->label() : null,
+            'periodsNote' => self::periodsNote($audience, $versionId !== null ? $versions->get($versionId)?->label() : null),
             'trafficUrl' => GameResource::getUrl('traffic', ['record' => $game]),
             'versionsUrl' => GameResource::getUrl('versions', ['record' => $game]),
-            'paid' => self::paidVersions($game, $traffic, $versions, $this->paidSource, $window),
-            'sources' => self::sourceRows($game, $traffic, $this->sourcesDevice, $reports->gameCampaigns((int) $game->id, $from, $now)),
-            'sourcesDevice' => in_array($this->sourcesDevice, ['mobile', 'desktop'], true) ? $this->sourcesDevice : 'all',
+            'paid' => self::paidVersions($game, $traffic, $versions, (int) $this->paidSource, $window, $paidLinks),
+            'sources' => self::sourceRows($game, $traffic, $sourcesDevice, $reports->gameCampaigns((int) $game->id, $from, $until, $visits), $sourceLinks),
+            // The card's own switch only while the page is of every device.
+            'sourcesSwitch' => $device === null,
+            'cardDevice' => $sourcesDevice,
             'window' => $window,
             'gameTitle' => $game->title,
         ];
+    }
+
+    /**
+     * The window a period reads, from its first moment up to the one after
+     * its last: a preset's days up to now, a range's whole days — up to now
+     * where it ends today.
+     *
+     * @return array{0: CarbonImmutable, 1: CarbonImmutable}
+     */
+    private static function window(ReportPeriod $period, CarbonImmutable $now): array
+    {
+        $start = $period->start();
+        $end = $period->end();
+
+        if ($start === null || $end === null) {
+            return [self::windowStart($period->preset, $now), $now];
+        }
+
+        return [$start, $end->lessThan($now) ? $end : $now];
+    }
+
+    /**
+     * The device and country chosen, as the visits they admit, with the
+     * country as the address keeps it: a code the country list knows, a
+     * group of the price set as `group:` and its key — the last group every
+     * country the others do not name — or every country for anything else.
+     *
+     * @param  list<array{key: string, name: string, percent: int, countries: list<string>}>  $groups
+     * @return array{0: string, 1: VisitFilter}
+     */
+    private static function visitFilter(?TrafficDevice $device, mixed $country, array $groups): array
+    {
+        $country = is_string($country) ? $country : '';
+
+        if (str_starts_with($country, self::GROUP_PREFIX)) {
+            $key = substr($country, strlen(self::GROUP_PREFIX));
+            $index = array_search($key, array_column($groups, 'key'), true);
+
+            if ($index === false) {
+                return ['', new VisitFilter($device)];
+            }
+
+            return $index === array_key_last($groups)
+                ? [$country, new VisitFilter($device, array_merge([], ...array_column(array_slice($groups, 0, -1), 'countries')), true)]
+                : [$country, new VisitFilter($device, $groups[$index]['countries'])];
+        }
+
+        return preg_match('/^[A-Z]{2}$/', $country) === 1 && Countries::has($country)
+            ? [$country, new VisitFilter($device, [$country])]
+            : ['', new VisitFilter($device)];
+    }
+
+    /**
+     * Every country, then the price set's groups, then the countries the
+     * game's recorded visits came from — the one chosen among them always.
+     *
+     * @param  list<array{key: string, name: string, percent: int, countries: list<string>}>  $groups
+     * @param  list<string>  $visited
+     * @return list<array{value: string, label: string, trigger?: string, count?: string}>
+     */
+    private static function countryOptions(array $groups, array $visited, string $chosen): array
+    {
+        $codes = $chosen !== '' && ! str_starts_with($chosen, self::GROUP_PREFIX) && ! in_array($chosen, $visited, true) ? [...$visited, $chosen] : $visited;
+        usort($codes, fn (string $a, string $b): int => strcmp(Countries::name($a), Countries::name($b)));
+
+        return [
+            ['value' => '', 'label' => 'All countries', 'trigger' => 'All'],
+            ...array_map(fn (array $group): array => ['value' => self::GROUP_PREFIX.$group['key'], 'label' => $group['name'], 'count' => 'Group'], $groups),
+            ...array_map(fn (string $code): array => ['value' => $code, 'label' => Countries::name($code), 'count' => $code], $codes),
+        ];
+    }
+
+    /**
+     * The period of the links to Traffic sources: the same preset where it
+     * has one, the same days for a range, its own default for all time.
+     *
+     * @return array<string, string|null>
+     */
+    private static function reportPeriodParameters(ReportPeriod $period): array
+    {
+        if ($period->isCustom()) {
+            return ['from' => $period->fromDay, 'to' => $period->toDay];
+        }
+
+        return ['period' => in_array($period->preset, ['7d', '90d'], true) ? $period->preset : null];
     }
 
     /**
@@ -175,9 +347,10 @@ final class GameAnalytics extends Page
      *
      * @param  Collection<int, array{channel: string, source_id: int|null, version_id: int|null, device: string, first_at: CarbonImmutable, figures: ReportFigures}>  $traffic
      * @param  Collection<int, GameVersion>  $versions
+     * @param  array<string, string|null>  $links  the period and device the links to Traffic sources carry
      * @return array<string, mixed>|null
      */
-    private static function paidVersions(Game $game, Collection $traffic, Collection $versions, int $sourceId, string $window): ?array
+    private static function paidVersions(Game $game, Collection $traffic, Collection $versions, int $sourceId, string $window, array $links): ?array
     {
         $paid = $traffic->where('source_id', '!==', null);
 
@@ -213,10 +386,10 @@ final class GameAnalytics extends Page
         $ahead = $comparison !== null && in_array($comparison['verdict'], ['leader', 'ahead'], true) ? (int) $byVersion->keys()[0] : null;
 
         return [
-            'sources' => ['0' => 'All paid', ...$names->mapWithKeys(fn (string $name, int $id): array => [(string) $id => $name])->all()],
+            'sources' => [['value' => '0', 'label' => 'All paid sources', 'trigger' => 'All paid'], ...$names->map(fn (string $name, int $id): array => ['value' => (string) $id, 'label' => $name])->values()->all()],
             'source' => (string) $sourceId,
             'note' => 'New visitors from '.($sourceId === 0 ? 'ad networks and banners' : $names[$sourceId]).', '.$window.'. One campaign link for the game: RateGuru picks the version after the click, by the shares in Traffic.',
-            'reportUrl' => TrafficSourcesPage::getUrl(array_filter(['game' => $game->id, 'view' => 'versions', 'source' => $sourceId ?: null])),
+            'reportUrl' => TrafficSourcesPage::getUrl(array_filter(['game' => $game->id, 'view' => 'versions', 'source' => $sourceId ?: null, ...$links])),
             'comparison' => $comparison,
             'rows' => $byVersion->map(function (ReportFigures $figures, int|string $id) use ($versions, $shares, $ahead): array {
                 $version = $versions[(int) $id];
@@ -254,9 +427,10 @@ final class GameAnalytics extends Page
      *
      * @param  Collection<int, array{channel: string, source_id: int|null, version_id: int|null, device: string, first_at: CarbonImmutable, figures: ReportFigures}>  $traffic
      * @param  array<int, int>  $campaigns
+     * @param  array<string, string|null>  $links  the period and device the links to Traffic sources carry
      * @return array<string, mixed>|null
      */
-    private static function sourceRows(Game $game, Collection $traffic, string $device, array $campaigns): ?array
+    private static function sourceRows(Game $game, Collection $traffic, string $device, array $campaigns, array $links): ?array
     {
         if ($traffic->isEmpty()) {
             return null;
@@ -272,7 +446,7 @@ final class GameAnalytics extends Page
             'search' => ['Search', 'A search engine'],
             'direct' => ['Direct', 'No referrer'],
         ];
-        $report = fn (array $filters): string => TrafficSourcesPage::getUrl(array_filter(['game' => $game->id, 'device' => $device !== 'all' ? $device : null, ...$filters]));
+        $report = fn (array $filters): string => TrafficSourcesPage::getUrl(array_filter(['game' => $game->id, ...$links, ...$filters]));
         $groups = [];
 
         foreach ($types as $type => $label) {
@@ -357,9 +531,10 @@ final class GameAnalytics extends Page
         return $visitors === 0 ? '—' : TrafficMoney::fine($amount->dividedBy($visitors, 8, RoundingMode::HalfUp));
     }
 
+    /** A window's days, from its first moment up to the one after its last. */
     private static function dates(CarbonImmutable $from, CarbonImmutable $until): string
     {
-        return $from->format('d M').' — '.$until->subSecond()->format('d M Y');
+        return ReportPeriod::span($from, $until->subSecond());
     }
 
     /**
@@ -405,12 +580,8 @@ final class GameAnalytics extends Page
 
     private static function windowStart(string $period, CarbonImmutable $now): CarbonImmutable
     {
-        return match ($period) {
-            '7d' => $now->subDays(7),
-            '90d' => $now->subDays(90),
-            'all' => CarbonImmutable::createFromTimestampUTC(0),
-            default => $now->subDays(30),
-        };
+        // Whole UTC days, today's included — the days the trigger names, as a custom range and Traffic sources count them.
+        return $period === 'all' ? CarbonImmutable::createFromTimestampUTC(0) : $now->subSecond()->startOfDay()->subDays((self::PERIOD_DAYS[$period] ?? 30) - 1);
     }
 
     /** Whether an anonymous visitor of the version can meet an Email capture step. */
@@ -646,11 +817,16 @@ final class GameAnalytics extends Page
     }
 
     /**
-     * @param  array<int, GameFunnel>  $funnels
+     * The rows of Side by side: each version, flow or content set — named
+     * from the versions made from it — or each device, country or country
+     * group of the recorded visits, with its funnel.
+     *
+     * @param  array<int|string, GameFunnel>  $funnels
      * @param  Collection<int, GameVersion>  $versions
+     * @param  list<array{key: string, name: string, percent: int, countries: list<string>}>  $groups
      * @return array{head: list<string>, rows: list<array<string, mixed>>}
      */
-    private static function breakdownRows(string $by, array $funnels, Collection $versions, GameAudience $audience): array
+    private static function breakdownRows(string $by, array $funnels, Collection $versions, GameAudience $audience, array $groups): array
     {
         $head = $audience === GameAudience::Anonymous
             ? [self::BREAKDOWNS[$by], 'Visitors', 'Started', 'Completed', 'Goal', 'Emails', 'Accounts']
@@ -658,24 +834,14 @@ final class GameAnalytics extends Page
         $rows = [];
 
         foreach ($funnels as $key => $funnel) {
-            $named = match ($by) {
-                'flow' => $versions->filter(fn (GameVersion $version): bool => (int) $version->flow_id === $key),
-                'set' => $versions->filter(fn (GameVersion $version): bool => (int) $version->content_set_id === $key),
-                default => $versions->only([$key]),
-            };
-            $first = $named->first();
+            $named = self::breakdownName($by, $key, $versions, $groups);
 
-            if ($first === null) {
+            if ($named === null) {
                 continue;
             }
 
             $rows[] = [
-                'name' => match ($by) {
-                    'flow' => $first->flow->name,
-                    'set' => $first->contentSet->name,
-                    default => $first->label(),
-                },
-                'sub' => $by === 'version' ? $first->contentSet->name.' · '.$first->flow->name : 'Used by '.$named->map(fn (GameVersion $version): string => $version->label())->sortBy(fn (string $label): int => (int) substr($label, 1))->implode(', '),
+                ...$named,
                 'cells' => $audience === GameAudience::Anonymous
                     ? [
                         [number_format($funnel->visitors), null],
@@ -700,16 +866,79 @@ final class GameAnalytics extends Page
     }
 
     /**
-     * The audience's traffic periods, newest first, with what was assigned,
-     * started and completed in each. Of one version: only the periods it had
-     * a share in, each still with every version's share, but with what was
-     * assigned to that version and its attempts alone.
+     * A row of Side by side named: a version with its set and flow; a flow or
+     * set with the versions made from it — none when no version is; a device;
+     * a country with its group; a group with its countries.
+     *
+     * @param  Collection<int, GameVersion>  $versions
+     * @param  list<array{key: string, name: string, percent: int, countries: list<string>}>  $groups
+     * @return array{name: string, sub: string|null}|null
+     */
+    private static function breakdownName(string $by, int|string $key, Collection $versions, array $groups): ?array
+    {
+        if ($by === 'device') {
+            $device = TrafficDevice::tryFrom((string) $key);
+
+            return ['name' => $device?->label() ?? ucfirst((string) $key), 'sub' => $device === TrafficDevice::Mobile ? 'Tablets count as mobile' : null];
+        }
+
+        if ($by === 'country') {
+            $code = (string) $key;
+            $group = $groups === [] ? null : collect($groups)->first(fn (array $group): bool => in_array($code, $group['countries'], true)) ?? $groups[array_key_last($groups)];
+
+            return ['name' => $code === '' ? 'Unknown country' : Countries::name($code), 'sub' => trim(($code === '' ? '' : $code.' · ').($group['name'] ?? ''), ' ·')];
+        }
+
+        if ($by === 'group') {
+            $group = $groups[(int) $key] ?? null;
+
+            if ($group === null) {
+                return null;
+            }
+
+            return ['name' => $group['name'], 'sub' => (int) $key === array_key_last($groups) ? 'Every country the other groups don’t name, and unknown ones' : implode(', ', $group['countries'])];
+        }
+
+        $named = match ($by) {
+            'flow' => $versions->filter(fn (GameVersion $version): bool => (int) $version->flow_id === $key),
+            'set' => $versions->filter(fn (GameVersion $version): bool => (int) $version->content_set_id === $key),
+            default => $versions->only([$key]),
+        };
+        $first = $named->first();
+
+        if ($first === null) {
+            return null;
+        }
+
+        return [
+            'name' => match ($by) {
+                'flow' => $first->flow->name,
+                'set' => $first->contentSet->name,
+                default => $first->label(),
+            },
+            'sub' => $by === 'version' ? $first->contentSet->name.' · '.$first->flow->name : 'Used by '.$named->map(fn (GameVersion $version): string => $version->label())->sortBy(fn (string $label): int => (int) substr($label, 1))->implode(', '),
+        ];
+    }
+
+    /**
+     * The audience's traffic periods, newest first, with their shares, the
+     * visitors sent to a version in each and what they started and
+     * completed, and whether its versions can be compared yet: one version
+     * has nothing to be compared with; with more, enough data once each has
+     * the accounts the versions comparison asks for (TwoProportionTest) —
+     * logged-in players make no accounts, so their goals are counted
+     * instead. Of one version: only the periods it had a share in, each
+     * still with every version's share, but with that version's visitors
+     * and attempts alone.
      *
      * @param  array<int, array{started: int, completed: int}>  $attempts  by period, of the version when there is one
+     * @param  array<int, array<int, array{accounts: int, goal_people: int}>>  $conversions  by period and version
      * @return list<array<string, mixed>>
      */
-    private static function periodRows(Game $game, GameAudience $audience, array $attempts, ?GameVersion $version): array
+    private static function periodRows(Game $game, GameAudience $audience, array $attempts, array $conversions, ?GameVersion $version): array
     {
+        $measure = $audience === GameAudience::Anonymous ? 'accounts' : 'goal_people';
+
         return GameTrafficPeriod::query()
             ->where('game_id', $game->id)
             ->where('audience', $audience->value)
@@ -720,16 +949,36 @@ final class GameAnalytics extends Page
             ->orderByDesc('id')
             ->limit(20)
             ->get()
-            ->map(fn (GameTrafficPeriod $period): array => [
-                'dates' => $period->started_at->format('d M Y').' — '.($period->ended_at?->format('d M Y') ?? 'now'),
-                'shares' => $period->versions->map(fn (GameVersion $shared): string => $shared->label().' '.((int) $shared->getRelation('pivot')->getAttribute('share_percent')).'%')->implode(' · ') ?: 'No traffic',
-                'figures' => ($version !== null ? $version->label().': ' : '')
-                    .number_format((int) $period->assignments_count).' assigned · '
-                    .number_format($attempts[(int) $period->id]['started'] ?? 0).' started · '
-                    .number_format($attempts[(int) $period->id]['completed'] ?? 0).' completed',
-                'current' => $period->ended_at === null,
-            ])
+            ->map(function (GameTrafficPeriod $period) use ($attempts, $conversions, $measure, $version): array {
+                $shared = $period->versions->filter(fn (GameVersion $each): bool => (int) $each->getRelation('pivot')->getAttribute('share_percent') > 0);
+                $visitors = (int) $period->assignments_count;
+
+                return [
+                    'dates' => $period->started_at->format('d M Y').' — '.($period->ended_at?->format('d M Y') ?? 'now'),
+                    'shares' => $period->versions->map(fn (GameVersion $each): string => $each->label().' '.((int) $each->getRelation('pivot')->getAttribute('share_percent')).'%')->implode(' · ') ?: 'No traffic',
+                    'figures' => ($version !== null ? $version->label().': ' : '')
+                        .number_format($attempts[(int) $period->id]['started'] ?? 0).' started · '
+                        .number_format($attempts[(int) $period->id]['completed'] ?? 0).' completed',
+                    'visitors' => number_format($visitors).' '.str('visitor')->plural($visitors),
+                    'badge' => match (true) {
+                        $shared->isEmpty() => null,
+                        $shared->count() === 1 => ['label' => 'One version', 'tone' => 'outline'],
+                        TwoProportionTest::enoughToCompare(...$shared->map(fn (GameVersion $each): int => $conversions[(int) $period->id][(int) $each->id][$measure] ?? 0)->values()->all()) => ['label' => 'Enough data', 'tone' => 'success'],
+                        default => ['label' => 'Too early', 'tone' => 'warning'],
+                    },
+                    'current' => $period->ended_at === null,
+                ];
+            })
             ->all();
+    }
+
+    /** What Traffic periods shows, and when its versions can be compared. */
+    private static function periodsNote(GameAudience $audience, ?string $version): string
+    {
+        $enough = TwoProportionTest::MIN_ACCOUNTS.' '.($audience === GameAudience::Anonymous ? 'accounts' : 'players who reached the goal');
+
+        return 'A new period starts whenever the shares change. Versions are only a fair comparison inside one period, and only once each has '.$enough.', as the versions comparison asks.'
+            .($version !== null ? ' Periods '.$version.' had a share in, with every version’s share and '.$version.'’s figures only.' : '');
     }
 
     private static function percent(int $part, int $whole): string

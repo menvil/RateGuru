@@ -31,6 +31,17 @@ it('tells whether one version brings more accounts than another', function () {
         ->and(TwoProportionTest::erf(1.0))->toEqualWithDelta(0.8427007929, 1e-6);
 });
 
+it('has enough to compare versions once every one has its ten accounts, and not a version fewer', function () {
+    expect(TwoProportionTest::enoughToCompare(10, 10))->toBeTrue()
+        ->and(TwoProportionTest::enoughToCompare(40, 10, 12))->toBeTrue()
+        ->and(TwoProportionTest::enoughToCompare(40, 9))->toBeFalse()
+        ->and(TwoProportionTest::enoughToCompare(40, 30, 9))->toBeFalse()
+        ->and(TwoProportionTest::enoughToCompare())->toBeFalse()
+        // The comparison itself draws the line in the same place.
+        ->and(TwoProportionTest::compare(1000, 10, 1000, 10)['verdict'])->not->toBe('too_early')
+        ->and(TwoProportionTest::compare(1000, 9, 1000, 30)['verdict'])->toBe('too_early');
+});
+
 it('draws a level as its ten biggest groups and the rest in one row that adds up', function () {
     $groups = array_map(fn (int $i) => ['key' => $i, 'figures' => new ReportFigures(visits: 20 - $i, accounts: 1, spend: '0.5')], range(0, 13));
     $level = ReportTree::level($groups);

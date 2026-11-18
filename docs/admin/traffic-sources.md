@@ -50,6 +50,16 @@ Growth → Traffic sources (`/admin/traffic-sources`), for active administrators
 9. Block by hand first, then through the API on a test campaign, then let the
    block rule do it by itself (only once the connector is verified).
 
+## Period
+
+The period picker in the header — the same as a game's Analytics tab has —
+offers Yesterday and the last 7, 30 or 90 days, or a range of days typed in
+and taken with Apply. Days are each network's own. The period is kept in the
+page's address (`period`, or `from` and `to` for a range); a range that ends
+after today, runs backwards or starts before the oldest day visits are kept
+(400 days) opens the last 30 days instead. A game's Analytics links here with
+its own period and device.
+
 ## Sign-ups that never confirm
 
 Report → **How accounts come** follows paid traffic from the click to a

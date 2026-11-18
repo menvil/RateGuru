@@ -5,14 +5,17 @@ use App\Actions\Games\ChangeGameFlowAction;
 use App\Actions\Games\PublishGameVersionAction;
 use App\Enums\GameAttemptStatus;
 use App\Enums\GameAudience;
+use App\Enums\GameEventType;
 use App\Enums\TrafficChannel;
 use App\Enums\TrafficDevice;
 use App\Filament\Pages\TrafficSourcesPage;
 use App\Filament\Resources\Games\GameResource;
 use App\Filament\Resources\Games\Pages\GameAnalytics;
 use App\Livewire\Games\PlayGame;
+use App\Models\AccountAttribution;
 use App\Models\GameAssignment;
 use App\Models\GameAttempt;
+use App\Models\GameEvent;
 use App\Models\GameTrafficPeriod;
 use App\Models\GameVersion;
 use App\Models\ProjectSettings;
@@ -68,7 +71,8 @@ it('shows what two guests did: one opened the game, the other played it through'
     $profile = $version->read()->profileFor(1);
 
     $page = Livewire::test(GameAnalytics::class, ['record' => $this->draft['game']->id])
-        ->assertSee('Anonymous visitors · Last 30 days · all versions')
+        // Each audience with its visitors over the period, beside the switch.
+        ->assertViewHas('audienceCounts', ['anonymous' => '2', 'authenticated' => '0'])
         ->assertSeeInOrder(['Visitors', '2', 'People who opened the game'])
         ->assertSeeInOrder(['Game started', '1', '50.0% of visitors'])
         ->assertSeeInOrder(['Completed', '1', '100.0% of starters'])
@@ -83,7 +87,7 @@ it('shows what two guests did: one opened the game, the other played it through'
         ->assertSee('V1 has the most attempts here')
         ->assertSeeInOrder(['Round 1', '100.0%'])
         ->assertSeeInOrder(['Results · V1', $profile->name->english(), '100.0%'])
-        ->assertSeeInOrder(['Side by side', 'V1', $this->draft['set']->name.' · '.$this->draft['flow']->name])
+        ->assertSeeInOrder(['Break down by', 'V1', $this->draft['set']->name.' · '.$this->draft['flow']->name])
         ->assertSee('1 started · 1 completed');
 
     // A row's bar comes before its count, so the funnel is read from its rows rather than the markup.
@@ -163,7 +167,7 @@ it('narrows the figures to one version, and to the window asked for', function (
     expect($started($page))->toBe('2');
 
     $page->set('version', $version->id)
-        ->assertSee('Anonymous visitors · Last 30 days · V1');
+        ->assertSet('version', (string) $version->id);
     expect($started($page))->toBe('1');
 
     $page->set('period', '7d')
@@ -210,7 +214,7 @@ it('leaves the emails out for a version chosen that asks for none, though anothe
 
     $page = Livewire::test(GameAnalytics::class, ['record' => $this->draft['game']->id])
         ->set('version', $version->id)
-        ->assertSee('Anonymous visitors · Last 30 days · V2')
+        ->assertSet('version', (string) $version->id)
         ->assertDontSee('Email captured');
 
     expect(collect($page->viewData('funnel'))->pluck('label'))->not->toContain('Email captured');
@@ -279,25 +283,25 @@ it('lists only the traffic periods the version chosen had a share in, with every
 
     $page = Livewire::test(GameAnalytics::class, ['record' => $game->id]);
 
-    // Every version: every period, each with all it assigned and started.
+    // Every version: every period, each with the visitors it sent to a version and all they started.
     expect($periods())->toHaveCount(3)
-        ->and(collect($page->viewData('periodRows'))->pluck('figures')->all())->toBe([
-            '1 assigned · 1 started · 0 completed',
-            '2 assigned · 1 started · 1 completed',
-            '1 assigned · 0 started · 0 completed',
+        ->and(collect($page->viewData('periodRows'))->map(fn (array $row): string => $row['visitors'].' | '.$row['figures'])->all())->toBe([
+            '1 visitor | 1 started · 0 completed',
+            '2 visitors | 1 started · 1 completed',
+            '1 visitor | 0 started · 0 completed',
         ]);
 
     // V1 had no share in the newest period: only the two it had, with its own figures, and every share still there.
     $page->set('version', $v1->id)->assertSee('Traffic periods · Anonymous visitors · V1');
-    expect(collect($page->viewData('periodRows'))->map(fn (array $row): string => $row['shares'].' | '.$row['figures'])->all())->toBe([
-        'V1 50% · V2 50% | V1: 1 assigned · 0 started · 0 completed',
-        'V1 100% | V1: 1 assigned · 0 started · 0 completed',
+    expect(collect($page->viewData('periodRows'))->map(fn (array $row): string => $row['shares'].' | '.$row['visitors'].' | '.$row['figures'])->all())->toBe([
+        'V1 50% · V2 50% | 1 visitor | V1: 0 started · 0 completed',
+        'V1 100% | 1 visitor | V1: 0 started · 0 completed',
     ]);
 
     $page->set('version', $v2->id);
-    expect(collect($page->viewData('periodRows'))->pluck('figures')->all())->toBe([
-        'V2: 1 assigned · 1 started · 0 completed',
-        'V2: 1 assigned · 1 started · 1 completed',
+    expect(collect($page->viewData('periodRows'))->map(fn (array $row): string => $row['visitors'].' | '.$row['figures'])->all())->toBe([
+        '1 visitor | V2: 1 started · 0 completed',
+        '1 visitor | V2: 1 started · 1 completed',
     ]);
 
     // Logged-in players were only ever sent to V1.
@@ -360,4 +364,210 @@ it('shows dashes, never a nought, and where visits are recorded, while the game 
     Livewire::test(GameAnalytics::class, ['record' => $this->draft['game']->id])
         ->assertSee('No visit of the game was recorded in this period')
         ->assertViewHas('signups', fn (array $signups): bool => $signups['tracked'] === false && $signups['figures'][0]['value'] === '—' && $signups['trafficUrl'] === null);
+});
+
+it('draws the filter bar as the reference does: period, versions, the audiences with their visitors, device, country, then the days compared and Step prices', function () {
+    $this->travelTo('2026-11-18 12:00:00');
+    liveGame($this->draft);
+
+    $this->actingAs($this->draft['admin'])
+        ->get(GameResource::getUrl('analytics', ['record' => $this->draft['game']]))
+        ->assertOk()
+        ->assertSeeInOrder([
+            'data-testid="game-analytics-filters"',
+            'Last 30 days', '20 Oct — 18 Nov 2026',
+            'Versions: <span x-text="triggers[selected]">All</span>',
+            'Anonymous visitors', 'Logged-in players',
+            'Device: <span x-text="triggers[selected]">All</span>',
+            'Country: <span x-text="triggers[selected]">All</span>',
+            '20 Oct — 18 Nov 2026 · compared with 20 Sep — 19 Oct 2026',
+            'Step prices',
+        ], false)
+        // The picker's presets, and the range Apply takes.
+        ->assertSeeInOrder(['Last 7 days', 'Last 30 days', 'Last 90 days', 'All time', 'Custom range', 'From', 'To', 'Cancel', 'Apply']);
+
+    // The range starts from the very days the trigger names: whole days, today's included, as Traffic sources counts them.
+    Livewire::test(GameAnalytics::class, ['record' => $this->draft['game']->id])
+        ->assertViewHas('periodPicker', fn (array $picker): bool => $picker['from'] === '2026-10-20' && $picker['to'] === '2026-11-18' && $picker['dates'] === '20 Oct — 18 Nov 2026');
+});
+
+it('compares a range only with days still kept, and says so when the days before are gone', function () {
+    $this->travelTo('2026-11-18 12:00:00');
+    liveGame($this->draft);
+    $this->actingAs($this->draft['admin']);
+    $kept = min((int) config('games.retention_days.events'), (int) config('traffic.retention_days.visits'));
+    // A range of 30 days starting 20 days after the oldest kept day: the 30 days before it reach past what is kept.
+    $from = now()->startOfDay()->subDays($kept - 21)->toDateString();
+    $to = now()->startOfDay()->subDays($kept - 50)->toDateString();
+
+    Livewire::withQueryParams(['from' => $from, 'to' => $to])->test(GameAnalytics::class, ['record' => $this->draft['game']->id])
+        ->assertViewHas('datesText', fn (string $text): bool => str_ends_with($text, 'the days before are no longer kept, nothing to compare with'))
+        ->assertDontSee('vs previous period');
+});
+
+it('reads the period from the address — a preset or a range of days — and the last 30 days for anything it cannot read', function () {
+    $this->travelTo('2026-11-18 12:00:00');
+    $version = liveGame($this->draft);
+    GameAttempt::factory()->create(['version_id' => $version->id, 'started_at' => '2026-11-05 10:00:00', 'last_activity_at' => '2026-11-05 10:00:00']);
+    GameAttempt::factory()->create(['version_id' => $version->id, 'started_at' => '2026-10-25 10:00:00', 'last_activity_at' => '2026-10-25 10:00:00']);
+    $this->actingAs($this->draft['admin']);
+    $open = fn (array $query) => Livewire::withQueryParams($query)->test(GameAnalytics::class, ['record' => $this->draft['game']->id]);
+    $started = fn ($page): string => collect($page->viewData('kpis'))->firstWhere('label', 'Game started')['value'];
+
+    // Whole days, compared with as many days right before them.
+    $page = $open(['from' => '2026-11-01', 'to' => '2026-11-10'])
+        ->assertSet('from', '2026-11-01')
+        ->assertSet('to', '2026-11-10')
+        ->assertViewHas('datesText', '01 Nov — 10 Nov 2026 · compared with 22 Oct — 31 Oct 2026')
+        ->assertViewHas('periodPicker', fn (array $picker): bool => $picker['value'] === 'custom' && $picker['label'] === 'Custom range' && $picker['dates'] === '01 Nov — 10 Nov 2026');
+    expect($started($page))->toBe('1')
+        ->and(collect($page->viewData('kpis'))->firstWhere('label', 'Game started')['change']['text'])->toBe('Same as previous period');
+
+    // Reversed, past today, before the oldest day kept, no such day, not a day: the preset in the address, else the default.
+    foreach ([['2026-11-10', '2026-11-01'], ['2026-11-01', '2026-11-19'], ['2025-01-01', '2025-01-31'], ['2026-02-30', '2026-03-02'], ['soon', '2026-11-01'], ['2026-11-01', '']] as [$from, $to]) {
+        $open(['period' => '7d', 'from' => $from, 'to' => $to])->assertSet('period', '7d')->assertSet('from', '')->assertSet('to', '');
+    }
+
+    $open(['period' => '365d'])->assertSet('period', '30d')->assertViewHas('periodPicker', fn (array $picker): bool => $picker['label'] === 'Last 30 days');
+    $open(['period' => 'all'])->assertViewHas('datesText', 'All time · nothing earlier to compare with')->assertViewHas('periodPicker', fn (array $picker): bool => $picker['dates'] === null);
+
+    // A forged update is read the same way; the picker's own calls too.
+    $page->set('to', '2027-01-01')->assertSet('period', '30d')->assertSet('from', '')->assertSet('to', '')
+        ->call('applyRange', '2026-11-03', '2026-11-18')->assertSet('from', '2026-11-03')->assertSet('to', '2026-11-18')
+        ->call('applyRange', ['2026-11-03'], null)->assertSet('from', '')->assertSet('period', '30d')
+        ->call('choosePeriod', '90d')->assertSet('period', '90d')
+        ->call('choosePeriod', 'forever')->assertSet('period', '30d');
+    expect($started($page))->toBe('2');
+});
+
+it('narrows every card to the device and country chosen, says only plays on recorded visits count, and drops the sources card’s own device switch', function () {
+    $version = liveGame($this->draft);
+    $game = $this->draft['game'];
+    $network = TrafficSource::factory()->create(['name' => 'PopAds main']);
+    // A German phone that played and signed up, a French desktop that only opened the game.
+    $visit = fn (string $guest, TrafficDevice $device, string $country, array $state = []) => TrafficVisit::factory()->create([
+        'game_id' => $game->id, 'version_id' => $version->id, 'source_id' => $network->id, 'visitor_hash' => hash('sha256', $guest),
+        'device' => $device, 'country' => $country, 'opened_at' => now(), ...$state,
+    ]);
+    $german = $visit('guest-a', TrafficDevice::Mobile, 'DE', ['started_at' => now(), 'signup_at' => now(), 'account_at' => now()]);
+    $visit('guest-b', TrafficDevice::Desktop, 'FR');
+
+    foreach (['guest-a', 'guest-b', 'guest-c'] as $guest) {
+        (new GameEvent)->forceFill(['game_id' => $game->id, 'version_id' => $version->id, 'audience' => GameAudience::Anonymous, 'visitor_hash' => hash('sha256', $guest), 'type' => GameEventType::View, 'occurred_at' => now()])->save();
+    }
+
+    GameAttempt::factory()->create(['version_id' => $version->id, 'visitor_hash' => hash('sha256', 'guest-a'), 'traffic_visit_id' => $german->id]);
+    // A guest with no recorded visit, playing all the same.
+    GameAttempt::factory()->create(['version_id' => $version->id, 'visitor_hash' => hash('sha256', 'guest-c')]);
+    $this->actingAs($this->draft['admin']);
+    $kpi = fn ($page, string $label): string => collect($page->viewData('kpis'))->firstWhere('label', $label)['value'];
+    $signedUp = fn ($page): string => collect($page->viewData('signups')['figures'])->firstWhere('label', 'Signed up')['value'];
+
+    $page = Livewire::test(GameAnalytics::class, ['record' => $game->id])
+        ->assertViewHas('visitNote', null)
+        ->assertViewHas('sourcesSwitch', true)
+        ->assertSee('data-testid="game-traffic-sources-device"', false)
+        // The paid sources are a menu now, for twenty and more.
+        ->assertSee('Source: <span x-text="triggers[selected]">All paid</span>', false);
+    expect([$kpi($page, 'Visitors'), $kpi($page, 'Game started'), $signedUp($page)])->toBe(['3', '2', '1']);
+
+    $page->set('device', 'mobile')
+        ->assertSee('Only plays that came on a visit Traffic sources recorded are counted while a device or country is chosen.')
+        ->assertViewHas('sourcesSwitch', false)
+        ->assertViewHas('cardDevice', 'mobile')
+        ->assertDontSee('game-traffic-sources-device')
+        ->assertViewHas('audienceCounts', ['anonymous' => '1', 'authenticated' => '0'])
+        ->assertViewHas('sources', fn (array $sources): bool => $sources['total']['opened'] === 1)
+        ->assertViewHas('paid', fn (array $paid): bool => collect($paid['rows'])->pluck('newVisitors')->all() === ['1']);
+    expect([$kpi($page, 'Visitors'), $kpi($page, 'Game started'), $signedUp($page)])->toBe(['1', '1', '1']);
+
+    // A country, then the group it is in, then the price set's last group: every other country.
+    $page->set('device', '')->set('country', 'FR');
+    expect([$kpi($page, 'Visitors'), $kpi($page, 'Game started'), $signedUp($page)])->toBe(['1', '0', '0']);
+    $page->set('country', 'group:t1');
+    expect([$kpi($page, 'Visitors'), $kpi($page, 'Game started')])->toBe(['1', '1']);
+    $page->set('country', 'group:rest');
+    expect($kpi($page, 'Visitors'))->toBe('0');
+
+    // A device or country it doesn't know is every one.
+    $page->set('country', 'ZZ')->assertViewHas('country', '')->set('device', 'tablet')->assertViewHas('device', '')->assertViewHas('visitNote', null);
+    expect($kpi($page, 'Visitors'))->toBe('3');
+
+    // The choices are kept in the address, the card's own device under a name of its own.
+    Livewire::withQueryParams(['device' => 'desktop', 'country' => 'group:t2', 'sources_device' => 'mobile'])->test(GameAnalytics::class, ['record' => $game->id])
+        ->assertSet('device', 'desktop')
+        ->assertSet('country', 'group:t2')
+        ->assertSet('sourcesDevice', 'mobile')
+        // The page's device rules the card while one is chosen.
+        ->assertViewHas('cardDevice', 'desktop')
+        ->assertViewHas('countryOptions', fn (array $options): bool => array_column($options, 'value') === ['', 'group:t1', 'group:t2', 'group:rest', 'FR', 'DE']);
+});
+
+it('breaks the figures down by device, country and country group too', function () {
+    $version = liveGame($this->draft);
+    $game = $this->draft['game'];
+
+    foreach ([['guest-a', TrafficDevice::Mobile, 'DE'], ['guest-b', TrafficDevice::Desktop, 'FR'], ['guest-c', TrafficDevice::Desktop, null]] as [$guest, $device, $country]) {
+        $visit = TrafficVisit::factory()->unpaid()->create(['game_id' => $game->id, 'version_id' => $version->id, 'visitor_hash' => hash('sha256', $guest), 'device' => $device, 'country' => $country, 'opened_at' => now()]);
+        (new GameEvent)->forceFill(['game_id' => $game->id, 'version_id' => $version->id, 'audience' => GameAudience::Anonymous, 'visitor_hash' => hash('sha256', $guest), 'type' => GameEventType::View, 'occurred_at' => now()])->save();
+        GameAttempt::factory()->create(['version_id' => $version->id, 'visitor_hash' => hash('sha256', $guest), 'traffic_visit_id' => $visit->id]);
+    }
+
+    $this->actingAs($this->draft['admin']);
+    $rows = fn ($page): array => collect($page->viewData('breakdownRows')['rows'])->map(fn (array $row): string => $row['name'].' | '.$row['sub'].' | '.$row['cells'][0][0])->all();
+
+    $page = Livewire::test(GameAnalytics::class, ['record' => $game->id])
+        ->assertViewHas('breakdowns', ['version' => 'Version', 'flow' => 'Flow', 'set' => 'Content set', 'device' => 'Device', 'country' => 'Country', 'group' => 'Group'])
+        ->set('breakdown', 'device')
+        ->assertSee('Each play by the recorded visit it came on');
+    expect($rows($page))->toBe(['Desktop |  | 2', 'Mobile | Tablets count as mobile | 1']);
+
+    $page->set('breakdown', 'country');
+    expect($rows($page))->toBe(['Unknown country | Every other country | 1', 'Germany | DE · Tier 1 | 1', 'France | FR · Tier 2 | 1']);
+
+    $page->set('breakdown', 'group');
+    expect($rows($page))->toBe(['Tier 1 | US, GB, CA, AU, DE, AT, CH, NL | 1', 'Tier 2 | ES, FR, IT, PL | 1', 'Every other country | Every country the other groups don’t name, and unknown ones | 1']);
+
+    // Something it can't break the figures down by: by version.
+    $page->set('breakdown', 'city')->assertViewHas('breakdown', 'version');
+});
+
+it('tells for each traffic period whether its versions can be compared yet, by the accounts the versions comparison asks for', function () {
+    $game = $this->draft['game'];
+    $current = fn (): GameTrafficPeriod => GameTrafficPeriod::query()->where('game_id', $game->id)->where('audience', GameAudience::Anonymous->value)->whereNull('ended_at')->sole();
+    // Guests sent to a version in the current period, each with an attempt and a confirmed account.
+    $accounts = function (GameVersion $version, int $count) use ($game, $current): void {
+        foreach (range(1, $count) as $guest) {
+            $hash = hash('sha256', $version->id.'-'.$guest.'-'.fake()->uuid());
+            $assignment = GameAssignment::query()->forceCreate([
+                'game_id' => $game->id, 'audience' => GameAudience::Anonymous, 'visitor_hash' => $hash,
+                'version_id' => $version->id, 'period_id' => $current()->id, 'assigned_at' => now(), 'last_seen_at' => now(),
+            ]);
+            $attempt = GameAttempt::factory()->create(['version_id' => $version->id, 'assignment_id' => $assignment->id, 'visitor_hash' => $hash]);
+            AccountAttribution::factory()->confirmed()->create(['credited_attempt_id' => $attempt->id]);
+        }
+    };
+    $this->travelTo('2026-11-10 12:00:00');
+    $v1 = liveGame($this->draft);
+    $accounts($v1, 1);
+    $this->travelTo('2026-11-12 12:00:00');
+    $v2 = app(PublishGameVersionAction::class)->handle($this->draft['admin'], $game->fresh(), $this->draft['set']->id, $this->draft['flow']->id);
+    app(ApplyGameTrafficAction::class)->handle($this->draft['admin'], $game, GameAudience::Anonymous, [$v1->id => 50, $v2->id => 50]);
+    $accounts($v1, 10);
+    $accounts($v2, 9);
+    $this->actingAs($this->draft['admin']);
+    $badges = fn ($page): array => collect($page->viewData('periodRows'))->map(fn (array $row): string => $row['visitors'].' · '.($row['badge']['label'] ?? 'none'))->all();
+
+    $page = Livewire::test(GameAnalytics::class, ['record' => $game->id])
+        ->assertSeeInOrder(['Traffic periods', '19 visitors', 'Too early', '1 visitor', 'One version']);
+    expect($badges($page))->toBe(['19 visitors · Too early', '1 visitor · One version']);
+
+    // The tenth account on V2.
+    $accounts($v2, 1);
+    expect($badges(Livewire::test(GameAnalytics::class, ['record' => $game->id])))->toBe(['20 visitors · Enough data', '1 visitor · One version'])
+        // Of one version: its own visitors, and still whether the period's versions can be compared.
+        ->and($badges(Livewire::test(GameAnalytics::class, ['record' => $game->id])->set('version', $v2->id)))->toBe(['10 visitors · Enough data']);
+
+    // Logged-in players were only ever sent to V1.
+    expect($badges(Livewire::test(GameAnalytics::class, ['record' => $game->id])->set('audience', 'authenticated')))->toBe(['0 visitors · One version']);
 });

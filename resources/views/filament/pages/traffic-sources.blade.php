@@ -1,7 +1,7 @@
 @php
     /*
      * Growth → Traffic sources (TrafficSourcesPage): the header band with the
-     * period, the filters every tab reads — type of traffic, source,
+     * period picker the game Analytics shares, the filters every tab reads — type of traffic, source,
      * campaign, game, device — the warnings that matter on every tab —
      * nothing recorded, no IP database — the tabs, and the tab on screen. Its
      * figures are read once the page is in a browser (wire:init).
@@ -17,10 +17,10 @@
     <section class="rg-admin-page-header rg-admin-traffic__header" aria-labelledby="rg-admin-traffic-title">
         <div class="rg-admin-page-header__text">
             <h1 id="rg-admin-traffic-title" class="rg-admin-page-header__title">Traffic sources</h1>
-            <p class="rg-admin-page-header__description">Where visitors come from, what they cost and what they bring. {{ $periodLabel }}, by each network’s own day.</p>
+            <p class="rg-admin-page-header__description">Where visitors come from, what they cost and what they bring. {{ $periodDays }}, by each network’s own day.</p>
         </div>
         <div class="rg-admin-traffic__filters">
-            <x-admin.ui.filter-dropdown label="Period" id="rg-admin-traffic-period" :options="$periodOptions" :value="$period" wire:model.live="period" />
+            @include('filament.pages.elements.period-picker', ['picker' => $periodPicker, 'id' => 'rg-admin-traffic-period', 'align' => 'end'])
         </div>
 
         <div class="rg-admin-traffic__filter-bar" data-testid="traffic-filters">

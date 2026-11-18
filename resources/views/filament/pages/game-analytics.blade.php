@@ -1,15 +1,19 @@
 @php
     /*
-     * A game's Analytics tab (GameAnalytics), as the reference draws it: one
-     * audience over a window, for every version or one, against the window
-     * before — the figures and what the visits were worth, the versions on
-     * paid traffic compared, the visitors by where they came from, the
-     * funnel, who signed up and whether they confirmed — of anonymous
-     * visitors, from the visits Traffic sources recorded, so never confirmed
-     * ones still count once removed — the rounds reached and the results
-     * earned in one version, the versions, flows or content sets side by
-     * side, and the traffic periods — of one version, those it had a share
-     * in, with its own figures.
+     * A game's Analytics tab (GameAnalytics), as the reference draws it: the
+     * filter bar — the period picker Traffic sources shares, the versions,
+     * the audiences with their visitors, the device and the country, the days
+     * compared and Step prices — then one audience over that period, for
+     * every version or one, from every device and country or one, against
+     * the window before — the figures and what the visits were worth, the
+     * versions on paid traffic compared, the visitors by where they came
+     * from, the funnel, who signed up and whether they confirmed — of
+     * anonymous visitors, from the visits Traffic sources recorded, so never
+     * confirmed ones still count once removed — the rounds reached and the
+     * results earned in one version, the figures broken down by version,
+     * flow, content set, device, country or group, and the traffic periods —
+     * of one version, those it had a share in, with its own figures — each
+     * with whether its versions can be compared yet.
      */
 @endphp
 
@@ -17,18 +21,32 @@
     @include('filament.pages.games.editor-header', ['header' => $header])
 
     <div class="rg-admin-screen__body">
-        <div class="rg-admin-games__analytics-filters">
-            <x-admin.ui.segmented label="Group" compact :options="$audiences" :value="$audience" wire:model.live="audience" />
-            <x-admin.ui.segmented label="Period" compact :options="['7d' => '7 days', '30d' => '30 days', '90d' => '90 days', 'all' => 'All time']" :value="$period" wire:model.live="period" />
+        <div class="rg-admin-games__analytics-filters" data-testid="game-analytics-filters">
+            @include('filament.pages.elements.period-picker', ['picker' => $periodPicker, 'id' => 'rg-admin-games-analytics-period'])
             @if (! $noVersions)
-                <x-admin.ui.filter-dropdown label="Version" id="rg-admin-games-analytics-version" :options="$versionOptions" :value="(string) $version" wire:model.live="version" />
+                <x-admin.ui.filter-dropdown label="Versions" id="rg-admin-games-analytics-version" :options="$versionOptions" :value="(string) $version" wire:model.live="version" />
             @endif
-            <span class="rg-admin-games__note rg-admin-games__analytics-scope" role="status">
-                <span>{{ $scopeText }}</span>
-                @if ($datesText !== null)<span>{{ $datesText }}</span>@endif
-            </span>
-            <x-admin.ui.button size="sm" icon="circle-dollar-sign" :href="$valueUrl">Step prices</x-admin.ui.button>
+            {{-- The audiences with their visitors over the period, on the segmented control's track. --}}
+            <div class="rg-admin-segmented rg-admin-segmented--compact rg-admin-games__audiences" role="radiogroup" aria-label="Group">
+                @foreach ($audiences as $key => $label)
+                    <button type="button" role="radio" class="rg-admin-segmented__option" aria-checked="{{ $audience === $key ? 'true' : 'false' }}" wire:click="$set('audience', @js($key))">
+                        <span>{{ $label }}</span>
+                        <span class="rg-admin-games__audience-count">{{ $audienceCounts[$key] }}</span>
+                    </button>
+                @endforeach
+            </div>
+            <x-admin.ui.filter-dropdown label="Device" id="rg-admin-games-analytics-device" :options="$deviceOptions" :value="$device" wire:model.live="device" />
+            <x-admin.ui.filter-dropdown label="Country" id="rg-admin-games-analytics-country" class="rg-admin-games__country" :options="$countryOptions" :value="$country" wire:model.live="country" />
+            {{-- Pushes the dates and Step prices right while the bar is one line; wrapped, they start a line of their own on the left, as the reference has. --}}
+            <span class="rg-admin-games__analytics-spacer" aria-hidden="true"></span>
+            <div class="rg-admin-games__analytics-scope">
+                <span class="rg-admin-games__note" role="status">{{ $datesText }}</span>
+                <x-admin.ui.button size="sm" icon="circle-dollar-sign" :href="$valueUrl">Step prices</x-admin.ui.button>
+            </div>
         </div>
+        @if ($visitNote !== null)
+            <p class="rg-admin-games__note rg-admin-games__visit-note" data-testid="game-analytics-visit-note"><x-admin.ui.icon name="info" :size="14" />{{ $visitNote }}</p>
+        @endif
 
         @if ($noVersions)
             <x-admin.ui.card>
@@ -43,7 +61,7 @@
             @if ($noData)
                 <x-admin.ui.card>
                     <x-admin.ui.empty-state icon="chart-no-axes-column" title="No visitors here yet">
-                        Nobody of this group opened {{ $version > 0 ? 'this version' : 'the game' }} in this period. Try a longer period or the other group.
+                        Nobody of this group opened {{ $version > 0 ? 'this version' : 'the game' }}{{ $visitNote !== null ? ' on a recorded visit from this device or country' : '' }} in this period. Try a longer period or the other group{{ $visitNote !== null ? ', or set Device and Country back to All' : '' }}.
                     </x-admin.ui.empty-state>
                 </x-admin.ui.card>
             @else
@@ -67,12 +85,9 @@
                 <x-admin.ui.card title="Versions on paid traffic" :description="$paid['note']" data-testid="game-paid-versions">
                     <x-slot:aside>
                         <div class="rg-admin-games__card-tools">
-                        <div class="rg-admin-traffic__views" role="radiogroup" aria-label="Paid source">
-                            @foreach ($paid['sources'] as $key => $label)
-                                <button type="button" role="radio" aria-checked="{{ $paid['source'] === (string) $key ? 'true' : 'false' }}" @class(['rg-admin-traffic__view', 'rg-admin-traffic__view--on' => $paid['source'] === (string) $key]) wire:click="$set('paidSource', {{ (int) $key }})">{{ $label }}</button>
-                            @endforeach
-                        </div>
-                        <x-admin.ui.button size="sm" trailing-icon="arrow-right" :href="$paid['reportUrl']">Open report</x-admin.ui.button>
+                            {{-- A menu rather than a row of chips: twenty sources and more stay within reach. --}}
+                            <x-admin.ui.filter-dropdown label="Source" id="rg-admin-games-paid-source" class="rg-admin-games__paid-source" :options="$paid['sources']" :value="$paid['source']" wire:model.live="paidSource" />
+                            <x-admin.ui.button size="sm" trailing-icon="arrow-right" :href="$paid['reportUrl']">Open report</x-admin.ui.button>
                         </div>
                     </x-slot:aside>
                     @if ($paid['comparison'] !== null)
@@ -135,8 +150,11 @@
                 <x-admin.ui.card title="Traffic sources" :description="$sources['note']" data-testid="game-traffic-sources">
                     <x-slot:aside>
                         <div class="rg-admin-games__card-tools">
-                        <x-admin.ui.segmented label="Device" compact :options="['all' => 'All devices', 'mobile' => 'Mobile', 'desktop' => 'Desktop']" :value="$sourcesDevice" wire:model.live="sourcesDevice" />
-                        <x-admin.ui.button size="sm" trailing-icon="arrow-right" :href="$sources['reportUrl']">Open report</x-admin.ui.button>
+                            {{-- Its own device only while the page is of every device; with one chosen above, the card follows it. --}}
+                            @if ($sourcesSwitch)
+                                <x-admin.ui.segmented label="Device" compact :options="['all' => 'All devices', 'mobile' => 'Mobile', 'desktop' => 'Desktop']" :value="$cardDevice" wire:model.live="sourcesDevice" data-testid="game-traffic-sources-device" />
+                            @endif
+                            <x-admin.ui.button size="sm" trailing-icon="arrow-right" :href="$sources['reportUrl']">Open report</x-admin.ui.button>
                         </div>
                     </x-slot:aside>
                     <div class="rg-admin-table__scroll">
@@ -270,9 +288,15 @@
                 </div>
             @endif
 
-            <x-admin.ui.card title="Side by side" description="Versions are a fair comparison only inside one traffic period; a person who saw two versions counts in each.">
+            <x-admin.ui.card title="Break down by" :description="$breakdownNote" data-testid="game-analytics-breakdown">
                 <x-slot:aside>
-                    <x-admin.ui.segmented label="Break down by" compact :options="$breakdowns" :value="$breakdown" wire:model.live="breakdown" />
+                    <div class="rg-admin-games__card-tools">
+                        <div class="rg-admin-traffic__views" role="radiogroup" aria-label="Break down by">
+                            @foreach ($breakdowns as $key => $label)
+                                <button type="button" role="radio" aria-checked="{{ $breakdown === $key ? 'true' : 'false' }}" @class(['rg-admin-traffic__view', 'rg-admin-traffic__view--on' => $breakdown === $key]) wire:click="$set('breakdown', @js($key))">{{ $label }}</button>
+                            @endforeach
+                        </div>
+                    </div>
                 </x-slot:aside>
                 @if ($breakdownRows['rows'] === [])
                     <p class="rg-admin-games__note">Nothing to compare in this period.</p>
@@ -288,7 +312,9 @@
                                 <div class="rg-admin-table__row" role="row">
                                     <div class="rg-admin-table__cell rg-admin-table__cell--padded" role="cell">
                                         <div class="rg-admin-table__primary">{{ $row['name'] }}</div>
-                                        <div class="rg-admin-table__meta">{{ $row['sub'] }}</div>
+                                        @if ($row['sub'] !== null && $row['sub'] !== '')
+                                            <div class="rg-admin-table__meta">{{ $row['sub'] }}</div>
+                                        @endif
                                     </div>
                                     @foreach ($row['cells'] as [$value, $rate])
                                         <div class="rg-admin-table__cell rg-admin-table__cell--numeric" role="cell">
@@ -308,7 +334,7 @@
         @endif
 
         @if (! $noVersions)
-            <x-admin.ui.card :title="'Traffic periods · '.$audiences[$audience].($periodVersion !== null ? ' · '.$periodVersion : '')" :description="'A new period starts whenever the shares change. Versions are only a fair comparison inside one period.'.($periodVersion !== null ? ' Periods '.$periodVersion.' had a share in, with every version’s share and '.$periodVersion.'’s figures only.' : '')">
+            <x-admin.ui.card :title="'Traffic periods · '.$audiences[$audience].($periodVersion !== null ? ' · '.$periodVersion : '')" :description="$periodsNote" data-testid="game-analytics-periods">
                 <x-slot:aside>
                     <x-admin.ui.button size="sm" trailing-icon="arrow-right" :href="$trafficUrl">Open Traffic</x-admin.ui.button>
                 </x-slot:aside>
@@ -324,7 +350,10 @@
                                     <span class="rg-admin-games__mechanic-name">{{ $row['dates'] }}</span>
                                     <span class="rg-admin-games__note">{{ $row['shares'] }} · {{ $row['figures'] }}</span>
                                 </span>
-                                <x-admin.ui.badge :tone="$row['current'] ? 'success' : 'neutral'">{{ $row['current'] ? 'Current' : 'Ended' }}</x-admin.ui.badge>
+                                <span class="rg-admin-games__period-visitors">{{ $row['visitors'] }}</span>
+                                @if ($row['badge'] !== null)
+                                    <x-admin.ui.badge :tone="$row['badge']['tone']">{{ $row['badge']['label'] }}</x-admin.ui.badge>
+                                @endif
                             </li>
                         @endforeach
                     </ul>

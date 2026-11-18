@@ -12,6 +12,7 @@ use App\Queries\Users\UnconfirmedAccountsQuery;
 use App\Support\Traffic\Reports\ReportFigures;
 use App\Support\Traffic\Reports\SignupFigures;
 use App\Support\Traffic\Reports\TrafficReportFilter;
+use App\Support\Traffic\Reports\VisitFilter;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Builder;
@@ -22,8 +23,10 @@ use Illuminate\Database\Eloquent\Builder;
  * with every value bound and every column named by TrafficDimension, never
  * arithmetic on dates or a branch per engine. A level of the tree, the
  * sites and zones of the networks, the campaigns and their stages, the
- * sign-ups and whether they were confirmed, and a game's paid traffic and
- * sign-ups — each one pass over the period's visits.
+ * sign-ups and whether they were confirmed, and a game's paid traffic,
+ * sign-ups and countries — of one device or some countries when its
+ * Analytics narrows them (VisitFilter) — each one pass over the period's
+ * visits.
  *
  * A sign-up not confirmed is never confirmed once its account's window to
  * confirm has closed — the account is removed then, with everything it did
@@ -227,7 +230,7 @@ final class TrafficReportQuery implements RawSqlPersistenceBoundary
      *
      * @return list<array{channel: string, source_id: int|null, version_id: int|null, device: string, first_at: CarbonImmutable, figures: ReportFigures}>
      */
-    public function gameBreakdown(int $gameId, CarbonImmutable $since, ?CarbonImmutable $until = null): array
+    public function gameBreakdown(int $gameId, CarbonImmutable $since, ?CarbonImmutable $until = null, ?VisitFilter $visits = null): array
     {
         [$metrics, $bindings] = self::metrics();
 
@@ -235,6 +238,7 @@ final class TrafficReportQuery implements RawSqlPersistenceBoundary
             ->where('game_id', $gameId)
             ->where('arrived_at', '>=', $since)
             ->when($until !== null, fn (Builder $query) => $query->where('arrived_at', '<', $until))
+            ->when($visits !== null, fn (Builder $query) => $query->matching($visits))
             ->groupBy('channel', 'source_id', 'version_id', 'device')
             ->select('channel', 'source_id', 'version_id', 'device')
             ->selectRaw('MIN(arrived_at) AS first_at, '.$metrics, $bindings)
@@ -256,12 +260,13 @@ final class TrafficReportQuery implements RawSqlPersistenceBoundary
      *
      * @return array<int, int>
      */
-    public function gameCampaigns(int $gameId, CarbonImmutable $since, CarbonImmutable $until): array
+    public function gameCampaigns(int $gameId, CarbonImmutable $since, CarbonImmutable $until, ?VisitFilter $visits = null): array
     {
         return TrafficVisit::query()
             ->where('game_id', $gameId)
             ->where('arrived_at', '>=', $since)
             ->where('arrived_at', '<', $until)
+            ->when($visits !== null, fn (Builder $query) => $query->matching($visits))
             ->whereNotNull('campaign_id')
             ->distinct()
             ->get(['source_id', 'campaign_id'])
@@ -277,7 +282,7 @@ final class TrafficReportQuery implements RawSqlPersistenceBoundary
      *
      * @return array{visits: int, figures: SignupFigures}
      */
-    public function gameSignups(int $gameId, CarbonImmutable $since, CarbonImmutable $until, ?int $versionId = null, ?CarbonInterface $unconfirmedBefore = null): array
+    public function gameSignups(int $gameId, CarbonImmutable $since, CarbonImmutable $until, ?int $versionId = null, ?CarbonInterface $unconfirmedBefore = null, ?VisitFilter $visits = null): array
     {
         [$signups, $bindings] = self::signupMetrics($unconfirmedBefore ?? UnconfirmedAccountsQuery::cutoff());
         $row = (array) TrafficVisit::query()
@@ -285,6 +290,7 @@ final class TrafficReportQuery implements RawSqlPersistenceBoundary
             ->where('arrived_at', '>=', $since)
             ->where('arrived_at', '<', $until)
             ->when($versionId !== null, fn (Builder $query) => $query->where('version_id', $versionId))
+            ->when($visits !== null, fn (Builder $query) => $query->matching($visits))
             // The anonymous visitors' view: a visitor signed in when they came is a logged-in player, not one of them.
             ->where(fn (Builder $query) => $query->whereNull('known_reason')->orWhere('known_reason', '<>', TrafficKnownReason::SignedIn->value))
             ->selectRaw('COUNT(*) AS visits, '.$signups, $bindings)
@@ -292,6 +298,28 @@ final class TrafficReportQuery implements RawSqlPersistenceBoundary
             ->first();
 
         return ['visits' => (int) ($row['visits'] ?? 0), 'figures' => SignupFigures::fromRow($row)];
+    }
+
+    /**
+     * The countries a game's recorded visits came from, as their codes in
+     * order: what its Analytics can narrow its figures to. A visit whose
+     * country is not known names none.
+     *
+     * @return list<string>
+     */
+    public function gameCountries(int $gameId): array
+    {
+        $country = TrafficDimension::Country->columns()[0];
+
+        return TrafficVisit::query()
+            ->where('game_id', $gameId)
+            ->whereNotNull($country)
+            ->distinct()
+            ->orderBy($country)
+            ->pluck($country)
+            ->map(fn (mixed $code): string => (string) $code)
+            ->values()
+            ->all();
     }
 
     /** @return Builder<TrafficVisit> */

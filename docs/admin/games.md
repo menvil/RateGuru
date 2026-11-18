@@ -91,12 +91,35 @@ content. Players see a translation once a version is published after it.
 
 ## Analytics
 
-The Analytics tab shows, per audience and over the last 7, 30 or 90 days or all
-time: visitors, starts, completion, emails, new accounts and sign-ins (or, for
-logged-in players, shares and repeat players), the funnel, how many attempts
-reached each round, which results players got, the versions, flows or content
-sets side by side, and the traffic periods. Library shows each game's plays,
-completion and sign-ups of the last 30 days.
+The Analytics tab shows, per audience and over the last 7, 30 or 90 days, all
+time or a range of days you type into the period picker: visitors, starts,
+completion, emails, new accounts and sign-ins (or, for logged-in players,
+shares and repeat players), the funnel, how many attempts reached each round,
+which results players got, the figures broken down by version, flow, content
+set, device, country or country group, and the traffic periods. Each figure is
+compared with as many days right before the period; all time has nothing to
+compare with. The period, the version, the audience, the device and the
+country are kept in the page's address, so a link opens the same view; a range
+that ends after today, runs backwards or reaches further back than the 400
+days visits are kept opens the last 30 days instead. Library shows each game's
+plays, completion and sign-ups of the last 30 days.
+
+The game's own records know no device or country: those come from the visits
+Traffic sources recorded. With a **Device** or **Country** chosen — a country,
+or a country group of Value → Country groups, the last group holding every
+other country and the visits whose country isn't known — every card counts
+only what came on such a visit: a play by the visit it started on, a visitor
+by their visits of the game (a logged-in player by a browser they signed up or
+in on, or by the visit a play of theirs came on). Plays with no recorded visit
+— before Record visits was switched on, say — drop out, and the page says so.
+The Traffic sources card's own device switch is there only while the page is
+of every device.
+
+Each traffic period shows how many visitors it sent to a version and whether
+its versions can be compared yet: **One version** when only one had a share,
+**Too early** until every version has 10 confirmed accounts (logged-in players
+make none, so their goals reached count instead) — the bar the comparison of
+versions on paid traffic uses — and **Enough data** after.
 
 The funnel counts people: someone who played three times started once. Each
 step's rate says what it is a share of — Played again, for instance, is of the

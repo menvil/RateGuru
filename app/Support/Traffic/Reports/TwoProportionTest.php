@@ -16,7 +16,7 @@ final class TwoProportionTest
     /** @return array{verdict: string, confidence: float|null, needed: int|null} verdict: too_early, leader, ahead or no_difference */
     public static function compare(int $nA, int $xA, int $nB, int $xB): array
     {
-        if (min($xA, $xB) < self::MIN_ACCOUNTS || $nA <= 0 || $nB <= 0) {
+        if (! self::enoughToCompare($xA, $xB) || $nA <= 0 || $nB <= 0) {
             return ['verdict' => 'too_early', 'confidence' => null, 'needed' => null];
         }
 
@@ -37,6 +37,15 @@ final class TwoProportionTest
             'confidence' => $confidence,
             'needed' => $needed,
         ];
+    }
+
+    /**
+     * Whether versions have what a comparison of them needs, by the accounts
+     * each brought: MIN_ACCOUNTS on every one; too early otherwise.
+     */
+    public static function enoughToCompare(int ...$accounts): bool
+    {
+        return $accounts !== [] && min($accounts) >= self::MIN_ACCOUNTS;
     }
 
     /** The error function, by Abramowitz and Stegun 7.1.26 (error below 1.5e-7). */
