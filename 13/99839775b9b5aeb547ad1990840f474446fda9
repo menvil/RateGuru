@@ -1,0 +1,183 @@
+app/Queries/Analytics/AnalyticsContentQuery.php
+  s_4b9dc6ab6b25d3::t_5e881c6b78e341 155-156,177-178
+  s_4b9dc6ab6b25d3::t_b1c797b70ce0ac 1-154,157-176,179-283
+tests/Feature/ViewComponents/AdminUiComponentsTest.php
+  s_4b9dc6ab6b25d3::t_00c735f42221b0 55-57
+tests/Browser/AdminAnalyticsEngagementBrowserTest.php
+  s_4b9dc6ab6b25d3::t_b5e43dc32f749c 1-95
+app/Queries/Analytics/TrackingLinksQuery.php
+  s_4b9dc6ab6b25d3::t_429137624a75b1 133,135,138-144
+  s_4b9dc6ab6b25d3::t_aa91abb6ea631a 8,17-18,38-39,186-198,200-272,339-346
+  s_4b9dc6ab6b25d3::t_1020880cbee6da 1-7,9-16,19-37,40-42,46-51,54-56,60-93,110-120,122-132,134,136-137,145-148,150-170,172-185,273-304,307-320,322-338,347-354
+  s_4b9dc6ab6b25d3::t_c1c908c673aaf0 149
+  s_4b9dc6ab6b25d3::t_b597c28f1422b3 43-45,171,199
+  s_4b9dc6ab6b25d3::t_9b40b0e51316d3 305-306
+  s_4b9dc6ab6b25d3::t_820c376ad5d208 321
+  s_4b9dc6ab6b25d3::t_87e495e7290a83 52-53,121
+  s_4b9dc6ab6b25d3::t_ee58827ccba1e5 57-59
+  s_4b9dc6ab6b25d3::t_c5fad99236495d 94-109
+docs/architecture/user-lifecycle.md
+  s_4b9dc6ab6b25d3::t_c8afd4f0c231cc 272
+tests/Browser/AdminAnalyticsTrackingLinksBrowserTest.php
+  s_4b9dc6ab6b25d3::t_8cedd97aec0b55 1-131
+tests/Feature/Database/TrackingLinksTableTest.php
+  s_4b9dc6ab6b25d3::t_d937187243f246 1-84
+app/Enums/AnalyticsDimension.php
+  s_4b9dc6ab6b25d3::t_8df5220baefe1d 23,29-30
+  s_4b9dc6ab6b25d3::t_e855f5bb90f724 67
+app/Filament/Pages/Analytics/CampaignsTab.php
+  s_4b9dc6ab6b25d3::t_8d3bf3835771df 16,20,68-74,112,145-146,148-149,158,162-195,337-339,343,498
+tests/Browser/AdminAnalyticsLandingsBrowserTest.php
+  s_4b9dc6ab6b25d3::t_cb263f219a4f69 58
+tools/phpstan/architecture.neon
+  s_4b9dc6ab6b25d3::t_0bd05b4a652aed 165,183-188
+  ai_agent 170-175
+resources/views/components/admin/ui/icon.blade.php
+  s_4b9dc6ab6b25d3::t_8f0cb0f8f35564 149-151
+resources/views/filament/pages/analytics/links.blade.php
+  s_4b9dc6ab6b25d3::t_824f5f423782b8 1-65,67-83,85-157,159-169,171-181
+  s_4b9dc6ab6b25d3::t_997a748a22688d 66,84
+  s_4b9dc6ab6b25d3::t_13682fa709f039 170
+  s_4b9dc6ab6b25d3::t_9f86a3b8dee943 158
+resources/views/filament/pages/analytics/campaigns.blade.php
+  s_4b9dc6ab6b25d3::t_d6afcc010de743 15-16,20-27
+resources/css/filament/admin/components.css
+  s_4b9dc6ab6b25d3::t_4a8217229c5ae4 18582,18585-18594
+  s_4b9dc6ab6b25d3::t_23f3a6c3137acb 18502-18503,18505-18519
+  s_4b9dc6ab6b25d3::t_9f86a3b8dee943 20055,20057-20059
+  s_4b9dc6ab6b25d3::t_af68f9c272e894 19604-19694,19696,19698-19783,19798-19866,19868-19869,19877-20054,20056,20060-20061
+  s_4b9dc6ab6b25d3::t_1f6ffbff584d2a 19867,19870-19876
+  s_4b9dc6ab6b25d3::t_1ae7f2172dc448 18470,18504
+  s_4b9dc6ab6b25d3::t_13682fa709f039 20062-20066
+  s_4b9dc6ab6b25d3::t_7eb2c22a8d616a 18345-18469,18471-18501,18520-18581,18583-18584,18595-18617
+  s_4b9dc6ab6b25d3::t_997a748a22688d 19695,19697,19784-19797
+tests/Feature/Queries/AnalyticsVisitsQueryTest.php
+  s_4b9dc6ab6b25d3::t_8debb8a69002d1 28-30,510-523,526,536
+  s_4b9dc6ab6b25d3::t_4d9fc85b103af5 524-525,527-535
+tests/Unit/Support/Analytics/TrackingLinkUrlTest.php
+  s_4b9dc6ab6b25d3::t_dbf2770b2bf2db 1-38,40-64
+  s_4b9dc6ab6b25d3::t_32a5bd644fe106 39
+app/Models/TrackingLink.php
+  s_4b9dc6ab6b25d3::t_2f919567da0286 1-91
+docs/architecture/http-and-database-boundaries.md
+  s_4b9dc6ab6b25d3::t_c86f5d369dccde 66-72
+  s_4b9dc6ab6b25d3::t_ddf0c56443e1a6 78-80,118-119
+tests/Pest.php
+  s_4b9dc6ab6b25d3::t_2a9cd587ca1d59 14861-14887
+  s_4b9dc6ab6b25d3::t_016766e77a4e0f 92,14971-14997
+tests/Feature/Analytics/AnalyticsCampaignsTabTest.php
+  s_4b9dc6ab6b25d3::t_90bc9be3189685 403
+tests/Browser/AdminAnalyticsBrowserTest.php
+  s_4b9dc6ab6b25d3::t_cb263f219a4f69 63
+tests/Feature/Queries/TrackingLinksQueryTest.php
+  s_4b9dc6ab6b25d3::t_5419bae36f5e48 110
+  s_4b9dc6ab6b25d3::t_6255023aa4b5a6 63
+  s_4b9dc6ab6b25d3::t_2da03064775f55 1-8,11-62,64-109,111-113,138-177
+  s_4b9dc6ab6b25d3::t_ba844bc670b1c0 114-137
+  s_4b9dc6ab6b25d3::t_873e6b241a4f5d 9-10
+tests/Feature/Database/ForeignKeyIndexesTest.php
+  s_4b9dc6ab6b25d3::t_c8afd4f0c231cc 34-36
+app/Filament/Pages/GrowthAnalyticsPage.php
+  s_4b9dc6ab6b25d3::t_e81c739f8095a7 11,42,52,74,77,97-104,157-163,507-508,630-633
+  s_4b9dc6ab6b25d3::t_69b75b098d256e 17,89-96,183-198,264,267,416,420-484,497,594-599,620,626-629
+  s_4b9dc6ab6b25d3::t_a42f05ac9721c4 49,54-62
+  s_4b9dc6ab6b25d3::t_097f0a7d34bed9 43-48,53
+app/Queries/Analytics/AnalyticsVisitsQuery.php
+  s_4b9dc6ab6b25d3::t_0e58f987730706 52-54
+  s_4b9dc6ab6b25d3::t_b8edd7e8405736 352-354,357,360,372-381
+  s_4b9dc6ab6b25d3::t_878dc73511505b 347-350,355-356,358-359,361-369,371,382-384,392-399
+  s_4b9dc6ab6b25d3::t_4d9fc85b103af5 351,370,385-391
+tests/Browser/AdminAnalyticsGeographyBrowserTest.php
+  s_4b9dc6ab6b25d3::t_cb263f219a4f69 56
+tests/Feature/Analytics/GrowthAnalyticsPageTest.php
+  s_4b9dc6ab6b25d3::t_cb263f219a4f69 129
+tests/Browser/AdminAnalyticsGamesBrowserTest.php
+  s_4b9dc6ab6b25d3::t_cb263f219a4f69 57
+app/Actions/Analytics/SaveTrackingLinkAction.php
+  s_4b9dc6ab6b25d3::t_982c88a2670817 1-5,7-28,31-49,51-67,69-78,82-85,87-96,98-103,107,110,112,119-141,143-157,159-167,169-184,188,190-192,194-195,197,199-212
+  s_4b9dc6ab6b25d3::t_8c24095942d30a 6,50,68,104-106,108,111,113-118
+  s_4b9dc6ab6b25d3::t_b597c28f1422b3 29-30,79-81,86,97,109,142,158,168,185-187,189,193,196,198
+tests/Browser/AdminAnalyticsExperimentsBrowserTest.php
+  s_4b9dc6ab6b25d3::t_cb263f219a4f69 48
+composer.json
+  s_4b9dc6ab6b25d3::t_1d98e6a7a495e2 84
+tests/Feature/Analytics/AnalyticsEngagementTabTest.php
+  s_4b9dc6ab6b25d3::t_eb3ccc019b9c66 222,224-225,230-234
+  s_4b9dc6ab6b25d3::t_207a3f8df60248 417-419
+  s_4b9dc6ab6b25d3::t_683c7748674b2e 60-62,66,72-73,156,174,268,290,292
+  s_4b9dc6ab6b25d3::t_5f8851947a1f2b 113,311
+  s_4b9dc6ab6b25d3::t_152fb2e42d8cb0 1-59,63-65,67-71,74-112,114-155,157-173,175-221,223,226-229,235-267,269-289,291,293-310,312-416,420-421
+app/Support/Analytics/TrackingLinkUrl.php
+  s_4b9dc6ab6b25d3::t_3021e2b0ea8f17 99
+  s_4b9dc6ab6b25d3::t_7195e97e1599ff 1-98,100-165
+docs/architecture/community-fk-safety.md
+  s_4b9dc6ab6b25d3::t_c8afd4f0c231cc 74
+app/Filament/Pages/Analytics/AnalyticsView.php
+  s_4b9dc6ab6b25d3::t_09b50d9c0bb28b 27-29,219
+resources/views/filament/pages/analytics/engagement.blade.php
+  s_4b9dc6ab6b25d3::t_b1c8c8b2adb2a9 1-10,12-119,121-140,142-163
+  s_4b9dc6ab6b25d3::t_4a8217229c5ae4 11,120,141
+resources/views/livewire/admin/tracking-link-editor.blade.php
+  s_4b9dc6ab6b25d3::t_117edd84d2ad71 1-52,54-64,67-94,97-111,113-135,138-157,160-175,177-225
+  s_4b9dc6ab6b25d3::t_035587ac94813c 95-96,112,136-137,158-159,176
+  s_4b9dc6ab6b25d3::t_08292f49ad9bf5 53
+  s_4b9dc6ab6b25d3::t_19f2784b77ce2a 65-66
+app/Livewire/Admin/TrackingLinkEditor.php
+  s_4b9dc6ab6b25d3::t_13682fa709f039 188-189
+  s_4b9dc6ab6b25d3::t_df830d80f0f35a 134-141
+  s_4b9dc6ab6b25d3::t_0ec38a175f9478 242-251
+  s_4b9dc6ab6b25d3::t_10623246092e85 253
+  s_4b9dc6ab6b25d3::t_035587ac94813c 258
+  s_4b9dc6ab6b25d3::t_836f282fde70e1 1-133,142-187,190-241,252,254-257,259-379
+tests/Browser/AdminAnalyticsCampaignsBrowserTest.php
+  s_4b9dc6ab6b25d3::t_cb263f219a4f69 56
+app/Http/Middleware/CaptureTrafficArrival.php
+  s_4b9dc6ab6b25d3::t_273e8faba9e57b 20,231-232,234-240
+app/Filament/Pages/Analytics/EngagementTab.php
+  s_4b9dc6ab6b25d3::t_c7efc61a51ab43 84
+  s_4b9dc6ab6b25d3::t_e1fba213cfe091 87-88,94-95,108-109,113,247,403-407
+  s_4b9dc6ab6b25d3::t_357be9d51d657b 204
+  s_4b9dc6ab6b25d3::t_71d4da2b5f7dda 205-210
+  s_4b9dc6ab6b25d3::t_fc8bb4efba8a6e 1-83,85-86,89-93,96-107,110-112,114-203,211-224,227-246,248-402,408-419
+  s_4b9dc6ab6b25d3::t_82597daf42ba5d 225-226
+app/Enums/TrackingLinkDestination.php
+  s_4b9dc6ab6b25d3::t_84807e71e60f57 1-20
+database/migrations/2026_11_18_101100_create_tracking_links_table.php
+  s_4b9dc6ab6b25d3::t_2d3bddce564caa 1-50
+app/Filament/Pages/Analytics/TrackingLinksTab.php
+  s_4b9dc6ab6b25d3::t_f6b584a6768494 202
+  s_4b9dc6ab6b25d3::t_9f86a3b8dee943 162-168
+  s_4b9dc6ab6b25d3::t_5419bae36f5e48 105,142,208
+  s_4b9dc6ab6b25d3::t_30e0f64f00573c 1-104,106-141,143-161,169-201,203-207,209-224,226-255
+  s_4b9dc6ab6b25d3::t_57a92c472dd241 225
+tests/Feature/Queries/AnalyticsContentQueryTest.php
+  s_4b9dc6ab6b25d3::t_b1e9449baa5d73 1-132
+tests/Feature/Analytics/AnalyticsTrackingLinksTest.php
+  s_4b9dc6ab6b25d3::t_ce98bcbeb724d7 223-245
+  s_4b9dc6ab6b25d3::t_bf8aab65e5fd2c 382
+  s_4b9dc6ab6b25d3::t_5cb40530f2d365 450
+  s_4b9dc6ab6b25d3::t_301a4aec594377 196-203,211-212,217-218,221
+  s_4b9dc6ab6b25d3::t_819388af8e194d 1-130,132-195,204-210,213-216,219-220,222,246-312,314-381,383-449,451-522
+  s_4b9dc6ab6b25d3::t_92eff4c2bbdfc2 313
+  s_4b9dc6ab6b25d3::t_a94ac83179dfdd 131
+tests/Feature/Traffic/CaptureTrafficArrivalTest.php
+  s_4b9dc6ab6b25d3::t_5f8851947a1f2b 262-272
+database/factories/TrackingLinkFactory.php
+  s_4b9dc6ab6b25d3::t_512522ff4cf8d8 1-34
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "1399839775b9b5aeb547ad1990840f474446fda9",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
