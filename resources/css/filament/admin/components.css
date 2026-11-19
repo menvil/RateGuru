@@ -15986,6 +15986,31 @@
         margin: 0;
     }
 
+    /* Sites & zones: the impressions a network billed and the share that reached RateGuru come before the visits. */
+    .rg-admin-traffic__perf-grid--list {
+        min-width: 1600px;
+    }
+
+    .rg-admin-traffic__perf-grid--list > .rg-admin-traffic__perf-row {
+        grid-template-columns: minmax(280px, 2.4fr) repeat(6, minmax(74px, 1fr)) repeat(3, minmax(112px, 1.5fr)) repeat(5, minmax(74px, 1fr));
+    }
+
+    /* On the way here: each step a bar, side by side where they fit, then what never arrived. */
+    .rg-admin-traffic__reach {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr));
+        gap: 12px 20px;
+    }
+
+    .rg-admin-traffic__reach-lost {
+        margin: 0;
+        font-size: var(--rg-admin-text-body);
+        line-height: var(--rg-admin-leading-body);
+        font-weight: var(--rg-admin-weight-medium);
+        font-variant-numeric: tabular-nums;
+        color: var(--rg-admin-text-strong);
+    }
+
     /* Sign-ups and confirmation: a row's name and nine figures, and the paid part under the total. */
     .rg-admin-traffic__perf-grid--signups {
         min-width: 1080px;
@@ -16939,12 +16964,12 @@
     }
 
     .rg-admin-traffic__perf-grid--days {
-        min-width: 640px;
+        min-width: 960px;
     }
 
     .rg-admin-traffic__day-row {
         display: grid;
-        grid-template-columns: 110px 80px 120px 140px minmax(200px, 1fr);
+        grid-template-columns: 110px 80px 100px 100px 120px 140px minmax(200px, 1fr);
         gap: 12px;
         align-items: center;
         padding: 7px 16px;
@@ -16959,7 +16984,7 @@
         text-align: left;
     }
 
-    .rg-admin-traffic__day-row.rg-admin-traffic__perf-row--head > :nth-child(n + 2):nth-child(-n + 4) {
+    .rg-admin-traffic__day-row.rg-admin-traffic__perf-row--head > :nth-child(n + 2):nth-child(-n + 6) {
         text-align: right;
     }
 

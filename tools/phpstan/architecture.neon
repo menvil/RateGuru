@@ -153,6 +153,13 @@ parameters:
                 behaviorTests: [tests/Feature/Traffic/TrafficReportsTest.php]
                 status: approved
             -
+                class: App\Queries\Traffic\TrafficReachQuery
+                methods: [selectRaw]
+                reason: 'Showing how many of the impressions a network billed reached RateGuru needs the network''s impressions and amount per day, campaign, site and zone, and the counts of the visits of the same slices that came, opened the page and started the game, without hydrating up to millions of visit rows; every value is bound.'
+                bindings: required
+                behaviorTests: [tests/Feature/Traffic/TrafficReachTest.php]
+                status: approved
+            -
                 class: App\Queries\Traffic\TrafficChanceSampleQuery
                 methods: [selectRaw]
                 reason: 'Working out the chances of an account needs, per game, source, channel, device, country and rounds answered, conditional counts of the visits that reached each step and of those that became accounts, without hydrating up to millions of visit rows; every value is bound.'

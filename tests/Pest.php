@@ -43,6 +43,7 @@ use App\Enums\StudioPlanPublicationMode;
 use App\Enums\StudioPostTextTone;
 use App\Enums\TrafficChannel;
 use App\Enums\TrafficDevice;
+use App\Enums\TrafficSpendOrigin;
 use App\Exceptions\Studio\CannotManageStudioPlanException;
 use App\Exceptions\Translations\CannotGenerateTranslationsException;
 use App\Filament\Support\ReportPeriodMemory;
@@ -92,6 +93,7 @@ use App\Models\TrafficChanceRun;
 use App\Models\TrafficPriceSet;
 use App\Models\TrafficSetting;
 use App\Models\TrafficSource;
+use App\Models\TrafficSpendDay;
 use App\Models\TrafficStepChance;
 use App\Models\TrafficVisit;
 use App\Models\TrafficVisitPost;
@@ -15161,4 +15163,34 @@ function journeyPlayer(CarbonImmutable $start, string $browser = 'journey-player
         'visitor_hash' => $hash, 'type' => GameEventType::ShareClicked, 'provider' => 'copy_link', 'occurred_at' => $back->addMinutes(4)])->save();
 
     return ['hash' => $hash, 'game' => $game, 'attempt' => $attempt];
+}
+
+/**
+ * What a network billing by the impression reported for one of a source's
+ * days, as its sync stores it: so many impressions for an amount, from the
+ * API — of the campaign, site, zone or origin the attributes give.
+ */
+function paidImpressions(TrafficSource $source, string $day, int $impressions, string $amount, array $attributes = []): TrafficSpendDay
+{
+    return TrafficSpendDay::factory()->create([
+        'source_id' => $source->id,
+        'network_day' => $day,
+        'origin' => TrafficSpendOrigin::Api,
+        'amount' => $amount,
+        'reported_impressions' => $impressions,
+        ...$attributes,
+    ]);
+}
+
+/**
+ * So many paid visits of a source's day, arrived at 10:00 UTC — the first so
+ * many of them opening the page, and the first so many starting the game —
+ * of the campaign, site or zone the attributes give.
+ */
+function reachedVisits(TrafficSource $source, string $day, int $visits, int $opened = 0, int $started = 0, array $attributes = []): void
+{
+    TrafficVisit::factory()->count($visits)->sequence(fn ($sequence): array => [
+        'opened_at' => $sequence->index < $opened ? $day.' 10:01:00' : null,
+        'started_at' => $sequence->index < $started ? $day.' 10:02:00' : null,
+    ])->create(['source_id' => $source->id, 'network_day' => $day, 'arrived_at' => $day.' 10:00:00', ...$attributes]);
 }

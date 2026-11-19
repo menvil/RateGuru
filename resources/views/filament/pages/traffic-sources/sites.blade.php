@@ -3,19 +3,22 @@
     row per zone, or per site where a network has no zones, or per site —
     found by its ID, network or campaign, leaving out those under so many
     clicks; split into the block rule's segments with their counts; what the
-    list says at a glance; sorted by any column and paged; ticked across
-    pages to block, unblock or copy the IDs of.
+    list says at a glance; the impressions its network billed for it and the
+    share that reached RateGuru, where the network reports it; sorted by any
+    column and paged; ticked across pages to block, unblock or copy the IDs
+    of.
 --}}
 @php
     $segments = [
         'all' => ['All', 'var(--rg-admin-text-tertiary)', ''],
-        'block' => ['Worth blocking', 'var(--rg-admin-status-danger-fg)', 'Likely bots, losing, or a weak start: see the rule under Worth blocking'],
+        'block' => ['Worth blocking', 'var(--rg-admin-status-danger-fg)', 'Likely bots, losing, a weak start, or paid impressions that mostly never reach RateGuru: see the rule under Worth blocking'],
         'profit' => ['Profitable', 'var(--rg-admin-status-success-fg)', 'Enough data and value above spend'],
         'watch' => ['Below the line', 'var(--rg-admin-status-warning-dot)', 'Enough data, losing a little, not yet bad enough to block — or losing, but still within the days the rule waits after a first click'],
         'early' => ['Too early', 'var(--rg-admin-border-strong)', 'Not enough spend or clicks to judge the money; bots and a weak start still show'],
         'blocked' => ['Blocked', 'var(--rg-admin-text-secondary)', 'Blocked already; tick them to unblock'],
     ];
     $sorts = [
+        'impressions' => 'Paid impr.', 'reach' => 'Reached',
         'visits' => 'Visits', 'opened' => 'Opened', 'started' => 'Started', 'finished' => 'Finished', 'accounts' => 'Accounts', 'spend' => 'Spend',
         'value' => 'Value', 'profit' => 'Profit', 'roi' => 'ROI', 'cpv' => 'Cost / visit', 'vpv' => 'Value / visit', 'cpa' => 'Cost / account',
     ];
@@ -109,11 +112,13 @@
                             <x-admin.ui.badge :tone="$row['flag']['tone']" :title="$row['flag']['tip']">{{ $row['flag']['label'] }}</x-admin.ui.badge>
                         @endif
                     </span>
+                    @include('filament.pages.traffic-sources.reach-cells', ['r' => $row['reach']])
                     @include('filament.pages.traffic-sources.figure-cells', ['f' => $row['figures']])
                 </div>
             @endforeach
             <div class="rg-admin-traffic__perf-row rg-admin-traffic__perf-row--total" role="row">
                 <span class="rg-admin-traffic__perf-name" role="gridcell"><span class="rg-admin-traffic__perf-label"><span class="rg-admin-traffic__perf-title">Total · {{ number_format(count($list['matching'])) }} {{ $noun }}</span><span class="rg-admin-traffic__note">{{ $segment === 'all' ? 'Every page' : 'Every page of '.strtolower($segments[$segment][0]) }}</span></span></span>
+                @include('filament.pages.traffic-sources.reach-cells', ['r' => $list['reach']])
                 @include('filament.pages.traffic-sources.figure-cells', ['f' => $list['total']])
             </div>
         </div>

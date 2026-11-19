@@ -391,6 +391,67 @@ the card's total is the summary's sum, its paid part How accounts come's. A
 game's Analytics tab counts its anonymous sign-ups the same way from the game's
 visits.
 
+## Reach
+
+`TrafficReachQuery` sets the impressions a network billed beside the visits
+that reached RateGuru — Report → On the way here, the reach columns and the
+Low reach hint of Sites & zones, Spend → Day by day. The impressions are
+`traffic_spend_days.reported_impressions` as the sync (PopAds'
+`report_advertiser` by campaign and website) or a file stores them, whatever
+the source's spend mode: whether a figure counts toward spend (`counted`,
+`matched_visits`) plays no part in the figures, since a source priced by the
+cost in each click never counts its API's figures. Only rows carrying
+impressions and no clicks count — `reported_clicks` null or 0: where a network
+counts clicks beside its impressions an impression may be a view rather than
+a visit, never meant to arrive. ExoClick's connector fills clicks whenever its
+API returns them, so its campaigns, popunders included, are left out. A
+source's day is read from one origin, the first
+in the spend order with impressions — a file before the API; a typed total and
+a fixed price carry none — so nothing counts twice, chosen over all the day's
+campaigns, so a campaign's slices are the ones the whole source counts.
+
+Visits are matched as `SpendAllocator` shares spend out: per source and
+network day, the narrowest figure first — a zone's, a site's, a campaign's,
+the source's — takes the visits of its campaign, site and zone that no
+narrower figure took, each visit once. Visits of a slice the network did not
+report count on neither side. Two grouped reads — the figures by slice, and
+the visits by source, day, campaign, site and zone with conditional counts of
+those that opened the page and started the game — are streamed with
+`cursor()`, both ordered by source and network day, and matched one source's
+day at a time: a visit group is looked up only under the slices that day's
+figures name. `TrafficReachQuery::tally()` folds the slices as they come into
+`ReachTally` — by source and campaign the sum, the open days and each site or
+zone over its closed days and the others; by source each day and the closed
+days together — so the page never holds a list of every slice: what it keeps
+grows with the sites reported, not with every day of each.
+
+Sums are kept raw (`ReachFigures`): one slice's visits can outrun its
+impressions when the network's clock and RateGuru's cut a day differently, and
+the total keeps that. Only what is shown is held to sense: never reached is
+`max(0, impressions − reached)` of the sum, reach at most 100 %. What never
+arrived cost about the network's amount × never reached ÷ impressions
+(`ReachFigures::lostAmount()`), an estimate: no report of a day says what each
+impression was billed at.
+
+A day is closed once it is over in the source's reporting time zone and, for
+the API's figures, once the sync closed it (`spend_closed_through`) while the
+source is connected; a source no longer connected gets no newer figures. The
+report counts open days too and names them. The hint reads closed days only:
+a site — or a zone, where the network reports zones — with at least
+`traffic.reach.min_impressions` impressions and a share reached below
+`traffic.reach.below_percent_of_source` % of its source's over the same days
+and all its campaigns (`ReachFigures::fallsShortOf()`, compared in whole
+numbers, so a share on the line is not below it). It is a state of the report,
+`low_reach` — Worth blocking counts it — and never a `BlockJudge` verdict, so
+`traffic:block-losers` never acts on it. It takes the place of `early` and
+`watch`, never of a verdict (`bots`, `losing`, `weak_start`) nor of `waiting`,
+which the rule will judge losing anyway; and of `profit` only where no closed
+figure of the site is `counted` — its visits' spend came from the cost in each
+click, not from a network amount that already pays for the impressions that
+never arrived. Filtered by what a network never
+splits its impressions by — device, country, city, game, version — the
+report leaves the impressions out.
+
 ## Retention
 
 `traffic:purge-expired`, daily: visits, conversions, spend figures, the block

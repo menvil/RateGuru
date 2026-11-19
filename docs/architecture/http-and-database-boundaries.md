@@ -131,6 +131,11 @@ The reviewed boundaries are:
 - `TrafficChanceSampleQuery` for the chances of an account: conditional counts
   of the matured visits that reached each step and of those that became
   accounts, per game, source, channel, device, country and rounds answered.
+- `TrafficReachQuery` for how many of the impressions a network billed reached
+  RateGuru: the network's impressions and amount per day, campaign, site and
+  zone, and conditional counts of the visits of the same slices that came,
+  opened the page and started the game, both streamed in order of source and
+  day and matched one source's day at a time.
 - `TrafficReportQuery` for the traffic reports: conditional sums and counts of
   a period's visits per level of the tree, site or zone, campaign, stage and a
   game's versions, ordered by the accounts they brought; and their sign-ups —
