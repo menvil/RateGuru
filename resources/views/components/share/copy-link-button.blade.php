@@ -22,6 +22,7 @@
                 }
 
                 this.copied = true;
+                this.$dispatch('rg-shared');
                 setTimeout(() => this.copied = false, 1600);
             } catch (error) {
                 this.failed = true;

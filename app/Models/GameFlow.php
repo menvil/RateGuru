@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\GameFlowGoal;
 use Carbon\CarbonImmutable;
 use Database\Factories\GameFlowFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -17,6 +18,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * @property int $id
  * @property int $game_id
  * @property string $name
+ * @property GameFlowGoal|null $goal
  * @property int $position
  * @property CarbonImmutable|null $archived_at
  * @property int $lock_version
@@ -41,6 +43,7 @@ class GameFlow extends Model
     {
         return [
             'game_id' => 'integer',
+            'goal' => GameFlowGoal::class,
             'position' => 'integer',
             'archived_at' => 'immutable_datetime',
             'lock_version' => 'integer',

@@ -5,16 +5,19 @@ namespace App\Providers;
 use App\Enums\AuthModalMode;
 use App\Enums\PostStatus;
 use App\Enums\ThemePreference;
+use App\Events\Games\GameMilestoneReached;
 use App\Http\Middleware\EnsureGamesAreEnabled;
 use App\Http\Middleware\RequireSignInWhileGuestViewingIsOff;
 use App\Models\Category;
 use App\Models\Tag;
+use App\Models\TrafficSetting;
 use App\Policies\GamePolicy;
 use App\Policies\MediaDiagnosticsPolicy;
 use App\Policies\ModerationPolicy;
 use App\Policies\PersonaPolicy;
 use App\Policies\ProjectSettingsPolicy;
 use App\Policies\StudioPlanPolicy;
+use App\Policies\TrafficSourcePolicy;
 use App\Queries\SocialProvidersInUseQuery;
 use App\Services\Media\FilesystemMediaStorage;
 use App\Services\Media\FilesystemMediaUrlResolver;
@@ -28,10 +31,16 @@ use App\Support\Auth\RememberSessionGenerationOnLogin;
 use App\Support\Auth\SocialProviderAvailability;
 use App\Support\Feed\FeedAddress;
 use App\Support\Games\Play\ClaimGameAttemptsOnSignIn;
+use App\Support\Games\Play\GameVisitorResolver;
+use App\Support\Geo\GeoDatabaseLocator;
+use App\Support\Geo\GeoLookup;
+use App\Support\Geo\MmdbGeoLookup;
 use App\Support\Import\Dns\DnsHostResolver;
 use App\Support\Import\Dns\HostResolver;
 use App\Support\Import\ImportHttpTransport;
+use App\Support\Import\Net\PublicIpClassifier;
 use App\Support\Import\PinnedImportHttpTransport;
+use App\Support\Observability\DomainLogger;
 use App\Support\Settings\ProjectSettingsManager;
 use App\Support\StudioAi\OpenAiStudioDiscussionGenerator;
 use App\Support\StudioAi\OpenAiStudioImageAnalyzer;
@@ -40,6 +49,11 @@ use App\Support\StudioAi\StudioDiscussionGenerator;
 use App\Support\StudioAi\StudioImageAnalyzer;
 use App\Support\StudioAi\StudioPostTextGenerator;
 use App\Support\Theme\ThemeManager;
+use App\Support\Traffic\Attribution\AttributeAccountOnSignIn;
+use App\Support\Traffic\Attribution\ConfirmAttributionOnVerified;
+use App\Support\Traffic\Attribution\SignupOrigin;
+use App\Support\Traffic\Capture\TrafficArrival;
+use App\Support\Traffic\Conversions\RecordGameMilestoneOnVisit;
 use App\Support\Translations\Telemetry\TranslationAiCallRecorder;
 use App\Support\Translations\TranslatableField;
 use App\Support\View\AppLayoutData;
@@ -47,9 +61,13 @@ use App\Support\VisualRegression\PestVisualScreenshotRunner;
 use App\Support\VisualRegression\VisualScreenshotRunner;
 use Illuminate\Auth\Events\Login;
 use Illuminate\Auth\Events\Registered;
+use Illuminate\Auth\Events\Verified;
+use Illuminate\Cache\RateLimiting\Limit;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\View;
 use Illuminate\Support\ServiceProvider;
 use Livewire\Livewire;
@@ -80,6 +98,23 @@ class AppServiceProvider extends ServiceProvider
         // result is handed to the recorder within a request or a worker.
         $this->app->singleton(TranslationAiCallRecorder::class);
 
+        // The arrival token of the page being drawn, shared by the capture
+        // middleware, the game player and the layout for one request.
+        $this->app->scoped(TrafficArrival::class);
+        $this->app->scoped(SignupOrigin::class);
+
+        // The IP location database (docs/architecture/geo.md). The lookup is
+        // scoped: one reader per request or job, opened by the first lookup
+        // that needs it and never kept by a queue worker past its job, so a
+        // database replaced by an update is picked up by the next one.
+        $this->app->singleton(GeoDatabaseLocator::class, fn (): GeoDatabaseLocator => new GeoDatabaseLocator((string) config('geo.directory')));
+        $this->app->scoped(GeoLookup::class, fn ($app): GeoLookup => new MmdbGeoLookup(
+            $app->make(GeoDatabaseLocator::class),
+            TrafficSetting::current()->geo_edition,
+            $app->make(PublicIpClassifier::class),
+            $app->make(DomainLogger::class),
+        ));
+
         // Reads its settings on every call, so it holds nothing worth keeping
         // and needs none of them to be built: a missing key never fails boot.
         $this->app->bind(StudioImageAnalyzer::class, OpenAiStudioImageAnalyzer::class);
@@ -96,6 +131,25 @@ class AppServiceProvider extends ServiceProvider
         // generation; EnsureSessionGenerationIsCurrent ends older ones.
         Event::listen(Login::class, RememberSessionGenerationOnLogin::class);
         Event::listen([Registered::class, Login::class], ClaimGameAttemptsOnSignIn::class);
+        // After the claim: a new account is credited to the play the claim
+        // has just made its own (docs/architecture/traffic.md, "Accounts").
+        Event::listen([Registered::class, Login::class], AttributeAccountOnSignIn::class);
+        Event::listen(Verified::class, ConfirmAttributionOnVerified::class);
+        // A moment of a play becomes its visit's mark, conversion and
+        // postbacks, inside the game action's own transaction.
+        Event::listen(GameMilestoneReached::class, RecordGameMilestoneOnVisit::class);
+
+        // What pages' scripts tell the traffic tracker (docs/architecture/
+        // traffic.md): 60 signals a minute for a browser, known by its
+        // visitor cookie; without one, 120 a minute from an address, which a
+        // carrier's or a café's many browsers may share.
+        RateLimiter::for('traffic-signal', function (Request $request): Limit {
+            $browser = (new GameVisitorResolver($request))->browserHash();
+
+            return $browser !== null
+                ? Limit::perMinute(60)->by('browser:'.$browser)
+                : Limit::perMinute(120)->by('address:'.$request->ip());
+        });
 
         // A component drawn on the feed, a post or a profile keeps that
         // page's guest check on every later request it makes.
@@ -108,6 +162,7 @@ class AppServiceProvider extends ServiceProvider
         Gate::define('manage-personas', [PersonaPolicy::class, 'manage']);
         Gate::define('manage-studio-plans', [StudioPlanPolicy::class, 'manage']);
         Gate::define('manage-games', [GamePolicy::class, 'manage']);
+        Gate::define('manage-traffic-sources', [TrafficSourcePolicy::class, 'manage']);
 
         View::composer(['layouts.app', 'layouts.guest'], function ($view): void {
             $themeManager = app(ThemeManager::class);

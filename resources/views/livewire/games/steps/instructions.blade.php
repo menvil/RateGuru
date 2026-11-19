@@ -1,6 +1,6 @@
 {{-- Intro and Instructions: a title, a few lines, and the way on. --}}
 <section class="rg-game__card" data-testid="game-step-{{ $data['type'] }}">
-    <h1 class="rg-game__title">{{ $texts['title'] }}</h1>
+    <x-games.headline :text="$texts['title']" />
     @if (($texts['body'] ?? '') !== '')
         <div class="rg-game__lead rg-game__lines">{!! nl2br(e($texts['body'])) !!}</div>
     @endif

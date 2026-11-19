@@ -105,6 +105,7 @@ it('marks the card of the post that is open, and only that one', function (bool 
         // The open panel keeps the focus; closed, nothing is marked.
         $page->keys('[data-testid="post-detail-overlay"]', 'Escape');
         waitForScript($page, $marked, '[]');
+        waitForPostDetailOverlayClosed($page);
     }
 
     $page->keys('[data-testid="post-card"][data-post-id="'.$second->id.'"]', 'Enter');

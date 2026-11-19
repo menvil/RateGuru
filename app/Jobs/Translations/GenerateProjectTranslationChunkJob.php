@@ -5,6 +5,7 @@ namespace App\Jobs\Translations;
 use App\Exceptions\Translations\CannotGenerateTranslationsException;
 use App\Exceptions\Translations\CannotSuggestTranslationException;
 use App\Models\User;
+use App\Queries\Translations\ProjectTranslationSourcesQuery;
 use App\Support\Observability\DomainLogger;
 use App\Support\TranslationEngine\Data\TranslationBatchRequest;
 use App\Support\TranslationEngine\Data\TranslationBatchResult;
@@ -53,7 +54,8 @@ use Throwable;
  *  - whoever started the batch may still manage project settings;
  *  - the configured provider and its limits are the ones planned for;
  *  - each item is still in the catalog, still has English, still has the
- *    English it was planned from (by fingerprint), and is still missing.
+ *    English it was planned from (by fingerprint), and is still missing or
+ *    still outdated — a translation saved since for that English is current.
  *
  * An item that fails a check is skipped and never sent; a chunk whose
  * provider changed is not sent at all. Whatever comes back is stored as a
@@ -87,6 +89,7 @@ final class GenerateProjectTranslationChunkJob implements ShouldQueue
         ProjectTranslationGenerationPlanner $planner,
         TranslationService $translations,
         TranslationAiCallRecorder $telemetry,
+        ProjectTranslationSourcesQuery $sources,
     ): void {
         $claimed = $store->claim($this->batchId, $this->chunkId, CarbonImmutable::now());
 
@@ -127,8 +130,11 @@ final class GenerateProjectTranslationChunkJob implements ShouldQueue
             return;
         }
 
-        // Every item checked against the catalog as it is now, in one bounded read.
-        $units = $catalog->findMany(array_map(fn (array $item): string => $item['id'], $chunk['items']));
+        // Every item checked against the catalog as it is now, and against the English its translation
+        // was made from, in one bounded read of each.
+        $ids = array_map(fn (array $item): string => $item['id'], $chunk['items']);
+        $units = $catalog->findMany($ids);
+        $recorded = $sources->fingerprints($locale, $ids);
         $outcomes = [];
         $send = [];
 
@@ -138,7 +144,7 @@ final class GenerateProjectTranslationChunkJob implements ShouldQueue
                 $unit === null => ProjectTranslationGenerationIssue::UnitUnavailable,
                 ! $unit->requiresTranslation() => ProjectTranslationGenerationIssue::NothingToTranslate,
                 ProjectTranslationSourceFingerprint::of($unit) !== $item['fingerprint'] => ProjectTranslationGenerationIssue::SourceChanged,
-                $unit->translation($locale) !== null => ProjectTranslationGenerationIssue::AlreadyTranslated,
+                $unit->translation($locale) !== null && ! ProjectTranslationSourceFingerprint::isOutdated($unit, $locale, $recorded[$unit->id] ?? null) => ProjectTranslationGenerationIssue::AlreadyTranslated,
                 default => null,
             };
 

@@ -3,10 +3,12 @@
 namespace App\Actions\Games;
 
 use App\Actions\Games\Concerns\LocksGameDraft;
+use App\Actions\Translations\RecordProjectTranslationSourceAction;
 use App\Exceptions\Games\CannotManageGameException;
 use App\Models\Game;
 use App\Models\GameContentSet;
 use App\Models\User;
+use App\Support\Translations\ProjectContentSection;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -19,6 +21,8 @@ final class CreateContentSetAction
     use LocksGameDraft;
 
     public const NAME_MAX = 80;
+
+    public function __construct(private readonly RecordProjectTranslationSourceAction $sources) {}
 
     /** @throws CannotManageGameException */
     public function handle(User $admin, Game $game, string $name, ?int $copyOfSetId = null): GameContentSet
@@ -52,16 +56,19 @@ final class CreateContentSetAction
                 foreach ($source->rounds as $round) {
                     $copy = $round->replicate(['content_set_id']);
                     $copy->forceFill(['content_set_id' => $set->id])->save();
+                    $this->sources->copy(ProjectContentSection::GameRounds, (int) $round->id, (int) $copy->id);
 
                     foreach ($round->options as $option) {
                         $optionCopy = $option->replicate(['round_id']);
                         $optionCopy->forceFill(['round_id' => $copy->id])->save();
+                        $this->sources->copy(ProjectContentSection::GameRoundOptions, (int) $option->id, (int) $optionCopy->id);
                     }
                 }
 
                 foreach ($source->profiles as $profile) {
                     $profileCopy = $profile->replicate(['content_set_id']);
                     $profileCopy->forceFill(['content_set_id' => $set->id])->save();
+                    $this->sources->copy(ProjectContentSection::GameResultProfiles, (int) $profile->id, (int) $profileCopy->id);
                 }
             }
 

@@ -7,7 +7,7 @@
         <img class="rg-game__cover" src="{{ $game['cover']->src }}" @if ($game['cover']->srcset) srcset="{{ $game['cover']->srcset }}" sizes="{{ $game['cover']->sizes }}" @endif alt="" @if ($game['cover']->width) width="{{ $game['cover']->width }}" height="{{ $game['cover']->height }}" @endif>
     @endif
     <p class="rg-game__eyebrow">{{ __('games.play.pairs_meta', ['count' => $game['roundCount']]) }}</p>
-    <h1 class="rg-game__title">{{ $texts['title'] }}</h1>
+    <x-games.headline :text="$texts['title']" />
     @if (($texts['body'] ?? '') !== '')
         <p class="rg-game__lead">{{ $texts['body'] }}</p>
     @endif
