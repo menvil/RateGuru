@@ -5,6 +5,7 @@ use App\Enums\GameFlowGoal;
 use App\Enums\GameFlowStepType;
 use App\Enums\GameSignupMode;
 use App\Enums\GameStepAudience;
+use App\Rules\UniqueEffectiveTagSlug;
 use App\Support\Games\Flow\FlowFacts;
 use App\Support\Games\Flow\FlowIssue;
 use App\Support\Games\Flow\FlowStepDraft;
@@ -171,6 +172,14 @@ it('keeps only the settings a type takes, within their bounds', function () {
         ->toBe(['required' => true, 'skip_known' => true, 'consent_enabled' => true]);
 });
 
+it('keeps a category or tag slug as long as its own editor allows, and drops a longer one', function (string $destination) {
+    $slug = fn (int $length): string => GameFlowStepSettings::normalize(GameFlowStepType::GoToPage, ['destination' => $destination, $destination => str_repeat('a', $length)])[$destination];
+
+    expect(UniqueEffectiveTagSlug::MOST_CHARACTERS)->toBe(100)
+        ->and($slug(100))->toBe(str_repeat('a', 100))
+        ->and($slug(101))->toBe('');
+})->with(['category', 'tag']);
+
 it('skips the steps a visitor should not see', function () {
     $steps = flowOf([
         GameFlowStepType::Landing, GameFlowStepType::Game, GameFlowStepType::EmailCapture,
@@ -207,7 +216,7 @@ it('refuses a goal the flow cannot reach', function () {
 it('marks the steps after a Full Result that sends visitors on as never shown', function () {
     $issues = GameFlowValidator::issues(flowOf([GameFlowStepType::Game, GameFlowStepType::FullResult, GameFlowStepType::Share], ['full_result' => ['onward' => 'feed']]));
 
-    expect(collect($issues)->pluck('index')->all())->toContain(2);
+    expect(flowMessages($issues))->toBe(['3: Full Result already sends visitors on to the feed, so this step is never shown. Remove it, or set Full Result to go on to the next step.']);
 });
 
 it('asks for the settings a way into the site needs', function () {

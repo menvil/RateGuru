@@ -87,16 +87,17 @@ final readonly class GamePlayView
         }
 
         $result = $attempt !== null && $attempt->status === GameAttemptStatus::Completed ? self::result($game, $versionId, $snapshot, $attempt, $visitor, $locale, $preview) : null;
+        $texts = self::texts($step, $locale, $result, $title);
 
         return new self('step', $title, [
             'game' => $gameData,
             'type' => $step->type->value,
-            'texts' => self::texts($step, $locale, $result, $title),
+            'texts' => $texts,
             'settings' => $step->settings,
             'round' => $step->type === GameFlowStepType::Game ? self::round($snapshot, $attempt, $reveal, $locale, $shape, $pictures) : null,
             'result' => $result,
             'signup' => self::signup($game, $step, $visitor),
-            'onward' => self::onward($game, $step, $snapshot, $attempt, $visitor, $locale, $preview),
+            'onward' => self::onward($game, $step, $texts, $snapshot, $attempt, $visitor, $preview),
             'preview' => $preview,
             'authenticated' => ! $visitor->isAnonymous(),
             'nextGame' => $nextGame === null ? null : ['title' => $nextGame->title, 'slug' => $nextGame->slug],
@@ -109,14 +110,16 @@ final readonly class GamePlayView
     /**
      * Where the step sends the visitor on into the site, when it does — Go to
      * Post, Go to Page, Go to Feed, or Full Result going on to a post or the
-     * feed: the prompt's texts (the site's own when the flow left them empty,
-     * as a version published before they existed did), the post it leads to,
-     * whether it opens by itself, and another site's address when it opens in
-     * a tab of its own.
+     * feed: the prompt's texts, with the player's numbers put in as in every
+     * step's (the site's own when the flow left them empty, as a version
+     * published before they existed did), the post it leads to, whether it
+     * opens by itself, and another site's address when it opens in a tab of
+     * its own.
      *
+     * @param  array<string, string>  $texts  the step's texts in the visitor's language, the player's numbers put in
      * @return array{kind: string, title: string, text: string, button: string, post: array{title: string, image: ResponsiveImage|null, author: string|null, votes: int|null, likes: int|null, comments: int|null}|null, autoOpen: bool, newTab: bool, href: string|null}|null
      */
-    private static function onward(Game $game, SnapshotStep $step, GameVersionSnapshot $snapshot, ?GameAttempt $attempt, GameVisitor $visitor, string $locale, bool $preview): ?array
+    private static function onward(Game $game, SnapshotStep $step, array $texts, GameVersionSnapshot $snapshot, ?GameAttempt $attempt, GameVisitor $visitor, bool $preview): ?array
     {
         $draft = $step->draft();
         $kind = match (true) {
@@ -131,7 +134,7 @@ final readonly class GamePlayView
         }
 
         $result = $step->type === GameFlowStepType::FullResult;
-        $text = fn (string $column, string $fallback): string => ($value = trim($step->text($column, $locale))) !== '' ? $value : $fallback;
+        $text = fn (string $column, string $fallback): string => ($value = trim($texts[$column] ?? '')) !== '' ? $value : $fallback;
         $site = app(ProjectSettingsManager::class)->current()->siteName();
         [$title, $body, $button] = match ($kind) {
             'post' => [

@@ -251,7 +251,9 @@ A game's Preview offers, for a published version still active, a test link
 (`VersionTestLink`): the game's public page with `v`, signed
 (`URL::temporarySignedRoute`) for seven days. Only `v` and `expires` are
 checked against the signature, so a parameter a channel adds on the way —
-`fbclid`, `utm_*` — leaves the link working. `PlayGamePageController`, the
+`fbclid`, `utm_*` — leaves the link working; another spelling PHP reads as
+one of them (`%76`, ` v`, `v[]`) would replace its value, so it is checked
+too and breaks the link. `PlayGamePageController`, the
 action of `games.play`, draws the version through the admin preview's
 component (`PreviewGame`) for a valid link to an active version of that game
 while the game is live or paused — never a draft, which nobody plays yet —

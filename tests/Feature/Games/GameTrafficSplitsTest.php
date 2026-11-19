@@ -210,21 +210,23 @@ it('applies nothing over a split changed since it was drawn', function () {
 it('ends a split, keeping its period in the history whether it sent visitors or not', function () {
     $used = gameSplit($this->draft, TrafficScope::source($this->exo->id), [$this->v2->id => 100]);
     $unused = gameSplit($this->draft, TrafficScope::source($this->pop->id), [$this->v3->id => 100]);
-    versionAfterClick($this, $this->exo, null, 'browserAbrowserAbrowserAbrowserAbrowserA');
+    expect(versionAfterClick($this, $this->exo, null, 'browserAbrowserAbrowserAbrowserAbrowserA'))->toBe($this->v2->id);
 
     app(EndGameTrafficSplitAction::class)->handle($this->draft['admin'], $this->game, $used->id);
     app(EndGameTrafficSplitAction::class)->handle($this->draft['admin'], $this->game, $unused->id);
+    $general = app(GameTrafficQuery::class)->currentPeriod((int) $this->game->id, GameAudience::Anonymous);
 
     // Never deleted: a visitor being assigned at that moment may be writing into it.
     expect($used->fresh())->ended_at->not->toBeNull()->open_scope->toBeNull()
         ->and($unused->fresh())->ended_at->not->toBeNull()->open_scope->toBeNull()
         ->and($unused->fresh()->shares())->toBe([$this->v3->id => 100])
-        // Its visitor keeps V2 nowhere else: the next click of the source gets the general split.
-        ->and(versionAfterClick($this, $this->exo, null, 'browserBbrowserBbrowserBbrowserBbrowserB'))->toBe($this->v1->id);
+        // A new visitor the source's next click brings gets the general split…
+        ->and(versionAfterClick($this, $this->exo, null, 'browserBbrowserBbrowserBbrowserBbrowserB'))->toBe($this->v1->id)
+        // …and so does the split's own visitor coming back, who keeps V2 nowhere else: into the general period.
+        ->and(versionAfterClick($this, $this->exo, null, 'browserAbrowserAbrowserAbrowserAbrowserA'))->toBe($this->v1->id)
+        ->and(GameAssignment::query()->where('visitor_hash', browserHashOf('browserAbrowserAbrowserAbrowserAbrowserA'))->whereNotNull('active_key')->sole()->period_id)->toBe($general->id);
 
     // The general split is no split, and a split already ended is gone from what can be ended.
-    $general = app(GameTrafficQuery::class)->currentPeriod((int) $this->game->id, GameAudience::Anonymous);
-
     foreach ([$general->id, $used->id] as $periodId) {
         expect(fn () => app(EndGameTrafficSplitAction::class)->handle($this->draft['admin'], $this->game, $periodId))
             ->toThrow(fn (CannotManageGameException $exception) => expect($exception->isStale())->toBeTrue());

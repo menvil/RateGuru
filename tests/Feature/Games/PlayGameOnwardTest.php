@@ -231,3 +231,14 @@ it('lets Full Result send the visitor on to a page — a tag of the feed here �
 
     expect(GameAttempt::query()->sole()->onward_kind)->toBe(GameOnwardKind::Page);
 });
+
+it('puts the game’s name into the prompt, as into every step’s texts', function () {
+    replaceFlowSteps($this->draft['flow'], [GameFlowStepType::Landing, GameFlowStepType::Game, GameFlowStepType::FullResult, GameFlowStepType::GoToPost]);
+    $this->draft['flow']->steps()->where('type', 'go_to_post')->sole()->forceFill(['title' => 'More from {game}'])->save();
+    liveGame($this->draft);
+
+    playOnwardGameToResult($this->draft['game']->slug)->call('continue')
+        ->assertSee('data-testid="game-onward-title"', false)
+        ->assertSee('More from '.$this->draft['game']->title)
+        ->assertDontSee('{game}');
+});

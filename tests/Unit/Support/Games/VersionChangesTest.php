@@ -1,6 +1,7 @@
 <?php
 
 use App\Data\Games\UnpublishedChanges;
+use App\Enums\GameFlowGoal;
 use App\Support\Games\Publishing\VersionChanges;
 use App\Support\Games\Snapshot\GameVersionSnapshot;
 
@@ -281,7 +282,7 @@ it('tells two steps of a kind apart by their place, as the Flow editor numbers t
         ->and(VersionChanges::flow(changesSnapshot($two), changesSnapshot($retitled)))->toBe(['Share (step 6) · Title']);
 });
 
-it('compares no goal with a version that froze none', function () {
+it('compares the goal a version that froze none counts, once it is known, and nothing without it', function () {
     $firstShape = function (array $s): array {
         $s['schema'] = 1;
         unset($s['flow']['goal']);
@@ -289,7 +290,12 @@ it('compares no goal with a version that froze none', function () {
         return $s;
     };
 
-    expect(VersionChanges::flow(changesSnapshot($firstShape), changesSnapshot()))->toBe([]);
+    // The draft counts a vote on the post.
+    expect(VersionChanges::flow(changesSnapshot($firstShape), changesSnapshot()))->toBe([])
+        ->and(VersionChanges::flow(changesSnapshot($firstShape), changesSnapshot(), GameFlowGoal::Account))->toBe(['Goal'])
+        ->and(VersionChanges::flow(changesSnapshot($firstShape), changesSnapshot(), GameFlowGoal::PostVoted))->toBe([])
+        // A version that froze its goal is compared by it.
+        ->and(VersionChanges::flow(changesSnapshot(), changesSnapshot(), GameFlowGoal::Account))->toBe([]);
 });
 
 it('names what a round says and shows, as the Content editor names it', function (Closure $edit, array $changes) {

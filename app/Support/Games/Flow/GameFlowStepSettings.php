@@ -32,6 +32,12 @@ final class GameFlowStepSettings
     private const MAX_URL = 500;
 
     /**
+     * The longest slug a category (categories.slug, ManageCategories) or a
+     * tag (UniqueEffectiveTagSlug::MOST_CHARACTERS) may have.
+     */
+    private const MAX_SLUG = 100;
+
+    /**
      * @param  array<string, mixed>  $input
      * @return array<string, bool|int|float|string|null>
      */
@@ -82,7 +88,7 @@ final class GameFlowStepSettings
     {
         $value = is_string($value) ? strtolower(trim($value)) : '';
 
-        return preg_match('/^[a-z0-9]+(?:-[a-z0-9]+)*$/', $value) === 1 && strlen($value) <= 80 ? $value : '';
+        return preg_match('/^[a-z0-9]+(?:-[a-z0-9]+)*$/', $value) === 1 && strlen($value) <= self::MAX_SLUG ? $value : '';
     }
 
     private static function text(mixed $value, int $max): string

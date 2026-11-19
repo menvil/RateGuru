@@ -3,6 +3,7 @@
 namespace App\Support\Games\Publishing;
 
 use App\Enums\GameAdvanceMode;
+use App\Enums\GameFlowGoal;
 use App\Enums\GameFlowStepType;
 use App\Enums\GameOnward;
 use App\Enums\GameOptionSource;
@@ -104,14 +105,16 @@ final class VersionChanges
      * The flow: its goal, its steps added, removed or put in another order,
      * and each step's audience, settings and texts.
      *
+     * @param  GameFlowGoal|null  $publishedGoal  the goal the version counts (GameVersion::flowGoal()), for a snapshot that froze none
      * @return list<string>
      */
-    public static function flow(GameVersionSnapshot $published, GameVersionSnapshot $draft): array
+    public static function flow(GameVersionSnapshot $published, GameVersionSnapshot $draft, ?GameFlowGoal $publishedGoal = null): array
     {
         $changes = [];
+        // A first-shape snapshot froze no goal: the goal its version counts stands in, and without one there is nothing to compare.
+        $was = $published->flowGoal ?? $publishedGoal;
 
-        // A first-shape snapshot froze no goal: there is nothing to compare it with.
-        if ($published->flowGoal !== null && $draft->flowGoal !== null && $published->flowGoal !== $draft->flowGoal) {
+        if ($was !== null && $draft->flowGoal !== null && $was !== $draft->flowGoal) {
             $changes[] = 'Goal';
         }
 

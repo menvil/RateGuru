@@ -44,19 +44,16 @@ final class ChangeContentSetAction
             throw CannotManageGameException::because('Give the content set a name.');
         }
 
-        $renamed = false;
-
-        $this->change($admin, $set, function (GameContentSet $locked) use ($name, &$renamed): void {
+        return $this->change($admin, $set, function (GameContentSet $locked) use ($name): bool {
             if ($locked->name === $name) {
-                return;
+                return false;
             }
 
             $locked->timestamps = false;
             $locked->forceFill(['name' => $name, 'lock_version' => $locked->lock_version + 1])->save();
-            $renamed = true;
-        }, $expectedLockVersion);
 
-        return $renamed;
+            return true;
+        }, $expectedLockVersion);
     }
 
     /** @throws CannotManageGameException */
@@ -116,23 +113,32 @@ final class ChangeContentSetAction
     }
 
     /**
-     * @param  callable(GameContentSet): void  $change
+     * Makes a change to the set under its locks, and records it on the game
+     * — unless the change returns false: it wrote nothing, so neither does
+     * the game. Whether it wrote.
+     *
+     * @param  callable(GameContentSet): mixed  $change
      *
      * @throws CannotManageGameException
      */
-    private function change(User $admin, GameContentSet $set, callable $change, ?int $expectedLockVersion = null): void
+    private function change(User $admin, GameContentSet $set, callable $change, ?int $expectedLockVersion = null): bool
     {
         if (! $admin->can('manage-games')) {
             throw CannotManageGameException::becauseUserIsNotAllowed();
         }
 
-        DB::transaction(function () use ($admin, $set, $change, $expectedLockVersion): void {
+        return DB::transaction(function () use ($admin, $set, $change, $expectedLockVersion): bool {
             $lockedAdmin = $this->lockAdministrator($admin);
             $game = $this->lockGame((int) $set->game_id);
             $locked = $this->lockContentSet($game, (int) $set->id, $expectedLockVersion);
 
-            $change($locked);
+            if ($change($locked) === false) {
+                return false;
+            }
+
             $this->touchGame($game, $lockedAdmin);
+
+            return true;
         });
     }
 }

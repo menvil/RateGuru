@@ -140,11 +140,13 @@ final class StartGameAttemptAction
 
     /**
      * A start of the game another game's Next Game step sent the visitor to,
-     * within 30 minutes, is that play's "next game started".
+     * within 30 minutes, is that play's "next game started" — the latest play
+     * that sent them to this game, past any Next Game to another one since.
      */
     private function creditNextGame(Game $game, GameVisitor $visitor): void
     {
         $sender = GameAttempt::query()
+            ->with('version')
             ->where('game_id', '!=', $game->id)
             ->where('onward_kind', GameOnwardKind::NextGame)
             ->where('onward_at', '>=', now()->subMinutes(30))
@@ -152,15 +154,10 @@ final class StartGameAttemptAction
                 ? $query->where('user_id', $visitor->userId)
                 : $query->where('visitor_hash', $visitor->visitorHash)->whereNull('user_id'))
             ->orderByDesc('onward_at')
-            ->first();
+            ->get()
+            ->first(fn (GameAttempt $sender): bool => (int) GameFlowRunner::ofType($sender->version->read()->flowSteps(), GameFlowStepType::NextGame)?->setting('next_game_id') === (int) $game->id);
 
-        if ($sender === null) {
-            return;
-        }
-
-        $step = GameFlowRunner::ofType($sender->version->read()->flowSteps(), GameFlowStepType::NextGame);
-
-        if ($step !== null && (int) $step->setting('next_game_id') === (int) $game->id) {
+        if ($sender !== null) {
             $this->milestones->reach(GameMilestone::NextGame, $sender, $visitor);
         }
     }

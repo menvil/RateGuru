@@ -69,7 +69,6 @@ final class ChangeGameFlowAction
         });
     }
 
-    /** @throws CannotManageGameException */
     /**
      * The flow's name, which only the editor shows: a name kept as it was
      * writes nothing, and a new one doesn't count as an edit players would
@@ -81,19 +80,17 @@ final class ChangeGameFlowAction
     public function rename(User $admin, GameFlow $flow, string $name, ?int $expectedLockVersion = null): bool
     {
         $name = $this->name($name);
-        $renamed = false;
 
-        $this->change($admin, $flow, function (GameFlow $locked) use ($name, &$renamed): void {
+        return $this->change($admin, $flow, function (GameFlow $locked) use ($name): bool {
             if ($locked->name === $name) {
-                return;
+                return false;
             }
 
             $locked->timestamps = false;
             $locked->forceFill(['name' => $name, 'lock_version' => $locked->lock_version + 1])->save();
-            $renamed = true;
-        }, $expectedLockVersion);
 
-        return $renamed;
+            return true;
+        }, $expectedLockVersion);
     }
 
     /** @throws CannotManageGameException */
@@ -111,7 +108,9 @@ final class ChangeGameFlowAction
     /** @throws CannotManageGameException */
     public function restore(User $admin, GameFlow $flow, ?int $expectedLockVersion = null): void
     {
-        $this->change($admin, $flow, fn (GameFlow $locked) => $locked->forceFill(['archived_at' => null, 'lock_version' => $locked->lock_version + 1])->save(), $expectedLockVersion);
+        $this->change($admin, $flow, function (GameFlow $locked): void {
+            $locked->forceFill(['archived_at' => null, 'lock_version' => $locked->lock_version + 1])->save();
+        }, $expectedLockVersion);
     }
 
     /** @throws CannotManageGameException */
@@ -157,21 +156,30 @@ final class ChangeGameFlowAction
     }
 
     /**
+     * Makes a change to the flow under its locks, and records it on the game
+     * — unless the change returns false: it wrote nothing, so neither does
+     * the game. Whether it wrote.
+     *
      * @param  callable(GameFlow): mixed  $change
      *
      * @throws CannotManageGameException
      */
-    private function change(User $admin, GameFlow $flow, callable $change, ?int $expectedLockVersion = null): void
+    private function change(User $admin, GameFlow $flow, callable $change, ?int $expectedLockVersion = null): bool
     {
         $this->allowed($admin);
 
-        DB::transaction(function () use ($admin, $flow, $change, $expectedLockVersion): void {
+        return DB::transaction(function () use ($admin, $flow, $change, $expectedLockVersion): bool {
             $lockedAdmin = $this->lockAdministrator($admin);
             $game = $this->lockGame((int) $flow->game_id);
             $locked = $this->lockFlow($game, (int) $flow->id, $expectedLockVersion);
 
-            $change($locked);
+            if ($change($locked) === false) {
+                return false;
+            }
+
             $this->touchGame($game, $lockedAdmin);
+
+            return true;
         });
     }
 }

@@ -1,5 +1,6 @@
 <?php
 
+use App\Enums\GameFlowGoal;
 use App\Filament\Resources\Games\GameResource;
 use App\Filament\Resources\Games\Pages\EditGameContent;
 use App\Filament\Resources\Games\Pages\EditGameFlow;
@@ -13,6 +14,7 @@ use App\Models\MediaAsset;
 use App\Models\ProjectSettings;
 use App\Queries\Games\GameUnpublishedChangesQuery;
 use App\Support\Games\Publishing\VersionChanges;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\File;
 use Livewire\Livewire;
 use Symfony\Component\Finder\SplFileInfo;
@@ -277,6 +279,47 @@ it('names a title translated in the very second the version was published', func
     $this->draft['game']->fresh()->forceFill(['title_translations' => ['de' => 'Neu'], 'updated_at' => $this->draft['game']->fresh()->updated_at])->save();
 
     expect(app(GameUnpublishedChangesQuery::class)->forGame($this->draft['game']->fresh())?->changes())->toBe(['Public title · translations']);
+});
+
+it('names a step or a round saved in the very second the version was published, and still nothing a save of that second left as it was', function () {
+    $this->freezeSecond();
+    $at = liveGame($this->draft)->fresh()->published_at;
+    $step = GameFlowStep::query()->where('flow_id', $this->draft['flow']->id)->where('type', 'full_result')->sole();
+    $round = GameRound::query()->where('content_set_id', $this->draft['set']->id)->orderBy('position')->first();
+    $query = app(GameUnpublishedChangesQuery::class);
+
+    $step->forceFill(['updated_at' => $at])->save();
+    $round->forceFill(['updated_at' => $at])->save();
+
+    expect($query->forFlow($this->draft['game']->fresh(), $this->draft['flow']->id))->toBeNull()
+        ->and($query->forSet($this->draft['game']->fresh(), $this->draft['set']->id))->toBeNull();
+
+    $step->forceFill(['title' => 'Join us', 'updated_at' => $at])->save();
+
+    expect($query->forFlow($this->draft['game']->fresh(), $this->draft['flow']->id)?->changes())->toBe(['Full Result · Sign-up title']);
+
+    $round->forceFill(['question' => 'Which one, now?', 'updated_at' => $at])->save();
+
+    expect($query->forSet($this->draft['game']->fresh(), $this->draft['set']->id)?->changes())->toBe(['Round 1 · Question', 'Full Result · Sign-up title']);
+});
+
+it('names a goal changed since a version published before goals, by the goal that version counts', function () {
+    $version = liveGame($this->draft);
+    // Published before goals: the snapshot froze none, and the goal it counts was written on the version.
+    $snapshot = $version->snapshot;
+    $snapshot['schema'] = 1;
+    unset($snapshot['flow']['goal']);
+    $counts = fn (GameFlowGoal $goal) => DB::table('game_versions')->where('id', $version->id)->update(['snapshot' => json_encode($snapshot), 'snapshot_schema' => 1, 'goal' => $goal->value]);
+    $counts(GameFlowGoal::Account);
+
+    $this->travel(1)->minutes();
+    $this->draft['flow']->fresh()->forceFill(['goal' => GameFlowGoal::Completed])->save();
+
+    expect(app(GameUnpublishedChangesQuery::class)->forFlow($this->draft['game']->fresh(), $this->draft['flow']->id)?->changes())->toBe(['Goal']);
+
+    $counts(GameFlowGoal::Completed);
+
+    expect(app(GameUnpublishedChangesQuery::class)->forFlow($this->draft['game']->fresh(), $this->draft['flow']->id))->toBeNull();
 });
 
 it('lists every change on Versions too, behind a disclosure, once more are counted than named', function () {
