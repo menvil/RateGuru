@@ -48,7 +48,12 @@ Prepare and preview a game first; switch games on when it is live.
    on Share, which then offers the way to the feed.
 6. **Preview.** Play the draft or any version as an anonymous visitor or a
    logged-in player, in any language, from the landing, from a given round,
-   or straight to a result. Nothing is recorded.
+   or straight to a result. Nothing is recorded. With a published version
+   still active chosen, **Copy test link** copies a link to the game's page
+   that plays that version for whoever opens it, signed in or not, for seven
+   days while the game is live or paused — never while it is a draft — and
+   records nothing; once it expires, or the version is archived, it opens the
+   ordinary game page.
 
 Games are not created in the admin: each arrives with the release that adds
 it, as a draft in Growth → Games — the first is **Trust Your Taste** (Versus),
@@ -59,9 +64,15 @@ version, give it traffic and set it live.
 
 - **Saving and publishing.** Saving changes the draft only; players keep
   playing the published version. While a tab holds saved changes they don't
-  see, a notice under the tabs says so and opens Versions ready to publish
-  them. If another administrator saved in between, renaming or restoring a set
-  or flow asks you to reload, like Save does.
+  see, a notice under the tabs names them — "2 changes since V2: Full Result ·
+  Way-on title, Round 2 · Question"; past three, the first three and how many
+  more, with every change listed behind "All n changes" — and opens Versions
+  ready to publish them. It compares what a new version would freeze with the
+  version players play, so a save that changed nothing they meet — a setting
+  the step's other choices hide, a text saved again as it was — shows no
+  notice. A flow saves from the top bar or from Save flow at the foot of the
+  selected step's settings. If another administrator saved in between,
+  renaming or restoring a set or flow asks you to reload, like Save does.
 - **Versions.** Pick a content set and a flow, read the checks, and publish.
   A version is frozen: today's votes, texts, results and translations stay as
   they were, whatever changes in the draft afterwards. Publishing gives the
@@ -69,11 +80,25 @@ version, give it traffic and set it live.
   share.
 - **Traffic.** Share each audience — anonymous visitors and logged-in
   players — between versions in whole percentages adding up to 100, and apply.
-  Every change starts a new period; compare versions only inside one period.
+  Every change starts a new period; compare versions only inside one period —
+  Growth → Experiments does, and each period's **Results** opens it there.
   Visitors keep their version while it keeps a share; a started game always
   finishes on the version it started on. If the shares changed after you
   opened Traffic — someone published and took a version's traffic over —
   Apply changes nothing and shows the shares in effect now.
+- **Splits for a source.** Under the general split, **Split for a source**
+  gives anonymous visitors from one paid source — an ad network or a banner of
+  Traffic sources — or from one of its campaigns shares of their own: choose
+  the source, a campaign or every campaign, share the versions as above and
+  save. The closest split wins: the campaign's, then the source's, then the
+  general one, which then reads as "Everyone else". Logged-in players and
+  unpaid visitors always get the general split, and the ad link stays one per
+  game. A visitor keeps their version when they come back from another source.
+  Each split is its own period in Experiments and Analytics, named by its
+  source and campaign; **Edit** changes it, **End** sends its clicks back to
+  the general split and keeps the split in the history as an ended period.
+  Splits need Traffic sources → **Record visits** on: only a recorded click
+  knows its source.
 - **Status.** Go live once a version has traffic. Pause stops new games but
   lets started ones finish. Archive ends the game; its shared result pages say
   it has ended.
@@ -91,12 +116,48 @@ content. Players see a translation once a version is published after it.
 
 ## Analytics
 
-The Analytics tab shows, per audience and over the last 7, 30 or 90 days or all
-time: visitors, starts, completion, emails, new accounts and sign-ins (or, for
-logged-in players, shares and repeat players), the funnel, how many attempts
-reached each round, which results players got, the versions, flows or content
-sets side by side, and the traffic periods. Library shows each game's plays,
-completion and sign-ups of the last 30 days.
+The Analytics tab shows, per audience and over the last 7, 30 or 90 days, all
+time or a range of days picked on the period picker's calendar (click the
+first day, then the last): visitors, starts,
+completion, emails, new accounts and sign-ins (or, for logged-in players,
+shares and repeat players), the funnel, how many attempts reached each round,
+which results players got, the figures broken down by version, flow, content
+set, device, country or country group, and the traffic periods. Each figure is
+compared with as many days right before the period; all time has nothing to
+compare with. The period, the version, the audience, the device and the
+country are kept in the page's address, so a link opens the same view; a range
+that ends after today, runs backwards or reaches further back than the 400
+days visits are kept opens the last 30 days instead. Library shows each game's
+plays, completion and sign-ups of the last 30 days.
+
+The game's own records know no device or country: those come from the visits
+Traffic sources recorded. With a **Device** or **Country** chosen — a country,
+or a country group of Value → Country groups, the last group holding every
+other country and the visits whose country isn't known — every card counts
+only what came on such a visit: a play by the visit it started on, a visitor
+by their visits of the game (a logged-in player by a browser they signed up or
+in on, or by the visit a play of theirs came on). Plays with no recorded visit
+— before Record visits was switched on, say — drop out, and the page says so.
+The Traffic sources card's own device switch is there only while the page is
+of every device.
+
+Each traffic period shows how many visitors it sent to a version and whether
+its versions can be compared yet: **One version** when only one had a share,
+**No visitors yet** while nobody has been sent to a version, **Too early**
+until every version has 10 confirmed accounts (logged-in players
+make none, so their goals reached count instead) — the bar the comparison of
+versions on paid traffic uses — and **Enough data** after. A split for a source
+is listed by its source and campaign, and the general split beside one as
+"Everyone else". **Results** opens the period in Growth → Experiments, where
+its versions are compared metric by metric (docs/admin/experiments.md); the
+same link is on each period of the Traffic tab. A period deleted there stays
+listed here.
+
+The same analytics, with a chooser of the games not archived, is Growth →
+Analytics → **Games** (docs/admin/analytics.md), read for the period and device
+chosen there. Growth → Analytics also follows a game's visitors from the page
+their session began on (Landings), the campaign that brought them (Campaigns)
+and whether their accounts come back (Retention).
 
 The funnel counts people: someone who played three times started once. Each
 step's rate says what it is a share of — Played again, for instance, is of the
@@ -104,6 +165,16 @@ players who started, not of those who shared. Completion is the share of plays
 finished, replays included. Between the finished players and the new accounts,
 **Sign-up begun** shows who started signing up from the game and how — email,
 Google, Facebook, the site's sign-up dialog or Log in.
+
+Under the funnel, **Sign-ups** shows for anonymous visitors how many signed up,
+how many confirmed, how many never confirmed and how many are still inside the
+7 days they have to. An account never confirmed is removed with everything it
+did, so the game's own figures lose it; these come from the game's visits that
+Traffic sources recorded instead, confirmed counted from the same visits, and
+can differ from **Account confirmed**, which counts accounts by the play they
+are credited to. While Traffic sources → Sources → **Record visits** is off
+there is nothing to count from: the card shows dashes and says where to switch
+it on.
 
 ## Privacy
 

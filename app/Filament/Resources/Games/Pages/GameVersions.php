@@ -15,6 +15,7 @@ use App\Models\GameFlow;
 use App\Models\GameFlowStep;
 use App\Models\GameVersion;
 use App\Queries\Games\GameDraftQuery;
+use App\Queries\Games\GameFlowFactsQuery;
 use App\Queries\Games\GameTrafficQuery;
 use App\Queries\Games\GameUnpublishedChangesQuery;
 use App\Support\Games\Drafts\ContentSetReport;
@@ -154,6 +155,15 @@ final class GameVersions extends Page
             $shares[$audience->value] = $period?->shares() ?? [];
         }
 
+        // How many splits for a source give each version a share: a version in one alone is in traffic too.
+        $splits = [];
+
+        foreach ($traffic->currentSplits((int) $game->id, GameAudience::Anonymous) as $split) {
+            foreach (array_keys($split->shares()) as $versionId) {
+                $splits[$versionId] = ($splits[$versionId] ?? 0) + 1;
+            }
+        }
+
         $reports = [];
 
         foreach ($sets as $set) {
@@ -162,11 +172,12 @@ final class GameVersions extends Page
 
         $chosenSet = $reports[$this->publishSetId] ?? null;
         $chosenFlow = $flows->firstWhere('id', $this->publishFlowId);
-        $readiness = $chosenSet !== null && $chosenFlow !== null ? GamePublishReadiness::of($game, $chosenSet, $chosenFlow, $gameIds) : null;
+        $readiness = $chosenSet !== null && $chosenFlow !== null
+            ? GamePublishReadiness::of($game, $chosenSet, $chosenFlow, $gameIds, app(GameFlowFactsQuery::class)->for($chosenFlow->steps->map(fn (GameFlowStep $step) => $step->draft())->values()->all()))
+            : null;
         $latestFromPair = $versions->first(fn (GameVersion $version): bool => (int) $version->content_set_id === $this->publishSetId && (int) $version->flow_id === $this->publishFlowId);
-        $edits = app(GameUnpublishedChangesQuery::class);
-        $changedSince = $latestFromPair === null ? null : $edits->setEditedAfter($this->publishSetId, $latestFromPair->published_at) || $edits->flowEditedAfter($this->publishFlowId, $latestFromPair->published_at);
-        $inTraffic = array_values(array_unique(array_merge(array_keys($shares['anonymous']), array_keys($shares['authenticated']))));
+        $changedSince = $latestFromPair === null ? null : app(GameUnpublishedChangesQuery::class)->sinceVersion($game, $latestFromPair, $this->publishSetId, $this->publishFlowId);
+        $inTraffic = array_values(array_unique(array_merge(array_keys($shares['anonymous']), array_keys($shares['authenticated']), array_keys($splits))));
         $unplayable = $traffic->unplayableVersionIds($versions->modelKeys());
 
         return [
@@ -185,11 +196,11 @@ final class GameVersions extends Page
                 'id' => (int) $flow->id,
                 'name' => $flow->name,
                 'chain' => $flow->steps->map(fn (GameFlowStep $step): string => $step->type->label())->implode(' → '),
-                'valid' => GameFlowValidator::issues($flow->steps->map(fn (GameFlowStep $step) => $step->draft())->values()->all()) === [],
+                'valid' => GameFlowValidator::issues($flow->steps->map(fn (GameFlowStep $step) => $step->draft())->values()->all(), $flow->goal) === [],
             ])->all(),
             'readiness' => $readiness,
-            'changedSince' => $latestFromPair !== null && $changedSince === true ? $latestFromPair->label() : null,
-            'duplicateOf' => $latestFromPair !== null && $changedSince === false ? $latestFromPair->label() : null,
+            'changedSince' => $latestFromPair !== null && $changedSince !== null ? ['version' => $latestFromPair->label(), 'named' => $changedSince->named(), 'count' => $changedSince->count(), 'groups' => $changedSince->hasMore() ? $changedSince->groups : []] : null,
+            'duplicateOf' => $latestFromPair !== null && $changedSince === null ? $latestFromPair->label() : null,
             'takeOvers' => $versions->filter(fn (GameVersion $version): bool => in_array((int) $version->id, $inTraffic, true))->map(fn (GameVersion $version): array => ['id' => (int) $version->id, 'label' => $version->label()])->values()->all(),
             'versions' => $versions->filter(fn (GameVersion $version): bool => $this->showRetired || $version->isActive())->map(fn (GameVersion $version): array => [
                 'id' => (int) $version->id,
@@ -201,7 +212,9 @@ final class GameVersions extends Page
                 'set' => $version->contentSet->name,
                 'flow' => $version->flow->name,
                 'rounds' => $version->round_count,
-                'traffic' => collect(GameAudience::cases())->map(fn (GameAudience $audience): ?string => isset($shares[$audience->value][(int) $version->id]) ? ($audience === GameAudience::Anonymous ? 'Anonymous' : 'Logged in').' '.$shares[$audience->value][(int) $version->id].'%' : null)->filter()->implode(' · '),
+                'traffic' => collect(GameAudience::cases())->map(fn (GameAudience $audience): ?string => isset($shares[$audience->value][(int) $version->id]) ? ($audience === GameAudience::Anonymous ? 'Anonymous' : 'Logged in').' '.$shares[$audience->value][(int) $version->id].'%' : null)
+                    ->push(isset($splits[(int) $version->id]) ? $splits[(int) $version->id].' '.str('source split')->plural($splits[(int) $version->id]) : null)
+                    ->filter()->implode(' · '),
                 'published' => $version->published_at->format('d M Y, H:i'),
                 'by' => $version->publishedBy->display_name ?? $version->publishedBy->username ?? null,
                 'attempts' => (int) $version->attempts_count,

@@ -7,8 +7,15 @@
      * state badge is decided in one place, the browser's state():
      * Saved is success with the live dot, Missing is warning, AI suggestion ·
      * not saved is info with its dot on an info-tinted field and cell, Edited ·
-     * not saved is outline with the field's gray-400 border. The server draws
-     * the state the row opens in; the browser keeps it from then on.
+     * not saved is outline with the field's gray-400 border, English changed
+     * is warning: a stored translation made from English the unit no longer
+     * has. The server draws the state the row opens in; the browser keeps it
+     * from then on.
+     *
+     * An outdated row shows, under the English, the English its translation
+     * was made from, until it is saved; the translation stays stored, and
+     * what visitors see, meanwhile. It can be saved as it is: kept for the
+     * new English, it is current again.
      *
      * The field is a single-line input or a textarea, as the content's own
      * editor has it, and is bound to the browser's draft only: typing sends
@@ -20,7 +27,7 @@
      * usable.
      */
     $dom = $row['dom'];
-    $state = $row['stored'] === '' ? 'missing' : 'saved';
+    $state = $row['stored'] === '' ? 'missing' : ($row['outdated'] ? 'outdated' : 'saved');
     $length = mb_strlen($row['stored']);
     $describedBy = "{$dom}-note {$dom}-counter {$dom}-bulk";
     $placeholder = 'Missing · type a translation or use AI translate';
@@ -30,12 +37,12 @@
 
 <div
     id="{{ $dom }}"
-    class="rg-admin-translation-row"
+    @class(['rg-admin-translation-row', 'rg-admin-translation-row--outdated' => $state === 'outdated'])
     role="row"
     data-unit="{{ $row['id'] }}"
     x-data="{ unit: @js($row['id']) }"
     x-show="shows(unit)"
-    x-bind:class="{ 'rg-admin-translation-row--linked': linked === unit }"
+    x-bind:class="{ 'rg-admin-translation-row--linked': linked === unit, 'rg-admin-translation-row--outdated': state(unit) === 'outdated' }"
 >
     <div class="rg-admin-translation-row__cell rg-admin-translation-row__item" role="cell">
         <x-admin.ui.badge tone="outline">{{ $row['section'] }}</x-admin.ui.badge>
@@ -75,6 +82,21 @@
                 <x-admin.ui.icon name="arrow-up-right" :size="12" />
             </a>
         </div>
+        @if ($row['outdated'])
+            {{-- What the stored translation was made from, until the row is saved and it is current again. --}}
+            <div class="rg-admin-translation-row__previous" x-show="units[unit].outdated">
+                <span class="rg-admin-translation-row__previous-label">Translated from the old English</span>
+                <div
+                    class="rg-admin-translation-row__previous-text"
+                    lang="en"
+                    @if ($row['multiline'])
+                        tabindex="0"
+                        role="region"
+                        aria-label="English the translation of {{ $row['name'] }} was made from"
+                    @endif
+                >{{ $row['translatedFrom'] }}</div>
+            </div>
+        @endif
     </div>
 
     <div
@@ -150,9 +172,12 @@
             <span class="rg-admin-translation-row__state">
                 <x-admin.ui.badge tone="success" dot :x-cloak="$state !== 'saved'" x-show="state(unit) === 'saved'">Saved</x-admin.ui.badge>
                 <x-admin.ui.badge tone="warning" :x-cloak="$state !== 'missing'" x-show="state(unit) === 'missing'">Missing</x-admin.ui.badge>
+                @if ($row['outdated'])
+                    <x-admin.ui.badge tone="warning" icon="refresh-cw" class="rg-admin-translation-row__outdated-badge" :x-cloak="$state !== 'outdated'" x-show="state(unit) === 'outdated'">English changed · update</x-admin.ui.badge>
+                @endif
                 <x-admin.ui.badge tone="info" dot x-cloak x-show="state(unit) === 'ai'">AI suggestion · not saved</x-admin.ui.badge>
                 <x-admin.ui.badge tone="outline" x-cloak x-show="state(unit) === 'edited'">Edited · not saved</x-admin.ui.badge>
-                <span id="{{ $dom }}-note" class="rg-admin-translation-row__note" x-show="! waiting(unit)" x-text="note(unit)">{{ $state === 'saved' ? 'Stored translation' : 'Visitors see the English text' }}</span>
+                <span id="{{ $dom }}-note" class="rg-admin-translation-row__note" x-show="! waiting(unit)" x-text="note(unit)">{{ ['saved' => 'Stored translation', 'outdated' => 'Made from older English. Visitors see it until you save.', 'missing' => 'Visitors see the English text'][$state] }}</span>
                 {{-- Said aloud by the page's own status regions; drawn here for whoever is looking at the row. --}}
                 <span class="rg-admin-translation-row__generating" x-cloak x-show="waiting(unit)">
                     <span class="rg-admin-translation-row__spinner" aria-hidden="true"></span>
@@ -174,7 +199,7 @@
                     x-bind:aria-disabled="held(unit) ? 'true' : 'false'"
                     x-on:click="suggest(unit)"
                 >
-                    <span x-text="aiLabel(unit)">{{ $state === 'saved' ? 'Suggest alternative' : 'AI translate' }}</span><span class="rg-admin-sr-only"> {{ $row['name'] }}</span>
+                    <span x-text="aiLabel(unit)">{{ ['saved' => 'Suggest alternative', 'outdated' => 'Update with AI', 'missing' => 'AI translate'][$state] }}</span><span class="rg-admin-sr-only"> {{ $row['name'] }}</span>
                 </x-admin.ui.button>
                 <x-admin.ui.button size="sm" disabled x-bind:disabled="! canSave(unit)" x-on:click="save(unit)">
                     Save<span class="rg-admin-sr-only"> {{ $row['name'] }}</span>

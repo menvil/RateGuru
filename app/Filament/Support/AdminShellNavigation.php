@@ -3,10 +3,13 @@
 namespace App\Filament\Support;
 
 use App\Filament\Pages\Dashboard;
+use App\Filament\Pages\ExperimentsPage;
+use App\Filament\Pages\GrowthAnalyticsPage;
 use App\Filament\Pages\LanguagesPage;
 use App\Filament\Pages\MediaDiagnosticsPage;
 use App\Filament\Pages\ProjectSettingsPage;
 use App\Filament\Pages\StudioActionQueue;
+use App\Filament\Pages\TrafficSourcesPage;
 use App\Filament\Pages\TranslationAiPage;
 use App\Filament\Pages\TranslationCenterPage;
 use App\Filament\Resources\Categories\CategoryResource;
@@ -56,6 +59,9 @@ final class AdminShellNavigation
         StudioActionQueue::class => 'list-checks',
         PersonaResource::class => 'bot',
         GameResource::class => 'gamepad-2',
+        ExperimentsPage::class => 'flask-conical',
+        GrowthAnalyticsPage::class => 'chart-no-axes-column',
+        TrafficSourcesPage::class => 'megaphone',
         LanguagesPage::class => 'globe',
         TranslationCenterPage::class => 'languages',
         TranslationAiPage::class => 'bot',
@@ -88,12 +94,13 @@ final class AdminShellNavigation
     /**
      * Section › destination for the current page, without loading any record:
      * create and edit pages show their resource as the last step, linked back
-     * to its list.
+     * to its list, and so does a page showing one of its items in place
+     * (ShowsItemsInPlace).
      *
      * @param  list<array{label: ?string, items: list<AdminShellNavigationItem>}>  $sections
      * @return list<array{label: string, url: ?string, current: bool}>
      */
-    public static function breadcrumb(array $sections, string $currentUrl): array
+    public static function breadcrumb(array $sections, string $currentUrl, bool $showsItem = false): array
     {
         foreach ($sections as $section) {
             foreach ($section['items'] as $item) {
@@ -101,7 +108,7 @@ final class AdminShellNavigation
                     continue;
                 }
 
-                $isCurrent = rtrim((string) $item['url'], '/') === rtrim($currentUrl, '/');
+                $isCurrent = ! $showsItem && rtrim((string) $item['url'], '/') === rtrim($currentUrl, '/');
 
                 return [
                     ...(filled($section['label']) ? [['label' => $section['label'], 'url' => null, 'current' => false]] : []),

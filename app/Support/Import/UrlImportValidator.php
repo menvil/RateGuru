@@ -24,10 +24,19 @@ class UrlImportValidator
 
     public function validate(string $url, int $redirectHop = 0): ResolvedImportTarget
     {
+        return $this->validateFor($url, OutboundUrlPolicy::import(), $redirectHop);
+    }
+
+    /**
+     * The same checks for an outbound request other than an import — a
+     * postback — under that request's own schemes and ports.
+     */
+    public function validateFor(string $url, OutboundUrlPolicy $policy, int $redirectHop = 0): ResolvedImportTarget
+    {
         $this->assertNoControlCharacters($url, $redirectHop);
 
         ['parsed' => $parsed, 'scheme' => $scheme, 'host' => $host, 'port' => $port]
-            = $this->assertSafeSyntax($url, $redirectHop);
+            = $this->assertSafeSyntax($url, $policy, $redirectHop);
 
         $ip = $this->resolveAndValidate($host, $url, $scheme, $port, $redirectHop);
 
@@ -48,7 +57,7 @@ class UrlImportValidator
      *
      * @return array{parsed: array<string, mixed>, scheme: string, host: string, port: int}
      */
-    private function assertSafeSyntax(string $url, int $redirectHop): array
+    private function assertSafeSyntax(string $url, OutboundUrlPolicy $policy, int $redirectHop): array
     {
         $parsed = parse_url($url);
 
@@ -59,7 +68,7 @@ class UrlImportValidator
 
         $scheme = strtolower($parsed['scheme'] ?? '');
 
-        if (! in_array($scheme, $this->allowedSchemes(), true)) {
+        if (! in_array($scheme, $policy->schemes, true)) {
             $this->logUnsafeBlocked($url, 'invalid_scheme', $scheme, redirectHop: $redirectHop);
             throw UnsafeImportUrlException::invalidScheme($scheme ?: '(none)');
         }
@@ -78,7 +87,7 @@ class UrlImportValidator
 
         $port = $parsed['port'] ?? ($scheme === 'https' ? 443 : 80);
 
-        if (! in_array($port, $this->allowedPorts(), true)) {
+        if (! in_array($port, $policy->ports, true)) {
             $this->logUnsafeBlocked($url, 'port_forbidden', $scheme, $port, $redirectHop);
             throw UnsafeImportUrlException::portForbidden($port);
         }
@@ -267,16 +276,6 @@ class UrlImportValidator
         // Fragment deliberately dropped — it's never sent to the server and
         // has no business surviving into a transport-layer URL.
         return $url;
-    }
-
-    private function allowedSchemes(): array
-    {
-        return (array) config('import.allowed_schemes', ['https']);
-    }
-
-    private function allowedPorts(): array
-    {
-        return array_map('intval', (array) config('import.allowed_ports', [80, 443]));
     }
 
     private function logUnsafeBlocked(string $url, string $reason, ?string $scheme = null, ?int $port = null, int $redirectHop = 0): void

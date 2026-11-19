@@ -63,10 +63,35 @@ passed as bindings.
 
 The reviewed boundaries are:
 
+- `AnalyticsContentQuery` for Analytics → Site engagement, which counts the
+  posts a period's visits opened: conditional `COUNT(DISTINCT CASE WHEN … THEN
+  visitor_hash END)` and sums over the rows each visit keeps of its posts — in
+  all, per source, and per post, only the posts opened at all (`HAVING`), the
+  most opened first — and the different browsers of the accounts whose session
+  first opened each post, through a `NOT EXISTS` on an earlier post of the
+  session.
+- `AnalyticsVisitsQuery` for Growth → Analytics, which counts people rather
+  than visits: conditional `COUNT(DISTINCT CASE WHEN … THEN visitor_hash END)`
+  and sums over a period's visits — in all, per dimension of the visit with
+  the people past the top groups, or too few to list, counted together and
+  those of no value counted apart or left out when asked, per value asked for,
+  per group of a dimension's columns among values of its first — the five
+  campaign tags of the sessions of some campaigns, which tell tracking links
+  apart — per pair of two dimensions' values, per day, or per hour or block of days
+  between bound boundaries — ordered by the people of each group; the values of a dimension ordered by their people, for the page's
+  filters; the people who came back, through an `EXISTS` on an earlier visit of
+  the browser; the sums of what the paid clicks cost, their pages run or not,
+  per dimension or nested dimensions; the first day each value came on, as
+  `MIN(network_day)`; and the result shares of the attempts played on the visits.
 - `CommentListQuery` for arithmetic comment ranking.
+- `ComparisonPeriodsQuery` for literal LIKE searches over the titles, internal
+  names and slugs of the games whose traffic periods Growth → Experiments lists.
 - `FeedQuery` for arithmetic vote ordering and literal LIKE searches.
 - `GameMetricsQuery` for a game's figures: conditional and distinct counts of
   its attempts, answers, emails and events, per version, flow or content set,
+  per device, country or country group of the recorded visits behind them, or
+  per traffic period and version from the visitors each period assigned — the
+  result screens among them read with an `EXISTS` on the attempt's events —
   and the people who started more than one attempt.
 - `GamePostPickerQuery` for literal LIKE searches over the titles and author usernames of the posts a game round may show.
 - `GamesQuery` for literal LIKE searches over game titles, internal names and slugs.
@@ -86,10 +111,36 @@ The reviewed boundaries are:
 - `PersonasQuery` for literal LIKE searches over Persona usernames, names, short
   descriptions and characters.
 - `RatingVoteCountsQuery` for grouped rating counts.
+- `RetentionQuery` for Analytics → Retention, which follows new accounts in
+  weekly cohorts: per source and game, conditional sums of the confirmed
+  accounts that signed up between each week's bound boundaries, of those of
+  them that came back on day 1, day 7, day 30 and any of days 1–7 — whether
+  one did read from its days of activity by a correlated subquery — of those
+  inside the period, and of the period's, over one read of the accounts,
+  never a row per account and never arithmetic on dates.
 - `StudioPlansQuery` for literal LIKE searches over publication plan titles and
   over their authors' usernames, display names and names.
 - `StudioActionsQuery` for literal LIKE searches over the Action queue: the
   publication's title and its Persona's username, display name and name.
+- `TrackingLinksQuery` for literal LIKE searches over tracking links' names,
+  sources, campaigns, contents and terms.
+- `TrafficChanceSampleQuery` for the chances of an account: conditional counts
+  of the matured visits that reached each step and of those that became
+  accounts, per game, source, channel, device, country and rounds answered.
+- `TrafficReportQuery` for the traffic reports: conditional sums and counts of
+  a period's visits per level of the tree, site or zone, campaign, stage and a
+  game's versions, ordered by the accounts they brought; and their sign-ups —
+  confirmed, never confirmed or still waiting against a bound cutoff, and how
+  soon confirmed — per dimension, only groups with a sign-up, the most first.
+- `TrafficSegmentsQuery` for a paid source's segments on Analytics →
+  Campaigns: which segment each of the source's clicks is in, each segment's
+  conditions bound once in a `CASE`, then the people of the whole source, of
+  each segment and of none as conditional `COUNT(DISTINCT CASE WHEN … THEN
+  visitor_hash END)` and sums over those flags in one read; and the people a
+  draft's conditions catch, through a bound `WHERE`. Every column comes from
+  `SegmentParameter` or `AnalyticsDimension`.
+- `TrafficSpendQuery` for reconciling spend: the sums of the visits' prices and
+  counted spend and of the day's figures by origin, and the spend no visit took.
 - `TranslationAiUsageQuery` for Translation AI usage: sums conditional on a
   call's status, and the UTC hour or day a call falls in, written per engine;
   and, per provider and model, the calls inside a period counted beside the
