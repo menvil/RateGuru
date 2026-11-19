@@ -12,7 +12,8 @@ use Brick\Math\RoundingMode;
  * then a site's, a campaign's, the whole source's — over the visits it
  * matches that no narrower figure has taken; each visit by the price its
  * click carried when every one of them carried one, else equally; amounts
- * cut to 8 decimals, what is left over going to the newest visit. A visit
+ * cut to 8 decimals, what is left over going to the newest visit given a
+ * share — never one whose click cost nothing while others cost more. A visit
  * no figure reaches costs nothing; a figure no visit reaches is spend
  * without visits.
  */
@@ -53,7 +54,8 @@ final class SpendAllocator
             }
             $amount = TrafficMoney::of($fact['amount']);
             $given = BigDecimal::zero();
-            $newest = max(array_column($matched, 'id'));
+            // The newest visit with a share takes what the rounding leaves: never one its price gave nothing.
+            $newest = max(array_column(array_filter($matched, fn (array $visit, int $index): bool => $weights[$index]->isPositive(), ARRAY_FILTER_USE_BOTH), 'id'));
 
             foreach ($matched as $index => $visit) {
                 $share = $amount->multipliedBy($weights[$index])->dividedBy($total, TrafficMoney::SCALE, RoundingMode::Down);

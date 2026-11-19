@@ -839,7 +839,7 @@ final class TrafficSourcesPage extends Page
         $stage = is_string($stage) ? TrafficCampaignStage::tryFrom($stage) : null;
 
         if ($campaign !== null && $stage !== null) {
-            $this->changeCampaign($campaign, fn (): TrafficCampaign => app(ChangeTrafficCampaignStageAction::class)->handle($this->admin(), $campaign, $stage), 'Stage: '.ucfirst($stage->value));
+            $this->changeCampaign(fn (): TrafficCampaign => app(ChangeTrafficCampaignStageAction::class)->handle($this->admin(), $campaign, $stage), 'Stage: '.ucfirst($stage->value));
         }
     }
 
@@ -848,7 +848,7 @@ final class TrafficSourcesPage extends Page
         $campaign = TrafficCampaign::query()->find((int) $this->camp);
 
         if ($campaign !== null) {
-            $this->changeCampaign($campaign, fn (): TrafficCampaign => $restore
+            $this->changeCampaign(fn (): TrafficCampaign => $restore
                 ? app(ArchiveTrafficCampaignAction::class)->restore($this->admin(), $campaign)
                 : app(ArchiveTrafficCampaignAction::class)->archive($this->admin(), $campaign), $restore ? 'Campaign restored' : 'Campaign archived');
         }
@@ -858,12 +858,14 @@ final class TrafficSourcesPage extends Page
      * A stage set, an archive or a restore of the open campaign, its draft
      * kept as typed: the version the change moved the campaign to becomes
      * the draft's, so Save still goes through — unless someone else saved the
-     * campaign after it was opened, which Save must then say. A refusal
-     * keeps the draft and its version.
+     * campaign after it was opened, which Save must then say. Whether they
+     * did is told by the version the change found under its lock, not by an
+     * earlier read their save may have landed after. A refusal keeps the
+     * draft and its version.
      *
      * @param  callable(): TrafficCampaign  $change
      */
-    private function changeCampaign(TrafficCampaign $campaign, callable $change, string $done): void
+    private function changeCampaign(callable $change, string $done): void
     {
         try {
             $changed = $change();
@@ -873,7 +875,9 @@ final class TrafficSourcesPage extends Page
             return;
         }
 
-        if ($campaign->lock_version === $this->campaignLockVersion) {
+        $seen = $changed->wasChanged('lock_version') ? (int) $changed->getPrevious()['lock_version'] : $changed->lock_version;
+
+        if ($seen === $this->campaignLockVersion) {
             $this->campaignLockVersion = $changed->lock_version;
         }
 

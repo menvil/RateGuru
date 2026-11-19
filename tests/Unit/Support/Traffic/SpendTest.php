@@ -8,6 +8,7 @@ use App\Support\Traffic\Spend\ClickSpend;
 use App\Support\Traffic\Spend\FixedPriceSchedule;
 use App\Support\Traffic\Spend\SpendAllocator;
 use App\Support\Traffic\Spend\SpendCsv;
+use Brick\Math\BigDecimal;
 
 it('takes a click to cost what its campaign or source counts', function (TrafficSpendMode $mode, ?string $cost, ?string $rate, ?array $price, ?string $estimate, array $expected) {
     expect(ClickSpend::of($mode, $cost, $rate, TrafficCostUnit::Cpm, $price, $estimate))->toBe($expected);
@@ -68,8 +69,13 @@ it('shares a figure by price when a click carried a price of nothing, and equall
     $fact = [['id' => 1, 'campaign_id' => null, 'site_ref' => '', 'zone_ref' => '', 'amount' => '1.00']];
     $visit = fn (int $id, string $cost): array => ['id' => $id, 'campaign_id' => null, 'site_ref' => null, 'zone_ref' => null, 'cost' => $cost];
 
+    $newestFree = SpendAllocator::plan($fact, [$visit(10, '1'), $visit(11, '2'), $visit(12, '0')])['visits'];
+
     expect(SpendAllocator::plan($fact, [$visit(10, '0'), $visit(11, '1')])['visits'])->toBe([10 => '0.00000000', 11 => '1.00000000'])
-        ->and(SpendAllocator::plan($fact, [$visit(10, '0'), $visit(11, '0')])['visits'])->toBe([10 => '0.50000000', 11 => '0.50000000']);
+        ->and(SpendAllocator::plan($fact, [$visit(10, '0'), $visit(11, '0')])['visits'])->toBe([10 => '0.50000000', 11 => '0.50000000'])
+        // What the rounding leaves goes to the newest click that cost something, never to one that cost nothing.
+        ->and($newestFree)->toBe([10 => '0.33333333', 11 => '0.66666667', 12 => '0.00000000'])
+        ->and((string) array_reduce($newestFree, fn (BigDecimal $sum, string $share): BigDecimal => $sum->plus($share), BigDecimal::zero()))->toBe('1.00000000');
 });
 
 it('reads a spend file, adding up repeated rows, or refuses the whole of it', function () {

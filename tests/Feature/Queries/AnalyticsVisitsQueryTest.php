@@ -293,6 +293,7 @@ it('lists a group kept whatever its size, in place of the last listed one, the r
     $creatives = fn (array $by): array => array_map(fn (array $row): string => ($row['keys']['creative_key'] ?? '-').' '.$row['figures']->visitors, $by['rows']);
     $kept = analyticsQuery()->by(analyticsFilter(), AnalyticsDimension::Creative, 2, keep: [['creative_key' => 'small']]);
     $none = analyticsQuery()->by(analyticsFilter(), AnalyticsDimension::Creative, 2, keep: [['creative_key' => null]]);
+    $both = analyticsQuery()->by(analyticsFilter(), AnalyticsDimension::Creative, 2, keep: [['creative_key' => 'mid'], ['creative_key' => 'small']]);
 
     expect($creatives(analyticsQuery()->by(analyticsFilter(), AnalyticsDimension::Creative, 2)))->toBe(['big 3', 'mid 3'])
         // The group kept, read apart, takes the last place: the rest is what is no longer listed.
@@ -302,6 +303,9 @@ it('lists a group kept whatever its size, in place of the last listed one, the r
         // A group of none is one like any other.
         ->and($creatives($none))->toBe(['big 3', '- 2'])
         ->and($none['rest']['figures']->visitors)->toBe(4)
+        // A kept group already listed keeps its place: the one not kept gives way to the other kept group.
+        ->and($creatives($both))->toBe(['mid 3', 'small 1'])
+        ->and($both['rest']['figures']->visitors)->toBe(5)
         // One already listed, or nobody came through, changes nothing.
         ->and($creatives(analyticsQuery()->by(analyticsFilter(), AnalyticsDimension::Creative, 2, keep: [['creative_key' => 'big']])))->toBe(['big 3', 'mid 3'])
         ->and($creatives(analyticsQuery()->by(analyticsFilter(), AnalyticsDimension::Creative, 2, keep: [['creative_key' => 'nobody']])))->toBe(['big 3', 'mid 3'])

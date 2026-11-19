@@ -286,6 +286,42 @@ it('fails a PopAds block the network’s answer doesn’t show, reading the list
     Http::assertSent(fn (Request $request): bool => $request->method() === 'POST' && str_contains($request->url(), '/api/website_targeting/7'));
 });
 
+it('takes a PopAds block off only when the list read back shows it gone, never when the read back has no list', function (array $readBack, bool $removed) {
+    TrafficApiConnection::factory()->create(['source_id' => $this->popads->id, 'next_sync_at' => now()->addHour()]);
+    TrafficCampaign::factory()->create(['source_id' => $this->popads->id, 'external_id' => '881204']);
+    $block = TrafficBlock::factory()->create(['source_id' => $this->popads->id, 'level' => TrafficBlockLevel::Site, 'ref' => '501', 'method' => 'api', 'network_state' => TrafficBlockNetworkState::Removing]);
+    $reads = 0;
+    Http::fake(function (Request $request) use (&$reads, $readBack) {
+        if ($request->method() === 'POST') {
+            return Http::response(['result' => '1']);
+        }
+
+        return Http::response(++$reads === 1 ? ['mode' => 'exclude', 'items' => ['501']] : $readBack);
+    });
+
+    $this->artisan('traffic:sync-networks')->assertSuccessful();
+
+    expect($reads)->toBe(2);
+    $removed
+        ? expect($block->fresh())->toBeNull()
+        : expect($block->fresh())->network_state->toBe(TrafficBlockNetworkState::Applied)->network_error->toBe('unexpected_response');
+})->with([
+    'a read back without the list' => [['mode' => 'exclude'], false],
+    'a read back of an empty list' => [['mode' => 'exclude', 'items' => []], true],
+]);
+
+it('sends no PopAds exclusion list rewritten from a targeting read without one', function () {
+    TrafficApiConnection::factory()->create(['source_id' => $this->popads->id, 'next_sync_at' => now()->addHour()]);
+    TrafficCampaign::factory()->create(['source_id' => $this->popads->id, 'external_id' => '881204']);
+    Http::fake(fn (Request $request) => Http::response(['mode' => 'exclude']));
+
+    app(BlockTrafficRefsAction::class)->block($this->admin, $this->popads, TrafficBlockLevel::Site, ['40123'], null, true);
+    $this->artisan('traffic:sync-networks')->assertSuccessful();
+
+    Http::assertNotSent(fn (Request $request): bool => $request->method() === 'POST');
+    expect(TrafficBlock::query()->sole())->network_state->toBe(TrafficBlockNetworkState::Failed)->network_error->toBe('unexpected_response');
+});
+
 it('blocks ExoClick zones by rewriting the campaign’s list with the zones it read', function () {
     [$exo, $sent] = exoClickBlocking(['zones' => [['idzone' => 10], ['idzone' => 20]]]);
 

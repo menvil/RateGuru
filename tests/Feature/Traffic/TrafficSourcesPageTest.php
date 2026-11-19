@@ -319,6 +319,34 @@ it('keeps a campaign’s draft as typed when its stage changes, it is archived o
     expect($campaign->fresh())->name->toBe('Theirs')->stage->toBe(TrafficCampaignStage::Optimise);
 });
 
+it('refuses Save after a stage change when someone else saved the campaign between the page’s read and the change’s lock', function () {
+    $campaign = TrafficCampaign::factory()->create(['name' => 'US popunder']);
+    $opened = $campaign->fresh()->lock_version;
+
+    $page = Livewire::withQueryParams(['camp' => $campaign->id])->test(TrafficSourcesPage::class)
+        ->assertSet('campaignLockVersion', $opened)
+        ->set('campaignDraft.name', 'Mine');
+
+    // The other administrator's save lands right after the page reads the campaign, before the stage change locks it.
+    $landed = false;
+    TrafficCampaign::retrieved(function (TrafficCampaign $read) use (&$landed, $campaign, $opened): void {
+        if ($landed || $read->id !== $campaign->id) {
+            return;
+        }
+
+        $landed = true;
+        TrafficCampaign::query()->whereKey($campaign->id)->update(['name' => 'Theirs', 'lock_version' => $opened + 1]);
+    });
+
+    $page->call('setStage', 'test')
+        ->assertSet('campaignLockVersion', $opened)
+        ->call('saveCampaign')
+        ->assertDispatched('rg-admin-toast', message: 'Someone saved this campaign after you opened it. Reload to see their changes.', tone: 'error');
+
+    expect($landed)->toBeTrue()
+        ->and($campaign->fresh())->name->toBe('Theirs')->stage->toBe(TrafficCampaignStage::Test);
+});
+
 it('never lets a password manager fill the network key field', function () {
     $source = TrafficSource::factory()->create(['connector' => 'popads']);
 

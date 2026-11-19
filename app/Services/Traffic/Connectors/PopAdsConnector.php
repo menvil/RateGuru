@@ -126,10 +126,17 @@ final class PopAdsConnector implements EditsBlockLists, ReadsCampaigns, ReadsSpe
         $targeting = $this->json($this->get($session, '/api/campaign_website_targeting/'.rawurlencode($campaignId)));
         $mode = (string) ($targeting['mode'] ?? 'none');
         [$path, $items] = match (true) {
-            $mode === 'global' && ($targeting['global_mode'] ?? null) === 'exclude' => ['/api/website_targeting/'.rawurlencode((string) $targeting['global_id']), (array) ($targeting['global_items'] ?? [])],
-            in_array($mode, ['exclude', 'none'], true) => ['/api/campaign_website_targeting/'.rawurlencode($campaignId), (array) ($targeting['items'] ?? [])],
+            $mode === 'global' && ($targeting['global_mode'] ?? null) === 'exclude' => ['/api/website_targeting/'.rawurlencode((string) $targeting['global_id']), $targeting['global_items'] ?? null],
+            $mode === 'exclude' => ['/api/campaign_website_targeting/'.rawurlencode($campaignId), $targeting['items'] ?? null],
+            $mode === 'none' => ['/api/campaign_website_targeting/'.rawurlencode($campaignId), (array) ($targeting['items'] ?? [])],
             default => throw new ConnectorException(TrafficConnectorFailure::Unsupported),
         };
+
+        // An exclusion list read without its sites is never rewritten: the sites it already held would be lost.
+        if (! is_array($items)) {
+            throw new ConnectorException(TrafficConnectorFailure::UnexpectedResponse);
+        }
+
         $list = array_values(array_diff(array_unique([...array_map('strval', $items), ...$add]), $remove));
 
         Sleep::for(1)->second();
@@ -139,11 +146,15 @@ final class PopAdsConnector implements EditsBlockLists, ReadsCampaigns, ReadsSpe
         $json = $response->json();
         $listed = is_array($json) ? ($json['items'] ?? $json['global_items'] ?? null) : null;
 
-        // An answer without the list proves nothing: the list is read back, never taken to be the one sent.
+        // An answer without the list proves nothing: the list is read back, never taken to be the one sent — nor an empty one when the read back has none.
         if ($listed === null) {
             Sleep::for(1)->second();
             $again = $this->json($this->get($session, '/api/campaign_website_targeting/'.rawurlencode($campaignId)));
-            $listed = $mode === 'global' ? ($again['global_items'] ?? []) : ($again['items'] ?? []);
+            $listed = $mode === 'global' ? ($again['global_items'] ?? null) : ($again['items'] ?? null);
+
+            if (! is_array($listed)) {
+                throw new ConnectorException(TrafficConnectorFailure::UnexpectedResponse);
+            }
         }
 
         $listed = array_map('strval', (array) $listed);
