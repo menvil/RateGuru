@@ -15,6 +15,7 @@ use App\Actions\Studio\SaveStudioVotesAction;
 use App\Actions\Studio\UpdateStudioPlanAction;
 use App\Actions\Translations\ReadProjectTranslationGenerationAction;
 use App\Actions\Translations\StartProjectTranslationGenerationAction;
+use App\Actions\Translations\UpdateProjectTranslationAction;
 use App\Data\Studio\SavedStudioDiscussion;
 use App\Data\Studio\SavedStudioVotes;
 use App\Data\Studio\StudioDiscussionData;
@@ -23,8 +24,13 @@ use App\Data\Studio\StudioDiscussionNodeData;
 use App\Data\Studio\StudioPlanData;
 use App\Data\Studio\StudioVoteData;
 use App\Data\Studio\StudioVotesData;
+use App\Enums\AccountSignupMethod;
+use App\Enums\AccountSignupPlace;
 use App\Enums\CommentStatus;
+use App\Enums\GameAccountOutcome;
+use App\Enums\GameAttemptStatus;
 use App\Enums\GameAudience;
+use App\Enums\GameEventType;
 use App\Enums\GameFlowStepType;
 use App\Enums\GameStatus;
 use App\Enums\MediaResizeMode;
@@ -35,6 +41,8 @@ use App\Enums\StudioActionType;
 use App\Enums\StudioDiscussionGenerationMode;
 use App\Enums\StudioPlanPublicationMode;
 use App\Enums\StudioPostTextTone;
+use App\Enums\TrafficChannel;
+use App\Enums\TrafficDevice;
 use App\Exceptions\Studio\CannotManageStudioPlanException;
 use App\Exceptions\Translations\CannotGenerateTranslationsException;
 use App\Jobs\Studio\AnalyzeStudioPlanImageJob;
@@ -45,21 +53,30 @@ use App\Jobs\Translations\GenerateProjectTranslationChunkJob;
 use App\Livewire\Admin\StudioPlanDiscussionEditor;
 use App\Livewire\Admin\StudioPlanDiscussionVotesEditor;
 use App\Livewire\Admin\StudioPlanPostVotesEditor;
+use App\Livewire\Games\PlayGame;
+use App\Models\AccountAttribution;
+use App\Models\AccountBrowser;
 use App\Models\Category;
 use App\Models\Comment;
 use App\Models\Game;
+use App\Models\GameAssignment;
+use App\Models\GameAttempt;
 use App\Models\GameContentSet;
+use App\Models\GameEmailCapture;
+use App\Models\GameEvent;
 use App\Models\GameFlow;
 use App\Models\GameFlowStep;
 use App\Models\GameResultProfile;
 use App\Models\GameRound;
 use App\Models\GameRoundOption;
+use App\Models\GameTrafficPeriod;
 use App\Models\GameVersion;
 use App\Models\MediaAsset;
 use App\Models\MediaVariant;
 use App\Models\PersonaProfile;
 use App\Models\Post;
 use App\Models\ProjectSettings;
+use App\Models\ProjectTranslationSource;
 use App\Models\RatingGroup;
 use App\Models\RatingOption;
 use App\Models\Report;
@@ -69,14 +86,32 @@ use App\Models\StudioPlanDiscussionGeneration;
 use App\Models\StudioPlanImageAnalysis;
 use App\Models\StudioPlanTextGeneration;
 use App\Models\Tag;
+use App\Models\TrafficCampaign;
+use App\Models\TrafficChanceRun;
+use App\Models\TrafficPriceSet;
+use App\Models\TrafficSetting;
+use App\Models\TrafficSource;
+use App\Models\TrafficStepChance;
+use App\Models\TrafficVisit;
+use App\Models\TrafficVisitPost;
 use App\Models\TranslationAiProviderCall;
 use App\Models\User;
+use App\Models\UserActivityDay;
+use App\Queries\Games\GameTrafficQuery;
 use App\Services\Media\GeneratedMediaVariant;
 use App\Services\Media\ImageVariantProcessor;
 use App\Services\Media\MediaReferenceChecker;
 use App\Services\Media\MediaVariantSpecification;
 use App\Services\Media\NormalizedImage;
+use App\Support\Analytics\AnalyticsFilter;
+use App\Support\Analytics\AnalyticsPeriod;
+use App\Support\Analytics\AnalyticsSource;
+use App\Support\Analytics\CampaignKey;
+use App\Support\Games\Flow\FlowStepDraft;
+use App\Support\Games\Flow\GameFlowValidator;
 use App\Support\Games\Results\ResultProfileCoverage;
+use App\Support\Games\Traffic\TrafficScope;
+use App\Support\Geo\GeoDatabaseLocator;
 use App\Support\Import\Dns\HostResolver;
 use App\Support\Import\ImportFetchPolicy;
 use App\Support\Import\ImportHttpTransport;
@@ -88,6 +123,8 @@ use App\Support\Settings\PresetSettingsBuilder;
 use App\Support\Settings\ProjectSettingsManager;
 use App\Support\Studio\StudioExecutionSwitch;
 use App\Support\Studio\StudioVerifiedAdults;
+use App\Support\Traffic\Capture\ArrivalToken;
+use App\Support\Traffic\Capture\TrafficArrival;
 use App\Support\TranslationEngine\Contracts\TranslationProvider;
 use App\Support\TranslationEngine\Data\TranslationBatchRequest;
 use App\Support\TranslationEngine\Data\TranslationItem;
@@ -102,6 +139,7 @@ use App\Support\Translations\TranslationCatalogInspector;
 use Carbon\CarbonImmutable;
 use Database\Factories\StudioPlanImageAnalysisFactory;
 use Database\Factories\StudioPlanTextGenerationFactory;
+use Database\Seeders\GamesDemoSeeder;
 use Illuminate\Database\ConnectionInterface;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
@@ -122,6 +160,7 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use Illuminate\Testing\TestResponse;
 use Illuminate\Validation\ValidationException;
 use Laravel\Nightwatch\Events\IngestingEvents as NightwatchIngestingEvents;
 use Laravel\Socialite\Two\User as SocialiteUser;
@@ -1335,6 +1374,25 @@ function waitForViewportSize(mixed $page, int $width, int $height): void
 function waitForPostDetailOverlay(mixed $page): void
 {
     waitForScript($page, 'document.querySelector(\'[data-testid="post-detail-overlay"]\') !== null');
+}
+
+/**
+ * Waits until the post-detail panel has slid away. Its focus trap lets go on a
+ * tick of its own and hands the focus back to what opened the panel; a key
+ * sent to another element before that lands on the element the focus goes
+ * back to instead.
+ */
+function waitForPostDetailOverlayClosed(mixed $page): void
+{
+    waitForScript($page, <<<'JS'
+        (() => {
+            const panel = document.querySelector('[data-testid="post-detail-overlay"]');
+
+            return ! panel
+                || (panel.classList.contains('translate-x-full')
+                    && panel.getAnimations().every((animation) => animation.playState === 'finished'));
+        })()
+    JS);
 }
 
 /**
@@ -8371,6 +8429,30 @@ function visitAdminEditor(string $url, int $width = 1440, int $height = 900): mi
 }
 
 /**
+ * The button of a day in a date range field's calendar (x-admin.ui.date-range-field)
+ * under the given selector, the calendar moved a month at a time until the
+ * day is shown — as a phone's single month, or a day months away, needs.
+ */
+function dateRangeDayButton(mixed $page, string $calendar, CarbonImmutable $day): string
+{
+    $stamp = $day->startOfDay()->getTimestamp() * 1000;
+    $button = "{$calendar} [data-day=\"{$stamp}\"]";
+
+    foreach (range(1, 24) as $step) {
+        if ($page->script("document.querySelector('{$button}') !== null")) {
+            return $button;
+        }
+
+        $earlier = $page->script("Math.min(...[...document.querySelectorAll('{$calendar} [data-day]')].map((day) => Number(day.dataset.day))) > {$stamp}");
+        $page->click("{$calendar} [aria-label=\"".($earlier ? 'Previous month' : 'Next month').'"]:visible');
+    }
+
+    waitForScript($page, "document.querySelector('{$button}') !== null");
+
+    return $button;
+}
+
+/**
  * Opens a report's chain on the Reports screen, wide enough for it to dock
  * beside the list, and waits until it is there.
  */
@@ -8817,6 +8899,31 @@ function installLanguagesUpTo(int $total): array
 function untranslatedCategory(string $name = 'Georgian food'): Category
 {
     return Category::factory()->create(['slug' => Str::slug($name), 'name' => $name, 'name_translations' => null, 'is_active' => true]);
+}
+
+/**
+ * A category whose translation into $locale was saved by Translation Center's
+ * writer from the English $was, and whose English is $now since: an outdated
+ * translation, still stored.
+ */
+function outdatedCategory(string $locale, string $translation = 'Willkommen', string $was = 'Welcome', string $now = 'Hello'): Category
+{
+    $category = untranslatedCategory($was);
+    app(UpdateProjectTranslationAction::class)->handle(User::factory()->admin()->create(), "categories:{$category->id}:name", $locale, $translation);
+    $category->update(['name' => $now]);
+
+    return $category->fresh();
+}
+
+/**
+ * What is recorded of the English a language's translation of a unit was
+ * made from, or null when nothing is.
+ *
+ * @return array{fingerprint: string, reference: string}|null
+ */
+function translationSourceOf(string $unit, string $locale): ?array
+{
+    return ProjectTranslationSource::query()->where('unit_id', $unit)->where('locale', $locale)->first()?->only(['fingerprint', 'reference']);
 }
 
 /**
@@ -14375,6 +14482,33 @@ function gamePost(int $upvotes, int $downvotes): Post
 }
 
 /**
+ * What the demo seeders that play on the demo game find before them, made
+ * small: the project settings, the demo administrator, ten published posts
+ * with votes enough for the game's rounds, the large dataset's members (by
+ * their fill addresses), the demo game itself, TrafficDemoSeeder's PopAds
+ * source and visits recorded.
+ */
+function demoGameWithMembers(int $members = 200): User
+{
+    ProjectSettings::factory()->create();
+    $admin = User::factory()->admin()->create(['email' => 'admin@rateguru.test']);
+
+    foreach ([[900, 100], [850, 150], [800, 200], [750, 250], [700, 300], [400, 600], [350, 650], [300, 700], [250, 750], [200, 800]] as [$up, $down]) {
+        gamePost($up, $down);
+    }
+
+    foreach (range(1, $members) as $n) {
+        User::factory()->create(['email' => "fill{$n}@demo.test"]);
+    }
+
+    test()->seed(GamesDemoSeeder::class);
+    TrafficSource::factory()->create(['name' => 'PopAds main', 'link_key' => 'pop', 'preset_key' => 'popads', 'created_by_user_id' => $admin->id]);
+    (new TrafficSetting)->forceFill(['id' => 1, 'capture_enabled' => true, 'postbacks_enabled' => false])->save();
+
+    return $admin;
+}
+
+/**
  * A Draft game whose content set and flow can be published as they are:
  * `$rounds` crowd rounds of published posts the crowd plainly decided (90 %
  * against 60 % of 1 000 votes, option A the pick), the suggested result
@@ -14440,6 +14574,156 @@ function liveGame(array $draft): GameVersion
     return $version;
 }
 
+/**
+ * A split of a game's anonymous visitors for a source or one of its
+ * campaigns, applied as the Traffic tab applies it (version id => share):
+ * its open period.
+ *
+ * @param  array{admin: User, game: Game}  $draft
+ * @param  array<int, int>  $shares
+ */
+function gameSplit(array $draft, TrafficScope $scope, array $shares): GameTrafficPeriod
+{
+    app(ApplyGameTrafficAction::class)->handle($draft['admin'], $draft['game'], GameAudience::Anonymous, $shares, null, $scope);
+
+    return app(GameTrafficQuery::class)->currentPeriod((int) $draft['game']->id, GameAudience::Anonymous, $scope)
+        ?? throw new RuntimeException('the split was not applied');
+}
+
+/**
+ * A traffic period of a game — of anonymous visitors unless told otherwise —
+ * started at a moment and ended at another when one is given, sharing its
+ * visitors between the game's versions by number (number => share); a version
+ * the game hasn't got yet is made.
+ *
+ * @param  array<int, int>  $shares
+ */
+function comparisonPeriod(Game $game, array $shares, string $startedAt, ?string $endedAt = null, GameAudience $audience = GameAudience::Anonymous): GameTrafficPeriod
+{
+    $period = GameTrafficPeriod::factory()->audience($audience)->create(['game_id' => $game->id, 'started_at' => $startedAt, 'ended_at' => $endedAt]);
+
+    foreach ($shares as $number => $share) {
+        $version = GameVersion::query()->where('game_id', $game->id)->where('number', $number)->first()
+            ?? GameVersion::factory()->create(['game_id' => $game->id, 'number' => $number]);
+        $period->versions()->attach($version->id, ['share_percent' => $share]);
+    }
+
+    return $period->load('versions');
+}
+
+/**
+ * A visitor a traffic period sent to a version — a guest by a browser of
+ * their own, or the logged-in player given — and what they did from that
+ * assignment, as asked: an attempt started, completed, reaching the flow's
+ * goal, a result screen reached, an email left; and an account credited to
+ * that attempt, signed up at the moment given, confirmed unless told
+ * otherwise and activated when told so.
+ *
+ * @param  array{started?: bool, completed?: bool, goal?: bool, result?: bool, email?: bool, account?: string, confirmed?: bool, activated?: bool, player?: User}  $did
+ */
+function periodVisitor(GameTrafficPeriod $period, GameVersion $version, array $did = []): GameAssignment
+{
+    $player = $did['player'] ?? null;
+    $hash = $player === null ? hash('sha256', 'period-visitor-'.Str::random(24)) : null;
+    $assignment = GameAssignment::query()->forceCreate([
+        'game_id' => $period->game_id, 'audience' => $period->audience, 'user_id' => $player?->id, 'visitor_hash' => $hash,
+        'version_id' => $version->id, 'period_id' => $period->id, 'assigned_at' => now(), 'last_seen_at' => now(),
+    ]);
+    $completed = ($did['completed'] ?? false) || ($did['result'] ?? false) || ($did['email'] ?? false);
+
+    if (! $completed && ! ($did['started'] ?? false) && ! ($did['goal'] ?? false) && ! isset($did['account'])) {
+        return $assignment;
+    }
+
+    $attempt = GameAttempt::factory()->create([
+        'version_id' => $version->id, 'assignment_id' => $assignment->id, 'audience' => $period->audience,
+        'user_id' => $player?->id, 'visitor_hash' => $hash,
+        ...($completed ? ['status' => GameAttemptStatus::Completed, 'completed_at' => now(), 'matches' => 1, 'score' => 1, 'profile_key' => 'oracle'] : []),
+        ...(($did['goal'] ?? false) ? ['goal_reached_at' => now()] : []),
+    ]);
+
+    if ($did['result'] ?? false) {
+        (new GameEvent)->forceFill([
+            'game_id' => $period->game_id, 'version_id' => $version->id, 'attempt_id' => $attempt->id, 'assignment_id' => $assignment->id,
+            'audience' => $period->audience, 'user_id' => $player?->id, 'visitor_hash' => $hash, 'type' => GameEventType::ResultViewed, 'occurred_at' => now(),
+        ])->save();
+    }
+
+    if ($did['email'] ?? false) {
+        GameEmailCapture::query()->forceCreate(['attempt_id' => $attempt->id, 'game_id' => $period->game_id, 'email' => fake()->unique()->safeEmail(), 'captured_at' => now()]);
+    }
+
+    if (isset($did['account'])) {
+        $signedUp = CarbonImmutable::parse($did['account']);
+        AccountAttribution::factory()->create([
+            'credited_attempt_id' => $attempt->id,
+            'signed_up_at' => $signedUp,
+            'confirmed_at' => ($did['confirmed'] ?? true) ? $signedUp : null,
+            'activated_at' => ($did['activated'] ?? false) ? $signedUp->addDays(2) : null,
+        ]);
+    }
+
+    return $assignment;
+}
+
+/**
+ * Visitors a traffic period sent to its version of the number given, each
+ * doing what the list at their place says (periodVisitor).
+ *
+ * @param  callable(int): array<string, mixed>  $did
+ */
+function assignVisitors(GameTrafficPeriod $period, int $number, int $count, callable $did): void
+{
+    $version = $period->versions->firstWhere('number', $number);
+
+    foreach (range(1, $count) as $n) {
+        periodVisitor($period, $version, $did($n));
+    }
+}
+
+/**
+ * The flow's steps replaced by fresh ones of these types, in this order, each
+ * with its defaults and the settings given for its type; a Next Game step
+ * leads to the game given.
+ *
+ * @param  list<GameFlowStepType>  $types
+ * @param  array<string, array<string, mixed>>  $settings  by step type
+ */
+function replaceFlowSteps(GameFlow $flow, array $types, ?Game $nextGame = null, array $settings = []): void
+{
+    $flow->steps()->delete();
+
+    foreach ($types as $position => $type) {
+        $step = GameFlowStep::factory()->type($type)->create(['flow_id' => $flow->id, 'position' => $position]);
+        $own = $settings[$type->value] ?? [];
+
+        if ($type === GameFlowStepType::NextGame) {
+            $own = ['next_game_id' => $nextGame?->id, ...$own];
+        }
+
+        if ($own !== []) {
+            $step->forceFill(['settings' => [...$step->settings, ...$own]])->save();
+        }
+    }
+}
+
+/**
+ * Steps of the given types, each fresh — default texts and settings — keyed
+ * by its place, with settings overridden by type.
+ *
+ * @param  list<GameFlowStepType>  $types
+ * @param  array<string, array<string, mixed>>  $settings
+ * @return list<FlowStepDraft>
+ */
+function flowOf(array $types, array $settings = []): array
+{
+    return array_map(function (GameFlowStepType $type, int $index) use ($settings): FlowStepDraft {
+        $fresh = GameFlowValidator::fresh($type, 's'.$index);
+
+        return new FlowStepDraft($fresh->key, $type, $fresh->audience, [...$fresh->settings, ...($settings[$type->value] ?? [])], $fresh->texts);
+    }, $types, array_keys($types));
+}
+
 /** Games switched on in Project settings, as an administrator switches them on. */
 function allowGames(bool $allowed = true): void
 {
@@ -14470,4 +14754,378 @@ function storeGamePostPictures(): array
     }
 
     return $paths;
+}
+
+/**
+ * A fresh, empty directory standing in for storage/geoip for one test, put in
+ * the configuration before anything reads it. The file that uses it removes it
+ * again with removeGeoDirectory($this) in its afterEach.
+ */
+function geoDirectory(): string
+{
+    $root = sys_get_temp_dir().'/rateguru-geoip-'.uniqid('', true);
+    File::ensureDirectoryExists($root);
+    config(['geo.directory' => $root]);
+    app()->forgetInstance(GeoDatabaseLocator::class);
+    app()->forgetScopedInstances();
+    test()->geoDirectory = $root;
+
+    return $root;
+}
+
+/** Takes the test case itself, as removeCatalogScratchDirectory() does. */
+function removeGeoDirectory(TestCase $test): void
+{
+    if (isset($test->geoDirectory)) {
+        File::deleteDirectory($test->geoDirectory);
+    }
+}
+
+/**
+ * Puts one of MaxMind's test databases in service as the given edition's
+ * current file — tests/Fixtures/geo/GeoLite2-City-Test.mmdb knows, among
+ * others, 81.2.69.142 (GB, ENG, London), 216.160.83.56 (US, WA, Milton) and
+ * 2001:218:: (JP, no city). Returns the file's path.
+ */
+function installGeoDatabase(string $edition = 'geolite2_city', string $fixture = 'GeoLite2-City-Test.mmdb'): string
+{
+    $root = test()->geoDirectory ?? geoDirectory();
+    File::ensureDirectoryExists($root.'/'.$edition);
+    copy(base_path('tests/Fixtures/geo/'.$fixture), $path = $root.'/'.$edition.'/current.mmdb');
+
+    return $path;
+}
+
+/**
+ * A tar archive of the given files, as npm packs a package: ustar headers of
+ * 512 bytes, each file padded to the block, two empty blocks at the end.
+ *
+ * @param  array<string, string>  $files  path inside the archive => contents
+ */
+function tarOf(array $files): string
+{
+    $archive = '';
+
+    foreach ($files as $name => $contents) {
+        $header = str_pad($name, 100, "\0")
+            .str_pad('0000644', 7, '0', STR_PAD_LEFT)."\0"
+            .str_pad('0', 7, '0', STR_PAD_LEFT)."\0"
+            .str_pad('0', 7, '0', STR_PAD_LEFT)."\0"
+            .str_pad(decoct(strlen($contents)), 11, '0', STR_PAD_LEFT)."\0"
+            .str_pad(decoct(0), 11, '0', STR_PAD_LEFT)."\0"
+            .'        '
+            .'0'
+            .str_pad('', 100, "\0")
+            ."ustar\0".'00'
+            .str_pad('', 247, "\0");
+        $header = substr($header, 0, 512);
+        $checksum = array_sum(array_map('ord', str_split($header)));
+        $header = substr_replace($header, str_pad(decoct($checksum), 6, '0', STR_PAD_LEFT)."\0 ", 148, 8);
+        $archive .= $header.$contents.str_repeat("\0", (512 - strlen($contents) % 512) % 512);
+    }
+
+    return $archive.str_repeat("\0", 1024);
+}
+
+/**
+ * Switches the traffic tracker's recording (and, if asked, its postbacks and
+ * the visits of the site's own pages) on or off, as the administrator does
+ * on Traffic sources → Sources. The switches are then in the cache, as every
+ * page after the first finds them.
+ */
+function recordTraffic(bool $capture = true, bool $postbacks = false, bool $site = false): TrafficSetting
+{
+    $settings = TrafficSetting::query()->find(1) ?? (new TrafficSetting)->forceFill(['id' => 1]);
+    $settings->forceFill(['capture_enabled' => $capture, 'postbacks_enabled' => $postbacks, 'site_capture_enabled' => $site])->save();
+    TrafficSetting::captureFlags();
+
+    return $settings;
+}
+
+/** A desktop Chrome's User-Agent: a real browser, as the traffic tracker classifies one. */
+const DESKTOP_CHROME_USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0 Safari/537.36';
+
+/** A browser holding the visitor token asking for a page, as a desktop Chrome asks: a click on an ad network's link, when the address carries rg_src. */
+function clickOn(string $path, string $token = 'browserAbrowserAbrowserAbrowserAbrowserA', array $headers = []): TestResponse
+{
+    return test()->withCookie((string) config('games.visitor_cookie.name'), $token)
+        ->withHeaders(['User-Agent' => DESKTOP_CHROME_USER_AGENT, 'Accept-Language' => 'en-GB', 'Sec-CH-UA' => '"Chromium";v="131"', ...$headers])
+        ->get($path);
+}
+
+/** The SHA-256 the tracker and the games know a browser by, from its rg_game_visitor token. */
+function browserHashOf(string $token): string
+{
+    return hash('sha256', $token);
+}
+
+/** The visitor token of the browser a game page is opened in, unless a test names another. */
+const OPEN_TOKEN = 'openTokenopenTokenopenTokenopenTokenopen';
+
+/**
+ * The browser holding the token (OPEN_TOKEN unless another is given) asks for
+ * a page with only the given headers, and the page runs: a game's page makes
+ * its first call with the token it was drawn with, any other page sends its
+ * script's signal. Returns the visit a game's steps go to.
+ */
+function pageRuns(string $path, array $headers = [], string $token = OPEN_TOKEN): ?int
+{
+    test()->flushHeaders();
+    $page = clickOn($path, $token, $headers)->assertOk();
+    test()->flushHeaders();
+
+    if (preg_match('/<meta name="rg-arrival" content="([^"]+)">/', (string) $page->getContent(), $meta) === 1) {
+        test()->withCookie((string) config('games.visitor_cookie.name'), $token)
+            ->withHeaders(['User-Agent' => DESKTOP_CHROME_USER_AGENT, 'Accept-Language' => 'en'])
+            ->post(route('traffic.signal'), ['signal' => 'opened', 'arrival' => html_entity_decode($meta[1])])
+            ->assertNoContent();
+
+        return null;
+    }
+
+    return Livewire::withCookie((string) config('games.visitor_cookie.name'), $token)
+        ->withHeaders(['User-Agent' => DESKTOP_CHROME_USER_AGENT, 'Accept-Language' => 'en'])
+        ->test(PlayGame::class, ['slug' => explode('/', trim((string) parse_url($path, PHP_URL_PATH), '/'))[1]])
+        ->call('init')
+        ->get('visitId');
+}
+
+/**
+ * The game page as drawn with the given arrival — a paid click's visit, or
+ * an unpaid arrival's channel and page — played by the browser holding the
+ * token (OPEN_TOKEN unless another is given).
+ *
+ * @param  array<string, mixed>  $arrival
+ */
+function arrivedAt(string $slug, array $arrival, string $token = OPEN_TOKEN): Testable
+{
+    app(TrafficArrival::class)->set(ArrivalToken::make($arrival, browserHashOf($token), now()->getTimestamp()));
+
+    return Livewire::withCookie((string) config('games.visitor_cookie.name'), $token)
+        ->withHeaders(['User-Agent' => DESKTOP_CHROME_USER_AGENT, 'Accept-Language' => 'en'])
+        ->test(PlayGame::class, ['slug' => $slug]);
+}
+
+/**
+ * A finished working-out of chances, as the nightly run leaves it: for each
+ * slice key (`*`, `g12`, `g12|d:mobile` …) the chance of each step, with the
+ * visitors who reached it and the slice's accounts — a slice of 30 or more
+ * stands on its own.
+ *
+ * @param  array<string, array<string, array{chance: float, visitors?: int, accounts?: int}>>  $slices
+ */
+function finishedChanceRun(array $slices, int $sliceAccounts = 40): TrafficChanceRun
+{
+    $run = TrafficChanceRun::query()->forceCreate([
+        'status' => 'finished',
+        'reason' => 'nightly',
+        'price_set_id' => TrafficPriceSet::current()->id,
+        'matured_before' => now()->subDays(14),
+        'visits_scanned' => 1000,
+        'started_at' => now()->subMinute(),
+        'finished_at' => now(),
+    ]);
+
+    foreach ($slices as $key => $steps) {
+        preg_match('/(?:^|\|)g(\d+)/', $key, $game);
+        preg_match('/\|d:(\w+)/', $key, $device);
+
+        foreach ($steps as $step => $row) {
+            TrafficStepChance::query()->forceCreate([
+                'run_id' => $run->id,
+                'slice_key' => $key,
+                'game_id' => isset($game[1]) ? (int) $game[1] : null,
+                'device' => $device[1] ?? null,
+                'step' => $step,
+                'visitors' => $row['visitors'] ?? 100,
+                'accounts' => $row['accounts'] ?? (int) round(($row['visitors'] ?? 100) * $row['chance']),
+                'slice_accounts' => $sliceAccounts,
+                'chance' => number_format($row['chance'], 8, '.', ''),
+                'thin' => $sliceAccounts < 30,
+                'stands_on' => $key,
+            ]);
+        }
+    }
+
+    return $run;
+}
+
+/** The visits of an Analytics preset, or of a range of days, narrowed as given, read for today. */
+function analyticsFilter(string $preset = '7d', ?TrafficDevice $device = null, ?string $source = null, ?string $campaign = null, ?string $from = null, ?string $to = null): AnalyticsFilter
+{
+    return new AnalyticsFilter(AnalyticsPeriod::read($preset, $from, $to, CarbonImmutable::now(), 400, 93), $device, $source, $campaign);
+}
+
+/** An unpaid visit by a browser (a name, hashed) whose page ran, on a network day of the last 7 — Direct unless the attributes say otherwise. */
+function analyticsVisit(string $browser, array $attributes = []): TrafficVisit
+{
+    $day = $attributes['network_day'] ?? '2026-11-15';
+    $at = $attributes['arrived_at'] ?? $day.' 10:00:00';
+
+    return TrafficVisit::factory()->unpaid()->create([
+        'visitor_hash' => hash('sha256', $browser),
+        'network_day' => $day,
+        'arrived_at' => $at,
+        'last_seen_at' => $at,
+        'opened_at' => $at,
+        'source_key' => AnalyticsSource::DIRECT,
+        ...$attributes,
+    ]);
+}
+
+/** The visits given as one session: each sharing the first's entry, as a later visit of the session goes on from it. */
+function analyticsSession(TrafficVisit ...$visits): void
+{
+    foreach ($visits as $visit) {
+        $visit->forceFill(['entry_visit_id' => $visits[0]->id])->save();
+    }
+}
+
+/**
+ * A visit's row of a post: opened once there unless the attributes say
+ * otherwise, voted on, commented on or shared as they say, beginning as the
+ * visit arrived unless they give another moment.
+ */
+function analyticsVisitPost(TrafficVisit $visit, int $postId, array $attributes = []): TrafficVisitPost
+{
+    return TrafficVisitPost::query()->create([
+        'visit_id' => $visit->id,
+        'post_id' => $postId,
+        'views' => 1,
+        'shared_at' => null,
+        'voted' => false,
+        'commented' => false,
+        'first_at' => $visit->arrived_at,
+        ...$attributes,
+    ]);
+}
+
+/**
+ * A paid click of a campaign by a browser (a name, hashed) whose page ran,
+ * on a network day of the last 7, its session's keys those of the click —
+ * costing, and doing, what the attributes say.
+ */
+function analyticsClick(string $browser, TrafficCampaign $campaign, array $attributes = []): TrafficVisit
+{
+    return analyticsVisit($browser, [
+        'channel' => TrafficChannel::Network,
+        'source_id' => $campaign->source_id,
+        'campaign_id' => $campaign->id,
+        'click_hash' => hash('sha256', fake()->unique()->uuid()),
+        'source_key' => AnalyticsSource::paid((int) $campaign->source_id),
+        'campaign_key' => CampaignKey::paid((int) $campaign->id),
+        ...$attributes,
+    ]);
+}
+
+/**
+ * A member's new account, confirmed as it signed up at the moment given
+ * unless the attributes say otherwise — credited to the visit and attempt
+ * they give, none by default — that came back and voted on each day of its
+ * life listed, as RecordUserActivityAction records it.
+ *
+ * @param  list<int>  $returns  the days of the account's life it came back on, day 0 the day it signed up
+ */
+function retentionAccount(string $signedUpAt, array $returns = [], array $attributes = [], ?User $user = null): AccountAttribution
+{
+    $user ??= User::factory()->create();
+    $signedUp = CarbonImmutable::parse($signedUpAt, 'UTC');
+
+    foreach ($returns as $day) {
+        UserActivityDay::factory()->create([
+            'user_id' => $user->id,
+            'day' => $signedUp->addDays($day)->toDateString(),
+            'day_number' => $day,
+            'first_at' => $signedUp->addDays($day)->startOfDay()->addHours(9),
+        ]);
+    }
+
+    return AccountAttribution::factory()->create([
+        'user_id' => $user->id,
+        'signed_up_at' => $signedUp,
+        'confirmed_at' => $signedUp,
+        'credited_visit_id' => null,
+        'credited_attempt_id' => null,
+        ...$attributes,
+    ]);
+}
+
+/**
+ * A member's journey from a moment on, as Analytics → Journeys reads it — of
+ * Trust Your Taste, made unless another journey made it already: a
+ * browser (a name, hashed) that came from Reddit to a game and finished it,
+ * came back two days later through a paid click of ExoClick tests, was given
+ * V7 of a period sharing V7 80% and V8 20%, finished again, reached the goal,
+ * pressed Sign up and signed up with Google in the game — the click and the
+ * attempt credited — opened two posts, came back on day 3 and voted
+ * (activating) and on day 5 and commented.
+ *
+ * @return array{user: User, hash: string, game: Game, first: TrafficVisit, click: TrafficVisit, attempt: GameAttempt}
+ */
+function journeyAccount(CarbonImmutable $start, string $browser = 'journey-member'): array
+{
+    $hash = hash('sha256', $browser);
+    $at = fn (int $days, string $time): CarbonImmutable => $start->addDays($days)->setTimeFromTimeString($time);
+    $game = Game::query()->firstWhere('slug', 'trust-your-taste') ?? Game::factory()->create(['title' => 'Trust Your Taste', 'slug' => 'trust-your-taste']);
+    $period = comparisonPeriod($game, [7 => 80, 8 => 20], $start->subDay()->toDateTimeString());
+    $version = $period->versions->firstWhere('number', 7);
+    $campaign = TrafficCampaign::factory()->create(['source_id' => TrafficSource::factory()->create(['name' => 'ExoClick tests'])->id, 'name' => 'Versus October Launch']);
+
+    $first = analyticsVisit($browser, ['network_day' => $at(0, '19:42')->toDateString(), 'arrived_at' => $at(0, '19:42'), 'channel' => TrafficChannel::Referral, 'origin' => 'reddit.com',
+        'source_key' => 'reddit:organic', 'landing_key' => 'games.play:'.$game->id.':'.$version->id, 'game_id' => $game->id, 'version_id' => $version->id, 'device' => 'mobile', 'country' => 'DE', 'city' => 'Hamburg']);
+    $first->forceFill(['entry_visit_id' => $first->id])->save();
+    $click = analyticsClick($browser, $campaign, ['network_day' => $at(2, '18:10')->toDateString(), 'arrived_at' => $at(2, '18:10'), 'creative_key' => 'video_03',
+        'landing_key' => 'games.play:'.$game->id.':'.$version->id, 'game_id' => $game->id, 'version_id' => $version->id, 'device' => 'desktop', 'country' => 'DE', 'city' => 'Berlin']);
+    $click->forceFill(['entry_visit_id' => $click->id])->save();
+    analyticsVisitPost($click, 12, ['views' => 2, 'voted' => true, 'first_at' => $at(2, '18:20')]);
+    analyticsVisitPost($click, 15, ['first_at' => $at(2, '18:21')]);
+
+    GameAttempt::factory()->completed()->create(['version_id' => $version->id, 'visitor_hash' => $hash, 'max_score' => 5, 'score' => 3, 'started_at' => $at(0, '19:43'), 'completed_at' => $at(0, '19:44'), 'last_activity_at' => $at(0, '19:44'), 'traffic_visit_id' => $first->id]);
+    $assignment = GameAssignment::query()->forceCreate(['game_id' => $game->id, 'audience' => GameAudience::Anonymous, 'visitor_hash' => $hash, 'version_id' => $version->id, 'period_id' => $period->id, 'assigned_at' => $at(2, '18:10'), 'last_seen_at' => $at(2, '18:10')]);
+    $attempt = GameAttempt::factory()->completed()->create(['version_id' => $version->id, 'assignment_id' => $assignment->id, 'visitor_hash' => $hash, 'max_score' => 5, 'score' => 4,
+        'started_at' => $at(2, '18:11'), 'completed_at' => $at(2, '18:12'), 'last_activity_at' => $at(2, '18:12'), 'goal_reached_at' => $at(2, '18:12'), 'traffic_visit_id' => $click->id]);
+    (new GameEvent)->forceFill(['game_id' => $game->id, 'version_id' => $version->id, 'attempt_id' => $attempt->id, 'assignment_id' => $assignment->id, 'audience' => GameAudience::Anonymous,
+        'visitor_hash' => $hash, 'type' => GameEventType::RegistrationCtaClicked, 'provider' => 'register', 'occurred_at' => $at(2, '18:12')->addSeconds(30)])->save();
+
+    $user = User::factory()->create();
+    $attempt->forceFill(['user_id' => $user->id, 'account_outcome' => GameAccountOutcome::Registered, 'account_outcome_at' => $at(2, '18:13')])->save();
+    AccountBrowser::factory()->create(['user_id' => $user->id, 'visitor_hash' => $hash, 'linked_at' => $at(2, '18:13')]);
+    retentionAccount($at(2, '18:13')->toDateTimeString(), [], [
+        'visitor_hash' => $hash, 'signup_method' => AccountSignupMethod::Google, 'signup_place' => AccountSignupPlace::Game,
+        'credited_visit_id' => $click->id, 'credited_attempt_id' => $attempt->id, 'activated_at' => $at(5, '10:00'),
+    ], $user);
+    UserActivityDay::factory()->create(['user_id' => $user->id, 'day' => $at(5, '10:00')->toDateString(), 'day_number' => 3, 'voted' => true, 'commented' => false, 'posted' => false, 'played' => false, 'first_at' => $at(5, '10:00')]);
+    UserActivityDay::factory()->create(['user_id' => $user->id, 'day' => $at(7, '09:00')->toDateString(), 'day_number' => 5, 'voted' => false, 'commented' => true, 'posted' => false, 'played' => false, 'first_at' => $at(7, '09:00')]);
+
+    return ['user' => $user, 'hash' => $hash, 'game' => $game, 'first' => $first, 'click' => $click, 'attempt' => $attempt];
+}
+
+/**
+ * A player no account has, from a moment on — of Swipe Challenge, made
+ * unless another journey made it already: a browser (a name, hashed)
+ * that came with nothing to name its source and left a game unfinished,
+ * then came back from a shared result, finished, left an email — the
+ * address given — and copied the link to the result.
+ *
+ * @return array{hash: string, game: Game, attempt: GameAttempt}
+ */
+function journeyPlayer(CarbonImmutable $start, string $browser = 'journey-player', string $email = 'player@example.com'): array
+{
+    $hash = hash('sha256', $browser);
+    $game = Game::query()->firstWhere('slug', 'swipe-challenge') ?? Game::factory()->create(['title' => 'Swipe Challenge', 'slug' => 'swipe-challenge']);
+    $version = GameVersion::query()->where('game_id', $game->id)->where('number', 3)->first() ?? GameVersion::factory()->create(['game_id' => $game->id, 'number' => 3]);
+
+    $direct = analyticsVisit($browser, ['network_day' => $start->toDateString(), 'arrived_at' => $start, 'landing_key' => 'games.play:'.$game->id, 'game_id' => $game->id, 'device' => 'mobile']);
+    $direct->forceFill(['entry_visit_id' => $direct->id])->save();
+    GameAttempt::factory()->create(['version_id' => $version->id, 'visitor_hash' => $hash, 'rounds_answered' => 2, 'started_at' => $start->addMinute(), 'last_activity_at' => $start->addMinutes(2)]);
+
+    $back = $start->addDays(3);
+    $shared = analyticsVisit($browser, ['network_day' => $back->toDateString(), 'arrived_at' => $back, 'channel' => TrafficChannel::Shared, 'source_key' => 'shared', 'landing_key' => 'games.result:'.$game->id, 'game_id' => $game->id, 'device' => 'mobile', 'country' => 'BG', 'city' => 'Sofia']);
+    $shared->forceFill(['entry_visit_id' => $shared->id])->save();
+    $attempt = GameAttempt::factory()->completed()->create(['version_id' => $version->id, 'visitor_hash' => $hash, 'started_at' => $back->addMinute(), 'completed_at' => $back->addMinutes(2), 'last_activity_at' => $back->addMinutes(2), 'traffic_visit_id' => $shared->id]);
+    GameEmailCapture::query()->forceCreate(['attempt_id' => $attempt->id, 'game_id' => $game->id, 'email' => $email, 'captured_at' => $back->addMinutes(3)]);
+    (new GameEvent)->forceFill(['game_id' => $game->id, 'version_id' => $version->id, 'attempt_id' => $attempt->id, 'audience' => GameAudience::Anonymous,
+        'visitor_hash' => $hash, 'type' => GameEventType::ShareClicked, 'provider' => 'copy_link', 'occurred_at' => $back->addMinutes(4)])->save();
+
+    return ['hash' => $hash, 'game' => $game, 'attempt' => $attempt];
 }

@@ -8,10 +8,12 @@ use App\Enums\GameAudience;
 use App\Enums\GameVersionStatus;
 use App\Exceptions\Games\CannotManageGameException;
 use App\Models\Game;
-use App\Models\GameTrafficPeriod;
+use App\Models\GameFlowStep;
 use App\Models\GameVersion;
 use App\Models\GameVersionPost;
 use App\Models\User;
+use App\Queries\Games\GameFlowFactsQuery;
+use App\Queries\Games\GameTrafficQuery;
 use App\Support\Games\Drafts\ContentSetReport;
 use App\Support\Games\Publishing\GamePublishReadiness;
 use App\Support\Games\Publishing\VersionSnapshotBuilder;
@@ -28,8 +30,9 @@ use Illuminate\Support\Facades\DB;
  * The game, the set and the flow are locked, in that order, so a save of
  * either cannot land halfway through the reading. Publishing is refused unless
  * the publish report finds everything ready. A new version gets no traffic,
- * unless it is asked to take over another version's: then, in each audience,
- * the other version's share becomes the new version's.
+ * unless it is asked to take over another version's: then, in each audience
+ * and in each of its splits for a source or campaign, the other version's
+ * share becomes the new version's.
  */
 final class PublishGameVersionAction
 {
@@ -55,7 +58,8 @@ final class PublishGameVersionAction
             $flow->load('steps');
 
             $report = ContentSetReport::of($set);
-            $readiness = GamePublishReadiness::of($locked, $report, $flow, Game::query()->pluck('id')->map(fn (mixed $id): int => (int) $id)->all());
+            $drafts = $flow->steps->map(fn (GameFlowStep $step) => $step->draft())->values()->all();
+            $readiness = GamePublishReadiness::of($locked, $report, $flow, Game::query()->pluck('id')->map(fn (mixed $id): int => (int) $id)->all(), app(GameFlowFactsQuery::class)->for($drafts));
 
             if (! $readiness->isReady()) {
                 throw CannotManageGameException::because('This version can’t be published yet: '.$readiness->problems()[0]);
@@ -72,6 +76,7 @@ final class PublishGameVersionAction
                 'content_set_id' => $set->id,
                 'flow_id' => $flow->id,
                 'snapshot' => $snapshot->toArray(),
+                'goal' => $snapshot->flowGoal,
                 'snapshot_schema' => GameVersionSnapshot::SCHEMA,
                 'round_count' => $snapshot->roundCount(),
                 'scored_round_count' => $snapshot->scoredRoundCount(),
@@ -106,20 +111,21 @@ final class PublishGameVersionAction
         return $version;
     }
 
-    /** In each audience, the share the old version has becomes the new version's. */
+    /** In each audience, and each of its splits, the share the old version has becomes the new version's. */
     private function takeOver(Game $game, int $fromVersionId, int $toVersionId, User $admin): void
     {
         foreach (GameAudience::cases() as $audience) {
-            $current = GameTrafficPeriod::query()->where('game_id', $game->id)->where('audience', $audience)->whereNull('ended_at')->with('versions')->latest('id')->first();
-            $shares = $current?->shares() ?? [];
+            foreach (app(GameTrafficQuery::class)->currentPeriods((int) $game->id, $audience) as $current) {
+                $shares = $current->shares();
 
-            if (! isset($shares[$fromVersionId])) {
-                continue;
+                if (! isset($shares[$fromVersionId])) {
+                    continue;
+                }
+
+                $shares[$toVersionId] = ($shares[$toVersionId] ?? 0) + $shares[$fromVersionId];
+                unset($shares[$fromVersionId]);
+                $this->applyShares($game, $audience, $shares, $admin, $current->scope());
             }
-
-            $shares[$toVersionId] = ($shares[$toVersionId] ?? 0) + $shares[$fromVersionId];
-            unset($shares[$fromVersionId]);
-            $this->applyShares($game, $audience, $shares, $admin);
         }
     }
 }

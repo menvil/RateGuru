@@ -17,6 +17,12 @@ final class PublishedPostDetailsQuery
         return $this->query()->findOrFail($postId);
     }
 
+    /** Whether the post is one its own page would show, without loading it. */
+    public function isPublished(int $postId): bool
+    {
+        return Post::query()->published()->whereKey($postId)->exists();
+    }
+
     /** @return Builder<Post> */
     private function query(): Builder
     {

@@ -23,6 +23,7 @@ final class MoveGameAttemptAction
     public function __construct(
         private readonly GameFlowVisitorQuery $flowVisitors,
         private readonly GameEventRecorder $events,
+        private readonly GameSignupFormRecorder $signupForm,
     ) {}
 
     /**
@@ -56,6 +57,7 @@ final class MoveGameAttemptAction
 
             if ($next !== null) {
                 $this->events->record($next->type === GameFlowStepType::FullResult ? GameEventType::ResultViewed : GameEventType::StepViewed, (int) $locked->game_id, $visitor, attempt: $locked, detail: ['step_type' => $next->type->value]);
+                $this->signupForm->shown($locked, $next, $visitor);
             }
 
             $attempt->setRawAttributes($locked->getAttributes(), true);

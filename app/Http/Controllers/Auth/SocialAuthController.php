@@ -16,6 +16,7 @@ use App\Support\Auth\AuthSurfaceContext;
 use App\Support\Auth\SocialLinkContext;
 use App\Support\Auth\SocialProviderGateway;
 use App\Support\Profile\ConnectedAccountsResponse;
+use App\Support\Traffic\Attribution\SignupOrigin;
 use Illuminate\Contracts\Session\Session;
 use Illuminate\Http\RedirectResponse;
 use Symfony\Component\HttpFoundation\RedirectResponse as ProviderRedirect;
@@ -65,6 +66,7 @@ class SocialAuthController extends Controller
         $validated = $request->validated();
         $session = $request->session();
         $surface = AuthSurfaceContext::pull($session);
+        app(SignupOrigin::class)->remember($surface);
         $user = $request->user();
         $user = $user instanceof User ? $user : null;
 

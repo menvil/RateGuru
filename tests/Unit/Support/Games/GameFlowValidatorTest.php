@@ -1,32 +1,18 @@
 <?php
 
 use App\Enums\GameAudience;
+use App\Enums\GameFlowGoal;
 use App\Enums\GameFlowStepType;
 use App\Enums\GameSignupMode;
 use App\Enums\GameStepAudience;
+use App\Rules\UniqueEffectiveTagSlug;
+use App\Support\Games\Flow\FlowFacts;
 use App\Support\Games\Flow\FlowIssue;
 use App\Support\Games\Flow\FlowStepDraft;
 use App\Support\Games\Flow\FlowVisitor;
 use App\Support\Games\Flow\GameFlowRunner;
 use App\Support\Games\Flow\GameFlowStepSettings;
 use App\Support\Games\Flow\GameFlowValidator;
-
-/**
- * Steps of the given types, each fresh — default texts and settings — keyed
- * by its place, with settings overridden by type.
- *
- * @param  list<GameFlowStepType>  $types
- * @param  array<string, array<string, mixed>>  $settings
- * @return list<FlowStepDraft>
- */
-function flowOf(array $types, array $settings = []): array
-{
-    return array_map(function (GameFlowStepType $type, int $index) use ($settings): FlowStepDraft {
-        $fresh = GameFlowValidator::fresh($type, 's'.$index);
-
-        return new FlowStepDraft($fresh->key, $type, $fresh->audience, [...$fresh->settings, ...($settings[$type->value] ?? [])], $fresh->texts);
-    }, $types, array_keys($types));
-}
 
 /** @param  list<FlowIssue>  $issues */
 function flowMessages(array $issues): array
@@ -86,7 +72,7 @@ it('allows one exit and no step twice', function () {
     expect($issues)->toBe([
         '4: Duplicate Share step. Step 3 already does this.',
         '5: Next Game ends the flow, so it must be the last step.',
-        '6: Use one exit step: Next Game or Go to Feed.',
+        '6: Use one exit step: Next Game, Go to Feed, Go to Post or Go to Page.',
     ]);
 });
 
@@ -186,6 +172,14 @@ it('keeps only the settings a type takes, within their bounds', function () {
         ->toBe(['required' => true, 'skip_known' => true, 'consent_enabled' => true]);
 });
 
+it('keeps a category or tag slug as long as its own editor allows, and drops a longer one', function (string $destination) {
+    $slug = fn (int $length): string => GameFlowStepSettings::normalize(GameFlowStepType::GoToPage, ['destination' => $destination, $destination => str_repeat('a', $length)])[$destination];
+
+    expect(UniqueEffectiveTagSlug::MOST_CHARACTERS)->toBe(100)
+        ->and($slug(100))->toBe(str_repeat('a', 100))
+        ->and($slug(101))->toBe('');
+})->with(['category', 'tag']);
+
 it('skips the steps a visitor should not see', function () {
     $steps = flowOf([
         GameFlowStepType::Landing, GameFlowStepType::Game, GameFlowStepType::EmailCapture,
@@ -207,4 +201,49 @@ it('moves on from a step that has just become invisible', function () {
     // A guest registered on step s2 and is now signed in.
     expect(GameFlowRunner::after($steps, new FlowVisitor(GameAudience::Authenticated), 's2')?->type)->toBe(GameFlowStepType::Feed)
         ->and(GameFlowRunner::after($steps, new FlowVisitor(GameAudience::Authenticated), 's3'))->toBeNull();
+});
+
+it('names the four exit steps when a flow has two', function () {
+    expect(flowMessages(GameFlowValidator::issues(flowOf([GameFlowStepType::Game, GameFlowStepType::FullResult, GameFlowStepType::GoToPost, GameFlowStepType::Feed]))))
+        ->toContain('4: Use one exit step: Next Game, Go to Feed, Go to Post or Go to Page.');
+});
+
+it('refuses a goal the flow cannot reach', function () {
+    expect(flowMessages(GameFlowValidator::issues(flowOf([GameFlowStepType::Game, GameFlowStepType::FullResult]), GameFlowGoal::Email)))
+        ->toBe(['The goal “'.GameFlowGoal::Email->label().'” needs an Email Capture step. Add it, or choose another goal.']);
+});
+
+it('marks the steps after a Full Result that sends visitors on as never shown', function () {
+    $issues = GameFlowValidator::issues(flowOf([GameFlowStepType::Game, GameFlowStepType::FullResult, GameFlowStepType::Share], ['full_result' => ['onward' => 'feed']]));
+
+    expect(flowMessages($issues))->toBe(['3: Full Result already sends visitors on to the feed, so this step is never shown. Remove it, or set Full Result to go on to the next step.']);
+});
+
+it('asks for the settings a way into the site needs', function () {
+    $issues = flowMessages(GameFlowValidator::issues(flowOf([GameFlowStepType::Game, GameFlowStepType::FullResult, GameFlowStepType::GoToPage])));
+
+    expect(implode("\n", $issues))->toContain('Missing settings:')->toContain('Category');
+});
+
+it('checks the linked post, the groups asked, the category, the tag and the page against the site', function () {
+    $facts = new FlowFacts(
+        posts: [7 => ['title' => 'Hidden one', 'published' => false]],
+        ratingGroups: ['cuteness'],
+        categories: ['cats'],
+        tags: ['kittens'],
+        paths: ['/nowhere' => false],
+    );
+    $post = flowOf([GameFlowStepType::Game, GameFlowStepType::FullResult, GameFlowStepType::GoToPost], ['go_to_post' => ['post_target' => 'chosen', 'post_id' => 7, 'ask_groups' => 'cuteness,gone']]);
+    $missing = flowOf([GameFlowStepType::Game, GameFlowStepType::FullResult, GameFlowStepType::GoToPost], ['go_to_post' => ['post_target' => 'chosen', 'post_id' => 8]]);
+    $page = fn (array $settings): array => flowMessages(GameFlowValidator::issues(flowOf([GameFlowStepType::Game, GameFlowStepType::FullResult, GameFlowStepType::GoToPage], ['go_to_page' => $settings]), null, $facts));
+
+    expect(flowMessages(GameFlowValidator::issues($post, null, $facts)))->toBe([
+        '3: The linked post “Hidden one” is hidden, so visitors can’t open it. Link another post, or publish it again.',
+        '3: The post asks for the rating group “gone”, which is no longer active. Untick it.',
+    ])
+        ->and(flowMessages(GameFlowValidator::issues($missing, null, $facts)))->toBe(['3: The linked post no longer exists. Link another post.'])
+        ->and($page(['destination' => 'category', 'category' => 'dogs']))->toBe(['3: The category “dogs” isn’t active on the site. Choose another category.'])
+        ->and($page(['destination' => 'tag', 'tag' => 'puppies']))->toBe(['3: There is no tag “puppies” on the site. Choose another tag.'])
+        ->and($page(['destination' => 'page', 'path' => '/nowhere']))->toBe(['3: “/nowhere” isn’t a page of this site. Use the address of the feed, a post, a profile, a game or a static page.'])
+        ->and($page(['destination' => 'category', 'category' => 'cats']))->toBe([]);
 });

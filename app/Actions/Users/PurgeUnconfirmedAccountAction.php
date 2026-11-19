@@ -8,6 +8,8 @@ use App\Actions\Ranking\RecalculatePostScoreAction;
 use App\Enums\CommentStatus;
 use App\Enums\UnconfirmedAccountPurgeOutcome;
 use App\Enums\VoteType;
+use App\Models\AccountAttribution;
+use App\Models\AccountBrowser;
 use App\Models\Comment;
 use App\Models\CommentVote;
 use App\Models\GameAnswer;
@@ -19,7 +21,9 @@ use App\Models\Post;
 use App\Models\PostVote;
 use App\Models\RatingVote;
 use App\Models\Report;
+use App\Models\TrafficConversion;
 use App\Models\User;
+use App\Models\UserActivityDay;
 use App\Queries\Users\UnconfirmedAccountsQuery;
 use App\Services\Comments\CommentPhysicalDeletionService;
 use App\Services\Posts\PostGraphDeletionService;
@@ -112,6 +116,14 @@ final class PurgeUnconfirmedAccountAction
         }
 
         $this->eraseGames($id);
+
+        // What the account was credited to, the browsers it was known by and
+        // the days it did something on the site: an account that was never
+        // confirmed was never counted, nor its activation. The visit it signed
+        // up on keeps its sign-up, as one that never confirmed.
+        AccountAttribution::query()->where('user_id', $id)->delete();
+        AccountBrowser::query()->where('user_id', $id)->delete();
+        UserActivityDay::query()->where('user_id', $id)->delete();
     }
 
     /**
@@ -252,6 +264,11 @@ final class PurgeUnconfirmedAccountAction
             ->delete();
         GameAnswer::query()->whereIn('attempt_id', $attempts)->delete();
         GameEmailCapture::query()->whereIn('attempt_id', $attempts)->delete();
+        // What the tracker recorded of these attempts stays, without them: a
+        // paid click's conversions are what was sent to its network, and an
+        // attribution of another account names an attempt only as a pointer.
+        TrafficConversion::query()->whereIn('attempt_id', $attempts)->update(['attempt_id' => null]);
+        AccountAttribution::query()->whereIn('credited_attempt_id', $attempts)->update(['credited_attempt_id' => null]);
         GameAttempt::query()->whereIn('id', $attempts)->delete();
         GameAssignment::query()->whereIn('id', $assignments)->delete();
     }

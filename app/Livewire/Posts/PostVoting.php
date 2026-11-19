@@ -2,12 +2,18 @@
 
 namespace App\Livewire\Posts;
 
+use App\Actions\Analytics\RecordUserActivityAction;
+use App\Actions\Games\CreditGameSiteActivityAction;
 use App\Actions\Votes\VotePostAction;
+use App\Enums\UserActivity;
 use App\Enums\VoteType;
 use App\Exceptions\Votes\CannotVoteException;
+use App\Livewire\Concerns\CreditsGameSiteActivity;
 use App\Livewire\Concerns\OpensAuthModal;
 use App\Models\Post;
+use App\Support\Games\Play\GameVisitorResolver;
 use App\Support\Observability\GuestVoteAttemptLog;
+use Carbon\CarbonImmutable;
 use Illuminate\Contracts\View\View;
 use Livewire\Attributes\Locked;
 use Livewire\Attributes\On;
@@ -16,7 +22,7 @@ use Livewire\Component;
 /** @property-read Post|null $post */
 final class PostVoting extends Component
 {
-    use OpensAuthModal;
+    use CreditsGameSiteActivity, OpensAuthModal;
 
     public int $postId;
 
@@ -105,7 +111,7 @@ final class PostVoting extends Component
         $voteToApply = $voteType;
 
         try {
-            $votePostAction->handle($user, $post, $voteToApply);
+            $cast = $votePostAction->handle($user, $post, $voteToApply);
         } catch (CannotVoteException $e) {
             $this->error = $e->getMessage();
             $this->dispatch('post-vote-error', postId: $this->postId, message: $this->error);
@@ -114,6 +120,14 @@ final class PostVoting extends Component
         }
 
         unset($this->post);
+
+        $this->creditGame(fn (CreditGameSiteActivityAction $credit) => $credit->postVoteChanged($user, $this->postId, app(GameVisitorResolver::class)->browserHash()));
+
+        // A vote cast where there was none, as the action found it under its lock — not as read above,
+        // which a concurrent vote can have changed; one taken back or turned the other way is no new vote.
+        if ($cast) {
+            app(RecordUserActivityAction::class)->quietly($user, UserActivity::Voted, $this->postId, app(GameVisitorResolver::class)->browserHash(), CarbonImmutable::now());
+        }
 
         $this->dispatch('post-voted', postId: $this->postId);
     }

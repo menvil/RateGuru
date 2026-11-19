@@ -15,7 +15,8 @@ The authoritative visual and UX references are:
 | File | What it defines |
 |---|---|
 | [`reference/original/RateGuru-Dev-UI-Kit.html`](reference/original/RateGuru-Dev-UI-Kit.html) | Foundations, every component with a stable reference ID, measurements, tokens and rules |
-| [`reference/original/RateGuru-Admin.html`](reference/original/RateGuru-Admin.html) | The full admin prototype: shell, navigation and every screen (Dashboard, Posts, Comments, Reports, Users, User edit, Categories, Tags, Rating groups, Rating group edit, Project settings, Languages, Translation Center, Translation AI, Media diagnostics, the Content Studio section: Publications & plans with the publication editor, Personas with the persona editor, Reply rules, Reply log and Action queue, and the Growth section: Games with the game editor — General, Content with Results, Flow, Versions, Traffic and Analytics — and its playable previews, Experiments with the experiment editor and its periods, Analytics, and the media picker) |
+| [`reference/original/RateGuru-Admin.html`](reference/original/RateGuru-Admin.html) | The full admin prototype: shell, navigation and every screen (Dashboard, Posts, Comments, Reports, Users, User edit, Categories, Tags, Rating groups, Rating group edit, Project settings, Languages, Translation Center, Translation AI, Media diagnostics, the Content Studio section: Publications & plans with the publication editor, Personas with the persona editor, Reply rules, Reply log and Action queue, and the Growth section: Games with the game editor — General, Content with Results, Flow with each flow's goal, Versions, Traffic, Value and Analytics — and its playable previews, Traffic sources with its Report, Campaigns, Value, Spend, Sources and Logs, Experiments with the experiment editor and its periods, Analytics, and the media picker) |
+| [`reference/original/RateGuru-Admin-v4.html`](reference/original/RateGuru-Admin-v4.html) | The fourth delivery of the admin prototype, which Growth → Games — the game editor's General, Content with Results, Flow, Versions, Traffic, Analytics and Preview, and the Library — was built against. Superseded; kept as it was delivered, so a screen built on it can still be compared with what it was built from |
 | [`reference/original/RateGuru-Admin-v3.html`](reference/original/RateGuru-Admin-v3.html) | The third delivery of the admin prototype, which Content Studio's Publications & plans with the publication editor, Action queue and Personas with the persona editor were built against. Superseded; kept as it was delivered, so a screen built on it can still be compared with what it was built from |
 | [`reference/original/RateGuru-Admin-v2.html`](reference/original/RateGuru-Admin-v2.html) | The second delivery of the admin prototype, which Categories, Tags, Rating groups, Project settings, Posts, Comments, Reports, Users and Media diagnostics were built against. Superseded; kept as it was delivered, so a screen built on it can still be compared with what it was built from |
 | [`reference/original/RateGuru-Admin-v1.html`](reference/original/RateGuru-Admin-v1.html) | The first delivery of the admin prototype, which Languages and Translation Center were built against. Superseded; kept as it was delivered, so a screen built on it can still be compared with what it was built from |
@@ -189,7 +190,7 @@ This section is the target design from the prototype. Production builds it as de
   | Moderation | Posts (pending count, warning) · Comments (reported count, warning) · Reports (open count, warning) · Users |
   | Content | Categories · Tags · Rating groups |
   | Content Studio | Publications & plans · Action queue · Personas |
-  | Growth | Games |
+  | Growth | Games · Experiments (comparisons running, neutral) · Analytics · Traffic sources |
   | Localization | Languages · Translation Center (missing count, neutral) · Translation AI |
   | Configuration | Project settings |
   | System | Media diagnostics (critical count, danger) |
@@ -204,8 +205,9 @@ This section is the target design from the prototype. Production builds it as de
 - **Top bar (NAV-02):** padding 0 24 0 28, breadcrumb (section › page, last item current) on the left, page
   actions on the right with gap 10 and the primary action last. Meta text 13 tertiary (“Updated 09:41”); unsaved
   state 13 due-colour (“2 unsaved changes”) next to Save. Edit pages save from the top bar; there is no sticky
-  bottom save bar. A record edited in a drawer over its list — a persona, a person — saves from the drawer's
-  footer instead, which counts its own unsaved changes.
+  bottom save bar — a game's Flow tab repeats Save flow, enabled as the top bar's, at the foot of the selected
+  step's settings, where a long panel ends. A record edited in a drawer over its list — a persona, a person — saves
+  from the drawer's footer instead, which counts its own unsaved changes.
 - **Toasts (FBK-01):** bottom centre of the main column, 24 from the bottom, at most three stacked, 5.2 s.
 
 ### Production shell
@@ -214,7 +216,8 @@ Every admin page except the developer kit is drawn inside the Admin v2 shell. Pa
 until each page is migrated, so a page can show both the shell's breadcrumb and its own legacy heading for now.
 Languages, Translation Center, Translation AI, Posts, Comments, Reports, Users with a person's editor, Categories,
 Tags, Rating groups, Project settings and Media diagnostics are migrated: their content is Admin v2 too. Content
-Studio's Publications & plans and Personas were built in Admin v2 from the start.
+Studio's Publications & plans and Personas were built in Admin v2 from the start, and so was Growth: Games,
+Experiments, Analytics and Traffic sources.
 
 - **Components:** `App\Livewire\Admin\Sidebar` and `App\Livewire\Admin\Topbar`, registered with the panel's
   `sidebarLivewireComponent()` and `topbarLivewireComponent()`. Filament keeps everything else: routing,
@@ -284,7 +287,8 @@ These are the current migration state, not changes to the target design:
   than a partial imitation.
 - **Operational counts** arrived with their screens: Posts shows its pending count, Comments its reported comments
   still visible and Reports its open reports (warning); Media diagnostics the masters the last completed audit
-  found missing (danger), read from that audit's own tally. The shell draws a badge whenever a navigation item
+  found missing (danger), read from that audit's own tally; Experiments the comparisons running now (neutral), one
+  count over the open periods. The shell draws a badge whenever a navigation item
   provides one, but adds no count queries of its own. Only Translation Center's is still missing, below.
 - **Translation Center's missing count.** The reference badges Translation Center with the missing translations
   (neutral). Counting them means reading every unit of project content, and the navigation is drawn on every
@@ -1258,12 +1262,37 @@ check; global search stays with Users, whose result for a persona opens its edit
 
 ```text
 Growth
-└── Games
+├── Games
+├── Experiments
+├── Analytics
+└── Traffic sources
 ```
 
-Growth holds the games visitors play to discover the site. Its section holds only screens that work: the
-prototype's Experiments and Growth Analytics arrive with their own screens, never as items before them; a game's
-traffic periods are what experiments will build on.
+Growth holds the games visitors play to discover the site, the comparison of their versions, where the site's
+visitors come from and what they do, and the paid traffic that brings them. Its section holds only screens that work:
+of the prototype's Growth, the experiment editor and the Email tab of Analytics are not built (see their
+deviations below), and no item stands for them. Every figure is counted by RateGuru itself; nothing on these
+screens comes from, or leads to, an outside analytics tool.
+
+Every day chosen in Growth is chosen in a drop-down calendar, never the browser's own, and nothing in it waits for
+an Apply or a Cancel. A range of days is chosen as a booking site has it, in the date range field
+(`x-admin.ui.date-range-field`): one calendar of the date field's month grids — two months side by side where they
+fit, one on a phone — whose first click starts the range and whose next ends it, a day before the start starting it
+again; while only the start is chosen the days from it to the pointer or the focus are lightly filled, and a range
+chosen shows its two ends filled and the days between lightly. The range is taken the moment its end is clicked;
+Escape or a click outside keep what was taken before. It keeps the date field's keys (the arrows, Home and End, Page
+Up and Page Down, with Shift a year; Enter or Space chooses), marks today, disables the days outside min and max, and
+its days are Y-m-d, so what the server reads and validates is unchanged. It is the period picker's custom range on
+Traffic sources, Growth → Analytics and a game's Analytics — drawn in the picker's own panel beside the presets, so
+the period is one drop-down, applied at once within the days visits are kept and, on Analytics, no longer than the
+range it reads at a time: past that the days can't end the range, and the calendar says “Up to 93 days at a time”.
+It is also a source's fixed price, whose end may stay open: the start is taken the moment it is clicked, the
+calendar says “Pick the end date, or close for no end”, the field then reads “From 12 Nov 2026 · no end”, and No end
+takes the end off a range that has one. A single day — a campaign's price From, and the day corrected on Spend, one
+of the network's last fourteen in its own time zone — is the date field (`x-admin.ui.date-time-field`) with
+`date-only`: the same trigger and dialog, with the day and how many days it is from today, quick picks named for
+the field, the month or the months of a year, and no time; a day clicked or a quick pick is taken at once and the
+dialog closes. Every calendar opens whole on the screen and inside a drawer's scrolling body.
 
 ### Games
 
@@ -1284,7 +1313,11 @@ games' actions (`docs/architecture/games.md`); the operator guide is `docs/admin
   the internal name, each behind its icon; the status menu (Go live, Pause,
   Resume, Archive, Restore — each asked first, Go live only with traffic) and the tabs (NAV-03): General, Content,
   Flow, Versions, Traffic, Analytics and Preview. Save, Discard and the unsaved count sit in the top bar on the tabs
-  that edit, and the browser asks before unsaved changes are left.
+  that edit, and the browser asks before unsaved changes are left. Under the tabs, edge to edge, a warning strip
+  (FBK-02) while a tab holds saved changes players don't see: “n changes since Vm:” in medium weight and the changes
+  as the editors name them — each while there are three at most, else the first three and “and n more” — then which
+  versions players play and Publish Vn…; past three, a native disclosure, “All n changes”, lists every change under
+  its flow or content set.
 - **General:** General information across the page: Title and Internal name side by side, Address (FRM-09, locked
   once first published), Description (FRM-03, 240) and the cover image as a row — its thumbnail, file name and
   size, Upload or Replace and Remove; stored the moment it is chosen. Beside it, 320 wide and below it under 1280,
@@ -1323,23 +1356,33 @@ games' actions (`docs/architecture/games.md`); the operator guide is `docs/admin
   published, and its steps as cards joined by a line (each its sign, name, audience, one-line summary and problems;
   Move up, Move down and Remove; the game on the sunken ground, “Same in every flow”), the + on the line between two
   cards opening the steps that fit there beside it; and the selected step (360) — its sign, name and place, Settings
-  (Show to with who skips it, Next pair as rows, the delay with − and +, sign-up as rows, the texts, Remove step) or
+  (Show to with who skips it, Next pair as rows, the delay with − and +, sign-up as rows, the texts, then Remove step
+  and Save flow at the far end of its foot) or
   Preview (Preview as Anonymous or Logged in; Theme Dark or Light, kept from step to step; the step in an iPhone from
   the flow as it stands, unsaved edits included; Open full preview).
 - **Versions:** a content set and a flow, the checks (rounds, results, flow) and Publish Vn — asked first, with
   “take over Vm's traffic” as an option; the note when the set or flow, or a translation of it, changed since the
-  newest version made from them; the versions with their set, flow, rounds, traffic, attempts, publisher and
+  newest version made from them, naming the changes as the notice under the tabs does; the versions with their set, flow, rounds, traffic, attempts, publisher and
   Preview, Retire and Restore (retired versions behind Show archived).
 - **Traffic:** per audience — anonymous visitors and logged-in players — the shares of the active versions (FRM-05,
-  whole percentages adding up to 100), Add, Remove, Split evenly, Reset and Apply shares; the periods, newest
-  first, with the visitors each assigned and the attempts started and completed.
-- **Analytics:** Group (FRM-08), Period (7, 30, 90 days, all time) and Version (FRM-10); the figures; the funnel,
-  each rate naming the step it is a share of; Rounds reached and Results for the chosen version or the busiest one;
-  Side by side by version, flow or content set; the traffic periods with Open Traffic. Empty states say there is
-  nothing to measure before a version is published, and nobody of a group in a period.
+  whole percentages adding up to 100), Add, Remove, Split evenly, Reset and Apply shares; under anonymous visitors,
+  Splits for a source — each split's source and campaign (“Every campaign of the source”), its shares, Edit, End
+  split (asked first) and Results, and Split for a source opening a new one with the same share controls and Save
+  split, with a notice while Record visits is off; the periods, newest first, each Current or Ended with the
+  visitors it assigned, the attempts started and completed, and Results, which opens the period in Experiments.
+- **Analytics:** Group (FRM-08), the period picker (7, 30, 90 days, all time, or a range on its calendar), Versions,
+  Device and Country (FRM-10, a country or a country group); the figures against the window before; Versions on paid
+  traffic with its own paid source; Traffic sources with its own device; the funnel, each rate naming the step it is
+  a share of; Sign-ups; Rounds reached and Results for the chosen version or the busiest one; Break down by version,
+  flow, content set, device, country or country group; the traffic periods, each with its data badge — One version,
+  No visitors yet, Too early, Enough data, by the rule Experiments follows — a split's source and campaign, and
+  Results. Empty states say there is nothing to measure before a version is published, and nobody of a group in a
+  period. Growth → Analytics → Games draws the same partials from the same view model (`GameAnalyticsView`).
 - **Preview:** as the reference draws it. A band of switches — “Preview mode”; Source (Draft or a version), Content
   set and Flow for a draft; Theme (Dark, Light); View (Mobile, Desktop) and, on a desktop, Display (Browser window,
-  Full page); Visitor (Anonymous, Logged in); Language — with Restart, Open and Fullscreen. Then the
+  Full page); Visitor (Anonymous, Logged in); Language — with Restart, Open and Fullscreen, and before them, for a
+  published version still active of a live or paused game, Copy test link (its toast: “Test link copied. It plays
+  V7 for 7 days and records nothing.”). Then the
   stage on the sunken ground: the site's own game page in an iPhone (402 × 820), in a dark Chrome window (1000 × 660,
   the game's tab and address) fitted to the stage, or across it; Fullscreen lays the whole screen over the window,
   Journey scrolling within it. Beside it Journey (300): the flow's steps, the one on screen marked and the ones
@@ -1348,6 +1391,191 @@ games' actions (`docs/architecture/games.md`); the operator guide is `docs/admin
   Inside a frame the game page leaves out its own preview banner.
 - **Access:** an active administrator's (`manage-games`): the navigation item, every page, every Livewire request
   and the preview route ask, and so do the actions.
+
+### Experiments
+
+`ExperimentsPage` (`/admin/experiments`, `flask-conical`, after Games), drawn in Admin v2 from the start, its figures
+read once the page is in a browser (`wire:init`, TBL-06 skeleton until then). Everything on screen is in the
+address — `q`, `show`, `status`, `page`, and `period` for a period's results — and anything it can't read is the
+default. The architecture is `docs/architecture/analytics.md` ("Experiments"); the operator guide is
+`docs/admin/experiments.md`.
+
+- **List header band:** “Experiments” and “Every Apply in a game’s Traffic tab starts a period. When a period has two
+  or more versions, it compares them on the same metrics. Nothing to set up here.”
+- **Toolbar (TBL-02):** the search over the game's title, internal name and address (FRM-01, “Search games”); Show
+  (All periods, Comparisons) and Status (All, Current, Ended) as segmented controls (FRM-08); the count of periods.
+- **Table (TBL-01):** Game; Group — the audience behind its icon (`user-round`, `user-check`) and, for a split, its
+  source and campaign, a general period beside a split reading “Everyone else”; Period and its days; Versions with
+  their shares; Visitors; Data (STS-01: One version outline, No visitors yet neutral, Too early warning, Enough data
+  success); Status (Current with its dot, Ended); Results. The latest started first across every game, 50 a page
+  (NAV-04, `ComparisonPeriodsQuery`, a registered stable pagination boundary). A click on the row opens the period.
+  Empty: “No periods match these filters.”, or before any “No traffic periods yet. Each Apply in a game’s Traffic
+  tab starts one.” The footnote says shares change in each game's Traffic tab.
+- **A period's results:** the breadcrumb leads back to the list; the top bar holds Delete period, for an ended period
+  not hidden, and Open Traffic. The header band names the game, the audience and a split's scope (“Trust Your Taste ·
+  Anonymous visitors · ExoClick tests”), Current or Ended and the data badge, then the days, shares and visitors.
+  Periods for the same game, audience and scope switch in a strip; a hidden period has an FBK-02 strip, “Hidden from
+  Experiments.” with Show in Experiments; a second strip says what the figures show so far. The table (TBL-01, one
+  grid scrolling sideways inside its card) has Version (the reference marked), Share, Visitors, then Game starts,
+  Completions, Email captured, Registrations, Activated · 7 days and Goal reached — each the rate of those assigned,
+  the count, and “· +0.3 pp” against the reference, toned once the period has enough data and the difference is 0.3
+  points or more; a dash names why (Not in this flow, Already signed up, Needs 7 days, No visitors yet). The footnote:
+  “Rates use the visitors assigned to each version. Deltas compare with V7, the version with the largest share. The
+  data badge follows accounts.” (players who reached the goal, for logged-in players). Versions and Analytics lead to
+  the game's tabs, Analytics on the period's days. A period that doesn't exist: “Period not found” / “This period
+  doesn’t exist any more.”
+- **Delete period:** hides the period (`HideGameTrafficPeriodAction`) and comes back to the list with a toast, “Period
+  deleted. Its numbers stay in the database.”, and Undo.
+- **Navigation count:** the comparisons running now (neutral), “Comparisons running now” as its label.
+- **Access:** an active administrator's (`manage-games`): the navigation item, the page, every Livewire request and
+  the action ask.
+
+### Analytics
+
+`GrowthAnalyticsPage` (`/admin/analytics`, `chart-no-axes-column`, after Experiments), drawn in Admin v2 from the
+start. The architecture is `docs/architecture/analytics.md`; the operator guide is `docs/admin/analytics.md`.
+
+- **Header band:** “Analytics” and “Where visitors come from and what they do. RateGuru counts every figure here
+  itself.”; the period picker (its presets — Yesterday, Last 7, 30 and 90 days, This month, Last month — beside the
+  range calendar, up to 93 days); Device, Source and Campaign as filter dropdowns (FRM-10); the chosen source as a
+  chip with × (“Remove source filter”); “Counted by RateGuru” behind `shield-check`; “Figures read HH:MM UTC” with
+  Refresh (ghost, `refresh-cw`) on a tab whose figures are kept. Then the tabs (NAV-03, `x-admin.ui.tabs`,
+  scrolling sideways when they don't fit): Overview, Site engagement, Campaigns, Tracking links, Landings, Games,
+  Experiments, Retention, Geography, Journeys — only tabs that are built.
+- **State:** everything is in the address — the tab, `period` or `from` and `to`, `device`, `source`, `campaign`,
+  and each tab's own (Overview `sort`; Site engagement `a` and `b`; Campaigns `csort`, `creative`, `link`, `segment`;
+  Tracking links `q`, `edit`, `show`; Games `game` and the game's filters; Experiments `exp`; Retention `dim`;
+  Geography `gsort`, `open`; Journeys `who`) — and anything it can't read is the default. Only the rows of the
+  Campaigns tree opened or closed by hand stay with the page.
+- **Reading:** asking for the page reads no visit; the open tab alone is read once the page is in a browser
+  (`wire:init`), with TBL-06 skeletons until then; figures of every tab but Journeys are kept per administrator for
+  10 minutes, and Refresh, or saving, deleting or restoring a segment or saving a tracking link, reads them again.
+  FBK-02 notices say when Record visits is off (warning, with the way to Traffic sources), when Record site visits is
+  off (“Only game visits and paid clicks are recorded. Switch on Record site visits to see the whole site.”) and
+  since when visits are recorded; TBL-05 empty states say “No visits recorded yet”, “Too early for these days” and,
+  for a tab reading visits, “No visitors for these filters” with Clear filters — never an empty chart or table.
+  Games and Retention say “The source and campaign filters don’t apply on this tab.” while one is chosen.
+- **Overview:** eight figures (Visitors, New visitors, Game starters, Game completers, Accounts created, Activated
+  users — a Too early badge while accounts can still activate — Visitor → registration, Visitor → activation), the
+  first six with “+18% vs the previous 30 days”; the acquisition funnel of eight steps with Of previous and Of
+  visitors and See an example journey; Visitors per hour, day or week as bars with their markers; Traffic sources
+  (Source · medium, group badge, Attribution basis, Visitors, Started, Completed, Registered, Activated; Sort; a row
+  filters the page, the chosen one sunken; Other referrals; All sources); Referral performance; Data notes; Tracking
+  with Tracking settings.
+- **Site engagement:** the scope line; nine cards, each with its unit as a pill (Visitors, Actions, Accounts) and the
+  change against the window before but Unique post viewers; Website funnel; Compare sources (sides A and B, each a
+  choice of the six biggest sources); Content engagement (Post as `#id`, views, viewers, votes, comments, engagement,
+  registrations), its footnote naming the accounts not attributed.
+- **Campaigns:** the tracking link banner when opened from one, with Back to tracking links; Where spend comes from;
+  Paid sources with Settings and Segments; a chosen paid source's Segments (Add segment, Source settings; the
+  segments' rows with their Rule chips, verdict badges and pencil; Not in any segment); Campaign performance, a tree
+  of campaign › creative › game with Sort, “estimated” tags, Unpaid, Spend with no visits and Best activation rate.
+  The segment editor is an OVL-02 drawer (`TrafficSegmentEditor`) previewing its catch as it is typed; deleting
+  leaves an FBK-01 toast with Undo.
+- **Tracking links:** Create tracking link, the search (“Search name, campaign or creative”), the count; rows of Link
+  · destination (New for a day), Source · medium, Campaign · creative, Visitors or “No visits yet”, Registrations,
+  Activated, Created and the row's Copy URL, View analytics, Edit or Rename, and Duplicate. The editor
+  (`TrackingLinkEditor`) and the details are OVL-02 drawers: Destination (Game, Site page, Custom), Source, Medium,
+  the campaign parameters, the Generated URL with Copy link and a preview; once a visit came, only the name, under an
+  FBK-02 strip (`lock`): “This link already has visits, so its URL is locked to keep reports comparable. You can
+  rename it, or duplicate it to change parameters.”; after saving, the link's details.
+- **Landings:** Landing page performance (Landing page with its note, Game, Experience, Visitors and the rates) and,
+  beside it, the latest open comparison with Experiment results.
+- **Games:** the game's own Analytics (as under Games above) with Game on the segmented track (FRM-08), the games
+  not archived wrapping onto more lines; Open Games when there is none.
+- **Experiments:** the comparisons as chips (up to twelve, “Current · day 8”, “Paused · day 8”, “Ended 22 Sep”) and
+  All in Experiments; the heading with its status; Duration, Traffic, Primary metric and Assigned; each version's
+  panel with its steps; the verdict strip (`circle-pause` while the game is paused); the table — Metric · share of
+  assigned, the Reference column, then per version its rate, k of n, relative change and Evidence badge — the
+  primary row marked Primary on a sunken ground, scrolling sideways with Metric fixed; Conditional rates ·
+  secondary; the footnote with the thresholds.
+- **Retention:** the definition strip (“Retention counts a qualifying return: …”); New users, Returning users, Day 1,
+  Day 7 and Day 30; the chips; Registration cohorts with its legend and, on Last 30 days and every device, the line
+  that adds the cohorts up to New users; Retention by acquisition source and by originating game.
+- **Geography:** the strip on how a place is known, with the IP database's credit; Countries and cities with Sort,
+  the open country's cities under it, share bars, Other countries and Location unknown last.
+- **Journeys:** the search (“Look up a visitor_… or user_… ID”), “Admins only · lookups are logged”, Examples; the
+  journey's heading, the timeline (`x-admin.ui.timeline-item`) beside Attribution and Identity.
+- **Elements:** what the kit has no component for is the screen's own, under `resources/views/filament/pages/analytics`
+  and `…/experiments`, on `.rg-admin-analytics*` and `.rg-admin-experiments*` classes. The kit grew the icons the
+  screens ask for (`flask-conical`, `user-round`, `user-check`, `chart-no-axes-column`, `link-2`, `radio`,
+  `circle-pause` among them) and, for every Growth date, the date range field above. Text is sized only by the
+  `--rg-admin-text-*` tokens.
+- **Access:** an active administrator's who may manage traffic sources (`manage-traffic-sources`): the navigation
+  item, the page, every Livewire request — the drawers' included — and the actions ask. A moderator sees neither
+  Growth page.
+
+Deviations from the fifth delivery for Experiments and Analytics, each for the reason given:
+
+| Prototype | Built | Why |
+|---|---|---|
+| Experiment editor: Draft, Running, Paused, Completed; Setup, Variants, Audience, Goals, Results; Create and Duplicate; global search “Experiment · …” | not built; a period's results page instead | an experiment is a traffic period, set up on a game's Traffic tab; the editor rests on a default experience and a pause that sends everyone back to it, which the traffic model doesn't have |
+| Experiments list: Data from 1,000 visitors and 7 days; no paging | the application's bar — 10 confirmed accounts on every version, or 10 players who reached the goal for logged-in players; 50 a page | one rule for Experiments and the game's own Analytics |
+| A period's Group: the audience | the audience and a split's source and campaign; the general period beside a split reads “Everyone else” | the owner's splits for a source: each split is a comparison of its own |
+| Period view without a goal; “No single goal: compare the metrics side by side.” | plus Goal reached; “… The data badge follows accounts” (players who reached the goal) | every flow has a goal, and the badge needs a primary metric |
+| Breadcrumb “Growth › Experiments › {game}” | “Growth › Experiments”, the game and audience in the heading | the shell's breadcrumb is built from the navigation |
+| Delete period on any period | only on an ended one; the game's own tabs still list it | an open period is where visitors go now; the game's tabs are its record |
+| The navigation counts running experiments | the comparisons running now: open periods with two versions or more | there is no experiment of its own to run |
+| Analytics → Experiments: experiments X-1 to X-3, A/B only, always “Balanced”, an unpooled z-test from 400 visitors | comparison periods of two to four versions, each against the reference; the split checked (`SampleRatioCheck`); a pooled two-proportion test from 10 conversions on each side | what the application compares, by the bar it already uses |
+| Evidence: Strong, Ahead not sure yet | also “Behind, not sure yet” for a version trailing the reference, and No clear difference; a winner only on strong evidence, the reference itself when every other version is strongly behind | “ahead” for a trailing version would say the opposite of the figures |
+| Analytics → Experiments: Paused pauses the experiment | Paused is an open period of a paused game | there is no pause of its own |
+| In Growth → Games: Comparing V7 · V8 and Running experiments in the library, a data badge and Delete on the Traffic tab's periods, All in Experiments, a hidden period gone from the game's tabs | Results on each period of the Traffic tab and of Analytics' Traffic periods, nothing else | the Games screens change only by the way into Experiments |
+| Open in PostHog, Analytics integrations (PostHog, Umami, OpenPanel, GA4, ad spend imports), Session replays, Heatmaps, Paths, View session in PostHog, Blocked browser events | none; the Tracking card: Record visits, Record site visits, Send postbacks, the IP database, API connections, Visits recorded since | no outside analytics without a task of its own; every figure is the site's own |
+| 11 tabs | 10, without Email; no Users returning through email in Retention | the site sends no email, and delivery figures would need a mail provider's webhooks |
+| “…anything from an external tool is marked” | “Where visitors come from and what they do. RateGuru counts every figure here itself.” | there is no external figure |
+| Nothing | “Figures read … UTC” and Refresh | the slow tabs are kept for a few minutes, and the page says since when |
+| A two-month calendar, figures up to yesterday, the period kept across pages | the shared period picker: presets beside the range calendar (two months, one on a phone), taken at the second click; today included; the period in the address; at most 93 days | Analytics reads the visits themselves, with no totals kept aside |
+| Hidden Site and Language filters; Tablet; Demo data; € | none; mobile and desktop; $ | one deployment is one brand; a browser's language is kept 90 days; the owner's decisions; a prototype artefact |
+| Sources as “Name · medium” from a tag dictionary; Instagram and Google Ads found automatically by fbclid and gclid | a key of network and class of traffic — tagged and untagged traffic of a network one row, its paid traffic another (Google Ads beside Google); a paid source by its `rg_src` link; an unknown site by its domain, folded into Other referrals | a person counts once per source; a click ID without spend gives neither a price nor a postback |
+| A campaign silently wins over the source; the campaign list never narrows | both apply together; the list narrows to the source's campaigns; choosing another source drops a campaign that isn't its | a filter is never silently ignored |
+| A tab ignores a filter without saying so; Landings ignore the source and campaign, Geography the campaign | Games and Retention say so; Landings and Geography read every filter | honest filters; one population, by the session's entry |
+| Registration and activation of every visitor; “Rates use unique visitors”, “{x}% of visitors” | of new visitors; “Start rate uses visitors; registration and activation use new visitors”, “{x}% of new visitors”, “Registered · of new visitors” | a known visitor can't make a new account |
+| A registration rate marked below 4.5 % | below two thirds of the table's rate, from 30 new visitors | an absolute line depends on the site |
+| Funnel: Result viewers, Registration CTA clicks, Registration starts | Reached the goal, Saw the sign-up form, Signed up | the milestones a visit records |
+| Source rows add up to the total | a person in every source they came from; the total counts each person once | people, not visits |
+| Referral: share links generated, valid codes | Share clicks, Results shared, Visits from shared results and how far they went | shared links carry no code |
+| Data notes: consent, blocked events, duplicates, “Ad spend isn't connected” | Unattributed, Crawlers and previews, Pages that never ran, Spend — the spend no visit took included, as Traffic sources counts it | what the application records |
+| Demo chart markers | a version published, a paid campaign's first click, a comparison started (a split named by its scope); at most six | what is recorded |
+| The chart as the screen draws it | the screen's own bars (`rg-admin-analytics__bars`), as Translation AI's | the kit reference names no chart, and the frozen kit takes one only through a reviewed design change |
+| Advertising cost data with four modes; the ExoClick settings drawer | “Where spend comes from”, read only; Settings opens the source's editor | demo modes; a source's settings live in Traffic sources |
+| Segments only for ExoClick; ×1.25 and ×0.5 from 100 visitors | any paid source; Strong from 125 % and Block candidate at 50 % of the source's accounts per new visitor, Too little data below 100 new visitors or 10 accounts on the source; up to 20 segments of 8 conditions | every paid source can be sliced; a verdict needs both sides measured |
+| A game row's spend “Organic”; a campaign without spend “Organic” | the game's share of the spend; “Unpaid” | the prototype's mistake; Traffic sources' word, and an email is not organic |
+| A search campaign's creative is `utm_term` | `utm_content`, else `utm_term` | one level of creative |
+| Tracking links: five site paths and a games hub; an exact duplicate URL only warned; a Tracking link button in the game editor | the home feed, hot and top posts and each active category; a duplicate set of tags refused (“Another link already uses these tags: TL-12”); links made on the Tracking links tab | how the feed is built; one set of tags is one link's visits; the Games screens are unchanged |
+| Landings: Experience “Result First r3”, a site column, a static Too early, an A vs B card | “{flow} · V{n}” with notes from the periods, no site; Too early while none of the row's accounts has matured; the reference against each other version | flows have no revisions; one brand; a rule instead of a flag; a period has two to four versions |
+| Journeys: `visitor_8f31c2`, Consent, PostHog, “Variant A of Result Gate Test”, activation 7 minutes after signing up, a table of lookups | `visitor_` and 8 hex digits of the visitor hash, no Consent or PostHog, “Assigned V8 in the period from 08 Oct”, “Came back on day 3 and voted — activation rule met”, a log line per lookup | opaque IDs from the hash; no consent is asked; activation is an action on days 1 to 7 |
+| Site engagement: Vote cast before signing up, a Site column, five fixed sources in Compare, post figures for any period | no vote step, no Site, the six biggest sources, post figures for the last 90 days and “—” before | a vote needs an account; one brand; a browser's posts are kept 90 days |
+| Retention: fixed chips and sentences about Reddit and Instagram | the biggest sources and games as chips, sentences from the figures | honest wording |
+| Global search “Campaign · …”, “Journey · …”; breadcrumbs “Games › {game} › Analytics” | neither | Filament's global search doesn't search pages; each game has its own Analytics tab |
+
+
+### Traffic sources
+
+`TrafficSourcesPage` (`/admin/traffic-sources`, `megaphone`), for active administrators
+(`manage-traffic-sources`). The header band carries the period and the source filter; the tabs are Report,
+Campaigns, Value, Spend, Sources and Logs, each read once the page is in a browser. The top bar holds only
+Add source. Editors — a source, a campaign — are OVL-02 drawers with a draft saved by their footer. Sources →
+Tracking holds Record visits, then Record site visits as a row under it, off on a new installation and on only
+while Record visits is — what Growth → Analytics reads the whole site's visitors from, changing nothing on this
+page — and Send postbacks.
+
+Deviations from the fifth delivery, each for the reason given:
+
+| Prototype | Built | Why |
+|---|---|---|
+| Full Result: one "Action on the card" choice | sign-up and share switches kept, plus "Way on": next step, a post, the feed | the app already keeps them apart |
+| "Email the card" | not built | nothing is ever sent |
+| Go to Page → Games catalog | a feed category, a tag, a page of the site, another site | the site has no catalog |
+| Feeds Main / Top today / Newest | the site's sorts Newest / Top / Hot | that is how the feed sorts |
+| Post `/p/{id}-{slug}` | `/posts/{id}`, shown as `#id` | the site's own address |
+| ExoClick blocks sites by API | zones by API, sites by hand | the API cannot block a site |
+| Draft / Tracking only source states | no draft; "Tracking only" is an active network without rules | a state too many |
+| The report's period in calendar days | each network's own day, in its reporting time zone | the figures match the network's |
+| Country only in the report | country › city | the owner's decision |
+| Losing always judged | only once 30 accounts are measured on the site | otherwise the first weeks block everything |
+| Likely bots after 30 clicks, below one share of pages opened | from 100 clicks, below both the general share and a share of the source's own average (50 %), or below a floor whatever the average (5 %) | pop traffic opens the page far less often than banners, and a few dozen clicks say too little; below the floor a site can't pay back on pop prices |
+| Losing once the minimum spend or clicks are reached | not before 3 days after the site's first click in the rule's 30 days, and with a target price of an account (the campaign's, else the source's) once it has cost twice the target | an account takes days to confirm, and a target says what losing means for that traffic |
+| One block rule for every source | the general rule in Report → Worth blocking, and any threshold set for one network in its editor's Blocking pane, empty keeping the general one | sources differ too much for one line |
 
 ## Moderation
 
@@ -1672,7 +1900,7 @@ checks the files of the one asset it shows. The page keeps its route, its naviga
 | Translation AI recent calls | eight columns, a batch id under Generate missing, 20 a page, All / Failed | a Model column, no batch id, 25 a page, All / With issues | the call records its model and no batch; NAV-04's page size; a successful call with failed items has issues too |
 | Translation AI failures | one count per error type | failed calls and failed items side by side, item-only types without a pattern | one timeout of ten items is one failed call and ten failed items, and a refused translation is not an outage |
 | Translation AI systemic issue | a danger-tinted line in Failures and issues | the FBK-02 danger strip, outside a dialog | FBK-02 keeps danger for irreversible dialogs; the Translation AI reference draws an ongoing outage in it, and nothing else on the page is danger-toned |
-| Translation AI chart | bars drawn by the screen | the same, as the screen's own element | the kit reference names no chart, so none is a kit component; it becomes one, with a reference ID, when a second screen needs it |
+| Translation AI chart | bars drawn by the screen | the same, as the screen's own element | the kit reference names no chart, so none is a kit component; Analytics' Overview draws its own bars the same way (`rg-admin-analytics__bars`): with the kit frozen as Admin UI Kit v1, a chart shared by both would be a reviewed design change of its own |
 | Translation AI background generations and configuration | not in the prototype | a Background generations card and a folded Configuration and guardrails card | the technical monitoring the page is for, from the store and configuration that already exist |
 | Publications & plans figures | Total publications, Drafts, Scheduled, Published | Total plans, Drafts, With image, With author | the figures a plan's own row counts; what ran is the Action queue's |
 | Publications & plans columns and states | Date · launch, Comments; Scheduled, Publishing, Published, Plan running, Error; Open plan, Unschedule, View errors, View post | Image, Publication date and Last updated; the plan's own status — Draft, Approved, Running, Completed, Cancelled; Edit draft and Delete draft, or Open | how a plan runs is shown on its Publication step and in the Action queue; Unschedule is Stop remaining actions there, never back to a draft |
@@ -1695,8 +1923,9 @@ checks the files of the one asset it shows. The page keeps its route, its naviga
 | Crowd rounds | one vote is enough, and the reveal says how players picked | at least 10 votes each, and a gap between the shares only where the content set asks for one (both per content set); the reveal shows each post's share of upvotes on the site | a round needs a crowd that has decided; the site's votes are not the players' picks |
 | Result profiles | ranges in points, profiles of the game | ranges in matches, the points beside them; profiles of each content set | a range in matches cannot hold a score no player can reach, and a set's rounds decide its results |
 | Versions | Delete version | Retire and Restore | attempts and results keep their version |
-| Traffic periods | Hide a period, and a verdict on whether a period has enough data | neither | a period is the record of what visitors were given; no verdict is drawn from figures |
-| Game analytics | Device, Country and Source filters and breakdowns, Activated in 7 days, deltas against the previous period, PostHog links, figures for “playing now” and “better than X%” | Group, Period and Version; Version, Flow and Content set breakdowns; no deltas, no links out; the funnel in people, a replay no second start, with Sign-up begun before New account, by how it began | only what playing records is shown, and nothing estimated; a step of a funnel is a share of the one before only when both count the same thing |
+| Traffic periods | Hide a period, and a data badge, on the game's Traffic tab | neither there: each period is Current or Ended with Results, which opens it in Growth → Experiments; its data badge is on the game's Analytics periods and in Experiments, and Delete period there only hides it from Experiments | the game's tabs are the record of what visitors were given; comparing them is Experiments' |
+| Game analytics | a Source filter for the page, Activated in 7 days, PostHog links, figures for “playing now” and “better than X%” | Group, the period, Versions, Device and Country (or a country group), each figure against the window before; breakdowns by version, flow, content set, device, country or country group; a paid source chosen only on Versions on paid traffic; no Activated, no links out; the funnel in people, a replay no second start, with Sign-up begun before New account, by how it began | only what playing and the recorded visits record is shown, and nothing estimated; activation is read in Experiments and Analytics; a step of a funnel is a share of the one before only when both count the same thing |
+| Growth text sizes | raw sizes in Traffic sources, Experiments and Analytics (10.5, 12, 12.5 and 13px) | the FND-02 scale through the `--rg-admin-text-*` tokens by role — 14 cells and names, 13 notes, 11 uppercase headers and tile labels, 15 card titles, 20 figures; where the prototype's size for a role differs from the other pages', the other pages' | the admin reads as one product, and the raw sizes read smaller than every other page |
 | Game flow | Preview as Anonymous, Email known or Logged in, without a theme; the flow's revisions (r1, r2) and a Result card over the tab | Preview as Anonymous or Logged in, with Theme (Dark, Light); no revisions; results edited in Content | a visitor is either logged in, their email known, or anonymous until they sign in; a version keeps its own copy of the flow, and a set's results are saved with its rounds |
 | Game result screens | “Your result” over Result Preview and beside Full Result; the result's address on the card; Show agreement on the content set and on Full Result, with the agreement line under the card; the profile's description under the card | no “Your result”; no agreement; the description large above the card, on the result and on the page a share opens; the card names the player by their @username once they have an account, as the reference does, and the site by its domain otherwise, never the result's address; with Show partial score off, Result Preview's teaser on one line in the headline's place | the card's score already says how many picks matched, and the result opens with the profile's own words; an address cut short on a card is no use to anyone, and the share carries the link |
 | Game result sign-up | Full Result's sign-up for anonymous visitors: an email field with Continue with email, Google and Apple, Log in; sharing only after signing up; the Registration step a button and a log-in link | the email or Google / Facebook (those switched on) or Log in, then a name and one password with Show, sent as its own confirmation — the site's real registration, coming back to the game; Apple left out; sign-up above sharing, sharing still there; the same sign-up on the Registration step, under its title, with its own button and log-in link | the site registers with a name, an email and a confirmed password, and the screen is for getting the visitor an account quickly: one field first, two after, never four at once; the site has no Apple sign-in; hiding sharing would cost the shares of everyone who doesn't sign up |
