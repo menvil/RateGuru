@@ -104,6 +104,16 @@ it('keeps a postback when its rule is deleted, without the rule', function () {
     expect($postback->fresh()->rule_id)->toBeNull();
 });
 
+it('makes a postback for its conversion\'s source and event unless told another event', function () {
+    $conversion = TrafficConversion::factory()->create(['event' => TrafficEvent::Completed]);
+
+    expect(TrafficPostback::factory()->create(['conversion_id' => $conversion->id]))
+        ->source_id->toBe($conversion->source_id)
+        ->event->toBe(TrafficEvent::Completed)
+        ->and(TrafficPostback::factory()->create(['conversion_id' => $conversion->id, 'event' => TrafficEvent::Account])->event)->toBe(TrafficEvent::Account)
+        ->and(TrafficPostback::factory()->create()->event)->toBe(TrafficEvent::Started);
+});
+
 it('never lets a user or a game attempt go from under what names it', function () {
     $user = User::factory()->create();
     AccountAttribution::factory()->create(['user_id' => $user->id]);
