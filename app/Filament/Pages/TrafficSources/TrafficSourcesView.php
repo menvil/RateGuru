@@ -68,6 +68,7 @@ use App\Support\Traffic\Reports\ReportPeriod;
 use App\Support\Traffic\Reports\SignupFigures;
 use App\Support\Traffic\Reports\SiteZoneList;
 use App\Support\Traffic\Reports\TrafficReportFilter;
+use App\Support\Traffic\Spend\SpendHint;
 use App\Support\Traffic\Worth\Slice;
 use App\Support\Traffic\Worth\StepLabels;
 use App\Support\Traffic\Worth\StepWorth;
@@ -1666,7 +1667,8 @@ final class TrafficSourcesView
      * network's answer — milestones, clicks and blocking, newest first, fifty
      * to a page, with how many postbacks are failing, and each source by name.
      * A click, a milestone and a postback name their visitor by its journey
-     * ID (journey()), by the row's id — a postback's in its own row.
+     * ID (journey()), by the row's id — a postback's in its own row — and a
+     * click's spend says on hovering where it comes from (SpendHint).
      *
      * @return array<string, mixed>
      */
@@ -1681,6 +1683,7 @@ final class TrafficSourcesView
         };
         $failing = TrafficPostback::query()->where('status', TrafficPostbackStatus::Failed)->where('created_at', '>=', now()->subDays(7))->when($source !== null, fn ($query) => $query->where('source_id', $source))->count();
         $linked = GrowthAnalyticsPage::canAccess();
+        $byId = $sources->keyBy('id');
 
         return [
             'labels' => ['source_id' => self::named($sources->pluck('name', 'id'))],
@@ -1691,6 +1694,10 @@ final class TrafficSourcesView
                 'milestones' => collect($logPage->items())->mapWithKeys(fn (TrafficConversion $conversion): array => [$conversion->id => self::journey($conversion->visit?->visitor_hash, $linked)])->all(),
                 default => [],
             },
+            // Where each click's spend comes from, on hovering it, read from the click and its source's spend mode — no read of its own.
+            'spendHints' => $page->log === 'clicks'
+                ? collect($logPage->items())->mapWithKeys(fn (TrafficVisit $visit): array => [$visit->id => SpendHint::of($visit->spend_basis, (bool) $visit->spend_estimated, $visit->cost, $visit->spend, $byId->get($visit->source_id)?->spend_mode)])->all()
+                : [],
             'failing' => $failing,
             'tries' => count(PostbackSchedule::RETRY_AFTER) + 1,
         ];
