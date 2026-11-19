@@ -327,3 +327,19 @@ it('lets a failure reach the deploy command instead of reporting success', funct
 
     expect(fn () => $this->artisan('rateguru:translations:backfill')->run())->toThrow(RuntimeException::class, 'database unavailable');
 });
+
+it('records, from the deploy command, the English every stored translation stands beside', function () {
+    $category = untranslatedCategory('Welcome');
+    $category->update(['name_translations' => [$this->target => 'Willkommen']]);
+    $unit = "categories:{$category->id}:name";
+
+    $this->artisan('rateguru:translations:backfill')
+        ->expectsOutputToContain('Recorded the English of')
+        ->assertExitCode(0);
+
+    expect(translationSourceOf($unit, $this->target)['reference'])->toBe('Welcome');
+
+    $this->artisan('rateguru:translations:backfill')
+        ->expectsOutputToContain('Recorded the English of 0 project translations')
+        ->assertExitCode(0);
+});

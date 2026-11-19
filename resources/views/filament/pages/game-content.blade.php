@@ -91,7 +91,7 @@
     </div>
 
     @if ($picker !== null)
-        @include('filament.pages.games.content.picker')
+        @include('filament.pages.games.post-picker')
     @endif
 
     @if ($editing !== null)

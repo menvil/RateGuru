@@ -34,8 +34,9 @@ final class VotePostAction
      *
      * @param  CarbonImmutable|null  $createdAt  the date a new vote takes as its own — Content Studio's executor only,
      *                                           for a vote it has found not cast yet; never from a screen
+     * @return bool true when a vote was cast, false when one was taken back — as found under the lock
      */
-    public function handle(?User $user, Post $post, VoteType $type, ?CarbonImmutable $createdAt = null): void
+    public function handle(?User $user, Post $post, VoteType $type, ?CarbonImmutable $createdAt = null): bool
     {
         if ($user === null) {
             throw CannotVoteException::becauseGuest();
@@ -64,7 +65,7 @@ final class VotePostAction
             throw CannotVoteException::becauseRateLimited($e->getMessage(), $e->retryAfterSeconds());
         }
 
-        DB::transaction(function () use ($user, $post, $type, $createdAt) {
+        $cast = DB::transaction(function () use ($user, $post, $type, $createdAt): bool {
             // Lock order: Actor User -> Post -> child rows
             // (docs/architecture/user-lifecycle.md). The pre-checks above
             // ran on possibly stale instances — an admin sanction, author
@@ -108,8 +109,12 @@ final class VotePostAction
             // never locks its author after it.
             $this->recalculatePostCounters->fill($post->refresh());
             $this->recalculatePostScore->saveWithCounts($post);
+
+            return $existingVote === null;
         });
 
         $this->postListCache->invalidateForPost($post);
+
+        return $cast;
     }
 }

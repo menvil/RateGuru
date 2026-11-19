@@ -19,6 +19,12 @@
     ];
 
     $chipColor = $brandColors[$provider] ?? '#64748B';
+    // A provider the button links to directly, without the site's redirect (email), tells the tracker itself.
+    $tellsTracker = ! (\App\Enums\ShareProvider::tryFrom($provider)?->sharesThroughRedirect() ?? true);
+    $onClick = implode('; ', array_filter([
+        $tellsTracker ? "\$dispatch('rg-shared')" : null,
+        $takesPicture ? 'sharePicture($event)' : null,
+    ]));
 @endphp
 
 <a
@@ -28,8 +34,10 @@
     title="{{ $label }}"
     data-testid="share-{{ $provider }}"
     aria-label="{{ $label }}"
+    @if($onClick !== '')
+        x-on:click="{{ $onClick }}"
+    @endif
     @if($takesPicture)
-        x-on:click="sharePicture($event)"
         data-picture-copied="{{ __('sharing.picture_copied', ['provider' => $label]) }}"
         data-picture-open="{{ __('sharing.open_provider', ['provider' => $label]) }}"
     @endif

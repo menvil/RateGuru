@@ -6,6 +6,8 @@ use App\Enums\GameEventType;
 use App\Enums\UnconfirmedAccountPurgeOutcome;
 use App\Enums\UserStatus;
 use App\Enums\VoteType;
+use App\Models\AccountAttribution;
+use App\Models\AccountBrowser;
 use App\Models\Comment;
 use App\Models\CommentVote;
 use App\Models\GameAnswer;
@@ -16,7 +18,10 @@ use App\Models\PostVote;
 use App\Models\RatingVote;
 use App\Models\Report;
 use App\Models\SocialAccount;
+use App\Models\TrafficConversion;
+use App\Models\TrafficVisit;
 use App\Models\User;
+use App\Models\UserActivityDay;
 use App\Queries\Users\UnconfirmedAccountsQuery;
 use Illuminate\Auth\Notifications\VerifyEmail;
 
@@ -178,4 +183,42 @@ it('says in the confirmation mail that an unconfirmed account is deleted, and on
     $changed->forceFill(['email' => 'changed@example.com', 'email_verified_at' => null])->save();
 
     expect(renderedMail(new VerifyEmail, $changed)['body'])->not->toContain($expires);
+});
+
+it('lets go of what the tracker credited to an account that never confirmed, and keeps the visit it signed up on', function () {
+    $bot = unconfirmedMember();
+    $member = User::factory()->create();
+    $attempt = GameAttempt::factory()->create(['audience' => GameAudience::Authenticated, 'user_id' => $bot->id, 'visitor_hash' => null]);
+    $visit = TrafficVisit::factory()->create(['signup_at' => now()]);
+    $conversion = TrafficConversion::factory()->create(['visit_id' => $visit->id, 'attempt_id' => $attempt->id]);
+    AccountAttribution::factory()->create(['user_id' => $bot->id, 'credited_attempt_id' => $attempt->id, 'credited_visit_id' => $visit->id]);
+    $others = AccountAttribution::factory()->create(['user_id' => $member->id, 'credited_attempt_id' => $attempt->id]);
+    AccountBrowser::factory()->create(['user_id' => $bot->id]);
+    // Another account's play, and what was credited to it: none of the purged account's to let go of.
+    $kept = GameAttempt::factory()->create(['audience' => GameAudience::Authenticated, 'user_id' => $member->id, 'visitor_hash' => null]);
+    $keptConversion = TrafficConversion::factory()->create(['attempt_id' => $kept->id]);
+    $keptAttribution = AccountAttribution::factory()->create(['user_id' => User::factory(), 'credited_attempt_id' => $kept->id]);
+
+    expect(purgeUnconfirmed($bot))->toBe(UnconfirmedAccountPurgeOutcome::Purged)
+        ->and(AccountAttribution::query()->where('user_id', $bot->id)->exists())->toBeFalse()
+        ->and(AccountBrowser::query()->where('user_id', $bot->id)->exists())->toBeFalse()
+        ->and($others->fresh()->credited_attempt_id)->toBeNull()
+        ->and($conversion->fresh()->attempt_id)->toBeNull()
+        ->and($keptConversion->fresh()->attempt_id)->toBe($kept->id)
+        ->and($keptAttribution->fresh()->credited_attempt_id)->toBe($kept->id)
+        ->and($visit->fresh()->signup_at)->not->toBeNull()
+        ->and($visit->fresh()->account_at)->toBeNull();
+});
+
+it('leaves neither the days an account that never confirmed did something nor its activation', function () {
+    $bot = unconfirmedMember();
+    $member = User::factory()->create();
+    AccountAttribution::factory()->create(['user_id' => $bot->id, 'signed_up_at' => $bot->created_at, 'activated_at' => $bot->created_at->addDay()]);
+    UserActivityDay::factory()->create(['user_id' => $bot->id, 'day' => $bot->created_at->addDay()->format('Y-m-d')]);
+    UserActivityDay::factory()->create(['user_id' => $bot->id, 'day' => $bot->created_at->addDays(2)->format('Y-m-d'), 'day_number' => 2]);
+    $kept = UserActivityDay::factory()->create(['user_id' => $member->id]);
+
+    expect(purgeUnconfirmed($bot))->toBe(UnconfirmedAccountPurgeOutcome::Purged)
+        ->and(UserActivityDay::query()->pluck('id')->all())->toBe([$kept->id])
+        ->and(AccountAttribution::query()->where('user_id', $bot->id)->exists())->toBeFalse();
 });

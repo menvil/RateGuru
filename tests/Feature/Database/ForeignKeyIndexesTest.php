@@ -24,6 +24,16 @@ it('indexes the foreign keys that reads go through', function (string $table, ar
     'the posts with a picture' => ['posts', ['image_asset_id']],
     'the accounts with a picture' => ['users', ['avatar_asset_id']],
     'a tag\'s posts' => ['post_tag', ['tag_id']],
+    'the days an account did something' => ['user_activity_days', ['user_id', 'day']],
+    'the posts a visit opened' => ['traffic_visit_posts', ['visit_id', 'post_id']],
+    'a source’s splits of a game’s traffic' => ['game_traffic_periods', ['source_id']],
+    'a campaign’s splits of a game’s traffic' => ['game_traffic_periods', ['campaign_id']],
+    'a source’s segments' => ['traffic_segments', ['source_id', 'deleted_at']],
+    'the segments an administrator made' => ['traffic_segments', ['created_by_user_id']],
+    'the segments an administrator changed last' => ['traffic_segments', ['updated_by_user_id']],
+    'the tracking links to a game' => ['tracking_links', ['game_id']],
+    'the tracking links an administrator made' => ['tracking_links', ['created_by_user_id']],
+    'the tracking links an administrator changed last' => ['tracking_links', ['updated_by_user_id']],
 ]);
 
 it('drops the indexes it made on the way down, and makes them again on the way up', function () {

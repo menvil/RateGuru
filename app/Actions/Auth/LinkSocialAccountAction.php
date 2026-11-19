@@ -2,14 +2,17 @@
 
 namespace App\Actions\Auth;
 
+use App\Actions\Traffic\ConfirmAccountAttributionAction;
 use App\Data\Auth\SocialIdentity;
 use App\Exceptions\Auth\SocialAuthenticationException;
 use App\Models\Concerns\LocksActorForWrite;
 use App\Models\SocialAccount;
 use App\Models\User;
 use App\Notifications\SocialAccountConnectedNotification;
+use Carbon\CarbonImmutable;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
+use Throwable;
 
 /**
  * Attaches a provider identity to an existing account.
@@ -106,9 +109,21 @@ final class LinkSocialAccountAction
         });
 
         if ($account->wasRecentlyCreated) {
+            // Confirmed first: a repeat finds the link already there and would never confirm it.
+            $this->confirmNewAccount($user);
             $user->notify(new SocialAccountConnectedNotification($identity->provider, $identity->email));
         }
 
         return $account;
+    }
+
+    /** A provider linked confirms a new account, as signing up through it does. Reported, never thrown. */
+    private function confirmNewAccount(User $user): void
+    {
+        try {
+            app(ConfirmAccountAttributionAction::class)->handle((int) $user->id, CarbonImmutable::now());
+        } catch (Throwable $exception) {
+            report($exception);
+        }
     }
 }

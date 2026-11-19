@@ -3,6 +3,7 @@
 use App\Actions\Games\ChangeContentSetAction;
 use App\Actions\Games\CreateContentSetAction;
 use App\Actions\Games\SaveContentSetAction;
+use App\Actions\Translations\UpdateProjectTranslationAction;
 use App\Data\Games\ContentSetDraft;
 use App\Enums\GameOptionSource;
 use App\Exceptions\Games\CannotManageGameException;
@@ -10,7 +11,11 @@ use App\Models\GameContentSet;
 use App\Models\GameRound;
 use App\Models\GameVersion;
 use App\Models\MediaAsset;
+use App\Models\ProjectSettings;
+use App\Models\ProjectTranslationSource;
 use App\Models\User;
+use App\Support\Translations\Generation\ProjectTranslationSourceFingerprint;
+use App\Support\Translations\ProjectTranslationCatalog;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
@@ -163,6 +168,22 @@ it('renames or restores a set at the version its editor was drawn from, and refu
         ->and($set->fresh()->lock_version)->toBe(3);
 });
 
+it('writes nothing, the game included, when a set is renamed to the name it has', function () {
+    $draft = publishableGameDraft(1);
+    $game = $draft['game'];
+    $other = User::factory()->admin()->create();
+
+    expect(app(ChangeContentSetAction::class)->rename($other, $draft['set'], ' '.$draft['set']->name.' ', 1))->toBeFalse()
+        ->and($draft['set']->fresh()->lock_version)->toBe(1)
+        ->and($game->fresh()->lock_version)->toBe($game->lock_version)
+        ->and($game->fresh()->updated_by_user_id)->toBe($draft['admin']->id);
+
+    expect(app(ChangeContentSetAction::class)->rename($other, $draft['set'], 'Renamed', 1))->toBeTrue()
+        ->and($draft['set']->fresh()->lock_version)->toBe(2)
+        ->and($game->fresh()->lock_version)->toBe($game->lock_version + 1)
+        ->and($game->fresh()->updated_by_user_id)->toBe($other->id);
+});
+
 it('copies a set with its rounds, options and profiles', function () {
     $draft = publishableGameDraft(2);
 
@@ -200,3 +221,19 @@ it('lets only an administrator who may manage games change content', function ()
 
     app(SaveContentSetAction::class)->handle(User::factory()->moderator()->create(), $draft['set'], savedDraft($draft), $draft['set']->lock_version);
 })->throws(CannotManageGameException::class);
+
+it('carries what a round\'s translations were made from over to its copy, so an outdated one stays outdated', function () {
+    ProjectSettings::factory()->create();
+    [$target] = twoTranslatedLocales();
+    $draft = publishableGameDraft(1);
+    $round = $draft['set']->rounds()->first();
+    $round->forceFill(['question' => 'Which is cuter?'])->save();
+    app(UpdateProjectTranslationAction::class)->handle($draft['admin'], "game_rounds:{$round->id}:question", $target, 'Was ist süßer?');
+    $round->forceFill(['question' => 'Which is cuter, really?'])->save();
+
+    $copy = app(CreateContentSetAction::class)->handle($draft['admin'], $draft['game'], 'Quick', $draft['set']->id)->rounds()->first();
+    $unit = app(ProjectTranslationCatalog::class)->find("game_rounds:{$copy->id}:question");
+
+    expect(translationSourceOf("game_rounds:{$copy->id}:question", $target)['reference'])->toBe('Which is cuter?')
+        ->and(ProjectTranslationSourceFingerprint::isOutdated($unit, $target, ProjectTranslationSource::query()->where('unit_id', $unit->id)->where('locale', $target)->value('fingerprint')))->toBeTrue();
+});
