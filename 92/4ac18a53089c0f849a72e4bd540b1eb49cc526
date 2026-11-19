@@ -1,0 +1,146 @@
+app/Filament/Resources/Games/Pages/GameTraffic.php
+  s_4b9dc6ab6b25d3::t_b1678060d27d6a 279-280,289-290
+  s_4b9dc6ab6b25d3::t_f1a29b8ceca3b6 379-381
+  s_4b9dc6ab6b25d3::t_00fe1dad4ad3cc 397,400,404-407
+resources/views/components/admin/ui/date-time-field.blade.php
+  s_4b9dc6ab6b25d3::t_7e02500764a4bc 266
+  s_4b9dc6ab6b25d3::t_228f37a3a89d33 94-95,99
+resources/css/app.css
+  s_4b9dc6ab6b25d3::t_39043c78cffed7 998
+  s_4b9dc6ab6b25d3::t_8a8113bde8da2d 1013,1018-1021
+tests/Browser/AdminGamesBrowserTest.php
+  s_4b9dc6ab6b25d3::t_7097c52ce7cfec 188-216
+tests/Feature/Analytics/AnalyticsGamesTabTest.php
+  s_4b9dc6ab6b25d3::t_2e42e5dd477b26 109-110,116,119-120
+resources/views/filament/pages/experiments/period.blade.php
+  s_4b9dc6ab6b25d3::t_11544f86c8fc5c 46-48
+app/Filament/Resources/Games/Pages/GameValue.php
+  s_4b9dc6ab6b25d3::t_80c7b2cd91129b 145-146
+  s_4b9dc6ab6b25d3::t_31eac37090c85c 488
+  s_4b9dc6ab6b25d3::t_1213ceefe145e7 21
+  s_4b9dc6ab6b25d3::t_91da1e2d683b42 7
+  s_4b9dc6ab6b25d3::t_6218405f3de780 37
+  s_4b9dc6ab6b25d3::t_f249d22e0d15a8 205-207,209
+  s_4b9dc6ab6b25d3::t_c012c645709632 550
+docs/admin/games.md
+  s_4b9dc6ab6b25d3::t_1f40832c24ba99 138-139
+  s_4b9dc6ab6b25d3::t_6ce2adf327fdd9 136-137
+  s_4b9dc6ab6b25d3::t_26fe024279a2cf 140-141
+  s_4b9dc6ab6b25d3::t_caf0a40b3f0be9 154-157
+  s_4b9dc6ab6b25d3::t_1c3f8ce4474533 167-171
+  s_4b9dc6ab6b25d3::t_89ef653df7c69b 150-153
+tests/Feature/Games/Admin/GameAnalyticsPageTest.php
+  s_4b9dc6ab6b25d3::t_074361b196c541 101,104
+  s_4b9dc6ab6b25d3::t_d2bc2fd648bdf7 151-174
+  s_4b9dc6ab6b25d3::t_5ba5b1bd104783 532-533
+  s_4b9dc6ab6b25d3::t_296fb9b5baf067 288-299
+  s_4b9dc6ab6b25d3::t_d8cb008f6fbe72 543-546
+  s_4b9dc6ab6b25d3::t_c29fb0282d933e 217
+  s_4b9dc6ab6b25d3::t_3e4be2bada4321 510-517,524
+  s_4b9dc6ab6b25d3::t_de4c0aece45498 18
+  s_4b9dc6ab6b25d3::t_43209fd174eff4 493,496
+  s_4b9dc6ab6b25d3::t_08057e3190db43 215-216,218
+  s_4b9dc6ab6b25d3::t_59ab709b13fca2 300-301
+app/Filament/Resources/Games/Pages/EditGameFlow.php
+  s_4b9dc6ab6b25d3::t_77b1cecd3c033e 634
+  s_4b9dc6ab6b25d3::t_60ff403ae0d693 710-712
+  s_4b9dc6ab6b25d3::t_aacd4924cd679b 675-676
+  s_4b9dc6ab6b25d3::t_1a86d9104f57f5 618
+  s_4b9dc6ab6b25d3::t_7f714ba92127fb 654-655,658,661
+  s_4b9dc6ab6b25d3::t_2457d410f0d301 700-705,709,713-720
+resources/views/filament/pages/games/flow/choice.blade.php
+  s_4b9dc6ab6b25d3::t_103cfac4a80a66 9
+tests/Browser/GameTrafficSplitsBrowserTest.php
+  s_4b9dc6ab6b25d3::t_b98c7454749011 21
+  s_4b9dc6ab6b25d3::t_0c62457b16b2f4 22-23
+  s_4b9dc6ab6b25d3::t_dc88cd2f28eef9 67-73
+tests/Feature/Games/Admin/GameValuePageTest.php
+  s_4b9dc6ab6b25d3::t_4af4d26539e737 241-242,249-250,254
+  s_4b9dc6ab6b25d3::t_485d8bf4f71d1f 110-122
+  s_4b9dc6ab6b25d3::t_9e2234b2c08c3a 214-240,243-248,251-253,255-256
+  s_4b9dc6ab6b25d3::t_aeb7bc9695098a 3,5,10,12-13
+tests/Feature/Games/Admin/ExperimentsSplitLabelsTest.php
+  s_4b9dc6ab6b25d3::t_73268d85b9c6c2 67-70
+  s_4b9dc6ab6b25d3::t_eec92ed19fc664 59,64-66,72-75
+docs/admin/experiments.md
+  s_4b9dc6ab6b25d3::t_67e9865c024c65 50-51
+resources/views/filament/pages/elements/period-picker.blade.php
+  s_4b9dc6ab6b25d3::t_a33d23e1292e1a 32
+  s_4b9dc6ab6b25d3::t_aa89c3fa745294 8-9
+  s_4b9dc6ab6b25d3::t_9fa4e1f0ce182b 72
+  s_4b9dc6ab6b25d3::t_2bce55b782329f 31
+tests/Browser/AdminAnalyticsBrowserTest.php
+  s_4b9dc6ab6b25d3::t_eb590e2174aa8b 168-182
+resources/css/filament/admin/components.css
+  s_4b9dc6ab6b25d3::t_98cc278d269a1e 13294-13298
+  s_4b9dc6ab6b25d3::t_a569f0fadeb0c8 9490-9492
+  s_4b9dc6ab6b25d3::t_8edecd83759817 17701-17708
+  s_4b9dc6ab6b25d3::t_459687817ca976 13670-13679
+tests/Feature/ViewComponents/AdminUiComponentsTest.php
+  s_4b9dc6ab6b25d3::t_6e9a1c4edd37be 676-697
+resources/views/filament/pages/games/flow/goal.blade.php
+  s_4b9dc6ab6b25d3::t_592d8042748a49 5-11,16-43,52,55-70,73
+  s_4b9dc6ab6b25d3::t_124a03f3f43529 95-97
+resources/views/filament/pages/games/analytics/cards.blade.php
+  s_4b9dc6ab6b25d3::t_10cb4567c85ab1 162
+tests/Feature/Games/Admin/GameTrafficSplitsPageTest.php
+  s_4b9dc6ab6b25d3::t_28f53e5d70afa7 167-189
+  s_4b9dc6ab6b25d3::t_07f28875f459fe 190-204
+app/Filament/Resources/Games/Analytics/GameAnalyticsView.php
+  s_4b9dc6ab6b25d3::t_e97daac882a18d 856-860,866-867
+  s_4b9dc6ab6b25d3::t_74a8c656f003f9 107-110
+  s_4b9dc6ab6b25d3::t_2a34fae2863a9b 259
+  s_4b9dc6ab6b25d3::t_d045c86a9151ad 242-243
+  s_4b9dc6ab6b25d3::t_dbeb65527229b7 258
+tests/Feature/Queries/GameMetricsQueryTest.php
+  s_4b9dc6ab6b25d3::t_78f9cbe3ff1296 237-258
+app/Filament/Pages/Experiments/ExperimentsView.php
+  s_4b9dc6ab6b25d3::t_457d4c3a611ee3 166-168
+  s_4b9dc6ab6b25d3::t_3662d2c5d2694a 181,184
+resources/views/filament/pages/games/flow/settings.blade.php
+  s_4b9dc6ab6b25d3::t_19d06f2328e692 156
+  s_4b9dc6ab6b25d3::t_ac7da94bd32330 99
+tests/Feature/Games/Admin/ExperimentsPageTest.php
+  s_4b9dc6ab6b25d3::t_3223e1f9906793 141-143
+  s_4b9dc6ab6b25d3::t_a869e71614fd66 136-140,144,148,151,153-155
+  s_4b9dc6ab6b25d3::t_2219fe44f42ba9 145-147
+  s_4b9dc6ab6b25d3::t_76a6ed5f991d12 16-17
+tests/Browser/AdminTrafficSourcesBrowserTest.php
+  s_4b9dc6ab6b25d3::t_be5b194e0cc598 25-27
+  s_4b9dc6ab6b25d3::t_1c2e2489300aeb 303-317,319-325
+  s_4b9dc6ab6b25d3::t_bbcac404371855 5
+  s_4b9dc6ab6b25d3::t_adfca000e6b114 318
+resources/views/filament/pages/game-preview.blade.php
+  s_4b9dc6ab6b25d3::t_01db77b3ba28d3 133-137
+app/Queries/Games/GameMetricsQuery.php
+  s_4b9dc6ab6b25d3::t_56d8a4faf138f7 174-192
+  s_4b9dc6ab6b25d3::t_0845e1b9993311 34
+resources/views/filament/pages/traffic-sources/campaigns.blade.php
+  s_4b9dc6ab6b25d3::t_abff3023123bd6 63-67
+app/Filament/Resources/Games/Analytics/ReadsGameAnalytics.php
+  s_4b9dc6ab6b25d3::t_1a1159836ea6eb 56-58
+  s_4b9dc6ab6b25d3::t_05d7b475ff47b8 8
+  s_4b9dc6ab6b25d3::t_79fd79679e5e9e 38
+docs/architecture/games.md
+  s_4b9dc6ab6b25d3::t_15116e85907df5 355-358
+tests/Feature/Games/Admin/GameFlowGoalPageTest.php
+  s_4b9dc6ab6b25d3::t_40e1dfebde87df 34
+  s_4b9dc6ab6b25d3::t_f8ec0ad6b4d2b2 48-58
+  s_4b9dc6ab6b25d3::t_678b18bce0619a 97-105
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "924ac18a53089c0f849a72e4bd540b1eb49cc526",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
