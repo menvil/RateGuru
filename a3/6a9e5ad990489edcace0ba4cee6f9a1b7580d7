@@ -1,0 +1,31 @@
+tests/Feature/Database/ProjectTranslationSourcesTableTest.php
+  s_4b9dc6ab6b25d3::t_c35384eff47c71 14-20,27-28
+database/factories/TrafficPostbackFactory.php
+  s_4b9dc6ab6b25d3::t_7a913057e6ab62 22
+tests/Feature/Database/GameGoalColumnsTest.php
+  s_4b9dc6ab6b25d3::t_92ff279c0ce10a 43-52
+  s_4b9dc6ab6b25d3::t_b2c8f3b7f4abe4 9-10,12,17-21
+tests/Feature/Database/GameTrafficPeriodScopeColumnsTest.php
+  s_4b9dc6ab6b25d3::t_14ed4410b36e37 81-84,86-87
+database/migrations/2026_11_17_100000_add_goal_to_game_flows_and_versions.php
+  s_4b9dc6ab6b25d3::t_70fc5ce13592be 60-64,68-72
+  s_4b9dc6ab6b25d3::t_e964eeb8c03e98 12-15,24,36-37
+tests/Feature/Database/TrafficTablesTest.php
+  s_4b9dc6ab6b25d3::t_7b80202b7f8664 107-116
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "a36a9e5ad990489edcace0ba4cee6f9a1b7580d7",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
