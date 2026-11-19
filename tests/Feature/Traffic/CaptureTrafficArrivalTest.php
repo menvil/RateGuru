@@ -3,8 +3,11 @@
 use App\Actions\Traffic\RecordPaidClickAction;
 use App\Enums\TrafficCampaignStatus;
 use App\Enums\TrafficChannel;
+use App\Enums\TrafficCostUnit;
 use App\Enums\TrafficDevice;
 use App\Enums\TrafficSourceStatus;
+use App\Enums\TrafficSpendBasis;
+use App\Enums\TrafficSpendMode;
 use App\Http\Middleware\CaptureTrafficArrival;
 use App\Models\GameResultProfile;
 use App\Models\Post;
@@ -157,6 +160,27 @@ it('passes a click no browser has run yet to the browser that asks for it, and k
 
     expect(TrafficVisit::query()->sole()->visitor_hash)->toBe(browserHashOf('personApersonApersonApersonApersonAperso'));
 });
+
+it('prices a click passed to another browser for the device that took it, and leaves a spend taken from a day’s figures as it is', function (?string $allocated, string $spend, TrafficSpendBasis $basis) {
+    $this->source->forceFill(['spend_mode' => TrafficSpendMode::Rate, 'rate_desktop' => '0.002', 'rate_mobile' => '0.005', 'rate_unit' => TrafficCostUnit::Click])->save();
+    clickOn('/games/'.$this->slug.'?rg_src=exo&cid=tag-x', 'prefetchprefetchprefetchprefetchprefetch');
+
+    expect(TrafficVisit::query()->sole())->device->toBe(TrafficDevice::Desktop)->spend->toBe('0.00200000');
+
+    if ($allocated !== null) {
+        TrafficVisit::query()->update(['spend' => $allocated, 'spend_basis' => TrafficSpendBasis::Api->value, 'spend_estimated' => false]);
+    }
+
+    clickOn('/games/'.$this->slug.'?rg_src=exo&cid=tag-x', 'personApersonApersonApersonApersonAperso', [
+        'User-Agent' => 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1',
+        'Sec-CH-UA-Mobile' => '?1',
+    ]);
+
+    expect(TrafficVisit::query()->sole())->device->toBe(TrafficDevice::Mobile)->spend->toBe($spend)->spend_basis->toBe($basis);
+})->with([
+    'priced as it came' => [null, '0.00500000', TrafficSpendBasis::Rate],
+    'from the network’s figures' => ['0.010', '0.01000000', TrafficSpendBasis::Api],
+]);
 
 it('records the clicks of a paused source too, and nothing for a key no source has', function () {
     $this->source->forceFill(['status' => TrafficSourceStatus::Paused])->save();
@@ -454,7 +478,10 @@ it('draws the page whatever goes wrong while recording the click', function () {
 });
 
 it('records nothing for a HEAD request', function () {
-    $this->call('HEAD', '/games/'.$this->slug.'?rg_src=exo&cid=tag-12');
+    $this->withCookie((string) config('games.visitor_cookie.name'), 'browserAbrowserAbrowserAbrowserAbrowserA')
+        ->withHeaders(['User-Agent' => DESKTOP_CHROME_USER_AGENT, 'Accept-Language' => 'en-GB', 'Sec-CH-UA' => '"Chromium";v="131"'])
+        ->call('HEAD', '/games/'.$this->slug.'?rg_src=exo&cid=tag-12')
+        ->assertOk();
 
     expect(TrafficVisit::query()->count())->toBe(0);
 });

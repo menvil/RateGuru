@@ -31,6 +31,7 @@ use App\Models\User;
 use App\Support\Traffic\Blocking\BlockRule;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
+use Illuminate\Validation\ValidationException;
 use Livewire\Livewire;
 
 beforeEach(function () {
@@ -159,6 +160,15 @@ it('never keeps site visits on with Record visits off, whatever it is sent', fun
 
     expect($settings->fresh()->site_capture_enabled)->toBeFalse()
         ->and(TrafficSetting::captureFlags())->toBe(['capture' => false, 'site' => false]);
+});
+
+it('refuses a blank IP database edition, keeping the one saved', function () {
+    $before = TrafficSetting::current()->geo_edition;
+
+    expect(fn () => app(SaveTrafficSettingsAction::class)->handle($this->admin, ['geo_edition' => ''], TrafficSetting::current()->lock_version))
+        ->toThrow(fn (ValidationException $exception) => expect($exception->errors())->toHaveKey('geo_edition'));
+
+    expect(TrafficSetting::current()->geo_edition)->toBe($before);
 });
 
 it('gives a paid source its own account price on Value, beside what its accounts brought, saved with the prices', function () {

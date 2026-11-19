@@ -11,6 +11,7 @@ use App\Models\TrafficPriceSet;
 use App\Models\TrafficSource;
 use App\Models\TrafficStepValue;
 use App\Models\TrafficVisit;
+use App\Queries\Traffic\GameWorthQuery;
 use Livewire\Livewire;
 
 beforeEach(function () {
@@ -46,6 +47,32 @@ it('works a step out per slice, says what the slice stands on, and shows a new v
         ->set('device', 'mobile')
         ->assertSee('Only 12 confirmed accounts in '.$game->title.' · mobile (fewer than 30)')
         ->assertSee('$0.040');
+});
+
+it('counts a new visitor’s worth on the tab at the share of the country groups its visitors came from, as the steps do', function () {
+    $game = $this->draft['game'];
+    TrafficPriceSet::factory()->create(['country_groups' => [
+        ['key' => 't1', 'name' => 'Tier 1', 'percent' => 100, 'countries' => ['US']],
+        ['key' => 'rest', 'name' => 'Every other country', 'percent' => 30, 'countries' => []],
+    ]]);
+    // Every visitor counted came from the 30 % group.
+    finishedChanceRun([
+        'g'.$game->id => ['opened' => ['chance' => 0.1, 'visitors' => 200]],
+        'g'.$game->id.'|k:rest' => ['opened' => ['chance' => 0.1, 'visitors' => 200]],
+    ]);
+    $worth = app(GameWorthQuery::class);
+    $badge = fn (string $value): Closure => fn (array $header): bool => collect($header['tabs'])->firstWhere('key', 'value')['badge'] === $value;
+
+    // $0.50 an account × 10 % × 30 %.
+    expect((string) $worth->visitor($game))->toBe((string) $worth->slice($game, $worth->rounds($game))['steps']['opened']['value'])
+        ->and((string) $worth->visitor($game))->toBe('0.01500000');
+    Livewire::test(GameValue::class, ['record' => $game->id])->assertViewHas('header', $badge('$0.015'));
+
+    // A run that counted no visitor in any group gives the full share.
+    finishedChanceRun(['g'.$game->id => ['opened' => ['chance' => 0.1, 'visitors' => 200]]]);
+
+    expect((string) $worth->visitor($game))->toBe('0.05000000');
+    Livewire::test(GameValue::class, ['record' => $game->id])->assertViewHas('header', $badge('$0.050'));
 });
 
 it('sets a step’s value by hand in place, and goes back to the worked-out value', function () {

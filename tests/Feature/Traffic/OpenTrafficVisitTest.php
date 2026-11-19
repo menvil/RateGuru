@@ -2,6 +2,7 @@
 
 use App\Actions\Traffic\MarkTrafficVisitAction;
 use App\Actions\Traffic\RevalueOpenVisitsAction;
+use App\Enums\GameFlowStepType;
 use App\Enums\GameStatus;
 use App\Enums\TrafficChannel;
 use App\Enums\TrafficEvent;
@@ -17,9 +18,13 @@ use App\Models\TrafficVisitDetail;
 use App\Models\User;
 use App\Queries\Traffic\TrafficChanceSampleQuery;
 use App\Services\Traffic\TrafficVisitWorth;
+use App\Support\Games\Flow\GameFlowRunner;
+use App\Support\Games\Play\GameSessionAttempts;
 use App\Support\Traffic\Capture\ArrivalToken;
 use App\Support\Traffic\Capture\TrafficArrival;
 use Carbon\CarbonImmutable;
+use Illuminate\Database\Events\QueryExecuted;
+use Illuminate\Support\Facades\DB;
 use Livewire\Livewire;
 
 /**
@@ -132,13 +137,28 @@ it('records nothing for a crawler, for a token of another browser, or while reco
     expect(TrafficVisit::query()->count())->toBe(0);
 });
 
-it('opens the visit of a paused game, and of a resumed attempt', function () {
+it('opens the visit of a paused game', function () {
     $visit = TrafficVisit::factory()->create(['visitor_hash' => browserHashOf(OPEN_TOKEN)]);
     $this->game->forceFill(['status' => GameStatus::Paused])->save();
 
     arrivedAt($this->game->slug, ['visit' => $visit->id])->call('init');
 
     expect($visit->fresh()->opened_at)->not->toBeNull();
+});
+
+it('opens the visit of a resumed attempt', function () {
+    $attempt = GameAttempt::factory()->create([
+        'version_id' => $this->version->id,
+        'visitor_hash' => browserHashOf(OPEN_TOKEN),
+        'current_step_key' => GameFlowRunner::ofType($this->version->read()->flowSteps(), GameFlowStepType::Game)?->key,
+    ]);
+    GameSessionAttempts::remember(session()->driver(), $attempt->public_id);
+    $visit = TrafficVisit::factory()->create(['visitor_hash' => browserHashOf(OPEN_TOKEN)]);
+
+    $page = arrivedAt($this->game->slug, ['visit' => $visit->id])->call('init');
+
+    expect($page->get('attemptId'))->toBe($attempt->public_id)
+        ->and($visit->fresh()->opened_at)->not->toBeNull();
 });
 
 it('takes the arrival token from the page, so the layout prints none', function () {
@@ -155,6 +175,27 @@ it('opens the paid click holding the browser on the first page that runs, when i
     expect($held->fresh()->opened_at)->not->toBeNull()
         ->and($held->fresh()->game_id)->toBe($this->game->id)
         ->and(TrafficVisit::query()->count())->toBe(1);
+});
+
+it('never takes from the paid click holding the browser the game another tab gave it meanwhile, though it sees it again', function () {
+    $other = publishableGameDraft();
+    liveGame($other);
+    $held = TrafficVisit::factory()->create(['visitor_hash' => browserHashOf(OPEN_TOKEN), 'arrived_at' => now()->subMinutes(5), 'last_seen_at' => now()->subMinutes(5), 'holds_until' => now()->addDays(7), 'opened_at' => now()->subMinutes(5)]);
+    $page = arrivedAt($this->game->slug, ['channel' => 'direct', 'slug' => $this->game->slug]);
+
+    // Another tab opens the other game just after this page read the click, still without a game.
+    $given = false;
+    DB::listen(function (QueryExecuted $query) use (&$given, $held, $other): void {
+        if (! $given && str_starts_with(strtolower($query->sql), 'select') && str_contains($query->sql, 'holds_until')) {
+            $given = true;
+            DB::table('traffic_visits')->where('id', $held->id)->update(['game_id' => $other['game']->id]);
+        }
+    });
+    $page->call('init');
+
+    expect($given)->toBeTrue()
+        ->and($held->fresh())->game_id->toBe($other['game']->id)->version_id->toBeNull()
+        ->last_seen_at->toDateTimeString()->toBe('2026-11-17 12:00:00');
 });
 
 it('begins a session with the visit itself, keyed by where it came from and the page it landed on', function () {
@@ -258,6 +299,30 @@ it('continues the session of the visit seen last, after a reload made an earlier
         ->and($next->game_id)->toBe($third['game']->id)
         ->and($next->entry_visit_id)->toBe($google->id)
         ->and($next->source_key)->toBe('google:organic');
+});
+
+it('takes a game reached inside the site for the session’s own visit to it, though another session visited it since', function () {
+    $other = publishableGameDraft();
+    liveGame($other);
+
+    pageRuns('/games/'.$this->game->slug, ['Referer' => 'https://www.google.com/']);
+    CarbonImmutable::setTestNow('2026-11-17 12:02:00');
+    pageRuns('/games/'.$other['game']->slug, ['Referer' => url('/games/'.$this->game->slug)]);
+    // A session from Reddit on the other game, then the search results again: a reload of the first visit.
+    CarbonImmutable::setTestNow('2026-11-17 12:04:00');
+    pageRuns('/games/'.$other['game']->slug, ['Referer' => 'https://www.reddit.com/']);
+    CarbonImmutable::setTestNow('2026-11-17 12:06:00');
+    pageRuns('/games/'.$this->game->slug, ['Referer' => 'https://www.google.com/']);
+    CarbonImmutable::setTestNow('2026-11-17 12:08:00');
+    pageRuns('/games/'.$other['game']->slug, ['Referer' => url('/games/'.$this->game->slug)]);
+
+    $visits = TrafficVisit::query()->orderBy('id')->get();
+
+    expect($visits)->toHaveCount(3)
+        ->and($visits[1]->entry_visit_id)->toBe($visits[0]->id)
+        ->and($visits[1]->last_seen_at->toDateTimeString())->toBe('2026-11-17 12:08:00')
+        ->and($visits[2]->source_key)->toBe('reddit:organic')
+        ->and($visits[2]->last_seen_at->toDateTimeString())->toBe('2026-11-17 12:04:00');
 });
 
 it('begins a session from a search on a page first reached inside the site, never taking it for a reload', function () {

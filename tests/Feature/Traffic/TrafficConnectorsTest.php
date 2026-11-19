@@ -20,6 +20,7 @@ use App\Models\TrafficSpendDay;
 use App\Models\TrafficVisit;
 use App\Models\User;
 use Carbon\CarbonImmutable;
+use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
@@ -70,6 +71,17 @@ it('refuses an ExoClick account that isn’t in dollars, and a token that needs 
 
     expect(fn () => app(ConnectTrafficApiAction::class)->connect($this->admin, $exo, ['api_token' => 't']))->toThrow(CannotManageTrafficException::class, 'isn’t in US dollars')
         ->and(fn () => app(ConnectTrafficApiAction::class)->connect($this->admin, $exo, ['api_token' => 't']))->toThrow(CannotManageTrafficException::class, 'second sign-in step');
+});
+
+it('refuses an ExoClick account whose answer doesn’t say its currency', function () {
+    $exo = TrafficSource::factory()->create(['connector' => TrafficConnector::ExoClick]);
+    Http::fake([
+        'api.exoclick.com/v2/login' => Http::response(['token' => 's1', 'type' => 'Bearer', 'expires_in' => 3600]),
+        'api.exoclick.com/v2/user' => Http::response(['result' => ['username' => 'exo']]),
+    ]);
+
+    expect(fn () => app(ConnectTrafficApiAction::class)->connect($this->admin, $exo, ['api_token' => 't']))->toThrow(CannotManageTrafficException::class);
+    expect(TrafficApiConnection::query()->count())->toBe(0);
 });
 
 it('reads a day of PopAds spend for the campaigns RateGuru saw, and the campaigns’ own details', function () {
@@ -131,6 +143,20 @@ it('reads the campaigns’ own details on every turn, five minutes apart, and th
         ->and(TrafficSpendDay::query()->where('network_day', '2026-11-16')->sole())->id->toBe($fact->id)->allocated_at->not->toBeNull();
 });
 
+it('reads every day back to the one before yesterday before it stops reading back', function () {
+    $connection = TrafficApiConnection::factory()->create(['source_id' => $this->popads->id, 'next_sync_at' => now(), 'backfill_cursor' => '2026-11-14']);
+    TrafficCampaign::factory()->create(['source_id' => $this->popads->id, 'external_id' => '881204']);
+    Http::fake(fn (Request $request) => str_contains($request->url(), 'report_advertiser') ? Http::response(['rows' => []]) : Http::response(['data' => []]));
+
+    app(SyncTrafficNetworkAction::class)->handle($connection, CarbonImmutable::now());
+
+    foreach (['2026-11-14', '2026-11-15'] as $day) {
+        Http::assertSent(fn (Request $request): bool => str_contains($request->url(), 'report_advertiser') && ($request->data()['start'] ?? null) === $day.' 00:00');
+    }
+
+    expect($connection->fresh()->backfill_cursor)->toBeNull();
+});
+
 it('leaves out a campaign PopAds doesn’t know, and an archived one, without failing the sync', function () {
     $connection = TrafficApiConnection::factory()->create(['source_id' => $this->popads->id, 'next_sync_at' => now(), 'backfill_cursor' => null]);
     $known = TrafficCampaign::factory()->create(['source_id' => $this->popads->id, 'external_id' => '881204']);
@@ -162,6 +188,44 @@ it('waits longer after each failure, and asks for the administrator when the key
 
     app(SyncTrafficNetworkAction::class)->handle($connection->fresh(), CarbonImmutable::now());
     expect($connection->fresh())->status->toBe(TrafficConnectionStatus::NeedsAttention)->last_error->toBe('auth');
+});
+
+it('leaves a connection reconnected during a turn as it was reconnected, whatever the old turn met', function () {
+    $connection = TrafficApiConnection::factory()->create(['source_id' => $this->popads->id, 'next_sync_at' => now(), 'failures' => 2, 'last_error' => 'unavailable', 'backfill_cursor' => null]);
+    TrafficCampaign::factory()->create(['source_id' => $this->popads->id]);
+    $reconnected = false;
+    Http::fake(function () use ($connection, &$reconnected) {
+        if (! $reconnected) {
+            $reconnected = true;
+            TrafficApiConnection::query()->find($connection->id)->forceFill(['credentials' => ['api_key' => 'new-key'], 'status' => TrafficConnectionStatus::Connected, 'failures' => 0, 'last_error' => null, 'backfill_cursor' => '2026-10-18'])->save();
+        }
+
+        // The old key, refused.
+        return Http::response('', 403);
+    });
+
+    app(SyncTrafficNetworkAction::class)->handle($connection, CarbonImmutable::now());
+
+    expect($connection->fresh())->status->toBe(TrafficConnectionStatus::Connected)->failures->toBe(0)->last_error->toBeNull()->backfill_cursor->toBe('2026-10-18')
+        ->and($connection->fresh()->credentials)->toBe(['api_key' => 'new-key']);
+});
+
+it('leaves a connection disconnected during a turn disconnected', function () {
+    $connection = TrafficApiConnection::factory()->create(['source_id' => $this->popads->id, 'next_sync_at' => now(), 'backfill_cursor' => null]);
+    TrafficCampaign::factory()->create(['source_id' => $this->popads->id, 'external_id' => '881204']);
+    $disconnected = false;
+    Http::fake(function (Request $request) use (&$disconnected) {
+        if (! $disconnected) {
+            $disconnected = true;
+            app(ConnectTrafficApiAction::class)->disconnect($this->admin, $this->popads);
+        }
+
+        return str_contains($request->url(), 'report_advertiser') ? Http::response(['rows' => []]) : Http::response(['data' => []]);
+    });
+
+    app(SyncTrafficNetworkAction::class)->handle($connection, CarbonImmutable::now());
+
+    expect($connection->fresh())->status->toBe(TrafficConnectionStatus::Disconnected)->credentials->toBeNull()->next_sync_at->toBeNull();
 });
 
 it('asks for the key again when it can no longer be read', function () {
@@ -199,6 +263,99 @@ it('queues blocks for the network, applies them by rewriting the exclusion list,
         ->and(TrafficBlockEvent::query()->where('kind', 'applied')->sole())->ok->toBeTrue()->note->toBe('1 of 1 campaigns');
 });
 
+it('fails a PopAds block the network’s answer doesn’t show, reading the list back when the answer has none', function () {
+    TrafficApiConnection::factory()->create(['source_id' => $this->popads->id, 'next_sync_at' => now()->addHour()]);
+    TrafficCampaign::factory()->create(['source_id' => $this->popads->id, 'external_id' => '881204']);
+    $reads = 0;
+    Http::fake(function (Request $request) use (&$reads) {
+        if ($request->method() === 'POST') {
+            return Http::response(['result' => '2']);
+        }
+
+        $reads++;
+
+        // The read back holds one of the two sites queued.
+        return Http::response(['mode' => 'global', 'global_mode' => 'exclude', 'global_id' => 7, 'global_items' => $reads === 1 ? ['111'] : ['111', '40123']]);
+    });
+
+    app(BlockTrafficRefsAction::class)->block($this->admin, $this->popads, TrafficBlockLevel::Site, ['40123', '40124'], null, true);
+    $this->artisan('traffic:sync-networks')->assertSuccessful();
+
+    expect($reads)->toBe(2)
+        ->and(TrafficBlock::query()->pluck('network_state')->unique()->all())->toBe([TrafficBlockNetworkState::Failed]);
+    Http::assertSent(fn (Request $request): bool => $request->method() === 'POST' && str_contains($request->url(), '/api/website_targeting/7'));
+});
+
+it('blocks ExoClick zones by rewriting the campaign’s list with the zones it read', function () {
+    [$exo, $sent] = exoClickBlocking(['zones' => [['idzone' => 10], ['idzone' => 20]]]);
+
+    app(BlockTrafficRefsAction::class)->block($this->admin, $exo, TrafficBlockLevel::Zone, ['30'], null, true);
+    $this->artisan('traffic:sync-networks')->assertSuccessful();
+
+    expect($sent())->toBe([10, 20, 30])
+        ->and(TrafficBlock::query()->sole()->network_state)->toBe(TrafficBlockNetworkState::Applied);
+});
+
+it('sends no ExoClick list rewritten from campaign details without one', function () {
+    [$exo, $sent] = exoClickBlocking([]);
+
+    app(BlockTrafficRefsAction::class)->block($this->admin, $exo, TrafficBlockLevel::Zone, ['30'], null, true);
+    $this->artisan('traffic:sync-networks')->assertSuccessful();
+
+    expect($sent())->toBeNull()
+        ->and(TrafficBlock::query()->sole())->network_state->toBe(TrafficBlockNetworkState::Failed)->network_error->toBe('unexpected_response');
+});
+
+it('takes blocks off the network and puts others on in one change, leaving one blocked again meanwhile waiting', function () {
+    TrafficApiConnection::factory()->create(['source_id' => $this->popads->id, 'next_sync_at' => now()->addHour()]);
+    TrafficCampaign::factory()->create(['source_id' => $this->popads->id, 'external_id' => '881204']);
+    $block = fn (string $ref, TrafficBlockNetworkState $state) => TrafficBlock::factory()->create(['source_id' => $this->popads->id, 'level' => TrafficBlockLevel::Site, 'ref' => $ref, 'method' => 'api', 'network_state' => $state]);
+    $adding = $block('40123', TrafficBlockNetworkState::Pending);
+    $going = $block('501', TrafficBlockNetworkState::Removing);
+    $again = $block('502', TrafficBlockNetworkState::Removing);
+    Http::fake(function (Request $request) use ($again) {
+        if ($request->method() === 'POST') {
+            // Blocked again while the network was being called.
+            TrafficBlock::query()->whereKey($again->id)->update(['network_state' => TrafficBlockNetworkState::Pending]);
+
+            return Http::response(['mode' => 'exclude', 'items' => explode("\n", $request->body())]);
+        }
+
+        return Http::response(['mode' => 'exclude', 'items' => ['501', '502']]);
+    });
+
+    $this->artisan('traffic:sync-networks')->assertSuccessful();
+
+    expect($adding->fresh()->network_state)->toBe(TrafficBlockNetworkState::Applied)
+        ->and($going->fresh())->toBeNull()
+        ->and($again->fresh()->network_state)->toBe(TrafficBlockNetworkState::Pending);
+});
+
+it('leaves blocks waiting when the batch’s line of the log can’t be written, and logs them once when they go through', function () {
+    TrafficApiConnection::factory()->create(['source_id' => $this->popads->id, 'next_sync_at' => now()->addHour()]);
+    TrafficCampaign::factory()->create(['source_id' => $this->popads->id, 'external_id' => '881204']);
+    Http::fake(fn (Request $request) => Http::response(['mode' => 'exclude', 'items' => $request->method() === 'POST' ? explode("\n", $request->body()) : []]));
+    app(BlockTrafficRefsAction::class)->block($this->admin, $this->popads, TrafficBlockLevel::Site, ['40123'], null, true);
+    $failed = false;
+    TrafficBlockEvent::creating(function () use (&$failed): void {
+        if (! $failed) {
+            $failed = true;
+
+            throw new RuntimeException('The log is unavailable.');
+        }
+    });
+
+    $this->artisan('traffic:sync-networks')->assertSuccessful();
+
+    expect(TrafficBlock::query()->sole()->network_state)->toBe(TrafficBlockNetworkState::Pending)
+        ->and(TrafficBlockEvent::query()->where('kind', 'applied')->count())->toBe(0);
+
+    $this->artisan('traffic:sync-networks')->assertSuccessful();
+
+    expect(TrafficBlock::query()->sole()->network_state)->toBe(TrafficBlockNetworkState::Applied)
+        ->and(TrafficBlockEvent::query()->where('kind', 'applied')->count())->toBe(1);
+});
+
 it('fails a block a campaign that lists sites to allow can’t take', function () {
     TrafficApiConnection::factory()->create(['source_id' => $this->popads->id, 'next_sync_at' => now()->addHour()]);
     TrafficCampaign::factory()->create(['source_id' => $this->popads->id, 'external_id' => '881204']);
@@ -225,6 +382,39 @@ it('marks a block by hand, and counts the clicks the network still sends an hour
 
     app(BlockTrafficRefsAction::class)->unblock($this->admin, $block);
     expect(TrafficBlock::query()->count())->toBe(0);
+});
+
+it('counts a click from a blocked site in a blocked zone on both blocks', function () {
+    recordTraffic();
+    app(BlockTrafficRefsAction::class)->block($this->admin, $this->popads, TrafficBlockLevel::Site, ['40123'], null, false);
+    app(BlockTrafficRefsAction::class)->block($this->admin, $this->popads, TrafficBlockLevel::Zone, ['77'], null, false);
+
+    $this->travel(61)->minutes();
+    clickOn('/?rg_src=pop&cid=c10&site=40123&zone=77')->assertOk();
+
+    expect(TrafficVisit::query()->sole()->blocked_hit)->toBeTrue()
+        ->and(TrafficBlock::query()->orderBy('level')->pluck('clicks_after', 'level')->all())->toBe(['site' => 1, 'zone' => 1]);
+});
+
+it('counts a blocked click on top of one counted meanwhile, never over it', function () {
+    recordTraffic();
+    app(BlockTrafficRefsAction::class)->block($this->admin, $this->popads, TrafficBlockLevel::Site, ['40123'], null, false);
+    $block = TrafficBlock::query()->sole();
+    $this->travel(61)->minutes();
+
+    // Five more clicks of the site are counted while this one is on its way.
+    $counted = false;
+    DB::listen(function (QueryExecuted $query) use (&$counted, $block): void {
+        if (! $counted && str_starts_with(strtolower($query->sql), 'update') && str_contains($query->sql, 'blocked_hit')) {
+            $counted = true;
+            DB::table('traffic_blocks')->where('id', $block->id)->increment('clicks_after', 5);
+        }
+    });
+    clickOn('/?rg_src=pop&cid=c11&site=40123')->assertOk();
+
+    expect($counted)->toBeTrue()
+        ->and($block->fresh()->clicks_after)->toBe(6)
+        ->and($block->fresh()->last_click_after_at->toDateTimeString())->toBe('2026-11-17 13:01:00');
 });
 
 it('takes a block off the network before it goes, leaves one already going alone, and keeps one blocked again', function () {
@@ -264,3 +454,34 @@ it('blocks by itself the sites the rule calls bots, within the day’s cap, only
     expect(TrafficBlock::query()->orderBy('ref')->pluck('ref')->all())->toBe(['s1', 's2'])
         ->and(TrafficBlock::query()->first())->method->toBe(TrafficBlockMethod::Auto)->network_state->toBe(TrafficBlockNetworkState::Pending);
 });
+
+/**
+ * A connected ExoClick source blocking zones of its campaign 555, whose
+ * details first answer with these fields, then with the zones last sent.
+ *
+ * @return array{0: TrafficSource, 1: Closure(): (list<int>|null)} the source, and the zones the last rewrite sent
+ */
+function exoClickBlocking(array $details): array
+{
+    $exo = TrafficSource::factory()->create(['connector' => TrafficConnector::ExoClick, 'block_level' => TrafficBlockLevel::Zone]);
+    TrafficApiConnection::factory()->create(['source_id' => $exo->id, 'connector' => TrafficConnector::ExoClick, 'credentials' => ['api_token' => 't'], 'next_sync_at' => now()->addHour()]);
+    TrafficCampaign::factory()->create(['source_id' => $exo->id, 'external_id' => '555']);
+    $sent = null;
+    Http::fake(function (Request $request) use ($details, &$sent) {
+        if (str_contains($request->url(), '/login')) {
+            return Http::response(['token' => 's1', 'type' => 'Bearer', 'expires_in' => 3600]);
+        }
+
+        if ($request->method() === 'PUT') {
+            $sent = $request->data()['zones'];
+
+            return Http::response(['result' => true]);
+        }
+
+        return Http::response(['result' => ['id' => 555, 'zone_targeting' => ['type' => 0], ...($sent === null ? $details : ['zones' => array_map(fn (int $zone): array => ['idzone' => $zone], $sent)])]]);
+    });
+
+    return [$exo, function () use (&$sent): ?array {
+        return $sent;
+    }];
+}

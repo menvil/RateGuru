@@ -67,9 +67,12 @@ Schedule::command('traffic:archive-quiet-campaigns')->dailyAt('02:40')->withoutO
 
 // What each step of the traffic is worth (docs/architecture/traffic.md,
 // "Worth"): worked out from the matured visits at night, and again within
-// five minutes of a change to the country groups.
-Schedule::command('traffic:work-out-worth')->dailyAt('03:10')->withoutOverlapping(60)->runInBackground();
-Schedule::command('traffic:work-out-worth --when-groups-changed')->everyFiveMinutes()->withoutOverlapping(60)->runInBackground();
+// five minutes of a change to the country groups. Both share one overlap
+// lock, so a run never revalues visits while the other does and an older
+// run's values are never written over a newer one's; a change to the groups
+// made during the nightly run is still caught by the next five-minute check.
+Schedule::command('traffic:work-out-worth')->dailyAt('03:10')->createMutexNameUsing('traffic-work-out-worth')->withoutOverlapping(60)->runInBackground();
+Schedule::command('traffic:work-out-worth --when-groups-changed')->everyFiveMinutes()->createMutexNameUsing('traffic-work-out-worth')->withoutOverlapping(60)->runInBackground();
 
 // The postbacks waiting to be told to ad networks (docs/architecture/
 // traffic.md, "Postbacks"): the table is the queue, sent by this command in

@@ -28,15 +28,17 @@ use Throwable;
 
 /**
  * One connection's turn with its network (docs/architecture/traffic.md,
- * "Sync"): spend for today and yesterday in the network's time zone, a day
- * closed once its figures and the two before came complete and six hours
- * have passed, then a few older days back to 30 before it was connected;
+ * "Sync"): spend for today and yesterday in the network's time zone,
+ * yesterday closed once its figures came complete and six hours of the next
+ * day have passed, then a few older days back to 30 before it was connected;
  * the campaigns' own details each turn, so a campaign that has just had its
  * first click is named within minutes. A turn comes every five minutes.
  * Only campaigns RateGuru saw a
  * click of are read and kept: a network account can hold campaigns sent
  * elsewhere. A failure waits longer each time; a refused key, an account not
- * in dollars or five failures running need the administrator.
+ * in dollars or five failures running need the administrator. A connection
+ * reconnected or disconnected during a turn keeps its new state: how the
+ * turn went is the old connection's.
  */
 final class SyncTrafficNetworkAction
 {
@@ -62,10 +64,13 @@ final class SyncTrafficNetworkAction
             return;
         }
 
+        // The credentials as stored when the turn began: a reconnect stores new ones and a disconnect none, so a turn that outlived either is no longer the connection's.
+        $fence = $connection->getRawOriginal('credentials');
+
         try {
             $session = new ConnectorSession($connection->credentials ?? []);
         } catch (DecryptException) {
-            $this->failed($connection, new ConnectorException(TrafficConnectorFailure::CredentialsUnreadable), $now);
+            $this->failed($connection, $fence, new ConnectorException(TrafficConnectorFailure::CredentialsUnreadable), $now);
 
             return;
         }
@@ -85,24 +90,24 @@ final class SyncTrafficNetworkAction
                 $connection->campaigns_synced_at = $now;
             }
 
-            $connection->forceFill([
+            $this->settle($connection, $fence, fn (): array => [
                 'credentials' => $session->changed() ? $session->credentials() : $connection->credentials,
                 'status' => TrafficConnectionStatus::Connected,
                 'last_synced_at' => $now,
                 'next_sync_at' => $now->addMinutes(self::EVERY_MINUTES),
                 'failures' => 0,
                 'last_error' => null,
-            ])->save();
+            ]);
         } catch (ConnectorException $exception) {
             if ($session->changed()) {
                 $connection->credentials = $session->credentials();
             }
 
-            $this->failed($connection, $exception, $now);
+            $this->failed($connection, $fence, $exception, $now);
         } catch (Throwable $exception) {
             // An answer that can't be read — a figure in words, a field of the wrong shape — is the network's: it backs off like any failure.
             report($exception);
-            $this->failed($connection, new ConnectorException(TrafficConnectorFailure::UnexpectedResponse), $now);
+            $this->failed($connection, $fence, new ConnectorException(TrafficConnectorFailure::UnexpectedResponse), $now);
         }
     }
 
@@ -114,11 +119,13 @@ final class SyncTrafficNetworkAction
     {
         $local = $now->setTimezone($source->reporting_timezone);
         $today = $local->toDateString();
-        $days = [$today, $local->subDay()->toDateString()];
+        $yesterday = $local->subDay();
+        $days = [$today, $yesterday->toDateString()];
         $firstVisit = TrafficVisit::query()->where('source_id', $source->id)->min('network_day');
         $cursor = $connection->backfill_cursor;
 
-        for ($n = 0; $cursor !== null && $n < self::BACKFILL_PER_RUN && $cursor < $local->subDays(2)->toDateString(); $n++) {
+        // Reading back stops at yesterday, which every turn reads anyway: every older day is read, the one before yesterday too.
+        for ($n = 0; $cursor !== null && $n < self::BACKFILL_PER_RUN && $cursor < $yesterday->toDateString(); $n++) {
             if ($firstVisit === null || $cursor >= (string) $firstVisit) {
                 $days[] = $cursor;
             }
@@ -144,14 +151,13 @@ final class SyncTrafficNetworkAction
             DB::transaction(fn () => $this->slices->handle((int) $source->id, $day, TrafficSpendOrigin::Api, $rows));
         }
 
-        $yesterday = $local->subDay();
         $closable = $now->greaterThanOrEqualTo($yesterday->addDay()->startOfDay()->addHours(self::CLOSE_AFTER_HOURS));
 
         if ($closable && ($complete[$yesterday->toDateString()] ?? false)) {
             $connection->spend_closed_through = max((string) $connection->spend_closed_through, $yesterday->toDateString());
         }
 
-        $connection->backfill_cursor = $cursor !== null && $cursor >= $local->subDays(2)->toDateString() ? null : $cursor;
+        $connection->backfill_cursor = $cursor !== null && $cursor >= $yesterday->toDateString() ? null : $cursor;
     }
 
     /** @param  list<NetworkCampaign>  $networkCampaigns */
@@ -196,15 +202,38 @@ final class SyncTrafficNetworkAction
         }
     }
 
-    private function failed(TrafficApiConnection $connection, ConnectorException $exception, CarbonImmutable $now): void
+    private function failed(TrafficApiConnection $connection, mixed $fence, ConnectorException $exception, CarbonImmutable $now): void
     {
-        $failures = $connection->failures + 1;
+        $this->settle($connection, $fence, function (TrafficApiConnection $current) use ($exception, $now): array {
+            $failures = $current->failures + 1;
 
-        $connection->forceFill([
-            'failures' => $failures,
-            'last_error' => $exception->failure->value,
-            'status' => $exception->failure->needsAttention() || $failures >= self::FAILURES ? TrafficConnectionStatus::NeedsAttention : TrafficConnectionStatus::Connected,
-            'next_sync_at' => $now->addMinutes((int) min(360, 15 * 2 ** ($failures - 1))),
-        ])->save();
+            return [
+                'failures' => $failures,
+                'last_error' => $exception->failure->value,
+                'status' => $exception->failure->needsAttention() || $failures >= self::FAILURES ? TrafficConnectionStatus::NeedsAttention : TrafficConnectionStatus::Connected,
+                'next_sync_at' => $now->addMinutes((int) min(360, 15 * 2 ** ($failures - 1))),
+            ];
+        });
+    }
+
+    /**
+     * Writes how the turn went — with what it read along the way — on the
+     * connection still locked as it was when the turn began. One reconnected
+     * or disconnected meanwhile keeps its new state: the turn was the old
+     * connection's. Never around a call to the network.
+     *
+     * @param  callable(TrafficApiConnection): array<string, mixed>  $outcome  given the locked row
+     */
+    private function settle(TrafficApiConnection $connection, mixed $fence, callable $outcome): void
+    {
+        DB::transaction(function () use ($connection, $fence, $outcome): void {
+            $current = TrafficApiConnection::query()->whereKey($connection->id)->lockForUpdate()->first();
+
+            if ($current === null || $current->status === TrafficConnectionStatus::Disconnected || $current->getRawOriginal('credentials') !== $fence) {
+                return;
+            }
+
+            $connection->forceFill($outcome($current))->save();
+        });
     }
 }

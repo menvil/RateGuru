@@ -17,6 +17,7 @@ use App\Services\Traffic\Connectors\ConnectorRegistry;
 use App\Services\Traffic\Connectors\ConnectorSession;
 use App\Services\Traffic\Connectors\EditsBlockLists;
 use Illuminate\Contracts\Encryption\DecryptException;
+use Illuminate\Support\Facades\DB;
 
 /**
  * Applies the blocks waiting for a source's network — to the campaign each
@@ -76,32 +77,38 @@ final class ApplyTrafficBlocksAction
 
             $ok = $targets !== [] && $done === count($targets);
 
-            // Each result is written only over the state it was read in: a block unblocked, or blocked again, while the network was being called keeps its new state for the next sync.
-            foreach ($group as $block) {
-                $still = TrafficBlock::query()->whereKey($block->id)->where('network_state', $block->network_state);
+            $removing = $group->where('network_state', TrafficBlockNetworkState::Removing)->pluck('id')->all();
+            $pending = $group->where('network_state', TrafficBlockNetworkState::Pending)->pluck('id')->all();
 
-                if ($block->network_state === TrafficBlockNetworkState::Removing) {
-                    $ok ? $still->delete() : $still->update(['network_state' => TrafficBlockNetworkState::Applied, 'network_error' => $error]);
-                } else {
-                    $still->update(['network_state' => $ok ? TrafficBlockNetworkState::Applied : TrafficBlockNetworkState::Failed, 'network_error' => $ok ? null : ($error ?? 'no_campaign')]);
+            // The blocks' new states and the batch's line of the log, together: a log line that can't be written leaves the blocks waiting, to be sent again.
+            DB::transaction(function () use ($connection, $group, $first, $removing, $pending, $add, $remove, $ok, $error, $status, $done, $targets): void {
+                // Each result is written only over the state it was read in: a block unblocked, or blocked again, while the network was being called keeps its new state for the next sync.
+                if ($removing !== []) {
+                    $stillRemoving = TrafficBlock::query()->whereKey($removing)->where('network_state', TrafficBlockNetworkState::Removing);
+                    $ok ? $stillRemoving->delete() : $stillRemoving->update(['network_state' => TrafficBlockNetworkState::Applied, 'network_error' => $error]);
                 }
-            }
 
-            TrafficBlockEvent::query()->create([
-                'source_id' => $connection->source_id,
-                'kind' => $remove !== [] && $add === [] ? 'removed' : 'applied',
-                'level' => $first->level,
-                'ref' => $group->count() === 1 ? $first->ref : null,
-                'ref_count' => $group->count(),
-                'refs' => $group->pluck('ref')->take(200)->values()->all(),
-                'campaign_id' => $first->campaign_id,
-                'method' => TrafficBlockMethod::Api,
-                'actor' => TrafficActor::NetworkApi,
-                'ok' => $ok,
-                'http_status' => $status,
-                'note' => $done.' of '.count($targets).' campaigns',
-                'occurred_at' => now(),
-            ]);
+                if ($pending !== []) {
+                    TrafficBlock::query()->whereKey($pending)->where('network_state', TrafficBlockNetworkState::Pending)
+                        ->update(['network_state' => $ok ? TrafficBlockNetworkState::Applied : TrafficBlockNetworkState::Failed, 'network_error' => $ok ? null : ($error ?? 'no_campaign')]);
+                }
+
+                TrafficBlockEvent::query()->create([
+                    'source_id' => $connection->source_id,
+                    'kind' => $remove !== [] && $add === [] ? 'removed' : 'applied',
+                    'level' => $first->level,
+                    'ref' => $group->count() === 1 ? $first->ref : null,
+                    'ref_count' => $group->count(),
+                    'refs' => $group->pluck('ref')->take(200)->values()->all(),
+                    'campaign_id' => $first->campaign_id,
+                    'method' => TrafficBlockMethod::Api,
+                    'actor' => TrafficActor::NetworkApi,
+                    'ok' => $ok,
+                    'http_status' => $status,
+                    'note' => $done.' of '.count($targets).' campaigns',
+                    'occurred_at' => now(),
+                ]);
+            });
 
             if ($session->changed()) {
                 $connection->forceFill(['credentials' => $session->credentials()])->save();

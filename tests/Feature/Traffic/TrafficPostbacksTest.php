@@ -9,6 +9,7 @@ use App\Enums\TrafficPostbackOutcome;
 use App\Enums\TrafficPostbackSkip;
 use App\Enums\TrafficPostbackStatus;
 use App\Enums\TrafficSourceStatus;
+use App\Exceptions\Traffic\CannotManageTrafficException;
 use App\Livewire\Games\PlayGame;
 use App\Models\GameAttempt;
 use App\Models\ProjectSettings;
@@ -81,15 +82,15 @@ it('queues nothing while postbacks are switched off', function () {
 
 it('undoes the conversion with the game write it came with', function () {
     $visit = paidClick($this->source);
+    $failure = new RuntimeException('The game write failed.');
 
-    try {
-        DB::transaction(function () use ($visit): void {
-            app(MarkTrafficVisitAction::class)->handle($visit->id, TrafficEvent::Started, now()->toImmutable());
+    // The mark itself succeeds; only the game write after it fails, and takes the mark with it.
+    expect(fn () => DB::transaction(function () use ($visit, $failure): void {
+        expect(app(MarkTrafficVisitAction::class)->handle($visit->id, TrafficEvent::Started, now()->toImmutable()))->toBeTrue()
+            ->and(TrafficConversion::query()->count())->toBe(1);
 
-            throw new RuntimeException('The game write failed.');
-        });
-    } catch (RuntimeException) {
-    }
+        throw $failure;
+    }))->toThrow($failure);
 
     expect(TrafficConversion::query()->count())->toBe(0)
         ->and($visit->fresh()->started_at)->toBeNull();
@@ -185,6 +186,33 @@ it('sends a failed postback once more on request', function () {
         ->and($failed->fresh()->attempts)->toBe(7);
 });
 
+it('sends no failed postback again while postbacks are switched off', function () {
+    $failed = TrafficPostback::factory()->create(['source_id' => $this->source->id, 'rule_id' => $this->rule->id, 'url' => 'https://pb.example.com/c?id={click_id}', 'status' => TrafficPostbackStatus::Failed, 'attempts' => 6, 'conversion_id' => TrafficConversion::factory()->create(['visit_id' => paidClick($this->source)->id])->id]);
+    recordTraffic(capture: true, postbacks: false);
+    Http::fake();
+
+    expect(fn () => app(ResendTrafficPostbackAction::class)->handle(User::factory()->admin()->create(), $failed))
+        ->toThrow(CannotManageTrafficException::class, 'Postbacks are switched off');
+
+    Http::assertNothingSent();
+    expect($failed->fresh())->status->toBe(TrafficPostbackStatus::Failed)->attempts->toBe(6)->resent_at->toBeNull();
+});
+
+it('refuses a resend and a test postback to anyone but an active administrator, sending nothing', function () {
+    $moderator = User::factory()->moderator()->create();
+    $failed = TrafficPostback::factory()->create(['source_id' => $this->source->id, 'rule_id' => $this->rule->id, 'url' => 'https://pb.example.com/c?id={click_id}', 'status' => TrafficPostbackStatus::Failed, 'attempts' => 6, 'conversion_id' => TrafficConversion::factory()->create(['visit_id' => paidClick($this->source)->id])->id]);
+    Http::fake();
+
+    expect(fn () => app(ResendTrafficPostbackAction::class)->handle($moderator, $failed))
+        ->toThrow(CannotManageTrafficException::class, 'You can’t manage traffic sources any more');
+    expect($failed->fresh())->status->toBe(TrafficPostbackStatus::Failed)->attempts->toBe(6)->resent_at->toBeNull();
+
+    expect(fn () => app(SendTestPostbackAction::class)->handle($moderator, 'https://pb.example.com/t?id={click_id}', TrafficEvent::Goal, '9', null))
+        ->toThrow(CannotManageTrafficException::class, 'You can’t manage traffic sources any more');
+
+    Http::assertNothingSent();
+});
+
 it('sends a test postback from an unsaved rule without writing anything', function () {
     Http::fake(['pb.example.com/*' => Http::response('OK', 200)]);
 
@@ -194,6 +222,15 @@ it('sends a test postback from an unsaved rule without writing anything', functi
     expect($attempt->outcome)->toBe(TrafficPostbackOutcome::Ok)
         ->and($attempt->httpStatus)->toBe(200)
         ->and(TrafficPostback::query()->count())->toBe(0);
+});
+
+it('sends a test postback whose address was pasted with blanks around it to the address without them', function () {
+    Http::fake(['pb.example.com/*' => Http::response('OK', 200)]);
+
+    $attempt = app(SendTestPostbackAction::class)->handle(User::factory()->admin()->create(), " https://pb.example.com/t?id={click_id}&v={value}\n", TrafficEvent::Goal, '9', null);
+
+    Http::assertSent(fn (Request $request): bool => preg_match('#^https://pb\.example\.com/t\?id=TEST-[0-9a-f]{8}&v=0\.01$#', $request->url()) === 1);
+    expect($attempt->outcome)->toBe(TrafficPostbackOutcome::Ok);
 });
 
 it('fails a PopAds postback whose answer names an error in its header, keeping what it said', function () {
@@ -241,6 +278,24 @@ it('goes on past a batch of postbacks that only expired, rather than waiting a m
         ->and(TrafficPostback::query()->where('status', TrafficPostbackStatus::Expired)->count())->toBe(45);
 });
 
+it('leaves a source whose network is down for the next run after one pool of its postbacks, and sends the others’', function () {
+    bindFakeHostResolver(['pb.example.com' => ['93.184.216.40'], 'dead.example.com' => ['93.184.216.41']]);
+    $dead = TrafficSource::factory()->create();
+    $deadRule = TrafficPostbackRule::factory()->create(['source_id' => $dead->id, 'enabled' => true]);
+    TrafficPostback::factory()->count(12)->create(['source_id' => $dead->id, 'rule_id' => $deadRule->id, 'url' => 'https://dead.example.com/c?id={click_id}', 'run_after' => now()->subMinutes(2), 'conversion_id' => fn () => TrafficConversion::factory()->create(['visit_id' => paidClick($dead)->id])->id]);
+    $live = TrafficPostback::factory()->create(['source_id' => $this->source->id, 'rule_id' => $this->rule->id, 'url' => 'https://pb.example.com/c?id={click_id}', 'run_after' => now()->subMinute(), 'conversion_id' => TrafficConversion::factory()->create(['visit_id' => paidClick($this->source)->id])->id]);
+    Http::fake(['dead.example.com/*' => Http::failedConnection(), 'pb.example.com/*' => Http::response('OK', 200)]);
+
+    $this->artisan('traffic:send-postbacks')->assertSuccessful();
+
+    $deadRows = TrafficPostback::query()->where('source_id', $dead->id)->get();
+
+    // One pool failed; the rest of the source's rows were never claimed, so they spent no attempt.
+    expect($deadRows->where('attempts', 1)->count())->toBe(8)
+        ->and($deadRows->where('attempts', 0)->where('status', TrafficPostbackStatus::Pending)->count())->toBe(4)
+        ->and($live->fresh()->status)->toBe(TrafficPostbackStatus::Delivered);
+});
+
 /** A paid click whose visitor started and finished the game, finishing worth $0.05 by hand. */
 function finishedPaidClick(TrafficSource $source, array $attributes = []): TrafficVisit
 {
@@ -261,7 +316,7 @@ it('settles a paid visit 30 minutes after its last step, once, telling the best 
 
     expect($visit->fresh()->settled_at->toDateTimeString())->toBe($visit->last_seen_at->addMinutes(30)->toDateTimeString())
         ->and($conversion->step)->toBe('completed')
-        ->and((string) $conversion->value)->toStartWith('0.05')
+        ->and((string) $conversion->value)->toBe('0.05000000')
         ->and(TrafficPostback::query()->where('rule_id', $rule->id)->sole()->url)->toBe('https://pb.example.com/s?id={click_id}&e=settled&v=0.05');
 });
 
@@ -290,7 +345,7 @@ it('settles a visit at once when its account is confirmed, with the account’s 
 
     expect($visit->fresh()->settled_at->toDateTimeString())->toBe($at->toDateTimeString())
         ->and($settled->step)->toBe('account')
-        ->and((string) $settled->value)->toStartWith('0.5');
+        ->and((string) $settled->value)->toBe('0.50000000');
 
     // Settled already: the run leaves it alone.
     $this->travel(2)->days();
@@ -309,7 +364,7 @@ it('tells a network what an account is worth at its source’s own price, in {va
     DB::transaction(fn () => app(MarkTrafficVisitAction::class)->handle($own->id, TrafficEvent::Account, now()->toImmutable()));
     DB::transaction(fn () => app(MarkTrafficVisitAction::class)->handle($site->id, TrafficEvent::Account, now()->toImmutable()));
 
-    expect((string) TrafficConversion::query()->where('visit_id', $own->id)->where('event', TrafficEvent::Settled)->sole()->value)->toStartWith('0.9')
+    expect((string) TrafficConversion::query()->where('visit_id', $own->id)->where('event', TrafficEvent::Settled)->sole()->value)->toBe('0.90000000')
         ->and(TrafficPostback::query()->where('source_id', $this->source->id)->sole()->url)->toBe('https://pb.example.com/s?id={click_id}&v=0.9&t=0.9')
         ->and(TrafficPostback::query()->where('source_id', $other->id)->sole()->url)->toBe('https://pb.example.com/o?id={click_id}&v=0.5&t=0.5');
 });
@@ -330,7 +385,7 @@ it('never tells a network of a sign-in to an existing account, nor of the visit 
     $settled = TrafficConversion::query()->where('event', TrafficEvent::Settled)->sole();
 
     expect($settled->step)->toBe('login')
-        ->and((string) $settled->value)->toStartWith('0.4')
+        ->and((string) $settled->value)->toBe('0.40000000')
         ->and($settled->postback_skip)->toBe(TrafficPostbackSkip::KnownVisitor)
         ->and(TrafficConversion::query()->where('event', TrafficEvent::Started)->sole()->postback_skip)->toBe(TrafficPostbackSkip::KnownVisitor)
         ->and(TrafficPostback::query()->count())->toBe(0);

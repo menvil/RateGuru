@@ -21,6 +21,8 @@ use App\Models\ProjectSettings;
 use App\Models\TrafficVisit;
 use App\Models\User;
 use Carbon\CarbonImmutable;
+use Illuminate\Database\Events\QueryExecuted;
+use Illuminate\Support\Facades\DB;
 use Livewire\Livewire;
 
 beforeEach(function () {
@@ -197,22 +199,31 @@ it('credits a new account only to a flow whose goal takes it', function () {
         ->and(GameEvent::query()->where('type', GameEventType::AccountConfirmed)->count())->toBe(1);
 });
 
-it('counts a sign-in to an existing confirmed account for the goal “Account confirmed”, not for new accounts', function () {
+it('counts a sign-in to an existing confirmed account for the goal “Account confirmed”', function () {
     recordTraffic();
     $existing = User::factory()->create(['password' => bcrypt('password')]);
     $attempt = finishGameIn($this->token);
     $visit = TrafficVisit::factory()->unpaid()->create(['visitor_hash' => $this->hash]);
-    $other = finishGameIn(str_repeat('b', 40), 'new_account');
 
     $this->withCookie($this->cookie, $this->token)->post('/login', ['email' => $existing->email, 'password' => 'password'])->assertRedirect();
 
     expect($attempt->fresh()->goal_reached_at)->not->toBeNull()
-        ->and($other->fresh()->goal_reached_at)->toBeNull()
         ->and($visit->fresh()->login_at)->not->toBeNull()
         ->and($visit->fresh()->known)->toBeTrue()
         ->and($visit->fresh()->known_reason)->toBe(TrafficKnownReason::Login)
         ->and(AccountAttribution::query()->count())->toBe(0)
         ->and(AccountBrowser::query()->where('user_id', $existing->id)->where('visitor_hash', $this->hash)->exists())->toBeTrue();
+});
+
+it('never counts a sign-in to an existing account for the goal “New account”, in the browser that played the game', function () {
+    recordTraffic();
+    $existing = User::factory()->create(['password' => bcrypt('password')]);
+    $attempt = finishGameIn($this->token, 'new_account');
+
+    $this->withCookie($this->cookie, $this->token)->post('/login', ['email' => $existing->email, 'password' => 'password'])->assertRedirect();
+
+    expect($existing->fresh()->hasVerifiedEmail())->toBeTrue()
+        ->and($attempt->fresh()->goal_reached_at)->toBeNull();
 });
 
 it('keeps a paid click that brought an account when another account signs in on the same browser', function () {
@@ -245,6 +256,25 @@ it('records the first post within 30 days and a return on another day, once each
         ->and($attribution->returned_at)->not->toBeNull()
         ->and($click->fresh()->post_published_at)->not->toBeNull()
         ->and($click->fresh()->returned_at)->not->toBeNull();
+});
+
+it('keeps a return on the account’s record and on its visit together, in one transaction', function () {
+    recordTraffic();
+    $click = TrafficVisit::factory()->create(['visitor_hash' => $this->hash]);
+    $member = registerIn($this->token);
+    $outside = DB::transactionLevel();
+    $levels = [];
+    DB::listen(function (QueryExecuted $query) use (&$levels): void {
+        if (str_starts_with(strtolower($query->sql), 'update') && preg_match('/account_attributions|traffic_visits/', $query->sql, $table) === 1) {
+            $levels[$table[0]][] = DB::transactionLevel();
+        }
+    });
+
+    app(RecordAccountBonusAction::class)->returned($member->id, now()->addDay()->addHours(9)->toImmutable());
+
+    expect($click->fresh()->returned_at)->not->toBeNull()
+        ->and(array_keys($levels))->toEqualCanonicalizing(['account_attributions', 'traffic_visits'])
+        ->and(min(array_merge(...array_values($levels))))->toBeGreaterThan($outside);
 });
 
 it('looks for a return again once the account is old enough, not only the next day', function () {

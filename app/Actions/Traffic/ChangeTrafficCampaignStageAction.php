@@ -40,14 +40,16 @@ final class ChangeTrafficCampaignStageAction
                 return $record;
             }
 
-            TrafficCampaignStagePeriod::query()->where('campaign_id', $record->id)->whereNull('ended_at')->update(['ended_at' => now()]);
-            TrafficCampaignStagePeriod::query()->create(['campaign_id' => $record->id, 'stage' => $stage, 'started_at' => now()]);
+            // One moment for both periods: the old stage ends exactly where the new one starts.
+            $now = now();
+            TrafficCampaignStagePeriod::query()->where('campaign_id', $record->id)->whereNull('ended_at')->update(['ended_at' => $now]);
+            TrafficCampaignStagePeriod::query()->create(['campaign_id' => $record->id, 'stage' => $stage, 'started_at' => $now]);
             $from = $record->stage;
 
             $record->forceFill([
                 'stage' => $stage,
                 'status' => TrafficCampaignStatus::Active,
-                'set_up_at' => $record->set_up_at ?? now(),
+                'set_up_at' => $record->set_up_at ?? $now,
                 'lock_version' => $record->lock_version + 1,
             ])->save();
 

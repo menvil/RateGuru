@@ -16,8 +16,11 @@ use App\Models\TrafficSpendImport;
 use App\Models\TrafficVisit;
 use App\Models\User;
 use App\Queries\Traffic\TrafficSpendQuery;
+use App\Support\Traffic\Money\TrafficMoney;
 use App\Support\Traffic\Presets\SourceDefaults;
 use Carbon\CarbonImmutable;
+use Illuminate\Database\Events\QueryExecuted;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 beforeEach(function () {
@@ -78,6 +81,46 @@ it('keeps spend no visit came for as spend without visits', function () {
         ->and($fact->allocated_at)->not->toBeNull();
 });
 
+it('leaves a day due when its figures change while it is being shared out', function () {
+    $source = TrafficSource::factory()->create(['spend_mode' => TrafficSpendMode::Api]);
+    $visits = TrafficVisit::factory()->count(2)->create(['source_id' => $source->id, 'network_day' => '2026-11-16', 'arrived_at' => '2026-11-16 10:00:00', 'spend_estimated' => true, 'spend_basis' => TrafficSpendBasis::Rate]);
+    app(ReplaceSpendSliceAction::class)->handle($source->id, '2026-11-16', TrafficSpendOrigin::Api, [['campaign_id' => null, 'site_ref' => '', 'zone_ref' => '', 'amount' => '1.00']]);
+    app(EnterSpendAction::class)->day($this->admin, $source, '2026-11-16', '9');
+    $removed = false;
+    // The typed total is removed as the first visits take it.
+    DB::listen(function (QueryExecuted $query) use (&$removed, $source): void {
+        if (! $removed && str_starts_with(strtolower($query->sql), 'update') && str_contains($query->sql, 'traffic_visits')) {
+            $removed = true;
+            app(EnterSpendAction::class)->day($this->admin, $source, '2026-11-16', '');
+        }
+    });
+
+    app(AllocateSpendDayAction::class)->handle($source, '2026-11-16', now()->toImmutable());
+
+    expect($removed)->toBeTrue()
+        ->and(TrafficSpendDay::query()->sole())->origin->toBe(TrafficSpendOrigin::Api)->allocated_at->toBeNull();
+
+    app(AllocateSpendDayAction::class)->handle($source, '2026-11-16', now()->toImmutable());
+
+    expect($visits->map(fn ($visit) => $visit->fresh()->spend)->all())->toBe(['0.50000000', '0.50000000'])
+        ->and($visits[0]->fresh()->spend_basis)->toBe(TrafficSpendBasis::Api);
+});
+
+it('writes a day’s visits by the spend they take, not one by one', function () {
+    $source = TrafficSource::factory()->create();
+    $visits = TrafficVisit::factory()->count(30)->create(['source_id' => $source->id, 'network_day' => '2026-11-16', 'arrived_at' => '2026-11-16 10:00:00', 'cost' => '0.001', 'spend' => '0', 'spend_basis' => TrafficSpendBasis::Rate]);
+    app(EnterSpendAction::class)->day($this->admin, $source, '2026-11-16', '1.00');
+    $writes = 0;
+    DB::listen(function (QueryExecuted $query) use (&$writes): void {
+        $writes += str_starts_with(strtolower($query->sql), 'update') && str_contains($query->sql, 'traffic_visits') ? 1 : 0;
+    });
+
+    app(AllocateSpendDayAction::class)->handle($source, '2026-11-16', now()->toImmutable());
+
+    expect($writes)->toBeLessThanOrEqual(2)
+        ->and(TrafficMoney::stored(TrafficVisit::query()->whereKey($visits->pluck('id'))->pluck('spend')->reduce(fn ($sum, $spend) => $sum->plus(TrafficMoney::of($spend)), TrafficMoney::of('0'))))->toBe('1.00000000');
+});
+
 it('refuses a day that hasn’t come, and removes a typed total given empty', function () {
     $source = TrafficSource::factory()->create();
 
@@ -103,6 +146,17 @@ it('takes a spend file, leaving out the campaigns RateGuru never saw', function 
         ->and($import->total)->toBe('13.00000000')
         ->and(TrafficSpendDay::query()->where('origin', TrafficSpendOrigin::Csv)->count())->toBe(2)
         ->and(fn () => app(EnterSpendAction::class)->file($this->admin, $source, 'bad.csv', "day,amount\nyesterday,1\n"))->toThrow(ValidationException::class);
+});
+
+it('replaces a day’s file figures with a file whose rows for that day are all left out', function () {
+    $source = TrafficSource::factory()->create();
+    TrafficCampaign::factory()->create(['source_id' => $source->id, 'external_id' => '881204']);
+    app(EnterSpendAction::class)->file($this->admin, $source, 'first.csv', "day,amount,campaign\n2026-11-14,10,881204\n");
+
+    $import = app(EnterSpendAction::class)->file($this->admin, $source, 'second.csv', "day,amount,campaign\n2026-11-14,2,999\n");
+
+    expect(TrafficSpendDay::query()->where('origin', TrafficSpendOrigin::Csv)->where('network_day', '2026-11-14')->count())->toBe(0)
+        ->and($import)->skipped_rows->toBe(1)->fact_rows->toBe(0)->day_from->toBe('2026-11-14')->day_to->toBe('2026-11-14');
 });
 
 it('keeps a banner’s fixed price as a cost for each day it ran', function () {

@@ -35,7 +35,8 @@ final class TrafficArchiveQuietCampaignsCommand extends Command
             ->chunkById(200, function ($campaigns) use ($history, $days, &$archived): void {
                 foreach ($campaigns as $campaign) {
                     DB::transaction(function () use ($campaign, $history, $days, &$archived): void {
-                        $moved = TrafficCampaign::query()->whereKey($campaign->id)->where('status', '!=', TrafficCampaignStatus::Archived)->update([
+                        // Only as it was picked: a campaign saved since is left to the next run.
+                        $moved = TrafficCampaign::query()->whereKey($campaign->id)->where('status', '!=', TrafficCampaignStatus::Archived)->where('lock_version', $campaign->lock_version)->update([
                             'status_before_archive' => $campaign->status,
                             'status' => TrafficCampaignStatus::Archived,
                             'archived_at' => now(),

@@ -8,6 +8,7 @@ use App\Enums\TrafficBlockVerdict;
 use App\Enums\TrafficConnector;
 use App\Models\TrafficApiConnection;
 use App\Models\TrafficBlock;
+use App\Models\TrafficBlockEvent;
 use App\Models\TrafficCampaign;
 use App\Models\TrafficChanceRun;
 use App\Models\TrafficPriceSet;
@@ -127,6 +128,20 @@ it('never queues again a site blocked, queued, coming off or unblocked by an adm
 
     expect(TrafficBlock::query()->where('ref', 's3')->sole()->method)->toBe(TrafficBlockMethod::Auto);
 });
+
+it('queues nothing for a source no longer set to block by itself by the time the rule blocks', function (array $since) {
+    $source = blockingPopAds([]);
+    // Changed after the rule read the source.
+    TrafficSource::query()->whereKey($source->id)->update($since);
+
+    expect(app(BlockTrafficRefsAction::class)->block(null, $source, TrafficBlockLevel::Site, ['s1'], null, true, TrafficBlockMethod::Auto, TrafficBlockVerdict::Bots, 'Block rule'))->toBe(0)
+        ->and(TrafficBlock::query()->count())->toBe(0)
+        ->and(TrafficBlockEvent::query()->count())->toBe(0);
+})->with([
+    'switched off' => [['block_auto' => false]],
+    'paused' => [['status' => 'paused']],
+    'blocking zones' => [['block_level' => 'zone']],
+]);
 
 it('keeps to the source’s cap for each UTC day, however often it runs', function () {
     $source = blockingPopAds(['s1' => 50, 's2' => 45, 's3' => 40, 's4' => 35], cap: 2);

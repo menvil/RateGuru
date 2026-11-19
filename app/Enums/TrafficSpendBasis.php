@@ -14,6 +14,14 @@ enum TrafficSpendBasis: string
     case Csv = 'csv';
     case Manual = 'manual';
 
+    /** The bases a visit's spend takes from a day's figures rather than from its click. */
+    public const array ALLOCATED = [self::Manual, self::Csv, self::Api, self::Fixed];
+
+    public function isAllocated(): bool
+    {
+        return in_array($this, self::ALLOCATED, true);
+    }
+
     public function label(): string
     {
         return match ($this) {

@@ -1,7 +1,9 @@
 <?php
 
+use App\Models\TrafficChanceRun;
 use App\Models\TrafficConversion;
 use App\Models\TrafficPostback;
+use App\Models\TrafficPriceSet;
 use App\Models\TrafficSpendDay;
 use App\Models\TrafficVisit;
 use App\Models\TrafficVisitDetail;
@@ -9,6 +11,8 @@ use App\Models\TrafficVisitPost;
 use App\Models\UserActivityDay;
 use Carbon\CarbonImmutable;
 use Illuminate\Console\Scheduling\Schedule;
+use Illuminate\Database\Events\QueryExecuted;
+use Illuminate\Support\Facades\DB;
 
 /**
  * traffic:purge-expired deletes what the tracker recorded past its retention
@@ -101,4 +105,23 @@ it('runs every day without overlapping', function () {
     expect($events)->toHaveCount(1)
         ->and($events->first()->expression)->toBe('0 0 * * *')
         ->and($events->first()->withoutOverlapping)->toBeTrue();
+});
+
+it('keeps the newest chance working-outs, and one begun while it purges', function () {
+    config(['traffic.chance_runs_kept' => 2]);
+    $run = fn () => TrafficChanceRun::query()->forceCreate(['status' => 'finished', 'reason' => 'nightly', 'price_set_id' => TrafficPriceSet::current()->id, 'matured_before' => now(), 'started_at' => now(), 'finished_at' => now()]);
+    $runs = collect(range(1, 4))->map(fn () => $run()->id);
+    $begun = null;
+    $started = false;
+    // A working-out starts right after the purge has read which runs to keep.
+    DB::listen(function (QueryExecuted $query) use (&$begun, &$started, $run): void {
+        if (! $started && str_contains($query->sql, 'traffic_chance_runs') && str_contains(strtolower($query->sql), 'desc')) {
+            $started = true;
+            $begun = $run()->id;
+        }
+    });
+
+    $this->artisan('traffic:purge-expired')->assertSuccessful()->expectsOutput('Deleted 2 chance runs.');
+
+    expect(TrafficChanceRun::query()->orderBy('id')->pluck('id')->all())->toBe([$runs[2], $runs[3], $begun]);
 });

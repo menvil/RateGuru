@@ -6,9 +6,9 @@ use App\Actions\Traffic\Concerns\LocksTrafficRecords;
 use App\Enums\TrafficStepValueMode;
 use App\Exceptions\Traffic\CannotManageTrafficException;
 use App\Models\Game;
-use App\Models\GameVersion;
 use App\Models\TrafficStepValue;
 use App\Models\User;
+use App\Queries\Traffic\GameWorthQuery;
 use App\Support\Traffic\Money\TrafficMoney;
 use App\Support\Traffic\Worth\TrafficStep;
 use Illuminate\Support\Facades\DB;
@@ -28,11 +28,13 @@ final class SetTrafficStepValueAction
 {
     use LocksTrafficRecords;
 
+    public function __construct(private readonly GameWorthQuery $worth) {}
+
     /** @throws CannotManageTrafficException|ValidationException */
     public function set(User $admin, Game $game, string $step, mixed $value, TrafficStepValueMode $mode, ?string $note = null): TrafficStepValue
     {
-        $rounds = (int) GameVersion::query()->where('game_id', $game->id)->max('round_count');
-        $steps = array_values(array_diff(TrafficStep::all(max($rounds, 1)), ['account', 'login']));
+        // The steps as the Value tab lays them out: for a game not yet published, by its first content set's rounds.
+        $steps = array_values(array_diff(TrafficStep::all($this->worth->rounds($game)), ['account', 'login']));
         Validator::make(['step' => $step, 'value' => $value, 'note' => $note], [
             'step' => ['required', Rule::in($steps)],
             'value' => ['required', 'numeric', 'regex:/^\d{1,10}(\.\d{1,8})?$/', 'min:0', 'max:1000'],

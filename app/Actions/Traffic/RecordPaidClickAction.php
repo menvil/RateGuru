@@ -198,7 +198,8 @@ final class RecordPaidClickAction
     /**
      * The same click asked for again: by the same browser, it is the same
      * visit; by another browser, it passes to that browser while no browser
-     * has run its page, and is no click for it once one has.
+     * has run its page — priced for that browser's device, unless its spend
+     * was taken from a day's figures — and is no click for it once one has.
      *
      * @param  array<string, mixed>  $attributes
      */
@@ -232,6 +233,14 @@ final class RecordPaidClickAction
             'worth_percent' => $attributes['worth_percent'],
             'bot_flags' => $attributes['bot_flags'],
             'last_seen_at' => $now,
+            // Priced again for the device that took it, as it came; a spend taken from a day's figures stays.
+            ...($visit->spend_basis->isAllocated() ? [] : $this->clickSpend(
+                $source,
+                $visit->campaign_id === null ? null : TrafficCampaign::query()->find($visit->campaign_id),
+                $visit->cost === null ? null : (string) $visit->cost,
+                $attributes['device'],
+                $visit->arrived_at,
+            )),
         ])->save();
 
         return $visit;

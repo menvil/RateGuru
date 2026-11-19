@@ -4,10 +4,12 @@ use App\Actions\Traffic\ArchiveTrafficCampaignAction;
 use App\Actions\Traffic\ChangeTrafficCampaignStageAction;
 use App\Actions\Traffic\SaveTrafficCampaignAction;
 use App\Actions\Traffic\SaveTrafficSourceAction;
+use App\Enums\TrafficCampaignEventKind;
 use App\Enums\TrafficCampaignStage;
 use App\Enums\TrafficCampaignStatus;
 use App\Enums\TrafficPostbackStatus;
 use App\Enums\TrafficSourceStatus;
+use App\Enums\TrafficSpendMode;
 use App\Exceptions\Traffic\CannotManageTrafficException;
 use App\Models\TrafficCampaign;
 use App\Models\TrafficCampaignEvent;
@@ -152,6 +154,67 @@ it('creates a banner bought at a fixed price, with no parameters and no rules', 
         ->and($source->link_params)->toBe([]);
 });
 
+it('saves a banner counted by hand with its fixed period cleared, and asks for one only when it is bought at a fixed price', function () {
+    $values = [...SourceDefaults::forPlacement()['source'], 'name' => 'Cat blog footer', 'link_key' => 'catfoot', 'creatives' => ['footer']];
+
+    $source = app(SaveTrafficSourceAction::class)->handle($this->admin, null, [...$values, 'spend_mode' => 'manual', 'fixed_period' => ''], []);
+
+    expect($source)->spend_mode->toBe(TrafficSpendMode::Manual)->fixed_period->toBeNull();
+
+    try {
+        app(SaveTrafficSourceAction::class)->handle($this->admin, null, [...$values, 'link_key' => 'catfoot2', 'fixed_amount' => '120', 'fixed_from' => '2026-11-01', 'fixed_period' => ''], []);
+        $this->fail('Saved a banner bought at a fixed price with no period.');
+    } catch (ValidationException $exception) {
+        expect(array_keys($exception->errors()))->toBe(['fixed_period']);
+    }
+});
+
+it('refuses two rules that send one address for one goal, its code typed with blanks around it', function () {
+    $source = TrafficSource::factory()->create();
+    $rule = fn (string $goal): array => ['id' => null, 'event' => 'goal', 'goal_code' => $goal, 'url_template' => 'https://pb.example.com/c?id={click_id}&v={value}', 'enabled' => true];
+
+    try {
+        app(SaveTrafficSourceAction::class)->handle($this->admin, $source->id, draftValues(sourceDraft($source)), [$rule('12'), $rule(' 12 ')], $source->lock_version);
+        $this->fail('Saved two rules that send the same address for the same goal.');
+    } catch (ValidationException $exception) {
+        expect(array_keys($exception->errors()))->toBe(['rules.1.url_template']);
+    }
+
+    app(SaveTrafficSourceAction::class)->handle($this->admin, $source->id, draftValues(sourceDraft($source)), [$rule('12'), $rule('13')], $source->lock_version);
+
+    expect(TrafficPostbackRule::query()->where('source_id', $source->id)->orderBy('position')->pluck('goal_code')->all())->toBe(['12', '13']);
+});
+
+it('judges an edit by the connector the source has, not one the editor sends', function () {
+    $source = TrafficSource::factory()->create(['connector' => null]);
+    $draft = draftValues(sourceDraft($source));
+
+    try {
+        app(SaveTrafficSourceAction::class)->handle($this->admin, $source->id, [...$draft, 'connector' => 'popads', 'spend_mode' => 'api'], [], $source->lock_version);
+        $this->fail('Set a source with no connector to read its spend through an API.');
+    } catch (ValidationException $exception) {
+        expect(array_keys($exception->errors()))->toBe(['spend_mode']);
+    }
+
+    expect($source->fresh())->spend_mode->toBe(TrafficSpendMode::ClickCost)->connector->toBeNull();
+
+    // Nor is its time zone held to a connector it doesn't have.
+    $saved = app(SaveTrafficSourceAction::class)->handle($this->admin, $source->id, [...$draft, 'connector' => 'exoclick', 'reporting_timezone' => 'Europe/Berlin'], [], $source->lock_version);
+
+    expect($saved)->reporting_timezone->toBe('Europe/Berlin')->connector->toBeNull();
+});
+
+it('asks for a rate when spend counts by rate and both rates are left blank, a rate of 0 being one', function () {
+    $source = TrafficSource::factory()->create();
+    $draft = [...draftValues(sourceDraft($source)), 'spend_mode' => 'rate'];
+    $save = fn (array $rates) => app(SaveTrafficSourceAction::class)->handle($this->admin, $source->id, [...$draft, ...$rates], [], $source->fresh()->lock_version);
+
+    expect(fn () => $save(['rate_mobile' => '', 'rate_desktop' => '']))->toThrow(ValidationException::class, 'Enter a rate for mobile, desktop or both.')
+        ->and(fn () => $save(['rate_mobile' => '', 'rate_desktop' => null]))->toThrow(ValidationException::class, 'Enter a rate for mobile, desktop or both.');
+
+    expect($save(['rate_mobile' => '0', 'rate_desktop' => '']))->spend_mode->toBe(TrafficSpendMode::Rate)->rate_mobile->toBe('0.000000')->rate_desktop->toBeNull();
+});
+
 it('moves a campaign through its stages as periods, with its history', function () {
     $campaign = TrafficCampaign::factory()->create();
 
@@ -193,6 +256,36 @@ it('prices a campaign from a day on, keeping the price the days before had', fun
         ->and($campaign->fresh()->name)->toBe('US popunder');
 });
 
+it('keeps a campaign’s price in force when its price for a device is left blank', function () {
+    $campaign = TrafficCampaign::factory()->create();
+    $save = fn (array $input) => app(SaveTrafficCampaignAction::class)->handle($this->admin, $campaign->fresh(), $input, $campaign->fresh()->lock_version);
+
+    $save(['spend_mode' => 'price', 'bid_model' => 'click', 'bid_mobile' => '0.9', 'bid_desktop' => null, 'price_from' => '2026-11-01']);
+    $save(['spend_mode' => 'price', 'bid_model' => 'click', 'bid_mobile' => null, 'bid_desktop' => null, 'price_from' => '2026-11-10']);
+
+    expect($campaign->fresh()->bid_mobile)->toBe('0.900000')
+        ->and(TrafficCampaignPrice::query()->where('campaign_id', $campaign->id)->get()->map(fn ($price) => [$price->device->value, $price->effective_from->toDateString(), $price->price])->all())
+        ->toBe([['mobile', '2026-11-01', '0.900000']]);
+});
+
+it('takes an empty spend mode, model and game as none', function () {
+    $campaign = TrafficCampaign::factory()->create(['spend_mode' => 'price', 'bid_model' => 'click']);
+
+    app(SaveTrafficCampaignAction::class)->handle($this->admin, $campaign, ['spend_mode' => '', 'bid_model' => '', 'game_id' => ''], $campaign->lock_version);
+
+    expect($campaign->fresh())->spend_mode->toBeNull()->bid_model->toBeNull()->game_id->toBeNull();
+});
+
+it('keeps a whitelist change in the campaign’s history, once', function () {
+    $campaign = TrafficCampaign::factory()->create();
+    $save = fn (array $input) => app(SaveTrafficCampaignAction::class)->handle($this->admin, $campaign->fresh(), $input, $campaign->fresh()->lock_version);
+
+    $save(['whitelist_name' => 'Top sites']);
+    $save(['whitelist_name' => 'Top sites']);
+
+    expect(TrafficCampaignEvent::query()->where('campaign_id', $campaign->id)->where('kind', TrafficCampaignEventKind::List)->pluck('summary')->all())->toBe(['Whitelist “Top sites”']);
+});
+
 it('archives the campaigns no click came through for 30 days, by itself', function () {
     $quiet = TrafficCampaign::factory()->create(['status' => TrafficCampaignStatus::Active, 'first_click_at' => now()->subDays(40)]);
     $busy = TrafficCampaign::factory()->create(['status' => TrafficCampaignStatus::Active, 'first_click_at' => now()->subDays(40)]);
@@ -206,6 +299,28 @@ it('archives the campaigns no click came through for 30 days, by itself', functi
         ->and($quiet->fresh()->status_before_archive)->toBe(TrafficCampaignStatus::Active)
         ->and($busy->fresh()->status)->toBe(TrafficCampaignStatus::Active)
         ->and($young->fresh()->status)->toBe(TrafficCampaignStatus::New);
+});
+
+it('leaves a quiet campaign saved since it was picked to the next run', function () {
+    $quiet = TrafficCampaign::factory()->create(['status' => TrafficCampaignStatus::Active, 'first_click_at' => now()->subDays(40)]);
+    $saved = false;
+    // An administrator's save commits between the pick and the archive.
+    TrafficCampaign::retrieved(function (TrafficCampaign $campaign) use (&$saved): void {
+        if (! $saved) {
+            $saved = true;
+            TrafficCampaign::query()->whereKey($campaign->id)->toBase()->increment('lock_version');
+        }
+    });
+
+    $this->artisan('traffic:archive-quiet-campaigns')->assertSuccessful()->expectsOutput('Archived 0 quiet campaigns.');
+
+    expect($quiet->fresh()->status)->toBe(TrafficCampaignStatus::Active)
+        ->and(TrafficCampaignEvent::query()->where('campaign_id', $quiet->id)->where('kind', TrafficCampaignEventKind::Archive)->count())->toBe(0);
+
+    $this->artisan('traffic:archive-quiet-campaigns')->assertSuccessful()->expectsOutput('Archived 1 quiet campaigns.');
+
+    expect($quiet->fresh()->status)->toBe(TrafficCampaignStatus::Archived)
+        ->and(TrafficCampaignEvent::query()->where('campaign_id', $quiet->id)->where('kind', TrafficCampaignEventKind::Archive)->count())->toBe(1);
 });
 
 it('keeps the targeting a network reported when the campaign panel saves only its own fields', function () {

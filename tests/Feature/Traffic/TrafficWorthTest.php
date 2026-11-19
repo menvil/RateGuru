@@ -12,6 +12,7 @@ use App\Enums\TrafficStepValueMode;
 use App\Enums\TrafficValueBasis;
 use App\Exceptions\Traffic\CannotManageTrafficException;
 use App\Models\Game;
+use App\Models\GameVersion;
 use App\Models\TrafficChanceRun;
 use App\Models\TrafficPriceSet;
 use App\Models\TrafficSource;
@@ -23,6 +24,7 @@ use App\Queries\Traffic\TrafficChanceSampleQuery;
 use App\Services\Traffic\TrafficVisitWorth;
 use Brick\Math\BigDecimal;
 use Carbon\CarbonImmutable;
+use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Validation\ValidationException;
 
 beforeEach(function () {
@@ -165,6 +167,18 @@ it('saves country groups, the last holding every other country', function () {
         ], $saved->id))->toThrow(ValidationException::class, 'United States is already in another group.');
 });
 
+it('keeps the summary of the most groups with the longest names within its column', function () {
+    $countries = ['US', 'CA', 'GB', 'DE', 'FR', 'IT', 'ES'];
+    $groups = array_map(fn (int $index): array => ['key' => 'g'.$index, 'name' => str_pad('Group '.$index, 40, 'x'), 'percent' => 200, 'countries' => isset($countries[$index]) ? [$countries[$index]] : []], range(0, SaveTrafficPricesAction::MOST_GROUPS - 1));
+
+    $saved = app(SaveTrafficPricesAction::class)->groups($this->admin, $groups, TrafficPriceSet::current()->id);
+
+    // Measured, since SQLite never holds a value to its column's length.
+    expect(mb_strlen($saved->summary))->toBeLessThanOrEqual(300)
+        ->and($saved->summary)->toStartWith('Country groups: Group 0')
+        ->and($saved->summary)->toEndWith('…');
+});
+
 it('counts a value set by hand at once, always or while the data is thin', function () {
     $game = Game::factory()->create();
     $visit = TrafficVisit::factory()->create(['game_id' => $game->id, 'opened_at' => now()]);
@@ -179,6 +193,60 @@ it('counts a value set by hand at once, always or while the data is thin', funct
     app(SetTrafficStepValueAction::class)->clear($this->admin, $game, 'started');
 
     expect(TrafficStepValue::query()->count())->toBe(0);
+});
+
+it('takes a value by hand for any round the Value tab offers a game not yet published', function () {
+    $game = publishableGameDraft(4)['game'];
+
+    $value = app(SetTrafficStepValueAction::class)->set($this->admin, $game, 'round_2', '0.03', TrafficStepValueMode::Always);
+
+    expect($value->step)->toBe('round_2')
+        ->and($value->value)->toBe('0.0300')
+        // The last round is the game finished, not a step of its own.
+        ->and(fn () => app(SetTrafficStepValueAction::class)->set($this->admin, $game, 'round_4', '0.03', TrafficStepValueMode::Always))->toThrow(ValidationException::class);
+});
+
+it('refuses a value by hand and new prices to anyone but an active administrator, keeping what is stored', function () {
+    $moderator = User::factory()->moderator()->create();
+    $game = Game::factory()->create();
+    $stored = app(SetTrafficStepValueAction::class)->set($this->admin, $game, 'started', '0.02', TrafficStepValueMode::Always);
+    $current = TrafficPriceSet::current();
+    $sets = TrafficPriceSet::query()->count();
+
+    expect(fn () => app(SetTrafficStepValueAction::class)->set($moderator, $game, 'started', '0.03', TrafficStepValueMode::Always))
+        ->toThrow(CannotManageTrafficException::class, 'You can’t manage traffic sources any more')
+        ->and(fn () => app(SetTrafficStepValueAction::class)->clear($moderator, $game, 'started'))
+        ->toThrow(CannotManageTrafficException::class, 'You can’t manage traffic sources any more')
+        ->and(fn () => app(SaveTrafficPricesAction::class)->prices($moderator, ['account_price' => '2', 'post_bonus' => '1', 'returned_bonus' => '0.2', 'login_price' => '0.1'], $current->id))
+        ->toThrow(CannotManageTrafficException::class, 'You can’t manage traffic sources any more')
+        ->and(fn () => app(SaveTrafficPricesAction::class)->groups($moderator, [['key' => 'all', 'name' => 'All', 'percent' => 100, 'countries' => []]], $current->id))
+        ->toThrow(CannotManageTrafficException::class, 'You can’t manage traffic sources any more');
+
+    expect(TrafficStepValue::query()->count())->toBe(1)
+        ->and($stored->fresh()->value)->toBe('0.0200')
+        ->and(TrafficPriceSet::query()->count())->toBe($sets);
+});
+
+it('counts every round a visitor answered as a step reached, not the last one alone', function () {
+    $version = GameVersion::factory()->create(['round_count' => 4]);
+    $game = $version->game;
+    app(SetTrafficStepValueAction::class)->set($this->admin, $game, 'round_1', '1', TrafficStepValueMode::Always);
+    app(SetTrafficStepValueAction::class)->set($this->admin, $game, 'round_2', '0.01', TrafficStepValueMode::Always);
+    $playing = TrafficVisit::factory()->create(['game_id' => $game->id, 'version_id' => $version->id, 'opened_at' => now(), 'started_at' => now(), 'rounds_answered' => 2]);
+    $worth = app(TrafficVisitWorth::class);
+
+    expect($worth->settled($playing))->toEqual(['value' => BigDecimal::of('1.00000000'), 'basis' => TrafficValueBasis::Manual, 'step' => 'round_1'])
+        ->and((string) $worth->best($playing))->toBe('1.00000000')
+        ->and($worth->values($playing, $this->now)['expected'])->toBe('1.00000000');
+
+    // A finished game reached every round on its way: a round worth more by hand than finishing counts.
+    app(SetTrafficStepValueAction::class)->set($this->admin, $game, 'round_2', '0.3', TrafficStepValueMode::Always);
+    app(SetTrafficStepValueAction::class)->set($this->admin, $game, 'completed', '0.2', TrafficStepValueMode::Always);
+    app(SetTrafficStepValueAction::class)->clear($this->admin, $game, 'round_1');
+    $finished = TrafficVisit::factory()->create(['game_id' => $game->id, 'version_id' => $version->id, 'opened_at' => now(), 'started_at' => now(), 'completed_at' => now(), 'rounds_answered' => 4]);
+
+    expect($worth->settled($finished)['step'])->toBe('round_2')
+        ->and((string) $worth->best($finished))->toBe('0.30000000');
 });
 
 it('brings the open visits’ worth up to date, and a closed visit to nothing', function () {
@@ -207,6 +275,39 @@ it('keeps an unpaid visit open for its two weeks, however short the sources’ w
         ->and($closed->fresh()->value_expected)->toBe('0.00000000');
 });
 
+it('revalues a click that signed up though its page never ran', function () {
+    // Its account confirmed 8 days ago: the return bonus's window has closed since.
+    $account = TrafficVisit::factory()->create(['arrived_at' => now()->subDays(8), 'holds_until' => now()->subDay(), 'opened_at' => null, 'signup_at' => now()->subDays(8), 'account_at' => now()->subDays(8), 'value_expected' => '0.5']);
+    // Signed up, never confirmed, and closed half a day ago.
+    $signedUp = TrafficVisit::factory()->create(['arrived_at' => now()->subDays(14)->subHours(12), 'holds_until' => now()->subDays(7)->subHours(12), 'opened_at' => null, 'signup_at' => now()->subDays(14), 'value_expected' => '0.3']);
+
+    app(RevalueOpenVisitsAction::class)->handle($this->now);
+
+    expect($account->fresh()->value_expected)->toBe(app(TrafficVisitWorth::class)->values($account->fresh(), $this->now)['expected'])
+        ->and($account->fresh()->value_expected)->not->toBe('0.50000000')
+        ->and($signedUp->fresh()->value_expected)->toBe('0.00000000');
+});
+
+it('still brings a visit to nothing when the nights after it closed were missed', function () {
+    $game = Game::factory()->create();
+    app(SetTrafficStepValueAction::class)->set($this->admin, $game, 'started', '0.04', TrafficStepValueMode::Always);
+    // Closed three days ago, and its account's bonuses two days ago.
+    $unpaid = TrafficVisit::factory()->unpaid()->create(['game_id' => $game->id, 'arrived_at' => now()->subDays(17), 'opened_at' => now()->subDays(17), 'started_at' => now()->subDays(17), 'value_expected' => '0.02']);
+    $account = TrafficVisit::factory()->create(['arrived_at' => now()->subDays(33), 'holds_until' => now()->subDays(26), 'opened_at' => now()->subDays(33), 'signup_at' => now()->subDays(33), 'account_at' => now()->subDays(33), 'value_expected' => '0.4']);
+
+    app(RevalueOpenVisitsAction::class)->handle($this->now);
+
+    expect($unpaid->fresh()->value_expected)->toBe('0.00000000')
+        ->and($account->fresh()->value_expected)->toBe('0.00000000');
+});
+
+it('brings a closed visit’s last crumb of worth to nothing', function () {
+    $closed = TrafficVisit::factory()->create(['arrived_at' => now()->subDays(15), 'holds_until' => now()->subDays(8), 'opened_at' => now()->subDays(15), 'started_at' => now()->subDays(15), 'value_expected' => '0.00004']);
+
+    expect(app(RevalueOpenVisitsAction::class)->handle($this->now))->toBe(1)
+        ->and($closed->fresh()->value_expected)->toBe('0.00000000');
+});
+
 it('works the worth out again only when the country groups changed', function () {
     $this->artisan('traffic:work-out-worth --when-groups-changed')->assertSuccessful();
     expect(TrafficChanceRun::query()->count())->toBe(0);
@@ -218,6 +319,17 @@ it('works the worth out again only when the country groups changed', function ()
     app(SaveTrafficPricesAction::class)->groups($this->admin, [['key' => 'all', 'name' => 'All', 'percent' => 100, 'countries' => []]], TrafficPriceSet::current()->id);
     $this->artisan('traffic:work-out-worth --when-groups-changed')->assertSuccessful();
     expect(TrafficChanceRun::query()->count())->toBe(2);
+});
+
+it('never works the worth out at night and for the country groups at once', function () {
+    $events = collect(app(Schedule::class)->events())
+        ->filter(fn ($event) => str_contains($event->command ?? '', 'traffic:work-out-worth'))
+        ->values();
+
+    // One lock for both: an older run's values can never be written over a newer run's.
+    expect($events)->toHaveCount(2)
+        ->and($events->every(fn ($event): bool => $event->withoutOverlapping))->toBeTrue()
+        ->and($events[0]->mutexName())->toBe($events[1]->mutexName());
 });
 
 it('keeps a paid source’s own account price in a new set, carries it over every other save, and takes it away when blank', function () {

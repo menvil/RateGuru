@@ -32,7 +32,12 @@ final class ExoClickConnector implements EditsBlockLists, ReadsCampaigns, ReadsS
     {
         $user = $this->json($this->authed($session, fn (PendingRequest $client) => $client->get(self::BASE.'/user')));
         $data = is_array($user['result'] ?? null) ? $user['result'] : $user;
-        $currency = strtoupper((string) ($data['currency'] ?? $data['account']['currency'] ?? 'USD'));
+        $currency = strtoupper(trim((string) ($data['currency'] ?? $data['account']['currency'] ?? '')));
+
+        // An answer that doesn't say the account's currency proves nothing about it: its spend is never taken for dollars.
+        if ($currency === '') {
+            throw new ConnectorException(TrafficConnectorFailure::UnexpectedResponse);
+        }
 
         if ($currency !== 'USD') {
             throw new ConnectorException(TrafficConnectorFailure::Currency);
@@ -149,7 +154,13 @@ final class ExoClickConnector implements EditsBlockLists, ReadsCampaigns, ReadsS
         return new BlockDeltaResult(array_diff($add, $listed) === [] && array_intersect($remove, $listed) === [], $response->status(), $listed);
     }
 
-    /** @return list<string> */
+    /**
+     * The campaign's blocked zones. A list that isn't there, or a zone in it
+     * without a numeric ID, fails the change: rewriting the list from it
+     * would drop zones blocked already. An empty list is a list.
+     *
+     * @return list<string>
+     */
     private function blockedZones(ConnectorSession $session, string $campaignId): array
     {
         $json = $this->json($this->authed($session, fn (PendingRequest $client) => $client->get(self::BASE.'/campaigns/'.rawurlencode($campaignId).'?detailed=true')));
@@ -159,7 +170,21 @@ final class ExoClickConnector implements EditsBlockLists, ReadsCampaigns, ReadsS
             throw new ConnectorException(TrafficConnectorFailure::Unsupported);
         }
 
-        return array_values(array_map(fn ($zone): string => (string) (is_array($zone) ? ($zone['id'] ?? '') : $zone), (array) ($campaign['zones'] ?? $campaign['zone_targeting']['zones'] ?? [])));
+        $zones = $campaign['zones'] ?? $campaign['zone_targeting']['zones'] ?? null;
+
+        if (! is_array($zones)) {
+            throw new ConnectorException(TrafficConnectorFailure::UnexpectedResponse);
+        }
+
+        return array_values(array_map(function (mixed $zone): string {
+            $id = is_array($zone) ? ($zone['idzone'] ?? $zone['id'] ?? null) : $zone;
+
+            if (! is_int($id) && ! (is_string($id) && ctype_digit($id))) {
+                throw new ConnectorException(TrafficConnectorFailure::UnexpectedResponse);
+            }
+
+            return (string) $id;
+        }, $zones));
     }
 
     /**
