@@ -398,10 +398,13 @@ it('marks the source and the game of the link Campaigns shows as chosen in their
     // The link starts on the first network by name and the first game by title.
     $page = Livewire::withQueryParams(['tab' => 'campaigns'])->test(TrafficSourcesPage::class)->call('load')->assertSee('rg_src=exo');
     $pickers = Str::betweenFirst($page->html(), 'rg-admin-traffic__link-pickers', '</div>');
+    // Each picker on its own: a source and a game may share an id.
+    $sources = Str::betweenFirst($pickers, 'aria-label="Source"', '</select>');
+    $games = Str::betweenFirst($pickers, 'aria-label="Game"', '</select>');
 
-    expect($pickers)->toContain('<option value="'.$exo->id.'" selected>')
+    expect($sources)->toContain('<option value="'.$exo->id.'" selected>')
         ->not->toContain('<option value="'.$this->source->id.'" selected>')
-        ->toContain('<option value="'.$first->id.'" selected>')
+        ->and($games)->toContain('<option value="'.$first->id.'" selected>')
         ->not->toContain('<option value="'.$second->id.'" selected>');
 });
 
