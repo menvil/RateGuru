@@ -1,7 +1,9 @@
 <?php
 
+use App\Enums\GameAudience;
 use App\Enums\GameEventType;
 use App\Enums\GameFlowStepType;
+use App\Enums\GameOnwardKind;
 use App\Livewire\Games\PlayGame;
 use App\Livewire\Posts\PostShow;
 use App\Livewire\Posts\PostVoting;
@@ -13,7 +15,11 @@ use App\Models\Post;
 use App\Models\ProjectSettings;
 use App\Models\RatingGroup;
 use App\Models\RatingOption;
+use App\Models\TrafficVisit;
 use App\Models\User;
+use Illuminate\Database\Events\QueryExecuted;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Exceptions;
 use Livewire\Livewire;
 
 beforeEach(function () {
@@ -112,6 +118,70 @@ it('credits three votes in the feed after the game sent the visitor there', func
     }
 
     expect(GameAttempt::query()->sole()->goal_reached_at)->not->toBeNull();
+});
+
+it('credits a sign-in form opened on the post the game sent the browser to, to the latest play that went there, once, with visits not recorded', function () {
+    recordTraffic(capture: false);
+    $post = playOnToPost($this->draft, $this->token, 'post_voted');
+    $sent = GameAttempt::query()->sole();
+    $later = fn (array $attributes): GameAttempt => GameAttempt::factory()->completed()->create(['version_id' => $sent->version_id, 'visitor_hash' => $sent->visitor_hash, ...$attributes]);
+    // The browser's play sent to the post earlier, its plays sent to the feed and to another post since, and another browser's sent to the post now: none of them.
+    $later(['onward_kind' => GameOnwardKind::Post, 'onward_post_id' => $post->id, 'onward_at' => now()->subMinutes(10)]);
+    $later(['onward_kind' => GameOnwardKind::Feed, 'onward_at' => now()->addSecond()]);
+    $later(['onward_kind' => GameOnwardKind::Post, 'onward_post_id' => Post::factory()->published()->create()->id, 'onward_at' => now()->addSecond()]);
+    $later(['visitor_hash' => browserHashOf(str_repeat('o', 40)), 'onward_kind' => GameOnwardKind::Post, 'onward_post_id' => $post->id, 'onward_at' => now()->addSecond()]);
+
+    signInFormOpened($this->token, $post->id);
+    signInFormOpened($this->token, $post->id);
+
+    expect(GameEvent::query()->where('type', GameEventType::PostSignInForm)->pluck('attempt_id')->all())->toBe([$sent->id])
+        ->and(GameEvent::query()->where('type', GameEventType::PostSignInForm)->sole()->audience)->toBe(GameAudience::Anonymous)
+        // A form is no goal of the flow's.
+        ->and($sent->fresh()->goal_reached_at)->toBeNull();
+});
+
+it('credits no sign-in form to a browser no play sent to a post within 30 minutes, and still answers 204', function () {
+    $post = playOnToPost($this->draft, $this->token, 'post_voted');
+    recordTraffic();
+
+    // A browser that never played, and this one 31 minutes after going on.
+    signInFormOpened(str_repeat('n', 40), $post->id);
+    $this->travel(31)->minutes();
+    signInFormOpened($this->token, $post->id);
+
+    expect(GameEvent::query()->where('type', GameEventType::PostSignInForm)->exists())->toBeFalse();
+});
+
+it('credits no sign-in form opened anywhere but on the post the game sent the browser to, which its page names', function () {
+    $post = playOnToPost($this->draft, $this->token, 'post_voted');
+    $other = Post::factory()->published()->create();
+
+    // On another post the visitor moved on to, and on a page that is no post's — the feed, the sign-in and sign-up pages.
+    signInFormOpened($this->token, $other->id);
+    signInFormOpened($this->token);
+
+    expect(GameEvent::query()->where('type', GameEventType::PostSignInForm)->exists())->toBeFalse();
+    Livewire::test(PostShow::class, ['post' => $post])->assertSee('data-rg-post="'.$post->id.'"', false);
+    $this->get(route('login'))->assertOk()->assertSee('data-rg-traffic-signal="signup_form"', false)->assertDontSee('data-rg-post', false);
+});
+
+it('answers 204 and still marks the visit when crediting the form to the game fails, and reports the failure', function () {
+    Exceptions::fake();
+    $post = playOnToPost($this->draft, $this->token, 'post_voted');
+    // Visits recorded from here on: the paid click holding the browser takes the form.
+    recordTraffic();
+    $visit = TrafficVisit::factory()->create(['visitor_hash' => browserHashOf($this->token)]);
+    DB::listen(function (QueryExecuted $query): void {
+        if (str_starts_with(strtolower($query->sql), 'select') && str_contains($query->sql, 'onward_kind') && str_contains($query->sql, 'visitor_hash')) {
+            throw new RuntimeException('The plays cannot be read.');
+        }
+    });
+
+    signInFormOpened($this->token, $post->id);
+
+    expect(GameEvent::query()->where('type', GameEventType::PostSignInForm)->exists())->toBeFalse()
+        ->and($visit->fresh()->signup_form_at)->not->toBeNull();
+    Exceptions::assertReported(fn (RuntimeException $exception): bool => $exception->getMessage() === 'The plays cannot be read.');
 });
 
 it('highlights on the post what the game asked for, and nothing without it', function () {

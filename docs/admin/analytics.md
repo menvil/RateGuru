@@ -29,11 +29,27 @@ Across the top: the **period**, **Device**, **Source** and **Campaign**, and
 the tabs. Everything you choose — the tab, the filters, each tab's own sort and
 choices — is kept in the page's address, so a link opens the same view.
 
-- **Period.** Yesterday, Last 7, 30 or 90 days, This month or Last month — or
-  click a start day and an end day on the calendar beside them. Today is
-  included. A range can be up to 93 days ("Up to 93 days at a time"), within the
-  400 days visits are kept. Every figure with a change beside it is compared
-  with as many days right before the period.
+- **Period.** Today, Yesterday, Last 7, 30 or 90 days, This month, Last
+  month or All time — the same presets as Traffic sources and a game's
+  Analytics tab — or click a start day and an end day on the calendar beside
+  them. Today is included. A range can be up to 93 days ("Up to 93 days at a
+  time"), within the 400 days visits are kept. All time starts on the day of
+  the first recorded visit, but Analytics reads at most 93 days at a time, so
+  once visits go back further it covers the last 93 days; the days beside the
+  period's name say which. Every figure with a change beside it is compared
+  with as many days right before the period — Yesterday with the day before,
+  This month with the same days of last month ("vs the same days of last
+  month"), Last month with the whole month before ("vs the month before"),
+  and Today with the people who arrived yesterday by this time ("vs people
+  who arrived yesterday by this time"), since the rest of today hasn't come
+  yet. The time bounds when they arrived, not what they did next: someone who
+  arrived yesterday at 9:00 and finished a game at 15:00 counts as a game
+  completer against today at noon, as every figure here counts the people who
+  arrived in a window, whenever they went on. All time has nothing earlier to
+  compare with, so it shows no changes. The period is always in the address, Last 30
+  days too. Opened from an address that names no period, the page shows the
+  period you last chose here, unless it is a range older than the visits are
+  kept, which opens the last 30 days.
 - **Device.** Mobile, desktop or both.
 - **Source.** Where a visit's session came from: a paid source by its name; a
   network and the kind of traffic it sent — Reddit, Google (its search results)
@@ -90,7 +106,8 @@ reads the visitors each version was given.
   step counts people, not attempts. **See an example journey** opens one of the
   funnel's people on the Journeys tab.
 - **Visitors per hour, day or week**: one day by the hour, up to 31 days by the
-  day, longer periods by blocks of 7 days. Marked days say what happened: a
+  day, longer periods by blocks of 7 days. Today's hours not yet begun say
+  "still to come" instead of a count. Marked days say what happened: a
   version published, a paid campaign's first click, a comparison started.
 - **Traffic sources**: the ten sources the most people came from, then "Other
   referrals", with starts, completions, accounts and activations; **Attribution
@@ -280,4 +297,5 @@ Look up one visitor's or member's way through the site:
 
 A member's journey joins every browser they signed up or signed in with. Every
 lookup is written to the application log with who looked — "Admins only ·
-lookups are logged".
+lookups are logged". A visitor ID in Traffic sources → Logs (a click, a
+milestone or a postback) opens here with that visitor looked up.

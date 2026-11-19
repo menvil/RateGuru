@@ -9,6 +9,7 @@ use App\Models\TrafficCampaign;
 use App\Models\TrafficSource;
 use App\Models\TrafficVisit;
 use App\Models\User;
+use App\Support\Analytics\JourneyTimeline;
 use App\Support\Traffic\Presets\SourceDefaults;
 use Carbon\CarbonImmutable;
 
@@ -23,8 +24,12 @@ use function Pest\Laravel\actingAs;
  * given an end by keys, left with none by No end and by closing after a
  * start, each saved as chosen; a campaign's price from the day clicked; a
  * source's blocked sites opened from its editor at the list itself; copies
- * said to be made only once the clipboard took them; and a source switched
- * between the general block rule and its own thresholds.
+ * said to be made only once the clipboard took them; a source switched
+ * between the general block rule and its own thresholds; a click's
+ * visitor in Logs, a link that opens its journey, the page no wider for it;
+ * and on the way here under the tiles, with the impressions a network billed
+ * in Sites & zones beside each site's visits, at a phone's width as at a
+ * desktop's.
  */
 beforeEach(function () {
     ProjectSettings::factory()->create();
@@ -58,7 +63,7 @@ it('picks a custom range in the period picker’s own calendar with two clicks, 
     $page->click('#rg-admin-traffic-period');
     waitForScript($page, "getComputedStyle(document.querySelector('{$panel}')).display !== 'none'");
 
-    // One drop-down: the presets beside one calendar — two months on a wide screen, one on a phone — whole on the screen, the page no wider.
+    // One drop-down: every report page's presets beside one calendar — two months on a wide screen, one on a phone — whole on the screen, the page no wider.
     expect($page->script(<<<JS
         (() => {
             const panel = document.querySelector('{$panel}')
@@ -69,13 +74,18 @@ it('picks a custom range in the period picker’s own calendar with two clicks, 
                 whole: box.left >= 0 && box.top >= 0 && box.right <= window.innerWidth && box.bottom <= window.innerHeight,
                 onTop: points.every(([x, y]) => panel.contains(document.elementFromPoint(x, y))),
                 overflow: document.documentElement.scrollWidth > window.innerWidth,
+                presets: [...panel.querySelectorAll('.rg-admin-period__preset')].map((preset) => preset.textContent.trim()),
                 months: panel.querySelectorAll('.rg-admin-date-range__month').length,
                 fields: panel.querySelectorAll('.rg-admin-date-time__trigger, input').length,
                 buttons: [...panel.querySelectorAll('button')].map((button) => button.textContent.trim()).filter((text) => ['Apply', 'Cancel', 'Clear'].includes(text)),
                 status: panel.querySelector('.rg-admin-date-range__status').textContent,
             }
         })()
-    JS))->toBe(['whole' => true, 'onTop' => true, 'overflow' => false, 'months' => $width >= 768 ? 2 : 1, 'fields' => 0, 'buttons' => [], 'status' => $today->subDays(29)->format('d M').' — '.$today->format('d M Y').' · 30 days']);
+    JS))->toBe([
+        'whole' => true, 'onTop' => true, 'overflow' => false,
+        'presets' => ['Today', 'Yesterday', 'Last 7 days', 'Last 30 days', 'Last 90 days', 'This month', 'Last month', 'All time'],
+        'months' => $width >= 768 ? 2 : 1, 'fields' => 0, 'buttons' => [], 'status' => $today->subDays(29)->format('d M').' — '.$today->format('d M Y').' · 30 days',
+    ]);
 
     // The first click starts the range and drops the end; the panel stays open.
     $page->click($day($first));
@@ -369,3 +379,91 @@ it('switches a source between the general block rule and its own thresholds on i
     expect($source->fresh()->block_bot_clicks)->toBeNull();
     $page->assertNoJavaScriptErrors();
 });
+
+it('names a click’s visitor in Logs by a link that opens its journey in Analytics, the page no wider at any width', function (int $width) {
+    $visit = TrafficVisit::factory()->create(['visitor_hash' => hash('sha256', 'log-visitor'), 'arrived_at' => now()->subHour(), 'opened_at' => now()->subHour()]);
+    [$id, $who] = [JourneyTimeline::visitorId($visit->visitor_hash), JourneyTimeline::visitorId($visit->visitor_hash, JourneyTimeline::LONG_DIGITS)];
+    $link = '[data-testid="traffic-log-journey"]';
+    $page = visitAdminEditor('/admin/traffic-sources?tab=logs&log=clicks', $width);
+
+    waitForScript($page, "document.querySelector('{$link}')?.textContent.trim() ?? null", $id, 10.0);
+
+    // The log is as wide as its columns and scrolls inside its panel; the page itself never does.
+    expect($page->script(<<<JS
+        (() => {
+            const link = document.querySelector('{$link}')
+            const query = new URL(link.href).searchParams
+
+            return {
+                overflow: document.documentElement.scrollWidth > window.innerWidth,
+                scrolled: link.closest('.rg-admin-table__scroll') !== null,
+                tab: query.get('tab'),
+                who: query.get('who'),
+                target: link.target,
+            }
+        })()
+    JS))->toBe(['overflow' => false, 'scrolled' => true, 'tab' => 'journeys', 'who' => $who, 'target' => '']);
+
+    // Followed, it leaves Traffic sources for the visitor's journey itself, not the first example.
+    $page->click($link);
+    waitForScript($page, "location.pathname + ' ' + new URLSearchParams(location.search).get('who')", '/admin/analytics '.$who, 10.0);
+    waitForScript($page, "document.querySelector('[data-testid=\"analytics-journey-label\"]')?.textContent.trim() ?? null", $id.' · not registered', 10.0);
+    $page->assertNoJavaScriptErrors();
+})->with([1440, 390]);
+
+it('shows on the way here under the tiles and each site’s paid impressions in Sites & zones, the page no wider at any width', function (int $width) {
+    $source = TrafficSource::factory()->create(['name' => 'PopAds main']);
+    $campaign = TrafficCampaign::factory()->create(['source_id' => $source->id]);
+    $yesterday = CarbonImmutable::now('UTC')->subDay()->toDateString();
+    paidImpressions($source, $yesterday, 20, '0.04', ['campaign_id' => $campaign->id, 'site_ref' => '40123']);
+    reachedVisits($source, $yesterday, 15, 8, 2, ['campaign_id' => $campaign->id, 'site_ref' => '40123']);
+    $page = visitAdminEditor('/admin/traffic-sources', $width);
+
+    waitForScript($page, "document.querySelector('[data-testid=\"traffic-reach\"]') !== null", true, 10.0);
+
+    // Right under the tiles: each step with its share of the one before, then what never arrived — the card within the screen, the page no wider.
+    expect($page->script(<<<'JS'
+        (() => {
+            const card = document.querySelector('[data-testid="traffic-reach"]')
+            const box = card.getBoundingClientRect()
+
+            return {
+                overflow: document.documentElement.scrollWidth > window.innerWidth,
+                within: box.left >= 0 && box.right <= window.innerWidth,
+                next: document.querySelector('[data-testid="traffic-report-tiles"]').nextElementSibling === card,
+                steps: [...card.querySelectorAll('[data-testid="traffic-reach-step"] .rg-admin-traffic__bar-head')].map((head) => head.innerText.replace(/\s+/g, ' ').trim()),
+                lost: card.querySelector('[data-testid="traffic-reach-lost"]').textContent.trim(),
+            }
+        })()
+    JS))->toBe([
+        'overflow' => false, 'within' => true, 'next' => true,
+        'steps' => ['Paid impressions (network) 20', 'Reached RateGuru 15 75%', 'Opened the page 8 53%', 'Started the game 2 25%'],
+        'lost' => 'Paid, never reached: 5 (25%) · ≈ $0.01 of the network’s $0.04',
+    ]);
+
+    // Sites & zones: the impressions and the share reached before the visits, the list scrolling inside its panel.
+    $page->script("[...document.querySelectorAll('.rg-admin-traffic__view')].find((view) => view.textContent.trim() === 'Sites & zones').click()");
+    waitForScript($page, "document.querySelector('[data-testid=\"traffic-site-row\"]') !== null", true, 10.0);
+
+    expect($page->script(<<<'JS'
+        (() => {
+            const row = document.querySelector('[data-testid="traffic-site-row"]')
+            const head = row.parentElement.querySelector('.rg-admin-traffic__perf-row--head')
+
+            return {
+                overflow: document.documentElement.scrollWidth > window.innerWidth,
+                scrolled: row.closest('.rg-admin-table__scroll') !== null,
+                head: [...head.children].slice(1, 4).map((cell) => cell.textContent.trim()),
+                cells: [...row.children].slice(1, 4).map((cell) => cell.innerText.replace(/\s+/g, ' ').trim()),
+                aligned: head.children.length === row.children.length && head.children[2].getBoundingClientRect().right === row.children[2].getBoundingClientRect().right,
+            }
+        })()
+    JS))->toBe([
+        'overflow' => false, 'scrolled' => true,
+        'head' => ['Paid impr.', 'Reached', 'Visits'],
+        'cells' => ['20', '75.0% 15 visits', '15'],
+        'aligned' => true,
+    ]);
+
+    $page->assertNoJavaScriptErrors();
+})->with([1440, 390]);

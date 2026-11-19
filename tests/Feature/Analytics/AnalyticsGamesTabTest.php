@@ -148,24 +148,26 @@ it('draws the very cards and figures of the game’s own Analytics for the same 
         'a preset and a device' => [['period' => '7d', 'device' => 'mobile'], ['period' => '7d', 'device' => 'mobile']],
         'the other device' => [['device' => 'desktop'], ['device' => 'desktop']],
         'a range of days' => [['from' => '2026-11-05', 'to' => '2026-11-18'], ['from' => '2026-11-05', 'to' => '2026-11-18']],
-        'last month, as its days' => [['period' => 'last-month'], ['from' => '2026-10-01', 'to' => '2026-10-31']],
+        'yesterday' => [['period' => 'yesterday'], ['period' => 'yesterday']],
+        'this month' => [['period' => 'this-month'], ['period' => 'this-month']],
+        'last month' => [['period' => 'last-month'], ['period' => 'last-month']],
         'the game’s own filters' => [['group' => 'authenticated', 'by' => 'country'], ['group' => 'authenticated', 'by' => 'country']],
         'a country and the sources card’s device' => [['country' => 'DE', 'sources_device' => 'mobile', 'by' => 'device'], ['country' => 'DE', 'sources_device' => 'mobile', 'by' => 'device']],
     ];
 
     foreach ($cases as $case => [$analytics, $own]) {
+        // Each case a first visit: a case naming no period opens on the default, not on the period an earlier case chose.
+        forgetChosenReportPeriods();
         $tab = analyticsGames(['game' => $game->id, ...$analytics])->viewData('data');
         $page = Livewire::withQueryParams($own)->test(GameAnalytics::class, ['record' => $game->id]);
 
         foreach ($keys as $key) {
-            // A preset the game's tab hasn't got is named as the page names it, where the game's tab names its days.
-            if ($key !== 'window' || ($analytics['period'] ?? '') !== 'last-month') {
-                expect($tab[$key])->toEqual($page->viewData($key), "{$case}: {$key}");
-            }
+            expect($tab[$key])->toEqual($page->viewData($key), "{$case}: {$key}");
         }
     }
 
     expect(analyticsGames(['period' => 'last-month'])->viewData('data')['window'])->toBe('last month');
+    forgetChosenReportPeriods();
 
     // The figures are there to compare: the shell's days and device do narrow them.
     $kpi = fn (array $data, string $label): string => collect($data['kpis'])->firstWhere('label', $label)['value'];
@@ -179,11 +181,26 @@ it('draws the very cards and figures of the game’s own Analytics for the same 
         ->and($mobile['sourcesSwitch'])->toBeFalse()
         ->and($all['datesText'])->toBe('20 Oct — 18 Nov 2026 · compared with 20 Sep — 19 Oct 2026')
         ->and(analyticsGames(['period' => 'yesterday'])->viewData('data')['datesText'])->toBe('17 Nov 2026 · compared with 16 Nov 2026')
-        ->and(analyticsGames(['period' => 'yesterday'])->viewData('data')['noData'])->toBeTrue();
+        // Today, as Overview compares it: with what began the day before up to the same time.
+        ->and(analyticsGames(['period' => 'today'])->viewData('data')['datesText'])->toBe('18 Nov 2026 · compared with 17 Nov 2026, visits and plays begun by the same time')
+        ->and(analyticsGames(['period' => 'yesterday'])->viewData('data')['noData'])->toBeTrue()
+        // This month as far into last month as it has gone, last month against the whole month before.
+        ->and(analyticsGames(['period' => 'this-month'])->viewData('data')['datesText'])->toBe('01 Nov — 18 Nov 2026 · compared with 01 Oct — 18 Oct 2026, visits and plays begun by the same time')
+        ->and(analyticsGames(['period' => 'last-month'])->viewData('data')['datesText'])->toBe('01 Oct — 31 Oct 2026 · compared with 01 Sep — 30 Sep 2026');
 
-    // The way to Traffic sources carries the page's period as Traffic sources names it.
+    // All time: the days the page's period covers — since the first visit, eight days ago — with nothing to compare.
+    $allTime = analyticsGames(['period' => 'all'])->viewData('data');
+    expect($allTime['datesText'])->toBe('10 Nov — 18 Nov 2026 · nothing earlier to compare with')
+        ->and($allTime['window'])->toBe('all time')
+        ->and($kpi($allTime, 'Game started'))->toBe('2');
+
+    // The way to Traffic sources carries the page's period as Traffic sources names it — the default too, since an address naming none opens on the period last chosen there —
+    // and all time as its days, since all time there reaches back further than Analytics reads.
     expect(analyticsGames(['period' => '7d'])->viewData('data')['sources']['reportUrl'])->toContain('period=7d')
-        ->and(analyticsGames(['period' => 'this-month'])->viewData('data')['sources']['reportUrl'])->toContain('from=2026-11-01')->toContain('to=2026-11-18');
+        ->and(analyticsGames(['period' => 'today'])->viewData('data')['sources']['reportUrl'])->toContain('period=today')
+        ->and(analyticsGames(['period' => '30d'])->viewData('data')['sources']['reportUrl'])->toContain('period=30d')
+        ->and(analyticsGames(['period' => 'this-month'])->viewData('data')['sources']['reportUrl'])->toContain('period=this-month')
+        ->and($allTime['sources']['reportUrl'])->toContain('from=2026-11-10')->toContain('to=2026-11-18')->not->toContain('period=');
 });
 
 it('says the source and campaign filters don’t apply while one is chosen, and nothing about recorded visits', function () {
@@ -271,10 +288,11 @@ it('reads no visit until the page is in a browser, and the tab in a bounded numb
     $many = $queries([]);
     $narrowed = $queries(['device' => 'mobile', 'country' => 'DE', 'by' => 'country', 'group' => 'authenticated']);
 
-    // The shell's filters, the games, the game's versions, its figures now and before, the cards and the periods: never one per row.
-    expect($few)->toBeLessThanOrEqual(48)
-        ->and($many)->toBeLessThanOrEqual(48)
-        ->and($narrowed)->toBeLessThanOrEqual(48)
+    // The shell's filters, the games, the game's versions, its figures now and before — with the game's first sign-in form on a post,
+    // read once — the cards and the periods: never one per row.
+    expect($few)->toBeLessThanOrEqual(49)
+        ->and($many)->toBeLessThanOrEqual(49)
+        ->and($narrowed)->toBeLessThanOrEqual(49)
         ->and($many - $few)->toBeLessThanOrEqual(2);
 });
 

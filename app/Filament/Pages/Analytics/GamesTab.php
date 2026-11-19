@@ -4,6 +4,7 @@ namespace App\Filament\Pages\Analytics;
 
 use App\Enums\GameStatus;
 use App\Filament\Pages\GrowthAnalyticsPage;
+use App\Filament\Pages\TrafficSourcesPage;
 use App\Filament\Resources\Games\Analytics\GameAnalyticsView;
 use App\Filament\Resources\Games\Analytics\GameAnalyticsWindow;
 use App\Filament\Resources\Games\GameResource;
@@ -11,6 +12,7 @@ use App\Filament\Resources\Games\Pages\GameAnalytics;
 use App\Models\Game;
 use App\Support\Analytics\AnalyticsFilter;
 use App\Support\Analytics\AnalyticsPeriod;
+use App\Support\Traffic\Reports\ReportPeriod;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Collection;
 
@@ -40,7 +42,8 @@ final class GamesTab implements AnalyticsTab
         $period = $filter->period;
         // Up to and including the current second: the database keeps whole seconds.
         $now = CarbonImmutable::now()->startOfSecond()->addSecond();
-        $window = GameAnalyticsWindow::days($period->start(), $period->end(), $now, GameAnalytics::retentionDays(), $period->isCustom() ? null : strtolower($period->label()), self::links($period));
+        // The period's days, compared as the game's own tab compares its preset: all time, here at most the days Analytics reads, with nothing.
+        $window = GameAnalyticsWindow::days($period->start(), $period->end(), $now, GameAnalytics::retentionDays(), $period->isCustom() ? null : strtolower($period->label()), self::links($period), GameAnalyticsWindow::comparisonOf($period->preset));
 
         return [
             'empty' => false,
@@ -83,7 +86,7 @@ final class GamesTab implements AnalyticsTab
         return GrowthAnalyticsPage::getUrl(array_filter([
             'tab' => 'games',
             'game' => $gameId,
-            'period' => $period->isCustom() || $period->preset === AnalyticsPeriod::DEFAULT ? null : $period->preset,
+            'period' => $period->isCustom() ? null : $period->preset,
             'from' => $period->isCustom() ? $period->fromDay : null,
             'to' => $period->isCustom() ? $period->toDay : null,
             'device' => $filter->device?->value,
@@ -92,16 +95,16 @@ final class GamesTab implements AnalyticsTab
 
     /**
      * The period of the links to Traffic sources: the same preset where it
-     * has one — Last 30 days its default — else the same days.
+     * has one, else the same days — all time's too, which reaches back
+     * further there than Analytics reads — always named, since an address
+     * that names none opens on the period last chosen there.
      *
      * @return array<string, string|null>
      */
     private static function links(AnalyticsPeriod $period): array
     {
-        return match ($period->preset) {
-            'yesterday', '7d', '90d' => ['period' => $period->preset],
-            AnalyticsPeriod::DEFAULT => ['period' => null],
-            default => ['from' => $period->fromDay, 'to' => $period->toDay],
-        };
+        return $period->preset !== ReportPeriod::ALL && array_key_exists($period->preset, TrafficSourcesPage::PERIODS)
+            ? ['period' => $period->preset]
+            : ['from' => $period->fromDay, 'to' => $period->toDay];
     }
 }

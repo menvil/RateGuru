@@ -116,19 +116,29 @@ content. Players see a translation once a version is published after it.
 
 ## Analytics
 
-The Analytics tab shows, per audience and over the last 7, 30 or 90 days, all
-time or a range of days picked on the period picker's calendar (click the
-first day, then the last): visitors, starts,
+The Analytics tab shows, per audience and over today, yesterday, the last 7,
+30 or 90 days, this month, last month, all time or a range of days picked on
+the period picker's calendar (click the first day, then the last) — the same
+presets as Traffic sources and Growth → Analytics: visitors, starts,
 completion, emails, new accounts and sign-ins (or, for logged-in players,
 shares and repeat players), the funnel, how many attempts reached each round,
 which results players got, the figures broken down by version, flow, content
 set, device, country or country group, and the traffic periods. Each figure is
-compared with as many days right before the period; all time has nothing to
-compare with. The period, the version, the audience, the device and the
+compared with as many days right before the period — yesterday with the day
+before, this month with last month as far into it as this month has gone,
+last month with the whole month before, and today with the day before up to
+the same time, since the rest of today hasn't come yet; all time has nothing
+to compare with. Cut short at the same time — today's day before, or as far
+into last month as this month has gone — the earlier days count the visitors
+who opened the game and the plays begun by then ("compared with 17 Nov 2026,
+visits and plays begun by the same time"), with whatever came of those plays
+later: a play begun at 9:00 and finished at 15:00 counts as completed against
+today at noon. The period, the version, the audience, the device and the
 country are kept in the page's address, so a link opens the same view; a range
 that ends after today, runs backwards or reaches further back than the 400
-days visits are kept opens the last 30 days instead. Library shows each game's
-plays, completion and sign-ups of the last 30 days.
+days visits are kept opens the last 30 days instead. An address that names no
+period opens the period you last chose on any game's Analytics. Library shows
+each game's plays, completion and sign-ups of the last 30 days.
 
 The game's own records know no device or country: those come from the visits
 Traffic sources recorded. With a **Device** or **Country** chosen — a country,
@@ -171,6 +181,48 @@ version that asks for an email, each once however many such versions they
 finished. Between the finished players and the new accounts,
 **Sign-up begun** shows who started signing up from the game and how — email,
 Google, Facebook, the site's sign-up dialog or Log in.
+
+Where a flow sends players on from the game, the funnel follows them, just
+before **Sign-up begun** (for logged-in players, after **Shared result**), with
+a row only for the ways on the versions shown offer: **Went on to the post**,
+then **Voted on the post** and — where the step asks for ratings — **Rated the
+post**, both of the people sent to the post (a rating, while another version
+shown sends to a post without asking, of the people the versions that ask sent
+there); **Went on to the feed**, then
+**Voted in the feed** (three votes); **Went on to a page**; **Went on to the
+next game**. Each way on is of the people who completed. A vote or a rating
+counts when it comes within 30 minutes of leaving the game, and a vote needs an
+account. Only the flow's own way on counts, never the link to the feed at the
+top of every screen. A guest who signs in on the way still counts with the
+guests, so a way on shown only to logged-in players also gets a row for
+anonymous visitors.
+
+For anonymous visitors sent to a post, three rows between **Went on to the
+post** and **Voted on the post** follow the way from the post to an account,
+each a share of the row above it:
+
+* **Saw the sign-in form there** — the sign-in or sign-up dialog opened on
+  that post within 30 minutes of going on to it, usually on trying to vote. It
+  counts for the latest play of that browser that went on to that post within
+  those 30 minutes; a dialog opened on the feed or on another post, and the
+  sign-in and sign-up pages, count for none. It's counted whether or not
+  **Record visits** is on. Plays from before this row existed count by their
+  recorded visit, if it was marked as having seen a sign-up form within 30
+  minutes of going on, so paid traffic already shows it. That mark is set
+  wherever on the site the dialog opened, since the visit doesn't keep where,
+  so it counts only for plays that went on before the game's first sign-in
+  form recorded on a post; from then on only the dialog on the post counts.
+  The figures of plays from before that first form may include a dialog
+  opened elsewhere — on the feed or another page — within the 30 minutes.
+  Someone who signed up on the post counts as well, since signing up takes the
+  form.
+* **Signed up there** — made a new account starting from that post within 30
+  minutes, credited to the play.
+* **Confirmed that account** — confirmed the email, or signed up with Google
+  or Facebook, within 7 days. An account never confirmed is removed after 7
+  days, so it drops out of **Signed up there** as well.
+
+The logged-in funnel has none of these rows: players already have an account.
 
 Under the funnel, **Sign-ups** shows for anonymous visitors how many signed up,
 how many confirmed, how many never confirmed and how many are still inside the

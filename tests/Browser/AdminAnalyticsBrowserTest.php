@@ -13,7 +13,9 @@ use function Pest\Laravel\actingAs;
  * along; a custom range picked with two clicks in the period picker's own
  * calendar, never longer than Analytics reads at a time; a device, a source
  * from its menu with its chip and the chip's ×, a source row filtering the
- * page and a second click clearing it; and the sources sorted by a rate.
+ * page and a second click clearing it; the sources sorted by a rate; the
+ * period last chosen, which an address naming none opens on; and every
+ * report page's presets, All time covering the days since the first visit.
  */
 beforeEach(function () {
     ProjectSettings::factory()->create();
@@ -82,7 +84,8 @@ it('changes the period, the device and the source, with the chip and a source ro
     $start = now()->subDays(6);
     $last7 = $start->format($start->year === now()->year ? 'd M' : 'd M Y').' — '.now()->format('d M Y');
 
-    expect(analyticsScreen($page))->toMatchArray(['visitors' => '62', 'chip' => null, 'sources' => ['Reddit', 'Google'], 'search' => '']);
+    // The period is always in the address, the default too: a link to it opens Last 30 days whatever its reader last chose.
+    expect(analyticsScreen($page))->toMatchArray(['visitors' => '62', 'chip' => null, 'sources' => ['Reddit', 'Google'], 'search' => '?period=30d']);
 
     // Another period: the figures and the top bar's days move with it.
     $page->click('#rg-admin-analytics-period');
@@ -125,6 +128,25 @@ it('changes the period, the device and the source, with the chip and a source ro
     waitForScript($page, "[...document.querySelectorAll('.rg-admin-analytics__source-row .rg-admin-analytics__source-name')].map((name) => name.textContent.trim()).join()", 'Google,Reddit', 10.0);
     expect(analyticsScreen($page)['search'])->toBe('?period=7d&sort=start');
 
+    // Opened again from an address naming no period: the period last chosen, put back in the address, every report page's presets offered, Today first.
+    $page = $page->navigate($page->script('location.origin').'/admin/analytics');
+    waitForScript($page, "document.querySelector('.rg-admin-analytics__kpi-value')?.textContent.trim()", '61', 10.0);
+    waitForScript($page, 'location.search', '?period=7d');
+    expect(analyticsScreen($page))->toMatchArray(['range' => $last7])
+        ->and($page->script("[...document.querySelectorAll('#rg-admin-analytics-period-panel .rg-admin-period__preset')].map((preset) => preset.textContent.trim())"))
+        ->toBe(['Today', 'Yesterday', 'Last 7 days', 'Last 30 days', 'Last 90 days', 'This month', 'Last month', 'All time']);
+
+    // All time: every visitor since the first visit, twenty days ago — the days beside the period's name and in the top bar saying so — in the address as any preset.
+    $since = now()->subDays(20);
+    $allTime = $since->format($since->year === now()->year ? 'd M' : 'd M Y').' — '.now()->format('d M Y');
+    $page->click('#rg-admin-analytics-period');
+    $page->click('#rg-admin-analytics-period-panel .rg-admin-period__preset:has-text("All time")');
+    waitForScript($page, 'location.search', '?period=all', 10.0);
+    waitForScript($page, "document.querySelector('.rg-admin-analytics__kpi-value')?.textContent.trim()", '62', 10.0);
+    expect(analyticsScreen($page))->toMatchArray(['range' => $allTime])
+        ->and($page->script("document.querySelector('#rg-admin-analytics-period .rg-admin-period__name').textContent.trim()"))->toBe('All time')
+        ->and($page->script("document.querySelector('#rg-admin-analytics-period .rg-admin-period__dates').textContent.trim()"))->toBe($allTime);
+
     $page->assertNoJavaScriptErrors();
 });
 
@@ -146,7 +168,7 @@ it('picks a custom range in the period picker’s own calendar with two clicks, 
     waitForScript($page, "document.querySelector('".dateRangeDayButton($page, $panel, $first->addDay())."').classList.contains('rg-admin-date-range__day--between')");
     $page->click(dateRangeDayButton($page, $panel, $last));
     waitForScript($page, "document.querySelector('.rg-admin-analytics__kpi-value')?.textContent.trim()", '1', 10.0);
-    expect(analyticsScreen($page))->toMatchArray(['search' => '?from='.$first->toDateString().'&to='.$last->toDateString(), 'range' => $first->format($first->year === $last->year ? 'd M' : 'd M Y').' — '.$last->format('d M Y')])
+    expect(analyticsScreen($page))->toMatchArray(['search' => '?period=30d&from='.$first->toDateString().'&to='.$last->toDateString(), 'range' => $first->format($first->year === $last->year ? 'd M' : 'd M Y').' — '.$last->format('d M Y')])
         ->and($page->script("document.querySelector('#rg-admin-analytics-period .rg-admin-period__name').textContent.trim()"))->toBe('Custom range')
         ->and($page->script("getComputedStyle(document.querySelector('{$panel}')).display"))->toBe('none');
 
@@ -163,7 +185,7 @@ it('picks a custom range in the period picker’s own calendar with two clicks, 
     // Escape closes the panel and keeps the range taken before.
     $page->keys(':focus', 'Escape');
     waitForScript($page, "getComputedStyle(document.querySelector('{$panel}')).display", 'none');
-    expect(analyticsScreen($page)['search'])->toBe('?from='.$first->toDateString().'&to='.$last->toDateString());
+    expect(analyticsScreen($page)['search'])->toBe('?period=30d&from='.$first->toDateString().'&to='.$last->toDateString());
 
     // A start picked, then Escape from a preset, outside the calendar: the start goes with the panel, and reopened it shows the range taken.
     $taken = $first->format($first->year === $last->year ? 'd M' : 'd M Y').' — '.$last->format('d M Y').' · 16 days';
@@ -178,7 +200,7 @@ it('picks a custom range in the period picker’s own calendar with two clicks, 
     $page->click('#rg-admin-analytics-period');
     waitForScript($page, "getComputedStyle(document.querySelector('{$panel}')).display !== 'none'");
     expect($page->script($status))->toBe($taken)
-        ->and(analyticsScreen($page)['search'])->toBe('?from='.$first->toDateString().'&to='.$last->toDateString());
+        ->and(analyticsScreen($page)['search'])->toBe('?period=30d&from='.$first->toDateString().'&to='.$last->toDateString());
 
     $page->assertNoJavaScriptErrors();
 });

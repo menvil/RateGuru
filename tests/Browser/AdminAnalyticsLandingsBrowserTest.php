@@ -101,7 +101,7 @@ it('opens the comparison’s results on the Experiments tab', function () {
     $page->click('[data-testid="analytics-landings-results"]');
     waitForScript($page, "document.querySelector('[data-testid=\"analytics-experiment\"]') !== null", true, 10.0);
 
-    expect($page->script('Object.fromEntries(new URLSearchParams(location.search))'))->toEqual(['tab' => 'experiments', 'exp' => (string) $this->period->id])
+    expect($page->script('Object.fromEntries(new URLSearchParams(location.search))'))->toEqual(['tab' => 'experiments', 'period' => '30d', 'exp' => (string) $this->period->id])
         ->and($page->script("document.querySelector('.rg-admin-experiments__choice[aria-pressed=\"true\"]')?.dataset.period"))->toBe((string) $this->period->id);
 
     $page->assertNoJavaScriptErrors();

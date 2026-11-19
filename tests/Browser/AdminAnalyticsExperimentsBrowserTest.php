@@ -92,12 +92,12 @@ it('shows another comparison chosen from the chooser, and puts it in the address
     waitForScript($page, "document.querySelector('.rg-admin-experiments__name')?.textContent.trim()", 'V7 vs V8', 10.0);
 
     expect($page->script("document.querySelector('.rg-admin-experiments__choice[aria-pressed=\"true\"]')?.dataset.period"))->toBe((string) $this->ended->id)
-        ->and($page->script('location.search'))->toBe('?tab=experiments&exp='.$this->ended->id)
+        ->and($page->script('location.search'))->toBe('?tab=experiments&period=30d&exp='.$this->ended->id)
         ->and($page->script("document.querySelector('[data-testid=\"analytics-experiment-verdict\"]')?.dataset.kind"))->toBe('ended');
 
-    // Back to Overview, the comparison leaves the address with its tab.
+    // Back to Overview, the comparison leaves the address with its tab; the period stays.
     $page->click('.rg-admin-analytics__tabs .rg-admin-tab:has-text("Overview")');
-    waitForScript($page, 'location.search', '', 10.0);
+    waitForScript($page, 'location.search', '?period=30d', 10.0);
 
     $page->assertNoJavaScriptErrors();
 });

@@ -156,8 +156,9 @@ final class OverviewTab implements AnalyticsTab
     }
 
     /**
-     * The visitors of each bucket, each bucket marked dark when something
-     * happened on it, with the legend of what did.
+     * The visitors of each bucket — an hour of today still to come saying
+     * so instead — each bucket marked dark when something happened on it,
+     * with the legend of what did.
      *
      * @return array{title: string, note: string, bars: list<array{height: float, title: string, marked: bool}>, ticks: list<string>, markers: list<string>, dense: bool}
      */
@@ -195,7 +196,7 @@ final class OverviewTab implements AnalyticsTab
             'note' => $period->range().($scope === '' ? '' : ' · '.$scope).'. '.$each.' Hover a bar for the exact count.',
             'bars' => array_map(fn (int $index, array $bucket): array => [
                 'height' => round($counts[$index] / $max * 100, 1),
-                'title' => $bucket['hint'].' · '.self::count($counts[$index]).($counts[$index] === 1 ? ' visitor' : ' visitors').(isset($marked[$index]) ? ' · '.implode(' · ', $marked[$index]) : ''),
+                'title' => $bucket['hint'].' · '.($bucket['toCome'] ? 'still to come' : self::count($counts[$index]).($counts[$index] === 1 ? ' visitor' : ' visitors')).(isset($marked[$index]) ? ' · '.implode(' · ', $marked[$index]) : ''),
                 'marked' => isset($marked[$index]),
             ], array_keys($buckets), $buckets),
             'ticks' => array_values(array_unique([$buckets[0]['label'], $buckets[intdiv($last, 2)]['label'], $buckets[$last]['label']])),

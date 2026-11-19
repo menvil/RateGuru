@@ -1,5 +1,9 @@
 <?php
 
+use App\Enums\GameEventType;
+use App\Enums\GameOnwardKind;
+use App\Models\GameAttempt;
+use App\Models\GameEvent;
 use App\Models\Post;
 use App\Models\TrafficVisit;
 use App\Models\TrafficVisitPost;
@@ -92,4 +96,19 @@ it('puts the sign-up form a page shows on the visit that page makes, its signal 
     waitForScript($page, "document.querySelector('meta[name=\"rg-arrival\"]')?.dataset.sent === '1'");
 
     eventually(fn () => expect(TrafficVisit::query()->sole())->game_id->toBeNull()->signup_form_at->not->toBeNull());
+});
+
+it('names the post the sign-in dialog opens on, crediting the game that sent the browser there', function () {
+    $post = Post::factory()->published()->create(['title' => 'A post a guest tries to vote on']);
+
+    $page = visit('/posts/'.$post->id)->withUserAgent(DESKTOP_CHROME_USER_AGENT);
+    waitForScript($page, "document.querySelector('meta[name=\"rg-arrival\"]')?.dataset.sent === '1'");
+    $hash = eventually(fn () => expect(TrafficVisit::query()->sole()->visitor_hash)->toBeString()->value);
+    // The play of this browser whose result sent it to the post a minute ago.
+    $sent = GameAttempt::factory()->completed()->create(['visitor_hash' => $hash, 'onward_kind' => GameOnwardKind::Post, 'onward_post_id' => $post->id, 'onward_at' => now()->subMinute()]);
+
+    // A guest's vote is refused, and the refusal opens the dialog.
+    $page->click("[data-testid=\"post-upvote-button-{$post->id}\"]");
+
+    eventually(fn () => expect(GameEvent::query()->where('type', GameEventType::PostSignInForm)->pluck('attempt_id')->all())->toBe([$sent->id]));
 });

@@ -14,7 +14,9 @@ use Illuminate\Contracts\Pagination\Paginator;
  * clicks and visits — those the tracker counts, paid clicks and game visits
  * (TrafficVisit::scopeTracked()) — the milestones paid clicks reached, the
  * postbacks and what the networks answered, and blocking. A page knows only
- * whether there is a next one, so no log ever counts its rows.
+ * whether there is a next one, so no log ever counts its rows. A click
+ * carries its visitor hash, and a milestone its visit's, read for the whole
+ * page at once: the log names each row's visitor by its journey ID.
  */
 final class TrafficLogsQuery implements StablePaginationBoundary
 {
@@ -37,6 +39,7 @@ final class TrafficLogsQuery implements StablePaginationBoundary
     {
         return TrafficConversion::query()
             ->when($sourceId !== null, fn ($query) => $query->where('source_id', $sourceId))
+            ->with('visit:id,visitor_hash')
             ->orderByDesc('id')
             ->simplePaginate(self::PER_PAGE, ['*'], 'page', max(1, $page));
     }

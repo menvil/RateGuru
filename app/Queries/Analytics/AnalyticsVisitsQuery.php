@@ -59,7 +59,9 @@ use InvalidArgumentException;
  *                    split by one dimension or more in turn;
  *  - firstDays()     the first day each value given came on;
  *  - has()           whether the filter admits any visit at all;
- *  - recordedSince() when the first visit of all was recorded.
+ *  - recordedSince() when the first visit of all was recorded;
+ *  - firstDay()      the first network day of all a visit came on: where
+ *                    a report's All time starts.
  *
  * Read-only.
  */
@@ -540,6 +542,26 @@ final class AnalyticsVisitsQuery implements RawSqlPersistenceBoundary
         $first = TrafficVisit::query()->min('arrived_at');
 
         return $first === null ? null : CarbonImmutable::parse((string) $first, 'UTC');
+    }
+
+    /**
+     * The first network day of all a visit came on, Y-m-d; none before the
+     * first visit. A network day is at most 12 hours behind its arrival and
+     * 14 ahead, so no visit arriving 26 hours or more after the first can
+     * have an earlier one: only the arrivals of those hours are read, by the
+     * arrival index.
+     */
+    public function firstDay(): ?string
+    {
+        $first = $this->recordedSince();
+
+        if ($first === null) {
+            return null;
+        }
+
+        $day = TrafficVisit::query()->where('arrived_at', '<', $first->addHours(26))->min('network_day');
+
+        return $day === null ? null : substr((string) $day, 0, 10);
     }
 
     /** @return Builder<TrafficVisit> */

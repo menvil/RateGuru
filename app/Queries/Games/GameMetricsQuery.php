@@ -3,10 +3,12 @@
 namespace App\Queries\Games;
 
 use App\Contracts\Persistence\RawSqlPersistenceBoundary;
+use App\Enums\AccountSignupPlace;
 use App\Enums\GameAccountOutcome;
 use App\Enums\GameAttemptStatus;
 use App\Enums\GameAudience;
 use App\Enums\GameEventType;
+use App\Enums\GameOnwardKind;
 use App\Enums\TrafficDimension;
 use App\Models\AccountAttribution;
 use App\Models\GameAnswer;
@@ -20,18 +22,24 @@ use App\Support\Games\Analytics\GameFunnel;
 use App\Support\Games\Analytics\GameMetricsScope;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Query\JoinClause;
 use InvalidArgumentException;
+use LogicException;
 
 /**
  * Reads a game's figures back from what playing it recorded: what Growth →
  * Games → Analytics, the library and Traffic show.
  *
  *  - funnels()      visitors, starts, completions, emails, sign-ups begun,
- *                   accounts, shares and repeat players — attempts and the
- *                   people behind them — in all, or per version, flow or set,
- *                   or per device, country or country group of their visits;
+ *                   accounts, shares, repeat players, and the people the
+ *                   flow sent on to a post, the feed, a page or the next game
+ *                   and what they did there — on a post, its sign-in form and
+ *                   the accounts made there too — attempts and the people
+ *                   behind them — in all, or per version, flow or set, or per
+ *                   device, country or country group of their visits;
  *  - visitors()     the visitors alone;
  *  - finishers()    the people who finished one of some versions, each once;
+ *  - sentToPost()   the people some versions sent on to a post, each once;
  *  - signUpMethods() the people who began signing up, by how;
  *  - reach()        how many started attempts answered each round of a version;
  *  - results()      the completed attempts of a version by result;
@@ -52,8 +60,10 @@ use InvalidArgumentException;
  * recorded visit drops out. Visits are only those the tracker counts
  * (TrafficVisit::scopeTracked()), never a visit to the rest of the site. The aggregates are conditional counts and
  * distinct counts Eloquent has no expression for: the raw SQL is this class's
- * own, the same on PostgreSQL, MariaDB and SQLite, every value in it bound and
- * every visit column named by TrafficDimension. Read-only.
+ * own, the same on PostgreSQL, MariaDB and SQLite but for a moment some
+ * minutes on, which each engine writes its own way (minutesAfter()), every
+ * value in it bound and every visit column named by TrafficDimension.
+ * Read-only.
  */
 final class GameMetricsQuery implements RawSqlPersistenceBoundary
 {
@@ -76,6 +86,23 @@ final class GameMetricsQuery implements RawSqlPersistenceBoundary
         'group' => TrafficDimension::Country,
     ];
 
+    /** How long after a way on sent a visitor to a post what they do there is still the play's, as CreditGameSiteActivityAction credits it. */
+    private const int ON_SITE_MINUTES = 30;
+
+    /** @var array<int, CarbonImmutable|null> each game's first `post_sign_in_form`, null for none yet, by game: read once (beforeFirstSignInForm()) */
+    private array $firstSignInForms = [];
+
+    /** The events of an attempt funnels() counts people by: shares, sign-ups begun, and the ways on and what came of them. */
+    private const FUNNEL_EVENTS = [
+        GameEventType::ShareClicked,
+        GameEventType::RegistrationCtaClicked,
+        GameEventType::PostOpened,
+        GameEventType::PostVoted,
+        GameEventType::PostRated,
+        GameEventType::FeedVoted,
+        GameEventType::Exit,
+    ];
+
     /**
      * The funnel of the scope, in all (keyed 0) or split by version, flow or
      * content set (keyed by its id), or by the device, country or country
@@ -83,7 +110,17 @@ final class GameMetricsQuery implements RawSqlPersistenceBoundary
      * country — '' where it is not known — or the group's index). A person
      * who saw two versions, or came from two countries, is one visitor in
      * all and one in each row; a play without a recorded visit is in no row
-     * of a visit's.
+     * of a visit's. The ways on count the people a play's way on sent to a
+     * post, the feed, a page or the next game (LeaveGameAction), and those
+     * the votes after it were credited to (CreditGameSiteActivityAction).
+     * Sent to a post, a person saw its sign-in form when one opened within
+     * 30 minutes — `post_sign_in_form` on the play, or, on a play sent on
+     * before the game's first such event, `signup_form_at` on the recorded
+     * visit it came on, which paid visits had before the event and which any
+     * sign-up dialog sets, the feed's too (beforeFirstSignInForm())
+     * — or when they signed up on a post within those 30 minutes, which takes
+     * the form; signed up there, by an account credited to the play
+     * (`signup_place` post); and confirmed, once that account is.
      *
      * @param  list<list<string>>  $countryGroups  split by group: the countries of each group of the price set but the last, which holds every other country and an unknown one
      * @return array<int|string, GameFunnel>
@@ -116,21 +153,58 @@ final class GameMetricsQuery implements RawSqlPersistenceBoundary
             $split($this->cohortJoin(GameEmailCapture::query(), 'game_email_captures.attempt_id', $scope), 'game_attempts.version_id')
                 ->selectRaw("COUNT(*) AS emails, COUNT(DISTINCT {$person}) AS emailers", []),
         );
-        $shared = $this->counts(
+        // A way on is the exit the flow's own way on recorded, on a play it sent there: never the
+        // link to the feed every screen has, nor the feed a post no longer published falls back to.
+        $wayOn = 'game_events.type = ? AND game_events.step_type = ? AND game_attempts.onward_kind = ?';
+        $events = $this->counts(
             $split(
-                $this->cohortJoin(GameEvent::query(), 'game_events.attempt_id', $scope)->where('game_events.type', GameEventType::ShareClicked->value),
+                $this->cohortJoin(GameEvent::query(), 'game_events.attempt_id', $scope)->whereIn('game_events.type', array_map(fn (GameEventType $type): string => $type->value, self::FUNNEL_EVENTS)),
                 'game_attempts.version_id',
-            )->selectRaw("COUNT(DISTINCT game_events.attempt_id) AS shared, COUNT(DISTINCT {$person}) AS sharers", []),
+            )->selectRaw(
+                "COUNT(DISTINCT CASE WHEN game_events.type = ? THEN game_events.attempt_id END) AS shared,
+                COUNT(DISTINCT CASE WHEN game_events.type = ? THEN {$person} END) AS sharers,
+                COUNT(DISTINCT CASE WHEN game_events.type = ? THEN {$person} END) AS sign_up_starters,
+                COUNT(DISTINCT CASE WHEN game_events.type = ? THEN {$person} END) AS went_to_post,
+                COUNT(DISTINCT CASE WHEN game_events.type = ? THEN {$person} END) AS voted_on_post,
+                COUNT(DISTINCT CASE WHEN game_events.type = ? THEN {$person} END) AS rated_post,
+                COUNT(DISTINCT CASE WHEN {$wayOn} THEN {$person} END) AS went_to_feed,
+                COUNT(DISTINCT CASE WHEN game_events.type = ? THEN {$person} END) AS voted_in_feed,
+                COUNT(DISTINCT CASE WHEN {$wayOn} THEN {$person} END) AS went_to_page,
+                COUNT(DISTINCT CASE WHEN {$wayOn} THEN {$person} END) AS went_to_next_game",
+                [
+                    GameEventType::ShareClicked->value,
+                    GameEventType::ShareClicked->value,
+                    GameEventType::RegistrationCtaClicked->value,
+                    GameEventType::PostOpened->value,
+                    GameEventType::PostVoted->value,
+                    GameEventType::PostRated->value,
+                    GameEventType::Exit->value, GameOnwardKind::Feed->value, GameOnwardKind::Feed->value,
+                    GameEventType::FeedVoted->value,
+                    GameEventType::Exit->value, GameOnwardKind::Page->value, GameOnwardKind::Page->value,
+                    GameEventType::Exit->value, GameOnwardKind::NextGame->value, GameOnwardKind::NextGame->value,
+                ],
+            ),
         );
-        $signUps = $this->counts(
-            $split(
-                $this->cohortJoin(GameEvent::query(), 'game_events.attempt_id', $scope)->where('game_events.type', GameEventType::RegistrationCtaClicked->value),
-                'game_attempts.version_id',
-            )->selectRaw("COUNT(DISTINCT {$person}) AS sign_up_starters", []),
+        // From the post to an account, on the plays sent to one: the sign-in form shown within the window —
+        // credited as it opens, or, for a play sent on before the game first recorded that, marked on the
+        // play's own recorded visit — or an account made on a post within it, which took the form; then
+        // those accounts, and the confirmed among them.
+        [$windowEnd, $windowBindings] = self::minutesAfter('game_attempts.onward_at', self::ON_SITE_MINUTES);
+        [$markedBefore, $markedBindings] = $this->beforeFirstSignInForm($scope->gameId);
+        $signedUp = "post_sign_ups.signed_up_at >= game_attempts.onward_at AND post_sign_ups.signed_up_at <= {$windowEnd}";
+        $onPost = $this->counts(
+            $split($this->postSignIns($scope), 'game_attempts.version_id')->selectRaw(
+                "COUNT(DISTINCT CASE WHEN sign_in_forms.id IS NOT NULL
+                    OR (form_visits.signup_form_at >= game_attempts.onward_at AND form_visits.signup_form_at <= {$windowEnd}{$markedBefore})
+                    OR ({$signedUp}) THEN {$person} END) AS saw_sign_in,
+                COUNT(DISTINCT CASE WHEN {$signedUp} THEN {$person} END) AS signed_up,
+                COUNT(DISTINCT CASE WHEN {$signedUp} AND post_sign_ups.confirmed_at IS NOT NULL THEN {$person} END) AS confirmed",
+                [...$windowBindings, ...$markedBindings, ...$windowBindings, ...$windowBindings, ...$windowBindings],
+            ),
         );
         $replayers = $this->replayers($this->grouped($this->attempts($scope), 'game_attempts.version_id', $by, $scope, $countryGroups, false), $scope, $by !== null);
 
-        $buckets = array_unique([...array_keys($visitors), ...array_keys($attempts), ...array_keys($emails), ...array_keys($shared), ...array_keys($signUps), ...array_keys($replayers)]);
+        $buckets = array_unique([...array_keys($visitors), ...array_keys($attempts), ...array_keys($emails), ...array_keys($events), ...array_keys($onPost), ...array_keys($replayers)]);
         sort($buckets);
 
         if ($by === null) {
@@ -147,15 +221,25 @@ final class GameMetricsQuery implements RawSqlPersistenceBoundary
                 emails: $emails[$bucket]['emails'] ?? 0,
                 registered: $attempts[$bucket]['registered'] ?? 0,
                 signedIn: $attempts[$bucket]['signed_in'] ?? 0,
-                shared: $shared[$bucket]['shared'] ?? 0,
+                shared: $events[$bucket]['shared'] ?? 0,
                 replayers: $replayers[$bucket] ?? 0,
                 starters: $attempts[$bucket]['starters'] ?? 0,
                 finishers: $attempts[$bucket]['finishers'] ?? 0,
                 emailers: $emails[$bucket]['emailers'] ?? 0,
-                sharers: $shared[$bucket]['sharers'] ?? 0,
-                signUpStarters: $signUps[$bucket]['sign_up_starters'] ?? 0,
+                sharers: $events[$bucket]['sharers'] ?? 0,
+                signUpStarters: $events[$bucket]['sign_up_starters'] ?? 0,
                 goalReached: $attempts[$bucket]['goal_reached'] ?? 0,
                 goalPeople: $attempts[$bucket]['goal_people'] ?? 0,
+                wentToPost: $events[$bucket]['went_to_post'] ?? 0,
+                sawSignInOnPost: $onPost[$bucket]['saw_sign_in'] ?? 0,
+                signedUpOnPost: $onPost[$bucket]['signed_up'] ?? 0,
+                confirmedOnPost: $onPost[$bucket]['confirmed'] ?? 0,
+                votedOnPost: $events[$bucket]['voted_on_post'] ?? 0,
+                ratedPost: $events[$bucket]['rated_post'] ?? 0,
+                wentToFeed: $events[$bucket]['went_to_feed'] ?? 0,
+                votedInFeed: $events[$bucket]['voted_in_feed'] ?? 0,
+                wentToPage: $events[$bucket]['went_to_page'] ?? 0,
+                wentToNextGame: $events[$bucket]['went_to_next_game'] ?? 0,
             );
         }
 
@@ -186,6 +270,28 @@ final class GameMetricsQuery implements RawSqlPersistenceBoundary
         return $this->attempts($scope)
             ->whereIn('game_attempts.version_id', $versionIds)
             ->where('game_attempts.status', GameAttemptStatus::Completed->value)
+            ->distinct()
+            ->count(self::person($scope));
+    }
+
+    /**
+     * The people of the scope a way on of one of the versions given sent to
+     * a post (`post_opened`), each person once however many of them sent
+     * them: what Rated the post is a share of, of the versions whose step
+     * sending to a post asks for ratings, while another version in view
+     * sends there without asking.
+     *
+     * @param  list<int>  $versionIds
+     */
+    public function sentToPost(GameMetricsScope $scope, array $versionIds): int
+    {
+        if ($versionIds === []) {
+            return 0;
+        }
+
+        return $this->cohortJoin(GameEvent::query(), 'game_events.attempt_id', $scope)
+            ->where('game_events.type', GameEventType::PostOpened->value)
+            ->whereIn('game_attempts.version_id', $versionIds)
             ->distinct()
             ->count(self::person($scope));
     }
@@ -574,6 +680,71 @@ final class GameMetricsQuery implements RawSqlPersistenceBoundary
             ->selectRaw('MIN(user_id) AS user_id', []);
 
         return $query->leftJoinSub($confirmed, 'confirmed_accounts', 'confirmed_accounts.credited_attempt_id', '=', 'game_attempts.id');
+    }
+
+    /**
+     * The scope's attempts a way on sent to a post, each with what led from
+     * there to an account: its `post_sign_in_form` (sign_in_forms), the
+     * recorded visit it came on (form_visits), and the accounts credited to
+     * it that signed up on a post (post_sign_ups) — an attempt once for each
+     * such account, so only distinct people are counted from it.
+     *
+     * @return Builder<GameAttempt>
+     */
+    private function postSignIns(GameMetricsScope $scope): Builder
+    {
+        return $this->attempts($scope)
+            ->where('game_attempts.onward_kind', GameOnwardKind::Post->value)
+            ->leftJoin('game_events as sign_in_forms', fn (JoinClause $join): JoinClause => $join
+                ->on('sign_in_forms.attempt_id', '=', 'game_attempts.id')
+                ->where('sign_in_forms.type', '=', GameEventType::PostSignInForm->value))
+            ->leftJoin('traffic_visits as form_visits', 'form_visits.id', '=', 'game_attempts.traffic_visit_id')
+            ->leftJoin('account_attributions as post_sign_ups', fn (JoinClause $join): JoinClause => $join
+                ->on('post_sign_ups.credited_attempt_id', '=', 'game_attempts.id')
+                ->where('post_sign_ups.signup_place', '=', AccountSignupPlace::Post->value));
+    }
+
+    /**
+     * The condition, as SQL with its binding, that keeps the recorded visit's
+     * `signup_form_at` standing in for the sign-in form only on plays sent on
+     * before the game's first `post_sign_in_form`: that mark is set by a
+     * sign-up dialog opened anywhere — the feed, another page — not on the
+     * post alone, so once the game records the form itself, only the event
+     * counts. No condition while the game has recorded none: every play is
+     * from before. The game's first such event is one bound read, made once
+     * per game for every funnel this instance reads — a page's, which reads
+     * the window, the window before and the splits.
+     *
+     * @return array{0: string, 1: list<mixed>}
+     */
+    private function beforeFirstSignInForm(int $gameId): array
+    {
+        if (! array_key_exists($gameId, $this->firstSignInForms)) {
+            $first = GameEvent::query()->where('game_id', $gameId)->where('type', GameEventType::PostSignInForm->value)->min('occurred_at');
+            $this->firstSignInForms[$gameId] = $first === null ? null : CarbonImmutable::parse((string) $first);
+        }
+
+        $first = $this->firstSignInForms[$gameId];
+
+        return $first === null ? ['', []] : [' AND game_attempts.onward_at < ?', [$first]];
+    }
+
+    /**
+     * A moment some minutes after a column's, as SQL with its bindings: the
+     * one expression each engine writes its own way.
+     *
+     * @return array{0: string, 1: list<mixed>}
+     */
+    private static function minutesAfter(string $column, int $minutes): array
+    {
+        $driver = (new GameAttempt)->getConnection()->getDriverName();
+
+        return match ($driver) {
+            'pgsql' => ["({$column} + CAST(? AS interval))", ["{$minutes} minutes"]],
+            'mysql', 'mariadb' => ["DATE_ADD({$column}, INTERVAL ? MINUTE)", [$minutes]],
+            'sqlite' => ["datetime({$column}, ?)", ["+{$minutes} minutes"]],
+            default => throw new LogicException("A game's figures cannot add minutes to a moment on the {$driver} driver."),
+        };
     }
 
     /**
