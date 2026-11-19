@@ -1,0 +1,98 @@
+database/migrations/2026_11_18_101400_add_visitor_day_index_to_traffic_visits_table.php
+  s_4b9dc6ab6b25d3::t_b90b0cd8b19392 1-36
+app/Filament/Pages/Analytics/AnalyticsReadCache.php
+  s_4b9dc6ab6b25d3::t_73fb1d637e8dd3 8
+  s_4b9dc6ab6b25d3::t_7a1a139a7850ac 54-64,69,71
+  s_4b9dc6ab6b25d3::t_d8767544240619 18,30-31,33-36,38,40,66
+  s_4b9dc6ab6b25d3::t_38b12833a594aa 19-20,25-27
+  s_4b9dc6ab6b25d3::t_45700c9f6cdc0c 49
+  s_4b9dc6ab6b25d3::t_aa3b2b668f5787 1-7,9-17,21-24,28-29,32,37,39,41-48,50-53,65,67-68,70,72-73
+config/analytics.php
+  s_4b9dc6ab6b25d3::t_45700c9f6cdc0c 21
+  s_4b9dc6ab6b25d3::t_99460f55ef2379 22-23
+app/Filament/Pages/GrowthAnalyticsPage.php
+  s_4b9dc6ab6b25d3::t_a62c6d04617690 436
+  s_4b9dc6ab6b25d3::t_0e42d0da4cb9b8 9,40-41,79-83,128-129,134,136,259-261,349-352,623-624,628-633,635-638,640-642,644-646,650-654,660-665,671-673
+  s_4b9dc6ab6b25d3::t_dedb5c8b25d741 130-133,135
+  s_4b9dc6ab6b25d3::t_30cfdb3accc255 445
+  s_4b9dc6ab6b25d3::t_d8767544240619 601-604,634,639,643
+  s_4b9dc6ab6b25d3::t_94be57d132e75d 355-365
+  s_4b9dc6ab6b25d3::t_b84f2d8c259fbf 656,669
+  s_4b9dc6ab6b25d3::t_d02f54f6c81970 647-649,655,657-659,666-668,670
+  s_4b9dc6ab6b25d3::t_5552bc1aac02d7 574
+  s_4b9dc6ab6b25d3::t_de883e463a62be 472
+tests/Feature/Analytics/AnalyticsReadCacheTest.php
+  s_4b9dc6ab6b25d3::t_dedb5c8b25d741 87-88
+  s_4b9dc6ab6b25d3::t_3453f2ca793546 3,5-6,8
+  s_4b9dc6ab6b25d3::t_20151ec6c0725c 11,108,169-184
+  s_4b9dc6ab6b25d3::t_f6d08f6b895960 1-2,4,7,9-10,12-16,22-86,89-107
+  s_4b9dc6ab6b25d3::t_49c4391fc2aa08 17-21
+  s_4b9dc6ab6b25d3::t_0eaae17e4d8386 185-204
+  s_4b9dc6ab6b25d3::t_e516902afa7121 109-168
+tests/Feature/Analytics/GeoAttributionTest.php
+  s_4b9dc6ab6b25d3::t_60d2e06635d699 21-22
+tests/Feature/Analytics/AnalyticsRetentionTabTest.php
+  s_4b9dc6ab6b25d3::t_1f67b6ba0cf098 28-29
+resources/views/filament/pages/analytics.blade.php
+  s_4b9dc6ab6b25d3::t_63610d11baf1ec 38-44
+tests/Feature/Database/TrafficVisitVisitorDayIndexTest.php
+  s_4b9dc6ab6b25d3::t_ad0552eae597b5 28-31
+  s_4b9dc6ab6b25d3::t_4752eac05bcaac 1-27,32-41
+tests/Feature/Analytics/AnalyticsGamesTabTest.php
+  s_4b9dc6ab6b25d3::t_1f67b6ba0cf098 34-35
+tests/Feature/Seeders/AnalyticsVolumeSeederTest.php
+  s_4b9dc6ab6b25d3::t_ddd1829eba7f30 109-115,117-125,127
+  s_4b9dc6ab6b25d3::t_143676444b5e16 116,126
+  s_4b9dc6ab6b25d3::t_63da957fe375d5 1-108
+tests/Feature/Analytics/AnalyticsGeographyTabTest.php
+  s_4b9dc6ab6b25d3::t_60d2e06635d699 31-32
+tests/Feature/Analytics/AnalyticsCampaignsTabTest.php
+  s_4b9dc6ab6b25d3::t_60d2e06635d699 37-38
+tests/Feature/Analytics/AnalyticsJourneysTabTest.php
+  s_4b9dc6ab6b25d3::t_b9b8111f844880 33-34
+tests/Feature/Analytics/AnalyticsExperimentsTabTest.php
+  s_4b9dc6ab6b25d3::t_1f67b6ba0cf098 31-32
+database/seeders/AnalyticsVolumeSeeder.php
+  s_4b9dc6ab6b25d3::t_c6bf60c5812cd8 51,213
+  s_4b9dc6ab6b25d3::t_28e01c36e2e30b 56,190-192,222,278,280-281,283-288,334,626,861,887,920-925,1137,1153,1156,1161-1167,1182,1186,1188-1189,1215,1217,1338-1342
+  s_4b9dc6ab6b25d3::t_3af65a65028141 16,199,898,917
+  s_4b9dc6ab6b25d3::t_8e9d0a8e7d51c9 239-241,328,345,652
+  s_4b9dc6ab6b25d3::t_ff4fa8ddde1dfe 1143,1145-1149
+  s_4b9dc6ab6b25d3::t_92bc735e28a13f 89,95-101
+  s_4b9dc6ab6b25d3::t_df06f3ab5e8990 242-244,340-343,355-357,361,384-385,408-462,464-475,554,646-651,653-655
+  s_4b9dc6ab6b25d3::t_27a3bc3bfc74c8 1290-1291
+  s_4b9dc6ab6b25d3::t_80d6f093773a9d 1402
+  s_4b9dc6ab6b25d3::t_182f8b6ad826ff 1-15,17-50,52-55,57-88,90-94,102-189,193-198,200-212,214-221,223-238,245-277,279,282,289-327,329-333,335-339,344,346-354,358-360,362-383,386-407,463,476-553,555-625,627-645,656-860,862-886,888-897,899-916,918-919,926-1136,1138-1142,1144,1150-1152,1154-1155,1157-1160,1168-1181,1183-1185,1187,1190-1214,1216,1218-1289,1292-1337,1343-1401,1403-1512
+tests/Feature/Analytics/AnalyticsEngagementTabTest.php
+  s_4b9dc6ab6b25d3::t_60d2e06635d699 42-43
+tests/Feature/Analytics/AnalyticsSegmentsTest.php
+  s_4b9dc6ab6b25d3::t_60d2e06635d699 35-36
+app/Filament/Pages/Analytics/AnalyticsView.php
+  s_4b9dc6ab6b25d3::t_b84f2d8c259fbf 56
+  s_4b9dc6ab6b25d3::t_a6b76ef9321680 211-212
+  s_4b9dc6ab6b25d3::t_96c43a292125cb 224
+  s_4b9dc6ab6b25d3::t_d8767544240619 15,24-26,47-48,51,72,178,193,209-210,213-223
+  s_4b9dc6ab6b25d3::t_e7e5366e618581 53-54
+resources/css/filament/admin/components.css
+  s_4b9dc6ab6b25d3::t_126fcc2012a392 17837-17847
+tests/Feature/Analytics/AnalyticsLandingsTabTest.php
+  s_4b9dc6ab6b25d3::t_60d2e06635d699 31-32
+tests/Feature/Analytics/AnalyticsTrackingLinksTest.php
+  s_4b9dc6ab6b25d3::t_60d2e06635d699 41-42
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "ace5d9acca54fd86725253b116a0fb0dfd90c476",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
