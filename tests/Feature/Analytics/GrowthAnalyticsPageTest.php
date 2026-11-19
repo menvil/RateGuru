@@ -4,6 +4,8 @@ use App\Enums\GameAudience;
 use App\Enums\GameEventType;
 use App\Filament\Pages\Analytics\AnalyticsTab;
 use App\Filament\Pages\GrowthAnalyticsPage;
+use App\Filament\Pages\TrafficSourcesPage;
+use App\Filament\Support\ReportPeriodMemory;
 use App\Models\GameAttempt;
 use App\Models\GameEvent;
 use App\Models\GameVersion;
@@ -15,6 +17,7 @@ use App\Models\TrafficVisit;
 use App\Models\User;
 use App\Support\Analytics\AnalyticsSource;
 use App\Support\Traffic\Capture\BotSignals;
+use App\Support\Traffic\Reports\ReportPeriod;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -136,6 +139,152 @@ it('tells the top bar the days it read the figures of, a preset that rolled over
         ->assertDispatched('rg-admin-analytics-range', text: '13 Nov — 19 Nov 2026');
 });
 
+it('offers Today first among the presets: today’s visits alone, hour by hour, against the people who arrived yesterday by this time', function () {
+    analyticsVisit('ann', ['network_day' => '2026-11-18', 'arrived_at' => '2026-11-18 09:00:00']);
+    analyticsVisit('bob', ['network_day' => '2026-11-17', 'arrived_at' => '2026-11-17 09:00:00']);
+    analyticsVisit('cat', ['network_day' => '2026-11-17', 'arrived_at' => '2026-11-17 11:00:00']);
+    // Later in the day than it now is: today has had no such hours yet, so they don't count against it.
+    analyticsVisit('dan', ['network_day' => '2026-11-17', 'arrived_at' => '2026-11-17 15:00:00']);
+    analyticsVisit('eve', ['network_day' => '2026-11-17', 'arrived_at' => '2026-11-17 20:00:00']);
+
+    $page = Livewire::withQueryParams(['period' => 'today'])->test(GrowthAnalyticsPage::class)->call('load')
+        ->assertSet('period', 'today')
+        ->assertSet('from', '')
+        ->assertViewHas('periodPicker', fn (array $picker): bool => array_key_first($picker['presets']) === 'today' && $picker['value'] === 'today' && $picker['label'] === 'Today'
+            && $picker['dates'] === '18 Nov 2026' && [$picker['from'], $picker['to']] === ['2026-11-18', '2026-11-18'])
+        ->assertDispatched('rg-admin-analytics-range', text: '18 Nov 2026');
+    $data = $page->viewData('data');
+    $visitors = collect($data['kpis'])->firstWhere('label', 'Visitors');
+
+    $bars = array_column($data['chart']['bars'], 'title');
+
+    expect($visitors['value'])->toBe('1')
+        ->and($visitors['change'])->toBe('−50% vs people who arrived yesterday by this time')
+        ->and($data['chart']['title'])->toBe('Visitors per hour')
+        // The hours of today not yet begun count nobody: they are still to come; the hour now running counts.
+        ->and([$bars[9], $bars[12], $bars[13], $bars[23]])->toBe([
+            '18 Nov 2026 · 09:00–10:00 UTC · 1 visitor',
+            '18 Nov 2026 · 12:00–13:00 UTC · 0 visitors',
+            '18 Nov 2026 · 13:00–14:00 UTC · still to come',
+            '18 Nov 2026 · 23:00–24:00 UTC · still to come',
+        ])
+        ->and(GrowthAnalyticsPage::topbar(Request::create('/admin/analytics', 'GET', ['period' => 'today'])))->toContain('18 Nov 2026');
+});
+
+it('compares Today with the people who arrived yesterday by this time, counting what they did after it', function () {
+    // Today, by noon: two finished a game.
+    analyticsVisit('ann', ['network_day' => '2026-11-18', 'arrived_at' => '2026-11-18 09:00:00', 'started_at' => '2026-11-18 09:05:00', 'completed_at' => '2026-11-18 09:20:00']);
+    analyticsVisit('amy', ['network_day' => '2026-11-18', 'arrived_at' => '2026-11-18 10:00:00', 'started_at' => '2026-11-18 10:05:00', 'completed_at' => '2026-11-18 10:20:00']);
+    // Yesterday: bob arrived before noon and finished only at 15:00, after it — he counts; cat arrived after noon and does not, finished or not.
+    analyticsVisit('bob', ['network_day' => '2026-11-17', 'arrived_at' => '2026-11-17 09:00:00', 'started_at' => '2026-11-17 14:30:00', 'completed_at' => '2026-11-17 15:00:00']);
+    analyticsVisit('cat', ['network_day' => '2026-11-17', 'arrived_at' => '2026-11-17 13:00:00', 'started_at' => '2026-11-17 13:05:00', 'completed_at' => '2026-11-17 13:20:00']);
+
+    $kpis = collect(analyticsOverview(['period' => 'today'])['kpis'])->keyBy('label');
+
+    // Bounding yesterday's steps by the time too would have counted nobody; counting every arrival, two.
+    expect([$kpis['Game completers']['value'], $kpis['Game completers']['change']])->toBe(['2', '+100% vs people who arrived yesterday by this time'])
+        ->and([$kpis['Game starters']['value'], $kpis['Game starters']['change']])->toBe(['2', '+100% vs people who arrived yesterday by this time'])
+        ->and($kpis['Visitors']['change'])->toBe('+100% vs people who arrived yesterday by this time');
+});
+
+it('offers every report page’s presets: yesterday against the day before, this month against the same days of last month, last month against the month before, all time against nothing', function () {
+    recordAnalyticsVisits();
+    // The first visit of all arrived early on 20 Sep, UTC, from a network whose day was still 19 Sep.
+    $days = [
+        'ann' => ['2026-09-19', '2026-09-20 03:00:00'],
+        'bob' => ['2026-09-25', null],
+        'cat' => ['2026-10-05', null],
+        'dan' => ['2026-10-25', null],
+        'eve' => ['2026-11-05', null],
+        'fay' => ['2026-11-16', null],
+        'gus' => ['2026-11-17', null],
+        'hal' => ['2026-11-17', null],
+    ];
+    foreach ($days as $browser => [$day, $at]) {
+        analyticsVisit($browser, ['network_day' => $day, 'arrived_at' => $at ?? $day.' 10:00:00']);
+    }
+    $open = fn (string $preset) => Livewire::withQueryParams(['period' => $preset])->test(GrowthAnalyticsPage::class)->call('load');
+    $cases = [
+        'yesterday' => ['Yesterday', '17 Nov 2026', ['2026-11-17', '2026-11-17'], '2', '+100% vs the day before'],
+        // 1–18 November: eve, fay, gus, hal; 1–18 October: cat.
+        'this-month' => ['This month', '01 Nov — 18 Nov 2026', ['2026-11-01', '2026-11-18'], '4', '+300% vs the same days of last month'],
+        // October: cat, dan; September: ann, bob.
+        'last-month' => ['Last month', '01 Oct — 31 Oct 2026', ['2026-10-01', '2026-10-31'], '2', 'Same as the month before'],
+        // Since the first visit's network day; nothing earlier to compare with.
+        'all' => ['All time', '19 Sep — 18 Nov 2026', ['2026-09-19', '2026-11-18'], '8', null],
+    ];
+
+    foreach ($cases as $preset => [$label, $dates, $read, $value, $change]) {
+        $page = $open($preset)
+            ->assertSet('period', $preset)
+            ->assertSet('from', '')
+            ->assertViewHas('periodPicker', fn (array $picker): bool => $picker['presets'] === ReportPeriod::PRESETS && $picker['value'] === $preset && $picker['label'] === $label && $picker['dates'] === $dates && [$picker['from'], $picker['to']] === $read)
+            ->assertViewHas('range', $dates)
+            ->assertDispatched('rg-admin-analytics-range', text: $dates);
+        $visitors = collect($page->viewData('data')['kpis'])->firstWhere('label', 'Visitors');
+
+        expect([$visitors['value'], $visitors['change']])->toBe([$value, $change], $preset)
+            ->and(GrowthAnalyticsPage::topbar(Request::create('/admin/analytics', 'GET', ['period' => $preset])))->toContain($dates);
+    }
+
+    // Visits from further back than Analytics reads at a time: all time is its last 93 days, and the picker and the top bar say so.
+    analyticsVisit('ivy', ['network_day' => '2026-05-01']);
+    $open('all')->assertViewHas('periodPicker', fn (array $picker): bool => $picker['label'] === 'All time' && $picker['dates'] === '18 Aug — 18 Nov 2026' && [$picker['from'], $picker['to']] === ['2026-08-18', '2026-11-18']);
+
+    // The picker's own call reads it the same way, and keeps it as the last choice.
+    Livewire::test(GrowthAnalyticsPage::class)->call('choosePeriod', 'all')->assertSet('period', 'all')->assertDispatched('rg-admin-analytics-range', text: '18 Aug — 18 Nov 2026');
+    Livewire::withQueryParams([])->test(GrowthAnalyticsPage::class)->assertSet('period', 'all');
+});
+
+it('opens on the period the administrator last chose when the address names none, an address naming one winning and kept in turn', function () {
+    $open = fn (array $query = []) => Livewire::withQueryParams($query)->test(GrowthAnalyticsPage::class);
+
+    // Nothing chosen yet: the default. A preset chosen is then what an address naming none opens on, the top bar's days with it.
+    $open()->assertSet('period', '30d')->call('choosePeriod', 'today');
+    $open()->assertSet('period', 'today')->assertSet('from', '')->assertViewHas('periodPicker', fn (array $picker): bool => $picker['label'] === 'Today');
+    expect(GrowthAnalyticsPage::topbar(Request::create('/admin/analytics')))->toContain('18 Nov 2026');
+
+    // So is a range, chosen on any tab.
+    $open(['tab' => 'geo'])->call('applyRange', '2026-11-01', '2026-11-10');
+    $open()->assertSet('period', '30d')->assertSet('from', '2026-11-01')->assertSet('to', '2026-11-10')
+        ->assertViewHas('periodPicker', fn (array $picker): bool => $picker['label'] === 'Custom range' && $picker['dates'] === '01 Nov — 10 Nov 2026');
+
+    // An address naming a period wins over it — the default too — and is kept in turn; a link carrying its own days opens on them.
+    $open(['period' => '7d'])->assertSet('period', '7d')->assertSet('from', '');
+    $open()->assertSet('period', '7d');
+    $open(['period' => '30d'])->assertSet('period', '30d');
+    $open()->assertSet('period', '30d');
+    $open(['tab' => 'games', 'from' => '2026-11-05', 'to' => '2026-11-12'])->assertSet('from', '2026-11-05')->assertSet('to', '2026-11-12');
+
+    // Only opening the page and the picker keep a period: another filter changed on a page opened before leaves the last choice alone.
+    $earlier = $open(['period' => 'yesterday']);
+    $open(['period' => '90d']);
+    $earlier->set('device', 'mobile')->assertSet('period', 'yesterday');
+    $open()->assertSet('period', '90d');
+
+    // Each administrator keeps their own, and each report page's picker its own.
+    $this->actingAs(User::factory()->admin()->create());
+    $open()->assertSet('period', '30d');
+    $this->actingAs($this->admin);
+    $open()->assertSet('period', '90d');
+    Livewire::withQueryParams([])->test(TrafficSourcesPage::class)->assertSet('period', '30d');
+});
+
+it('opens on the default, silently, once the period last chosen can no longer be read', function () {
+    Livewire::withQueryParams(['from' => '2026-11-01', 'to' => '2026-11-10'])->test(GrowthAnalyticsPage::class);
+
+    // A range now older than the visits are kept: the default, and the default kept instead.
+    $this->travelTo(CarbonImmutable::parse('2028-01-01 12:00:00'));
+    Livewire::withQueryParams([])->test(GrowthAnalyticsPage::class)->assertSet('period', '30d')->assertSet('from', '')->assertSet('to', '')
+        ->assertViewHas('periodPicker', fn (array $picker): bool => $picker['label'] === 'Last 30 days');
+    expect(GrowthAnalyticsPage::topbar(Request::create('/admin/analytics')))->toContain('03 Dec 2027 — 01 Jan 2028')
+        ->and(ReportPeriodMemory::recall(Request::create('/admin/analytics'), GrowthAnalyticsPage::PERIOD_MEMORY))->toBe(['period' => '30d', 'from' => '', 'to' => '']);
+
+    // A preset the page doesn't offer, however it came to be kept.
+    ReportPeriodMemory::remember(GrowthAnalyticsPage::PERIOD_MEMORY, 'forever', '', '');
+    Livewire::withQueryParams([])->test(GrowthAnalyticsPage::class)->assertSet('period', '30d')->assertSet('from', '');
+});
+
 it('lists only the tabs that are built, each drawn from its own view and figures', function () {
     analyticsVisit('ann');
 
@@ -211,7 +360,8 @@ it('says so when nothing was ever recorded, when the period comes before the fir
     expect(collect(Livewire::withQueryParams(['from' => '2026-10-01', 'to' => '2026-10-31'])->test(GrowthAnalyticsPage::class)->call('load')->viewData('notices'))->pluck('text')->all())
         ->not->toContain('Visits are recorded since 15 Nov 2026.');
 
-    Livewire::withQueryParams(['source' => 'google:organic', 'device' => 'desktop'])->test(GrowthAnalyticsPage::class)->call('load')
+    // The last 30 days named: the range above is the period last chosen, which an address naming none would open on.
+    Livewire::withQueryParams(['period' => '30d', 'source' => 'google:organic', 'device' => 'desktop'])->test(GrowthAnalyticsPage::class)->call('load')
         ->assertSee('No visitors for these filters')
         ->assertSee('Nothing matches in 20 Oct — 18 Nov 2026. Pick a longer range or clear the filters.')
         ->assertSee('Clear filters')

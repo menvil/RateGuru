@@ -1,13 +1,14 @@
 {{--
-    Report, as the reference draws it: the period's tiles; mobile against
-    desktop on paid traffic; how accounts come — the way to one, where they
-    signed up, how long after the click; sign-ups and confirmation — every
-    sign-up on the filters by a dimension, confirmed or not and how fast;
-    then Performance: a tree by source, device, country, game or version,
-    each row opening the next level, ten rows a level and the rest in one;
-    or Sites & zones, every network site or zone as one list, in the block
-    rule's segments, searched, sorted, paged and ticked across pages to
-    block, unblock or copy.
+    Report, as the reference draws it: the period's tiles; on the way here,
+    the impressions the networks billed against those that reached RateGuru,
+    where the period has any; mobile against desktop on paid traffic; how
+    accounts come — the way to one, where they signed up, how long after the
+    click; sign-ups and confirmation — every sign-up on the filters by a
+    dimension, confirmed or not and how fast; then Performance: a tree by
+    source, device, country, game or version, each row opening the next
+    level, ten rows a level and the rest in one; or Sites & zones, every
+    network site or zone as one list, in the block rule's segments, searched,
+    sorted, paged and ticked across pages to block, unblock or copy.
 --}}
 @php
     $paidValue = $paid->value();
@@ -68,6 +69,10 @@
         </div>
     @endforeach
 </div>
+
+@if ($reach !== null)
+    @include('filament.pages.traffic-sources.reach')
+@endif
 
 <section class="rg-admin-traffic__panel" data-testid="traffic-devices">
     <header class="rg-admin-traffic__panel-head">
@@ -165,6 +170,7 @@
             {{-- Its worth isn't known early: losing waits for its accounts, and for a spend its target price of an account makes worth judging. --}}
             <p class="rg-admin-traffic__rule-line"><strong>Losing</strong>: ROI below <input @class(['rg-admin-input', 'rg-admin-traffic__rule-input', 'rg-admin-input--invalid' => $errors->has('block_roi_below')]) type="number" max="0" wire:model="settings.block_roi_below" aria-label="ROI below, percent" @if ($errors->has('block_roi_below')) aria-invalid="true" @endif />% once it has spent <input @class(['rg-admin-input', 'rg-admin-traffic__rule-input', 'rg-admin-input--invalid' => $errors->has('block_target_multiple')]) type="text" inputmode="decimal" wire:model="settings.block_target_multiple" aria-label="Times the target price of an account" @if ($errors->has('block_target_multiple')) aria-invalid="true" @endif /> × the target price of an account where its campaign or its source has one — else at least $<input @class(['rg-admin-input', 'rg-admin-traffic__rule-input', 'rg-admin-input--invalid' => $errors->has('block_min_spend')]) type="text" inputmode="decimal" wire:model="settings.block_min_spend" aria-label="Spend before the money is judged" @if ($errors->has('block_min_spend')) aria-invalid="true" @endif /> spent or <input @class(['rg-admin-input', 'rg-admin-traffic__rule-input', 'rg-admin-input--invalid' => $errors->has('block_min_clicks')]) type="number" min="1" wire:model="settings.block_min_clicks" aria-label="Clicks before the money is judged" @if ($errors->has('block_min_clicks')) aria-invalid="true" @endif /> clicks — judged once value is measured, from <input @class(['rg-admin-input', 'rg-admin-traffic__rule-input', 'rg-admin-input--invalid' => $errors->has('block_grace_days')]) type="number" min="0" max="30" wire:model="settings.block_grace_days" aria-label="Days after the first click" @if ($errors->has('block_grace_days')) aria-invalid="true" @endif /> days after its first click.</p>
             <p class="rg-admin-traffic__rule-line"><strong>Weak start</strong>: at least <input @class(['rg-admin-input', 'rg-admin-traffic__rule-input', 'rg-admin-input--invalid' => $errors->has('block_start_clicks')]) type="number" min="1" wire:model="settings.block_start_clicks" aria-label="Clicks before a weak start shows" @if ($errors->has('block_start_clicks')) aria-invalid="true" @endif /> clicks and the game started below <input @class(['rg-admin-input', 'rg-admin-traffic__rule-input', 'rg-admin-input--invalid' => $errors->has('block_start_percent')]) type="number" min="1" max="100" wire:model="settings.block_start_percent" aria-label="Start below, percent of the source" @if ($errors->has('block_start_percent')) aria-invalid="true" @endif />% as often as on the source’s other places. Shown, never blocked by itself.</p>
+            <p class="rg-admin-traffic__rule-line" data-testid="traffic-block-rule-reach"><strong>Low reach</strong>: at least {{ number_format($reachRule['impressions']) }} paid impressions on days the network has closed, and fewer of them reached RateGuru than {{ $reachRule['percent'] }}% of the source’s share — for networks that bill by the impression. Shown, never blocked by itself.</p>
             @foreach (\App\Support\Traffic\Blocking\BlockRule::KEYS as $key)
                 @error($key)<p class="rg-admin-games__note rg-admin-games__note--danger">{{ $message }}</p>@enderror
             @endforeach

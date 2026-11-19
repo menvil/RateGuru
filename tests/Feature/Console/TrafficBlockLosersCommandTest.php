@@ -239,3 +239,16 @@ it('calls a site losing only days after its first click, and once it has spent t
         ->and(TrafficBlock::query()->where('ref', 'cheap')->exists())->toBeFalse()
         ->and(TrafficBlock::query()->where('ref', 'mixed')->exists())->toBeFalse();
 });
+
+it('never blocks a site for paid impressions that mostly never arrive: low reach stays a hint of the report', function () {
+    $source = blockingPopAds([]);
+    // Yesterday, closed: every paid impression of the sound site arrived, 40 of the thin site's 4,000 — 1%, far below 70% of the source's 2%.
+    foreach (['sound' => 40, 'thin' => 4000] as $site => $impressions) {
+        paidImpressions($source, '2026-11-16', $impressions, '0.08', ['site_ref' => $site]);
+        TrafficVisit::factory()->count(40)->create(['source_id' => $source->id, 'site_ref' => $site, 'arrived_at' => '2026-11-16 10:00:00', 'network_day' => '2026-11-16', 'opened_at' => '2026-11-16 10:01:00', 'spend' => '0.01']);
+    }
+
+    $this->artisan('traffic:block-losers')->assertSuccessful()->expectsOutput('Queued 0 blocks.');
+
+    expect(TrafficBlock::query()->count())->toBe(0);
+});

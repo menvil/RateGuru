@@ -29,11 +29,18 @@ window.rgAuthModal = function ({ open = false, mode = 'login' } = {}) {
         },
 
         // A sign-in or sign-up form shown: the traffic tracker counts the
-        // visit as having seen one (resources/js/traffic.js).
+        // visit as having seen one (resources/js/traffic.js). On a post's
+        // page it names that post, so a game that sent the visitor there is
+        // credited only for a dialog opened on it. Read when the dialog opens:
+        // the page may have moved since the dialog was drawn.
         tellTraffic() {
-            if (this.mode !== 'forgot-password' && typeof window.rgTrafficSignal === 'function') {
-                window.rgTrafficSignal('signup_form');
+            if (this.mode === 'forgot-password' || typeof window.rgTrafficSignal !== 'function') {
+                return;
             }
+
+            const post = document.querySelector('[data-rg-post]')?.dataset.rgPost;
+
+            window.rgTrafficSignal('signup_form', post ? { post } : undefined);
         },
 
         // The page the person is on right now. Livewire may have changed the

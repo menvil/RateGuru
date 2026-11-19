@@ -169,13 +169,13 @@ it('notes a paused or archived game since when, a version logged-in players alon
         '/games/hot-or-not | 60% · 25 Oct — 05 Nov | Hot or Not | Quick Result · V1 | 2 | — | — | — | —',
         '/games/hot-or-not | Only version | Hot or Not | Quick Result · V2 | 1 | — | — | — | —',
     ])
-        // An archived game is offered nowhere on the Games tab: its row leads nowhere.
+        // An archived game is offered nowhere on the Games tab: its row leads nowhere. The period is named, the default too.
         ->and(array_column($data['rows'], 'gameUrl'))->toBe([
-            GrowthAnalyticsPage::getUrl(['tab' => 'games', 'game' => $paused->id]),
+            GrowthAnalyticsPage::getUrl(['tab' => 'games', 'game' => $paused->id, 'period' => '30d']),
             null,
-            GrowthAnalyticsPage::getUrl(['tab' => 'games', 'game' => $players->id]),
-            GrowthAnalyticsPage::getUrl(['tab' => 'games', 'game' => $blitz->id]),
-            GrowthAnalyticsPage::getUrl(['tab' => 'games', 'game' => $blitz->id]),
+            GrowthAnalyticsPage::getUrl(['tab' => 'games', 'game' => $players->id, 'period' => '30d']),
+            GrowthAnalyticsPage::getUrl(['tab' => 'games', 'game' => $blitz->id, 'period' => '30d']),
+            GrowthAnalyticsPage::getUrl(['tab' => 'games', 'game' => $blitz->id, 'period' => '30d']),
         ]);
 });
 
@@ -221,6 +221,8 @@ it('reads every filter of the page, and says so once when nobody matches', funct
         ->and($visitors(['source' => 'google:organic']))->toBe(['/games/trust-your-taste 1'])
         ->and($visitors(['source' => 'reddit:organic', 'campaign' => 'tag:spring']))->toBe(['/ 1'])
         ->and($visitors(['from' => '2026-09-25', 'to' => '2026-10-05']))->toBe(['/posts/… 1']);
+    // The range is the period last chosen: forgotten, an address naming none opens on the last 30 days again.
+    forgetChosenReportPeriods();
 
     $empty = Livewire::withQueryParams(['tab' => 'landings', 'source' => 'bing:organic', 'device' => 'mobile'])->test(GrowthAnalyticsPage::class)->call('load');
 

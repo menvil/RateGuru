@@ -384,7 +384,7 @@ it('opens the link’s details after a save, with its figures, tags and the way 
         ->and($detail['empty'])->toBeTrue()
         ->and($detail['url'])->toBe(TrackingLinksTab::url($link))
         ->and($detail['editLabel'])->toBe('Edit')
-        ->and($detail['analytics'])->toBe(GrowthAnalyticsPage::getUrl(['tab' => 'campaigns', 'campaign' => 'tag:versus_launch', 'creative' => 'post_01', 'link' => $link->id]))
+        ->and($detail['analytics'])->toBe(GrowthAnalyticsPage::getUrl(['tab' => 'campaigns', 'campaign' => 'tag:versus_launch', 'creative' => 'post_01', 'link' => $link->id, 'period' => '30d']))
         ->and(array_column($detail['meta'], 'value', 'label'))->toBe([
             'Destination' => 'Home feed · /',
             'Source' => 'Reddit',
@@ -430,7 +430,8 @@ it('opens a link’s campaign on Campaigns with a banner, its campaign and creat
     $data = $page->viewData('data');
     $rows = array_map(fn (array $row): string => $row['level'].' '.$row['name'].($row['open'] ? ' open' : '').($row['marked'] ? ' marked' : ''), $data['rows']);
 
-    expect($query)->toBe(['tab' => 'campaigns', 'campaign' => 'tag:versus_launch', 'creative' => 'post_01', 'link' => (string) $link->id])
+    // The period is named, the default too: an address naming none opens on the period last chosen.
+    expect($query)->toBe(['tab' => 'campaigns', 'campaign' => 'tag:versus_launch', 'creative' => 'post_01', 'link' => (string) $link->id, 'period' => '30d'])
         ->and($data['link'])->toBe(['text' => 'Showing campaign performance for TL-'.$link->id.' (reddit · organic_social · versus_launch · post_01). Its row is marked.', 'visits' => true])
         ->and($rows)->toBe(['0 versus_launch open marked', '1 post_02', '1 post_01 open marked']);
 

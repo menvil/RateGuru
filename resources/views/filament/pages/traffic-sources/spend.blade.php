@@ -3,7 +3,8 @@
     the sources using each; spend by source — how it is worked out, what
     reports count, what the network itself says and how the source stands —
     each opening its campaigns; then, for the source chosen, day by day: its
-    clicks, what their links said they cost, the network's own figure and
+    clicks, the impressions the network billed and how many of them reached
+    RateGuru, what their links said they cost, the network's own figure and
     what reports count, with a day corrected or the network's file taken.
 --}}
 @php
@@ -90,7 +91,7 @@
         <header class="rg-admin-traffic__perf-head">
             <div>
                 <h2 class="rg-admin-traffic__panel-title">Day by day</h2>
-                <p class="rg-admin-traffic__note">{{ $spendSourceName }}’s days, in its own time zone. Until a day closes its spend is an estimate from the cost in each click; then the network’s own figure, a file or a typed total replaces it.</p>
+                <p class="rg-admin-traffic__note">{{ $spendSourceName }}’s days, in its own time zone. Until a day closes its spend is an estimate from the cost in each click; then the network’s own figure, a file or a typed total replaces it. Impressions are what a network billing by the impression charged for; Reached, the visits of the same campaigns and sites that day.</p>
             </div>
             <div class="rg-admin-traffic__views" role="radiogroup" aria-label="Source">
                 @foreach ($spendSources as $id => $name)
@@ -101,7 +102,7 @@
         <div class="rg-admin-traffic__perf rg-admin-table__scroll">
             <div class="rg-admin-traffic__perf-grid rg-admin-traffic__perf-grid--days" role="table" aria-label="Day by day">
                 <div class="rg-admin-traffic__day-row rg-admin-traffic__perf-row--head" role="row">
-                    @foreach (['Day', 'Clicks', 'From click costs', 'From the network', 'In reports'] as $heading)
+                    @foreach (['Day', 'Clicks', 'Impressions', 'Reached', 'From click costs', 'From the network', 'In reports'] as $heading)
                         <span role="columnheader">{{ $heading }}</span>
                     @endforeach
                 </div>
@@ -109,6 +110,14 @@
                     <div class="rg-admin-traffic__day-row" role="row">
                         <span role="cell"><strong>{{ $row['day'] }}</strong></span>
                         <span role="cell" class="rg-admin-traffic__fig">{{ number_format($row['clicks']) }}</span>
+                        <span role="cell" class="rg-admin-traffic__fig">{{ $row['reach'] === null ? '—' : number_format($row['reach']->impressions) }}</span>
+                        <span role="cell" class="rg-admin-traffic__fig">
+                            @if ($row['reach'] === null)
+                                —
+                            @else
+                                <strong>{{ number_format($row['reach']->reached) }}</strong><small>{{ $percent($row['reach']->reachRate()) }}</small>
+                            @endif
+                        </span>
                         <span role="cell" @class(['rg-admin-traffic__fig', 'rg-admin-traffic__muted' => $row['origin'] !== null])>{{ $money($row['costs']) }}</span>
                         <span role="cell" class="rg-admin-traffic__fig">
                             @if ($row['network'] !== null)

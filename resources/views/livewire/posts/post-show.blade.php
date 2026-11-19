@@ -34,6 +34,8 @@
 
 <div
     data-testid="post-show"
+    {{-- The post this page shows, for the sign-in dialog to name when it opens here (resources/js/auth-modal.js). --}}
+    data-rg-post="{{ $post->id }}"
     x-data="{
         imageOpen: false,
         shareOpen: false,

@@ -210,11 +210,13 @@ it('reads every filter of the page, and says so once when nobody matches', funct
         ->and($countries(['device' => 'desktop']))->toBe(['Germany 1'])
         ->and($countries(['source' => 'reddit:organic', 'campaign' => 'tag:spring']))->toBe(['Germany 1'])
         ->and($countries(['source' => 'paid:'.$exo->id]))->toBe(['United States 1'])
-        ->and($countries(['from' => '2026-09-25', 'to' => '2026-10-05']))->toBe(['France 1'])
         // The card says what it counts.
         ->and(analyticsGeography(['device' => 'desktop', 'source' => 'reddit:organic', 'campaign' => 'tag:spring'])['note'])->toBe('Last 30 days · Desktop · Reddit · spring · 1 unique visitor')
         ->and(analyticsGeography(['source' => 'paid:'.$exo->id, 'campaign' => CampaignKey::paid($campaign->id)])['note'])->toBe('Last 30 days · ExoClick · Spring push · 1 unique visitor')
+        ->and($countries(['from' => '2026-09-25', 'to' => '2026-10-05']))->toBe(['France 1'])
         ->and(analyticsGeography(['from' => '2026-09-25', 'to' => '2026-10-05'])['note'])->toBe('25 Sep — 05 Oct 2026 · 1 unique visitor');
+    // The range is the period last chosen: forgotten, an address naming none opens on the last 30 days again.
+    forgetChosenReportPeriods();
 
     $empty = Livewire::withQueryParams(['tab' => 'geo', 'source' => 'bing:organic', 'device' => 'mobile'])->test(GrowthAnalyticsPage::class)->call('load');
 

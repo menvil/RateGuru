@@ -33,13 +33,16 @@ use App\Models\TrafficPriceSet;
 use App\Models\TrafficSetting;
 use App\Models\TrafficSource;
 use App\Models\User;
+use App\Queries\Analytics\AnalyticsVisitsQuery;
 use App\Services\Traffic\Postbacks\PostbackAttempt;
 use App\Services\Traffic\TrafficPresetCatalog;
 use App\Support\Geo\Countries;
 use App\Support\Traffic\Blocking\BlockRule;
 use App\Support\Traffic\Presets\SourceDefaults;
+use App\Support\Traffic\Reports\ReportPeriod;
 use App\Support\Traffic\Reports\SiteZoneList;
 use App\Support\Traffic\Reports\TrafficReportFilter;
+use Carbon\CarbonImmutable;
 use Filament\Pages\Page;
 use Filament\Support\Enums\Width;
 use Illuminate\Support\Facades\Gate;
@@ -67,7 +70,11 @@ final class TrafficSourcesPage extends Page
 
     public const array TABS = ['report' => 'Report', 'campaigns' => 'Campaigns', 'value' => 'Value', 'spend' => 'Spend', 'sources' => 'Sources', 'logs' => 'Logs'];
 
-    public const array PERIODS = ['yesterday' => 'Yesterday', '7d' => 'Last 7 days', '30d' => 'Last 30 days', '90d' => 'Last 90 days'];
+    /** The name the administrator's last choice of period is kept under (ReportPeriodMemory). */
+    public const string PERIOD_MEMORY = 'traffic-sources';
+
+    /** Every report page's presets: all time is every network day since the first visit, as far back as visits are kept. */
+    public const array PERIODS = ReportPeriod::PRESETS;
 
     protected string $view = 'filament.pages.traffic-sources';
 
@@ -236,6 +243,7 @@ final class TrafficSourcesPage extends Page
 
     public function mount(): void
     {
+        $this->openPeriod();
         $this->normalize();
         // Campaigns' link starts on the first network, or the first banner, and the first game.
         $this->linkSource = (string) (TrafficSource::query()->where('type', TrafficSourceType::Network)->orderBy('name')->value('id')
@@ -1155,17 +1163,14 @@ final class TrafficSourcesPage extends Page
     public function filter(): TrafficReportFilter
     {
         $period = $this->reportPeriod();
-        $days = match ($period->preset) {
-            'yesterday' => 1,
-            '7d' => 7,
-            '90d' => 90,
-            default => 30,
-        };
-        $filter = match (true) {
-            $period->fromDay !== null && $period->toDay !== null => new TrafficReportFilter($period->fromDay, $period->toDay),
-            $period->preset === 'yesterday' => new TrafficReportFilter(now()->utc()->subDay()->toDateString(), now()->utc()->subDay()->toDateString()),
-            default => TrafficReportFilter::lastDays($days, now()->toImmutable()),
-        };
+        // A preset's network days up to today's; all time from the first visit's, no further back than visits are kept.
+        [$first, $last] = $period->fromDay !== null && $period->toDay !== null
+            ? [$period->fromDay, $period->toDay]
+            : array_map(
+                fn (CarbonImmutable $day): string => $day->toDateString(),
+                ReportPeriod::presetDays($period->preset, CarbonImmutable::now('UTC'), $this->keptDays(), fn (): ?string => app(AnalyticsVisitsQuery::class)->firstDay()),
+            );
+        $filter = new TrafficReportFilter($first, $last);
         $where = array_filter([
             'source_id' => is_numeric($this->source) ? (int) $this->source : null,
             'channel' => in_array($this->type, ['network', 'placement'], true) ? $this->type : null,

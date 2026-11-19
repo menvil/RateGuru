@@ -100,9 +100,9 @@ it('shows another game chosen from the chooser, puts it in the address, and leav
 
     expect($page->script("document.querySelector('#rg-admin-games-analytics-version')?.textContent.trim().replace(/\\s+/g, ' ')"))->toBe('Versions: V1');
 
-    // Back to Overview, the game and its filters leave the address with their tab.
+    // Back to Overview, the game and its filters leave the address with their tab; the period, always named, stays.
     $page->click('.rg-admin-analytics__tabs .rg-admin-tab:has-text("Overview")');
-    waitForScript($page, 'location.search', '', 10.0);
+    waitForScript($page, 'location.search', '?period=30d', 10.0);
 
     $page->assertNoJavaScriptErrors();
 });

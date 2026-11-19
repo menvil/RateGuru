@@ -108,6 +108,9 @@ The rule is gentle with traffic it can't judge yet:
   target: from $1.20); without one, from $2 spent or 200 clicks. The badge on
   a site says which applied.
 - Weak starts and bots wait for neither.
+- **Low reach** — paid impressions that mostly never arrive (Impressions that
+  never arrive, below) — is only shown and counted in Worth blocking: the
+  rule never blocks a site for it, and it never hides the rule's own verdict.
 
 Each network can keep the general rule or set **Own thresholds for this
 source** in its editor → Blocking: any field left empty keeps the general
@@ -130,14 +133,96 @@ shows with no figures.
 ## Period
 
 The period picker in the header — the same as a game's Analytics tab and
-Growth → Analytics have — offers Yesterday and the last 7, 30 or 90 days
-beside a calendar: click the first day of a range, then the last, and the
-period is taken at once, with no Apply. Days before the oldest day visits are
-kept (400 days) can't be picked. Days are each network's own. The period is
-kept in the page's address (`period`, or `from` and `to` for a range); a range
-in an address that ends after today, runs backwards or starts before the
-oldest kept day opens the last 30 days instead. A game's Analytics links here
-with its own period and device.
+Growth → Analytics have — offers Today, Yesterday, the last 7, 30 or 90 days,
+This month (from the 1st up to today), Last month (the whole of it) and All
+time beside a calendar: click the first day of a range, then the last, and the
+period is taken at once, with no Apply. All time starts on the day of the
+first recorded visit, and goes back no further than visits are kept; the days
+beside the period's name say what it covers. Days before the oldest day visits
+are kept (400 days) can't be picked. Days are each network's own. The period is
+always kept in the page's address (`period`, Last 30 days too, or `from` and
+`to` for a range); a range in an address that ends after today, runs backwards
+or starts before the oldest kept day opens the last 30 days instead. An
+address that names no period opens the period you last chose on this page, and
+the last 30 days once that is a range older than visits are kept. Each tab's
+link names the period on screen, so a tab opened in a new browser tab shows
+that period even if another browser tab has chosen a different one since. A
+game's Analytics links here with its own period and device.
+
+## Impressions that never arrive
+
+A pop network such as PopAds bills every impression it shows, yet an
+impression becomes a visit only once the page opens: the visitor closed the
+window before it loaded, the browser blocked the pop, the connection broke, or
+a bot never loaded it. Those impressions are paid for and never reach
+RateGuru. The network's API — or its file with an `impressions` column —
+brings each day's impressions by campaign and site, whatever the source's
+spend mode, so a source priced by the cost in each click has them too. Only
+rows with no clicks of their own count here — no clicks column, or 0 clicks:
+where a network counts clicks beside its impressions, an impression may be
+only a view, never meant to arrive. ExoClick's API fills clicks whenever it
+has them, so its campaigns, popunders included, show nothing here.
+
+**Report → On the way here**, under the tiles, shows them beside RateGuru's
+own way whenever the period has any: **Paid impressions (network)**,
+**Reached RateGuru** with its share of them, **Opened the page** with its share
+of those that reached, and **Started the game**, then a line such as "Paid,
+never reached: 156 (21%) · ≈ $0.29 of the network’s $1.38". Reached counts the
+visits of the day, campaign and site the network reported — its figure for a
+campaign with no site counts the campaign's other visits that day — so the
+visits of a site or a day the network reported nothing for count on neither
+side. Never reached is the impressions less those visits, never below
+nothing; its cost is an estimate, the network's amount shared evenly over its
+impressions. A day is closed once the network's figures for it are final — an
+API day once the sync closes it, six hours into the next day; a file's once
+the day is over. The card counts the days not closed yet too and names them:
+"Includes today, not closed yet: the network’s figures can lag a few minutes
+behind." It follows the source, campaign and type of traffic chosen and the
+period. Filtered by device or game the network has no such split: the card
+shows only the networks' visits, opened and started, and says the impressions
+are left out.
+
+**Sites & zones** shows **Paid impr.** and **Reached** — the share of them that
+became visits, with how many — for every site the network reported, sortable
+like the other columns; a zone shows them only where its network reports
+zones (PopAds reports sites), and any other row shows "—". A site with at
+least 500 paid impressions over the period's closed days, reached below 70 %
+of its source's share over the same days, is marked **Low reach** and counted
+in Worth blocking, its badge saying why: "Paid impressions mostly never reach
+RateGuru: 41% reached against 79% for the source, over 1,200 paid impressions
+of closed days". It is a hint only: the block rule never blocks a site for it.
+It stands in for **Too early** and **Below the line**, never for a verdict of
+the rule: a site the rule calls bots, losing or a weak start keeps that badge,
+and a losing site still waiting keeps **Judged from …**. It stands in for
+**Profitable** only where the site's spend counts the visits that came and not
+what the network billed: priced by the cost in each click, its ROI looks
+better than the network's bill, and the hint is where that shows. Where its
+spend was shared out from the network's own figure — through the API, a file
+or a typed total — it already pays for the impressions that never arrived, so
+a profitable site stays **Profitable**.
+
+A site the network billed on closed days that sent no visit at all — 0 %
+reached, the worst reach there is — is a row of Sites & zones too once those
+days carry at least as many paid impressions as Low reach asks (500): no
+visits, **Paid impr.** and **Reached** at 0 %, and always **Low reach**, never
+**Profitable** on the nothing it spent through a visit, counted in Worth
+blocking and in a campaign's "to block" when the network billed it through
+that campaign alone. It is ticked, copied and blocked like any other site. A
+zone like that is a row only in the list by zone, under its site; a site whose
+clicks came with zone IDs has visits, as its zones, so it is no such row. One
+with fewer impressions stays out of the list, its impressions in On the way
+here's totals all the same — and so does every such site of a source none of
+whose impressions reached RateGuru on those days, as when its tracking link
+lacks the site macro: with nothing reached to compare with, Low reach says
+nothing there. **Hide under** never hides a Low
+reach row, a row without a single click included: its paid impressions judge
+it, not its clicks. Sorted by **Reached**, those that reached nothing come
+first upwards and last downwards, before the rows the network reported no
+impressions for; by spend they come last, having spent nothing through a
+visit.
+
+**Spend → Day by day** shows each day's **Impressions** and how many
+**Reached** RateGuru, with their share, for the source chosen.
 
 ## Sign-ups that never confirm
 
@@ -154,6 +239,15 @@ confirmed ones confirmed. Its **Of it paid traffic** row is How accounts
 come's figures. Many email sign-ups with few confirmations from one zone or
 country usually means bots: **Find in Sites & zones** opens a network's zone
 in the list where it is blocked.
+
+## Logs
+
+Logs → Clicks, Milestones and Postbacks (in a postback's path too) name each
+row's visitor by its journey ID, `visitor_` and the first 8 characters of its
+visitor ID, a link that opens every step of that visitor in Growth → Analytics
+→ Journeys for an administrator who may open Analytics (the lookup is logged,
+as every lookup is). The link names the visitor by the first 16 characters, so
+it opens that visitor's journey even when another browser's ID starts the same.
 
 ## Privacy page
 

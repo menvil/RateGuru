@@ -4,8 +4,11 @@ use App\Actions\Traffic\EnterSpendAction;
 use App\Enums\TrafficBlockLevel;
 use App\Enums\TrafficChannel;
 use App\Enums\TrafficKnownReason;
+use App\Filament\Pages\GrowthAnalyticsPage;
+use App\Filament\Pages\TrafficSources\TrafficSourcesView;
 use App\Filament\Pages\TrafficSourcesPage;
 use App\Models\Game;
+use App\Models\TrafficApiConnection;
 use App\Models\TrafficBlock;
 use App\Models\TrafficCampaign;
 use App\Models\TrafficChanceRun;
@@ -20,8 +23,11 @@ use App\Models\TrafficStepChance;
 use App\Models\TrafficVisit;
 use App\Models\TrafficVisitDetail;
 use App\Models\User;
+use App\Support\Analytics\JourneyTimeline;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use Livewire\Livewire;
 
@@ -358,6 +364,333 @@ it('narrows every figure by the type of traffic, the game and the device', funct
         ->and($visits(['device' => 'desktop']))->toBe(1);
 });
 
+it('shows on the way here the impressions a network billed against those that reached RateGuru, opened the page and started the game, today marked as not closed', function () {
+    $campaign = TrafficCampaign::factory()->create(['source_id' => $this->source->id, 'name' => 'US popunder']);
+    paidImpressions($this->source, '2026-11-17', 746, '1.38', ['campaign_id' => $campaign->id, 'site_ref' => '40123']);
+    reachedVisits($this->source, '2026-11-17', 590, 293, 7, ['campaign_id' => $campaign->id, 'site_ref' => '40123']);
+
+    $page = Livewire::test(TrafficSourcesPage::class)->call('load')
+        ->assertSeeInOrder(['Visits', 'On the way here', 'Paid impressions (network)', '746', 'Reached RateGuru', '590', '79%', 'Opened the page', '293', '50%', 'Started the game', '7', '2.4%', 'Mobile and desktop'])
+        ->assertSee('Paid, never reached: 156 (21%) · ≈ $0.29 of the network’s $1.38')
+        ->assertSee('Includes today, not closed yet: the network’s figures can lag a few minutes behind.');
+
+    expect($page->viewData('reach')['split'])->toBeFalse();
+
+    // Closed by the sync the next day, it is shown plain.
+    $this->travelTo(CarbonImmutable::parse('2026-11-18 12:00:00'));
+    TrafficApiConnection::factory()->create(['source_id' => $this->source->id, 'spend_closed_through' => '2026-11-17']);
+
+    Livewire::test(TrafficSourcesPage::class)->call('load')
+        ->assertSee('Paid, never reached: 156 (21%) · ≈ $0.29 of the network’s $1.38')
+        ->assertDontSee('not closed yet');
+});
+
+it('keeps on the way here to the source, the campaign, the type of traffic and the period on the filters, and leaves the impressions out on a device or a game', function () {
+    $campaign = TrafficCampaign::factory()->create(['source_id' => $this->source->id]);
+    $other = TrafficCampaign::factory()->create(['source_id' => $this->source->id]);
+    paidImpressions($this->source, '2026-11-15', 20, '0.04', ['campaign_id' => $campaign->id, 'site_ref' => '40123']);
+    reachedVisits($this->source, '2026-11-15', 12, 6, 2, ['campaign_id' => $campaign->id, 'site_ref' => '40123', 'device' => 'desktop']);
+    reachedVisits($this->source, '2026-11-15', 3, 3, 0, ['campaign_id' => $other->id, 'site_ref' => '40123']);
+    $elsewhere = TrafficSource::factory()->create(['name' => 'ExoClick tests']);
+    // Each address names its period: the page opens on the one last chosen otherwise.
+    $page = fn (array $query) => Livewire::withQueryParams(['period' => '30d', ...$query])->test(TrafficSourcesPage::class)->call('load');
+
+    expect($page([])->viewData('reach')['steps'][1]['count'])->toBe(12)
+        ->and($page(['source' => (string) $this->source->id])->viewData('reach')['steps'][0]['count'])->toBe(20)
+        ->and($page(['campaign' => (string) $campaign->id])->viewData('reach')['steps'][0]['count'])->toBe(20)
+        ->and($page(['type' => 'network'])->viewData('reach'))->not->toBeNull()
+        ->and($page(['campaign' => (string) $other->id])->viewData('reach'))->toBeNull()
+        ->and($page(['source' => (string) $elsewhere->id])->viewData('reach'))->toBeNull()
+        ->and($page(['type' => 'unpaid'])->viewData('reach'))->toBeNull()
+        ->and($page(['type' => 'placement'])->viewData('reach'))->toBeNull()
+        ->and($page(['period' => 'yesterday'])->viewData('reach'))->toBeNull();
+
+    // Narrowed to a device, only the networks' visits on the filters show: the network's impressions aren't split by device.
+    $page(['device' => 'desktop'])
+        ->assertSee('On the way here')
+        ->assertSee('The network’s impressions aren’t split by device, country or game, so they’re left out on these filters.')
+        ->assertSeeInOrder(['Visits from ad networks', '12', 'Opened the page', '6', '50%', 'Started the game', '2', '33%'])
+        ->assertDontSee('Paid impressions (network)')
+        ->assertDontSee('Paid, never reached');
+
+    expect($page(['game' => (string) Game::factory()->create()->id])->viewData('reach')['split'])->toBeTrue();
+});
+
+it('shows in Sites & zones each site’s paid impressions and the share that reached RateGuru, sortable, and hints at one that loses far more than its source over closed days', function () {
+    config(['traffic.reach.min_impressions' => 50, 'traffic.reach.below_percent_of_source' => 70]);
+    $campaign = TrafficCampaign::factory()->create(['source_id' => $this->source->id]);
+    // Yesterday, closed: the source reached 240 of 300, 80%; 70% of it is 56%.
+    foreach (['70001' => [50, 27], '70002' => [50, 28], '70003' => [49, 5], '70004' => [151, 180]] as $site => [$impressions, $reached]) {
+        paidImpressions($this->source, '2026-11-16', $impressions, '0.10', ['campaign_id' => $campaign->id, 'site_ref' => (string) $site]);
+        reachedVisits($this->source, '2026-11-16', $reached, $reached, 0, ['campaign_id' => $campaign->id, 'site_ref' => (string) $site]);
+    }
+    // Today, not closed: it would lift 70001 above the line, but only closed days count for the hint.
+    paidImpressions($this->source, '2026-11-17', 20, '0.04', ['campaign_id' => $campaign->id, 'site_ref' => '70001']);
+    reachedVisits($this->source, '2026-11-17', 20, 20, 0, ['campaign_id' => $campaign->id, 'site_ref' => '70001']);
+    // A site the network reported no impressions for.
+    reachedVisits($this->source, '2026-11-16', 3, 3, 0, ['campaign_id' => $campaign->id, 'site_ref' => '70005']);
+
+    $page = Livewire::withQueryParams(['view' => 'sites', 'list' => 'site'])->test(TrafficSourcesPage::class)->call('load');
+    $rows = collect($page->viewData('list')['rows'])->keyBy('ref');
+
+    expect($rows['70001']['state'])->toBe('low_reach')
+        ->and($rows['70001']['flag'])->toBe(['label' => 'Low reach', 'tone' => 'warning', 'tip' => 'Paid impressions mostly never reach RateGuru: 54% reached against 80% for the source, over 50 paid impressions of closed days'])
+        ->and([$rows['70001']['reach']->impressions, $rows['70001']['reach']->reached])->toBe([70, 47])
+        ->and($rows['70002']['state'])->toBe('early')
+        ->and($rows['70003']['state'])->toBe('early')
+        ->and($rows['70005']['reach'])->toBeNull()
+        ->and($page->viewData('list')['counts']['block'])->toBe(1)
+        ->and($page->viewData('worthBlocking'))->toBe(1)
+        ->and(Livewire::test(TrafficSourcesPage::class)->call('load')->viewData('worthBlocking'))->toBe(1);
+
+    $page->assertSeeInOrder(['Paid impr.', 'Reached', 'Visits'])
+        ->assertSee('Low reach')
+        ->assertSee('67.1%')
+        ->call('toggleBlockRule')
+        ->assertSeeText('Low reach: at least 50 paid impressions on days the network has closed, and fewer of them reached RateGuru than 70% of the source’s share — for networks that bill by the impression. Shown, never blocked by itself.')
+        ->call('toggleBlockRule')
+        ->call('sortBy', 'reach')
+        ->assertSet('sort', 'reach');
+
+    expect(collect($page->viewData('list')['rows'])->pluck('ref')->all())->toBe(['70004', '70001', '70002', '70003', '70005']);
+
+    $page->call('sortBy', 'reach')->assertSet('dir', 'asc');
+
+    expect(collect($page->viewData('list')['rows'])->pluck('ref')->all())->toBe(['70003', '70002', '70001', '70004', '70005']);
+
+    $page->call('sortBy', 'impressions');
+
+    expect(collect($page->viewData('list')['rows'])->pluck('ref')->all())->toBe(['70004', '70001', '70002', '70003', '70005']);
+
+    // One impression fewer than asked, and the site is no longer judged on them.
+    config(['traffic.reach.min_impressions' => 51]);
+
+    expect(collect(Livewire::withQueryParams(['view' => 'sites', 'list' => 'site'])->test(TrafficSourcesPage::class)->call('load')->viewData('list')['rows'])->keyBy('ref')['70001']['state'])->toBe('early');
+
+    // On a device the network has no impressions to set beside the visits: dashes, and no hint.
+    $mobile = collect(Livewire::withQueryParams(['view' => 'sites', 'list' => 'site', 'device' => 'mobile'])->test(TrafficSourcesPage::class)->call('load')->viewData('list')['rows'])->keyBy('ref');
+
+    expect($mobile['70001']['reach'])->toBeNull()
+        ->and($mobile['70001']['state'])->toBe('early');
+});
+
+it('lists a place the network billed that sent no visit at all once its closed days reach the impressions asked, judged, counted and shown past the clicks threshold', function () {
+    config(['traffic.reach.min_impressions' => 50, 'traffic.reach.below_percent_of_source' => 70]);
+    $campaign = TrafficCampaign::factory()->create(['source_id' => $this->source->id, 'name' => 'US popunder']);
+    $other = TrafficCampaign::factory()->create(['source_id' => $this->source->id, 'name' => 'DE popunder']);
+    $billed = fn (string $day, int $impressions, array $where, ?TrafficCampaign $through = null) => paidImpressions($this->source, $day, $impressions, '0.10', ['campaign_id' => ($through ?? $campaign)->id, ...$where]);
+    // Yesterday, closed. Sites the visits came from: 70001 by itself, 70005 through its zone 555 — not a place without visits.
+    $billed('2026-11-16', 100, ['site_ref' => '70001']);
+    reachedVisits($this->source, '2026-11-16', 80, 80, 0, ['campaign_id' => $campaign->id, 'site_ref' => '70001']);
+    $billed('2026-11-16', 80, ['site_ref' => '70005']);
+    reachedVisits($this->source, '2026-11-16', 60, 60, 0, ['campaign_id' => $campaign->id, 'site_ref' => '70005', 'zone_ref' => '555']);
+    // No visit at all: site 70002, and zone 9001 of site 70004, enough impressions; site 70003 too few; site 70007 through two campaigns.
+    $billed('2026-11-16', 200, ['site_ref' => '70002']);
+    $billed('2026-11-16', 60, ['site_ref' => '70004', 'zone_ref' => '9001']);
+    $billed('2026-11-16', 30, ['site_ref' => '70003']);
+    $billed('2026-11-16', 60, ['site_ref' => '70007']);
+    $billed('2026-11-16', 60, ['site_ref' => '70007'], $other);
+    // Today, not closed: however many, its impressions are not judged yet.
+    $billed('2026-11-17', 500, ['site_ref' => '70006']);
+    // The source reached 140 of 590 closed impressions, 24%: 70% of it is 17%.
+    $open = fn (array $query = []) => Livewire::withQueryParams(['view' => 'sites', ...$query])->test(TrafficSourcesPage::class)->call('load');
+
+    $sites = $open(['list' => 'site']);
+    $rows = collect($sites->viewData('list')['rows'])->keyBy('ref');
+
+    expect($rows->pluck('ref')->sort()->values()->all())->toBe(['70001', '70002', '70005', '70007'])
+        ->and($rows['70002'])->toMatchArray(['key' => $this->source->id.':site:70002', 'level' => 'site', 'site' => null, 'source' => 'PopAds main', 'campaign' => 'US popunder', 'state' => 'low_reach', 'blocked' => false])
+        ->and($rows['70002']['figures']->visits)->toBe(0)
+        ->and([$rows['70002']['reach']->impressions, $rows['70002']['reach']->reached, $rows['70002']['reach']->reachRate()])->toBe([200, 0, 0.0])
+        ->and($rows['70002']['flag'])->toBe(['label' => 'Low reach', 'tone' => 'warning', 'tip' => 'Paid impressions mostly never reach RateGuru: 0% reached against 24% for the source, over 200 paid impressions of closed days'])
+        ->and($rows['70007'])->toMatchArray(['campaign' => 'In 2 campaigns', 'state' => 'low_reach'])
+        ->and([$rows['70007']['reach']->impressions, $rows['70005']['reach']->reached, $rows['70001']['state']])->toBe([120, 60, 'early'])
+        ->and($sites->viewData('list')['counts'])->toMatchArray(['all' => 4, 'block' => 2])
+        ->and($sites->viewData('worthBlocking'))->toBe(2);
+
+    $sites->assertSee('site 70002')->assertDontSee('site 70003')->assertDontSee('site 70006');
+
+    // By zone, the zone without a visit is a row too, under its site; site 70005's clicks show as its zone, so it is no row of its own.
+    $zones = $open();
+    $rows = collect($zones->viewData('list')['rows'])->keyBy('key');
+
+    expect($rows->keys()->sort()->values()->all())->toBe(collect(['site:70001', 'site:70002', 'site:70007', 'zone:555', 'zone:9001'])->map(fn (string $key): string => $this->source->id.':'.$key)->sort()->values()->all())
+        ->and($rows[$this->source->id.':zone:9001'])->toMatchArray(['level' => 'zone', 'ref' => '9001', 'site' => '70004', 'campaign' => 'US popunder', 'state' => 'low_reach'])
+        ->and($rows[$this->source->id.':zone:555']['reach'])->toBeNull()
+        ->and($zones->viewData('list')['counts']['block'])->toBe(3)
+        // Worth blocking on the report counts them as the list by zone does; the campaign's count, the places of it alone.
+        ->and(Livewire::test(TrafficSourcesPage::class)->call('load')->viewData('worthBlocking'))->toBe(3);
+
+    $toBlock = collect(Livewire::withQueryParams(['tab' => 'campaigns'])->test(TrafficSourcesPage::class)->call('load')->viewData('campaignGroups'))
+        ->flatMap(fn (array $group): array => collect($group['rows'])->all())->mapWithKeys(fn (array $row): array => [$row['id'] => $row['toBlock']]);
+
+    expect($toBlock->all())->toEqual([$campaign->id => 2, $other->id => 0]);
+
+    // Fewer clicks than the threshold hide the rest; Low reach is judged by its impressions and stays, with none.
+    $sites->set('minClicks', 100);
+
+    expect(collect($sites->viewData('list')['rows'])->pluck('ref')->sort()->values()->all())->toBe(['70002', '70007'])
+        ->and($sites->viewData('list')['hidden'])->toBe(2);
+
+    // Sorted by the share reached, the places that reached nothing lead upwards and trail downwards, before any row with no impressions.
+    $refs = fn (): array => collect($sites->viewData('list')['rows'])->pluck('ref')->all();
+    $sites->set('minClicks', 0)->call('sortBy', 'reach');
+
+    expect($refs())->toBe(['70001', '70005', '70002', '70007']);
+
+    $sites->call('sortBy', 'reach');
+
+    expect($refs())->toBe(['70002', '70007', '70005', '70001']);
+
+    // Narrowed to the other campaign, only what it was billed counts: site 70007 is its own there.
+    $theirs = collect($open(['list' => 'site', 'campaign' => (string) $other->id])->viewData('list')['rows'])->keyBy('ref');
+
+    expect($theirs->pluck('ref')->all())->toBe(['70007'])
+        ->and($theirs['70007'])->toMatchArray(['campaign' => 'DE popunder', 'state' => 'low_reach'])
+        // On a device the network has no impressions to set beside the visits: none of them.
+        ->and(collect($open(['list' => 'site', 'device' => 'mobile'])->viewData('list')['rows'])->pluck('ref')->sort()->values()->all())->toBe(['70001', '70005']);
+});
+
+it('pages, ticks across pages and blocks a place the network billed that sent no visit like any other site', function () {
+    config(['traffic.reach.min_impressions' => 50, 'traffic.reach.below_percent_of_source' => 70]);
+    paidImpressions($this->source, '2026-11-16', 100, '0.20', ['site_ref' => '70001']);
+    reachedVisits($this->source, '2026-11-16', 90, 90, 0, ['site_ref' => '70001', 'spend' => '0.01']);
+    paidImpressions($this->source, '2026-11-16', 300, '0.60', ['site_ref' => '70002']);
+
+    // Twenty-five sites more with a cent spent each: by spend, the place that spent nothing is on the second page.
+    foreach (range(1, 25) as $site) {
+        siteClicks($this->source, (string) (60000 + $site), 1, 1);
+    }
+
+    $key = $this->source->id.':site:70002';
+    $page = Livewire::withQueryParams(['view' => 'sites', 'list' => 'site'])->test(TrafficSourcesPage::class)->call('load')
+        ->assertDontSee('site 70002')
+        ->call('goToPage', 2)
+        ->assertSee('site 70002');
+
+    expect($page->viewData('list')['matching'])->toContain($key)
+        ->and($page->viewData('list')['counts'])->toMatchArray(['all' => 27, 'block' => 1]);
+
+    $page->set('segment', 'block')
+        ->call('selectMatching')
+        ->assertSet('selected', [$key])
+        ->set('segment', 'all')
+        ->call('goToPage', 1)
+        ->call('selectMatching');
+
+    expect($page->get('selected'))->toContain($key)->toHaveCount(27);
+
+    $page->set('selected', [$key])->call('blockSelected');
+
+    expect(TrafficBlock::query()->where('source_id', $this->source->id)->where('level', TrafficBlockLevel::Site)->where('ref', '70002')->exists())->toBeTrue();
+
+    // Blocked, it is listed once, in Blocked: no longer worth blocking.
+    expect(array_count_values($page->viewData('list')['matching'])[$key])->toBe(1)
+        ->and($page->viewData('list')['counts'])->toMatchArray(['all' => 27, 'block' => 0, 'blocked' => 1]);
+
+    $page->set('segment', 'blocked');
+
+    expect(collect($page->viewData('list')['rows'])->pluck('key')->all())->toBe([$key]);
+});
+
+it('lists a place that sent no visit only where Low reach judges it, and never as Profitable on the nothing it spent', function () {
+    config(['traffic.reach.min_impressions' => 50, 'traffic.reach.below_percent_of_source' => 70]);
+    // The link carries no site macro: the visits came, yet none of them the site the network billed, so the source reached nothing at all.
+    paidImpressions($this->source, '2026-11-16', 200, '0.40', ['site_ref' => '70002', 'counted' => true]);
+    reachedVisits($this->source, '2026-11-16', 80, 80);
+    $open = fn () => Livewire::withQueryParams(['view' => 'sites', 'list' => 'site'])->test(TrafficSourcesPage::class)->call('load');
+
+    $page = $open();
+
+    expect($page->viewData('list')['rows'])->toBeEmpty()
+        ->and($page->viewData('list')['counts']['all'])->toBe(0)
+        ->and($page->viewData('worthBlocking'))->toBe(0);
+
+    // Once a site of the source reaches RateGuru, the one that reached nothing is Low reach — even where the money's gate is 0 and the worth
+    // is measured, which call a place with no figures profitable, and its figure is one the spend was shared out from.
+    $run = TrafficChanceRun::query()->forceCreate(['status' => 'finished', 'reason' => 'nightly', 'price_set_id' => TrafficPriceSet::current()->id, 'matured_before' => now(), 'started_at' => now(), 'finished_at' => now()]);
+    TrafficStepChance::query()->forceCreate(['run_id' => $run->id, 'slice_key' => '*', 'step' => 'opened', 'visitors' => 900, 'accounts' => 30, 'slice_accounts' => 30, 'chance' => '0.03333333', 'thin' => false, 'stands_on' => '*']);
+    $this->source->forceFill(['block_min_spend' => '0'])->save();
+    paidImpressions($this->source, '2026-11-16', 100, '0.20', ['site_ref' => '70001']);
+    reachedVisits($this->source, '2026-11-16', 100, 100, 0, ['site_ref' => '70001']);
+
+    $page = $open();
+    $rows = collect($page->viewData('list')['rows'])->keyBy('ref');
+
+    expect($rows->map(fn (array $row): string => $row['state'])->sortKeys()->all())->toBe(['70001' => 'profit', '70002' => 'low_reach'])
+        ->and($rows['70002']['flag']['label'])->toBe('Low reach')
+        ->and($page->viewData('list')['counts'])->toMatchArray(['all' => 2, 'block' => 1, 'profit' => 1])
+        ->and($page->viewData('worthBlocking'))->toBe(1);
+});
+
+it('keeps a verdict, a losing site’s wait and a profit its spend already paid the lost impressions for over Low reach, which stands in for the rest', function () {
+    config(['traffic.reach.min_impressions' => 50, 'traffic.reach.below_percent_of_source' => 70]);
+    // The worth stands on 30 accounts.
+    $run = TrafficChanceRun::query()->forceCreate(['status' => 'finished', 'reason' => 'nightly', 'price_set_id' => TrafficPriceSet::current()->id, 'matured_before' => now(), 'started_at' => now(), 'finished_at' => now()]);
+    TrafficStepChance::query()->forceCreate(['run_id' => $run->id, 'slice_key' => '*', 'step' => 'opened', 'visitors' => 900, 'accounts' => 30, 'slice_accounts' => 30, 'chance' => '0.03333333', 'thin' => false, 'stands_on' => '*']);
+    // Ten clicks are enough here for bots and for a weak start.
+    $this->source->forceFill(['block_bot_clicks' => 10, 'block_start_clicks' => 10])->save();
+    // A sound site: all 100 paid impressions arrived, so the source reached 180 of 900, 20%; 70% of it is 14%.
+    paidImpressions($this->source, '2026-11-15', 100, '0.20', ['site_ref' => '70000']);
+    reachedVisits($this->source, '2026-11-15', 100, 100, 100, ['site_ref' => '70000']);
+    // Each other site: 10 of 100 paid impressions arrived, 10%, on a closed day.
+    $site = function (string $ref, string $day, int $opened, int $started, string $spend, string $worth, bool $counted = false): void {
+        paidImpressions($this->source, $day, 100, '0.20', ['site_ref' => $ref, 'counted' => $counted]);
+        reachedVisits($this->source, $day, 10, $opened, $started, ['site_ref' => $ref, 'spend' => $spend, 'value_real' => $worth]);
+    };
+    $site('70001', '2026-11-16', 0, 0, '0.01', '0');
+    $site('70002', '2026-11-12', 10, 10, '0.25', '0.075');
+    $site('70003', '2026-11-16', 10, 10, '0.25', '0.075');
+    $site('70004', '2026-11-16', 10, 0, '0.01', '0');
+    // Profitable: its spend shared out from the network's figure, which paid for the lost impressions too — or from the cost in each click, which never did.
+    $site('70005', '2026-11-16', 10, 10, '0.25', '0.30', counted: true);
+    $site('70006', '2026-11-16', 10, 10, '0.25', '0.30');
+    $site('70007', '2026-11-16', 10, 10, '0.01', '0');
+    $site('70008', '2026-11-16', 10, 10, '0.25', '0.20');
+
+    $page = Livewire::withQueryParams(['view' => 'sites', 'list' => 'site'])->test(TrafficSourcesPage::class)->call('load');
+    $rows = collect($page->viewData('list')['rows'])->keyBy('ref');
+
+    expect($rows->map(fn (array $row): string => $row['state'])->sortKeys()->all())->toBe([
+        '70000' => 'early',
+        '70001' => 'bots',
+        '70002' => 'losing',
+        '70003' => 'waiting',
+        '70004' => 'weak_start',
+        '70005' => 'profit',
+        '70006' => 'low_reach',
+        '70007' => 'low_reach',
+        '70008' => 'low_reach',
+    ])
+        ->and($rows->map(fn (array $row): ?string => $row['flag']['label'] ?? null)->sortKeys()->only(['70001', '70002', '70003', '70004', '70005', '70006'])->all())->toBe([
+            '70001' => 'Likely bots',
+            '70002' => 'Losing',
+            '70003' => 'Judged from 19 Nov',
+            '70004' => 'Weak start',
+            '70005' => 'Profitable',
+            '70006' => 'Low reach',
+        ])
+        ->and($rows['70006']['flag']['tip'])->toBe('Paid impressions mostly never reach RateGuru: 10% reached against 20% for the source, over 100 paid impressions of closed days')
+        ->and($page->viewData('list')['counts'])->toMatchArray(['block' => 6, 'profit' => 1, 'watch' => 1, 'early' => 1])
+        ->and($page->viewData('worthBlocking'))->toBe(6);
+});
+
+it('shows on Spend each day’s impressions and how many of them reached RateGuru', function () {
+    $campaign = TrafficCampaign::factory()->create(['source_id' => $this->source->id]);
+    paidImpressions($this->source, '2026-11-16', 40, '0.08', ['campaign_id' => $campaign->id, 'site_ref' => '40123']);
+    reachedVisits($this->source, '2026-11-16', 30, 10, 1, ['campaign_id' => $campaign->id, 'site_ref' => '40123']);
+    reachedVisits($this->source, '2026-11-15', 5, 5, 0, ['campaign_id' => $campaign->id, 'site_ref' => '40123']);
+
+    $page = Livewire::withQueryParams(['tab' => 'spend'])->test(TrafficSourcesPage::class)->call('load')
+        ->set('spendSource', (string) $this->source->id)
+        ->assertSeeInOrder(['Day', 'Clicks', 'Impressions', 'Reached', 'From click costs', 'From the network', 'In reports'])
+        ->assertSeeInOrder(['Yesterday', '30', '40', '30', '75.0%']);
+    $days = collect($page->viewData('dayRows'))->keyBy('date');
+
+    expect($days['2026-11-16']['reach']->impressions)->toBe(40)
+        ->and($days['2026-11-15']['reach'])->toBeNull();
+});
+
 it('lays out Campaigns: the new campaign to set up, the link with samples, the latest clicks, campaigns by stage, and banners against their price', function () {
     $network = TrafficSource::factory()->create(['name' => 'ExoClick tests', 'link_key' => 'exo']);
     $banner = TrafficSource::factory()->create(['name' => 'Cat blog sidebar', 'type' => 'placement', 'link_key' => 'cat', 'spend_mode' => 'fixed', 'fixed_amount' => '120', 'fixed_period' => 'month', 'fixed_from' => '2026-11-01']);
@@ -529,6 +862,118 @@ it('leads an empty later page of a log back to the newest entries, as an address
         ->call('goToPage', 1)
         ->assertDontSee('Nothing on this page')
         ->assertSeeHtml('wire:key="milestone-'.$milestone->id.'"');
+});
+
+/** A paid click by the browser given (a name, hashed) that reached a confirmed account, its milestone and the postback sent for it. */
+function loggedVisitor(TrafficSource $source, string $browser = 'log-visitor'): TrafficVisit
+{
+    $visit = TrafficVisit::factory()->create(['source_id' => $source->id, 'visitor_hash' => hash('sha256', $browser), 'arrived_at' => now()->subHour(), 'opened_at' => now()->subHour(), 'account_at' => now()->subMinutes(50)]);
+    TrafficVisitDetail::query()->forceCreate(['visit_id' => $visit->id, 'click_id' => 'tag-'.$visit->id, 'landing_path' => '/games/x', 'created_at' => now()]);
+    $conversion = TrafficConversion::factory()->create(['visit_id' => $visit->id, 'event' => 'account', 'source_id' => $source->id]);
+    TrafficPostback::factory()->create(['conversion_id' => $conversion->id, 'source_id' => $source->id, 'event' => 'account']);
+
+    return $visit;
+}
+
+it('names the visitor of each click, milestone and postback by its journey ID, a link to its journey in Analytics', function () {
+    $hash = loggedVisitor($this->source)->visitor_hash;
+    $id = JourneyTimeline::visitorId($hash);
+    $link = 'href="'.e(GrowthAnalyticsPage::getUrl(['tab' => 'journeys', 'who' => JourneyTimeline::visitorId($hash, JourneyTimeline::LONG_DIGITS)])).'"';
+
+    // A postback's visitor in its row, and again where its path ends.
+    $page = Livewire::withQueryParams(['tab' => 'logs'])->test(TrafficSourcesPage::class)->call('load')
+        ->assertSeeInOrder(['Source', 'Visitor', 'Milestone', 'PopAds main', $id, 'Show the path', 'Journey', $id])
+        ->assertSeeHtml($link);
+
+    expect(substr_count($page->html(), $link))->toBe(2);
+
+    foreach (['milestones' => 'Milestone', 'clicks' => 'Landing'] as $log => $next) {
+        $page->set('log', $log)->assertSeeInOrder(['Source', 'Visitor', $next, 'PopAds main', $id]);
+
+        expect(substr_count($page->html(), $link))->toBe(1, $log);
+    }
+
+    // Blocking has no visitor.
+    $page->set('log', 'blocks')->assertDontSee('Visitor');
+});
+
+it('reads the visitors of a log’s page at once, never one row at a time', function () {
+    $queries = function (string $log): int {
+        $page = Livewire::withQueryParams(['tab' => 'logs', 'log' => $log])->test(TrafficSourcesPage::class);
+
+        DB::flushQueryLog();
+        DB::enableQueryLog();
+        $page->call('load');
+        $count = count(DB::getQueryLog());
+        DB::disableQueryLog();
+
+        return $count;
+    };
+    $logs = ['postbacks', 'milestones', 'clicks'];
+
+    loggedVisitor($this->source, 'first');
+    $few = array_map($queries, $logs);
+
+    foreach (range(1, 5) as $n) {
+        loggedVisitor($this->source, 'more-'.$n);
+    }
+
+    expect(array_map($queries, $logs))->toBe($few);
+});
+
+it('shows the visitor’s ID without the link to an administrator who may not open Analytics', function () {
+    $id = JourneyTimeline::visitorId(loggedVisitor($this->source)->visitor_hash);
+    // Traffic sources and Analytics share their gate, so nobody sees the logs without Analytics; the link asks Analytics' own all the same.
+    $this->actingAs(User::factory()->admin()->limited()->create());
+
+    expect(GrowthAnalyticsPage::canAccess())->toBeFalse();
+
+    foreach (['postbacks', 'milestones', 'clicks'] as $log) {
+        $page = new TrafficSourcesPage;
+        [$page->tab, $page->log, $page->ready] = ['logs', $log, true];
+
+        $this->view('filament.pages.traffic-sources.logs', [...app(TrafficSourcesView::class)->data($page, $page->filter()), 'log' => $log, 'logFilter' => 'all', 'pageNumber' => 1])
+            ->assertSee($id)
+            ->assertDontSee('who=', false)
+            ->assertDontSee('traffic-log-journey', false);
+    }
+});
+
+it('opens the visitor’s own journey from the log’s link, even where another browser shares its ID, the lookup written down as one from an address', function () {
+    // Another browser whose ID — the first 8 digits — is the visitor's own, recorded first so the visitor's row leads the log.
+    $hash = hash('sha256', 'log-visitor');
+    TrafficVisit::factory()->create(['source_id' => $this->source->id, 'visitor_hash' => substr($hash, 0, JourneyTimeline::VISITOR_DIGITS).str_repeat('0', 64 - JourneyTimeline::VISITOR_DIGITS)]);
+    loggedVisitor($this->source);
+    [$id, $who] = [JourneyTimeline::visitorId($hash), JourneyTimeline::visitorId($hash, JourneyTimeline::LONG_DIGITS)];
+    $html = Livewire::withQueryParams(['tab' => 'logs', 'log' => 'clicks'])->test(TrafficSourcesPage::class)->call('load')->html();
+
+    expect(preg_match('/<a href="([^"]+)"[^>]*data-testid="traffic-log-journey"[^>]*>\s*'.$id.'\s*</', $html, $match))->toBe(1);
+
+    $url = html_entity_decode($match[1]);
+    parse_str((string) parse_url($url, PHP_URL_QUERY), $query);
+
+    expect(parse_url($url, PHP_URL_PATH))->toBe(parse_url(GrowthAnalyticsPage::getUrl(), PHP_URL_PATH))
+        ->and($query)->toBe(['tab' => 'journeys', 'who' => $who]);
+
+    // The ID the row shows names both browsers, so it alone would ask which one.
+    Livewire::withQueryParams(['tab' => 'journeys', 'who' => $id])->test(GrowthAnalyticsPage::class)->call('load')
+        ->assertViewHas('data', fn (array $data): bool => $data['state'] === 'matches');
+
+    Log::spy();
+    $this->get($url)->assertOk();
+
+    // The journey as the page reads it once it is in a browser: the visitor itself, not the first example or a list to choose from —
+    // and not the other browser, whose label reads the same: only the visitor's click landed on /games/x.
+    $journey = Livewire::withQueryParams($query)->test(GrowthAnalyticsPage::class)->call('load')
+        ->assertSet('tab', 'journeys')
+        ->assertSet('who', $who)
+        ->viewData('data');
+
+    expect($journey['state'])->toBe('journey')
+        ->and($journey['journey']['label'])->toBe($id.' · not registered')
+        ->and(collect($journey['journey']['entries'])->pluck('meta')->filter(fn (?string $meta): bool => str_contains((string) $meta, '/games/x'))->all())->toHaveCount(1);
+
+    Log::shouldHaveReceived('info')->withArgs(fn (string $event, array $context): bool => $event === 'analytics.journey.lookup' && $context['journey'] === $who && $context['via'] === 'address')->once();
 });
 
 it('shows sign-ups and confirmation by the dimension chosen, ten rows and the rest in one, with the paid part How accounts come counts', function () {

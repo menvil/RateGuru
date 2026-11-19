@@ -5,8 +5,10 @@ namespace App\Models;
 use App\Enums\GameAudience;
 use App\Enums\GameFlowGoal;
 use App\Enums\GameFlowStepType;
+use App\Enums\GameOnwardKind;
 use App\Enums\GameVersionStatus;
 use App\Support\Games\Flow\FlowGoalRules;
+use App\Support\Games\Flow\FlowStepDraft;
 use App\Support\Games\Snapshot\GameVersionSnapshot;
 use Carbon\CarbonImmutable;
 use Database\Factories\GameVersionFactory;
@@ -111,6 +113,62 @@ class GameVersion extends Model
         }
 
         return false;
+    }
+
+    /**
+     * Where the version's flow can send a visitor of the audience on from the
+     * game, in the order of GameOnwardKind: Full Result going on to a post,
+     * the feed or a page, or the exit step that ends the flow — when one of
+     * them can reach it (reachedBy()).
+     *
+     * @return list<GameOnwardKind>
+     */
+    public function waysOn(GameAudience $audience): array
+    {
+        $ways = [];
+
+        foreach ($this->read()->flowSteps() as $step) {
+            if (! self::reachedBy($step, $audience)) {
+                continue;
+            }
+
+            $ways[] = match (true) {
+                $step->sendsToPost() => GameOnwardKind::Post,
+                $step->sendsToFeed() => GameOnwardKind::Feed,
+                $step->sendsToPage() => GameOnwardKind::Page,
+                $step->type === GameFlowStepType::NextGame => GameOnwardKind::NextGame,
+                default => null,
+            };
+        }
+
+        return array_values(array_filter(GameOnwardKind::cases(), fn (GameOnwardKind $way): bool => in_array($way, $ways, true)));
+    }
+
+    /**
+     * Whether a step that can send a visitor of the audience to a post
+     * (reachedBy()) asks them to answer rating groups there.
+     */
+    public function asksForPostRatings(GameAudience $audience): bool
+    {
+        foreach ($this->read()->flowSteps() as $step) {
+            if (self::reachedBy($step, $audience) && $step->sendsToPost() && $step->askGroups() !== []) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Whether a visitor of the audience can reach the step. A logged-in
+     * player reaches only the steps shown to them. A guest can reach any
+     * step after the game: signed in on the way — on Registration, the
+     * result's sign-up or the site's dialog — they are led on as a player,
+     * while their attempt, and all it records, stays a guest's.
+     */
+    private static function reachedBy(FlowStepDraft $step, GameAudience $audience): bool
+    {
+        return $audience === GameAudience::Anonymous || $step->audience->includes($audience);
     }
 
     public function isActive(): bool

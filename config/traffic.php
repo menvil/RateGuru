@@ -38,4 +38,14 @@ return [
     // How many runs of the chance working-out are kept.
     'chance_runs_kept' => 30,
 
+    // When Sites & zones hints that a site's paid impressions mostly never
+    // reach RateGuru (docs/architecture/traffic.md, "Reach"): at least so
+    // many impressions over closed days, and reached below this percentage
+    // of its source's share over the same days. A hint, never blocked by
+    // itself.
+    'reach' => [
+        'min_impressions' => 500,
+        'below_percent_of_source' => 70,
+    ],
+
 ];
