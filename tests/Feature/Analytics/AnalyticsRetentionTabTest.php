@@ -197,7 +197,12 @@ it('cuts the cohorts by a row, a second click showing every account again, the c
         ->and($chosen['toggle'])->toBe('')
         ->and(collect($data['cohorts']['chips'])->firstWhere('on', true)['label'])->toBe('Reddit · organic_social')
         // The tiles stay every account's.
-        ->and($data['kpis'][2]['value'])->toBe('31%');
+        ->and($data['kpis'][2]['value'])->toBe('31%')
+        // The chips are one tab stop, on the cut chosen, and the arrows move the cut from there: each chip says which cut it picks.
+        ->and(array_map(
+            fn (DOMElement $chip): string => $chip->getAttribute('data-value').' '.$chip->getAttribute('tabindex').' '.$chip->getAttribute('aria-checked'),
+            iterator_to_array(livewireDom($page)->query("//*[@role='radiogroup'][@aria-label='Cohorts of']/*[@role='radio']")),
+        ))->toBe([' -1 false', 'direct -1 false', 'reddit:organic 0 true']);
 
     // A game's row adds its chip.
     $game = collect($data['tables'][1]['rows'])->first();

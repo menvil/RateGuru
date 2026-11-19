@@ -170,6 +170,8 @@ final class TrackingLinkEditor extends Component
         }
 
         $creating = $this->linkId === 0;
+        // A field typed and the save can come in one request: the name follows the tags as they are now, not as the last render drew them.
+        $this->followTags(app(TrackingLinksQuery::class)->draft($this->input(), SaveTrackingLinkAction::host())['tags']);
 
         try {
             $link = app(SaveTrackingLinkAction::class)->handle($this->admin(), $creating ? null : $this->linkId, $this->input(), $creating ? null : $this->lockVersion);
@@ -215,11 +217,7 @@ final class TrackingLinkEditor extends Component
         $query = app(TrackingLinksQuery::class);
         $draft = $query->draft($this->input(), SaveTrackingLinkAction::host());
         $tags = $draft['tags'];
-        $auto = TrackingLinkUrl::autoName($tags['utm_source'], $tags['utm_campaign'], $tags['utm_content']);
-
-        if (! $this->named && ! $this->locked) {
-            $this->name = $auto;
-        }
+        $this->followTags($tags);
 
         $games = $query->games();
         $chosen = $draft['destination'] === TrackingLinkDestination::Game && $draft['game_id'] !== null ? $games->firstWhere('id', $draft['game_id']) : null;
@@ -308,6 +306,19 @@ final class TrackingLinkEditor extends Component
         }
 
         return array_filter($shown, fn (?string $error): bool => $error !== null);
+    }
+
+    /**
+     * Until the administrator names the link, its name is what its source,
+     * campaign and content make; a locked link keeps its own.
+     *
+     * @param  array<string, string>  $tags  the draft's tags, as TrackingLinksQuery::draft() reads them
+     */
+    private function followTags(array $tags): void
+    {
+        if (! $this->named && ! $this->locked) {
+            $this->name = TrackingLinkUrl::autoName($tags['utm_source'], $tags['utm_campaign'], $tags['utm_content']);
+        }
     }
 
     /**

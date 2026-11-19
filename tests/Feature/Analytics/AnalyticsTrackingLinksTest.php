@@ -125,6 +125,23 @@ it('makes a link in the drawer, named by its tags until named, its address built
         ->and($link->destination)->toBe(TrackingLinkDestination::Page);
 });
 
+it('names a link nobody named by the tags its save was sent with, the last one typed included', function () {
+    $editor = Livewire::test(TrackingLinkEditor::class)
+        ->set('destination', 'page')
+        ->call('pickSource', 'reddit')
+        ->call('pickMedium', 'organic_social')
+        ->set('campaign', 'versus_launch')
+        ->set('content', 'post_01');
+
+    expect($editor->get('name'))->toBe('Reddit · versus_launch · post_01');
+
+    // The last field typed and Create link, sent in one request: the field is updated before the save runs.
+    $editor->update(calls: [['method' => 'save', 'params' => [], 'path' => '']], updates: ['content' => 'post_02'])
+        ->assertDispatched('tracking-link-saved');
+
+    expect(TrackingLink::query()->sole()->only(['name', 'utm_content']))->toBe(['name' => 'Reddit · versus_launch · post_02', 'utm_content' => 'post_02']);
+});
+
 it('says what is wrong by field once a save asked, and writes nothing', function () {
     $editor = Livewire::test(TrackingLinkEditor::class)->set('campaign', 'Versus Launch');
 

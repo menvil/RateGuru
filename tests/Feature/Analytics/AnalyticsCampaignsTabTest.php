@@ -201,6 +201,20 @@ it('marks the creative with the best activation rate of those with enough visito
     // Only one creative with enough visitors: there is nothing to be best among.
     config(['analytics.best_creative_min_visitors' => 36]);
     expect($best())->toBe([]);
+
+    // A creative nobody registered by reads 0% and is compared, so the other is the best.
+    foreach (range(1, 40) as $n) {
+        analyticsClick("best-none-{$n}", $this->campaign, ['creative_key' => 'none']);
+    }
+
+    expect($best())->toBe(['a']);
+
+    // One whose accounts are all too recent can't be told yet, however many of them already activated.
+    foreach (range(1, 45) as $n) {
+        analyticsClick("best-fresh-{$n}", $this->campaign, ['creative_key' => 'fresh', ...($n <= 3 ? ['signup_at' => '2026-11-15 11:00:00', 'account_at' => '2026-11-15 11:00:00', 'activated_at' => '2026-11-16 09:00:00'] : [])]);
+    }
+
+    expect($best())->toBe(['a']);
 });
 
 it('says activation is too early while none of a row’s accounts is old enough, and from when accounts can still activate', function () {
@@ -239,6 +253,14 @@ it('sorts the campaigns and their creatives by a rate of new visitors or by what
         ->and($order('registration'))->toBe(['US popunder', 'Cheap', 'launch'])
         // $1.55 an account against $5.00.
         ->and($order('cost'))->toBe(['Cheap', 'US popunder', 'launch']);
+
+    // A campaign whose accounts are all too recent reads “Too early”, though one already activated: no rate to sort by, so after
+    // those with one — a 0% of accounts old enough among them — and among those without one, the most people first.
+    foreach (range(1, 42) as $n) {
+        analyticsVisit('fresh-'.$n, ['campaign_key' => 'tag:fresh', ...($n <= 3 ? ['signup_at' => '2026-11-15 11:00:00', 'account_at' => '2026-11-15 11:00:00'] : []), 'activated_at' => $n === 1 ? '2026-11-16 09:00:00' : null]);
+    }
+
+    expect($order('activation'))->toBe(['US popunder', 'Cheap', 'launch', 'fresh']);
 
     // Nothing spent: no sorting by cost, and an address asking for it sorts by people.
     DB::table('traffic_visits')->whereNotNull('source_id')->delete();
@@ -298,6 +320,38 @@ it('opens or closes any row, keeping only the latest few toggled, and opens and 
     Livewire::withQueryParams(['tab' => 'campaigns', 'creative' => 'banner-2'])->test(GrowthAnalyticsPage::class)->assertSet('creative', '');
     Livewire::withQueryParams(['tab' => 'overview', 'campaign' => $paid, 'creative' => 'banner-2', 'csort' => 'cost'])->test(GrowthAnalyticsPage::class)->assertSet('creative', '')->assertSet('csort', 'visitors');
     Livewire::withQueryParams(['tab' => 'campaigns', 'csort' => 'sideways', 'campaign' => $paid, 'creative' => "x\x01"])->test(GrowthAnalyticsPage::class)->assertSet('csort', 'visitors')->assertSet('creative', '');
+});
+
+it('lists, opens and marks the creative the address names past the first creatives, everyone else’s row counting the one it displaced', function () {
+    // One more creative than an open campaign lists: c01 to c25 with two people each, c26 with one.
+    foreach (range(1, CampaignsTab::CREATIVES + 1) as $n) {
+        $creative = sprintf('c%02d', $n);
+
+        foreach (range(1, $n > CampaignsTab::CREATIVES ? 1 : 2) as $visitor) {
+            analyticsClick("{$creative}-{$visitor}", $this->campaign, ['creative_key' => $creative, 'spend' => '0.10']);
+        }
+    }
+
+    $creatives = fn (string $creative) => collect(analyticsCampaigns(['campaign' => 'paid:'.$this->campaign->id, 'creative' => $creative])['rows'])
+        ->where('level', 1)->whereIn('kind', ['creative', 'rest'])->values();
+    $rest = fn ($rows): array => [$rows->last()['name'], $rows->last()['cells'][0]['value'], $rows->last()['cells'][1]['value']];
+
+    $named = $creatives('c26');
+
+    expect($named->where('kind', 'creative')->count())->toBe(CampaignsTab::CREATIVES)
+        ->and($named->firstWhere('name', 'c26'))->toMatchArray(['open' => true, 'marked' => true])
+        ->and($named->whereStrict('open', true)->pluck('name')->all())->toBe(['c26'])
+        // It takes the last place: everyone else's row counts the creative it displaced, and what that cost.
+        ->and($named->firstWhere('name', 'c25'))->toBeNull()
+        ->and($rest($named))->toBe(['Other creatives', '$0.20', '2']);
+
+    // A creative the campaign doesn't have opens the biggest, the smallest in the rest again.
+    $missing = $creatives('c99');
+
+    expect($missing->whereStrict('open', true)->pluck('name')->all())->toBe(['c01'])
+        ->and($missing->firstWhere('name', 'c26'))->toBeNull()
+        ->and($missing->whereStrict('marked', true)->all())->toBe([])
+        ->and($rest($missing))->toBe(['Other creatives', '$0.10', '1']);
 });
 
 it('answers only an administrator who may manage traffic sources, every request asking again', function () {

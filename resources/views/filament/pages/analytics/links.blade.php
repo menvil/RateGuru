@@ -12,7 +12,8 @@
      * yet, the tags and the same actions; the editor's drawer is its own
      * component (TrackingLinkEditor).
      */
-    $copy = "navigator.clipboard?.writeText(\$el.dataset.copy).then(() => \$dispatch('rg-admin-toast', { message: 'Link copied', tone: 'success' }))";
+    // Says Link copied only once the clipboard took the address: the write can be refused, and there is no clipboard outside a secure page.
+    $copy = "async () => { try { await navigator.clipboard.writeText(\$el.dataset.copy); \$dispatch('rg-admin-toast', { message: 'Link copied', tone: 'success' }) } catch { \$dispatch('rg-admin-toast', { message: 'The browser refused the clipboard, so nothing was copied.', tone: 'error' }) } }";
 @endphp
 
 <div class="rg-admin-analytics__links-head">

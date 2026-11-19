@@ -94,5 +94,18 @@ it('cuts the cohorts by a source’s row, kept in the address, and shows every a
 
     expect($page->script("document.querySelector('[data-testid=\"analytics-retention-sources\"] [data-dim=\"reddit:organic\"]').classList.contains('rg-admin-table__row--selected')"))->toBeTrue();
 
+    // The chips are one tab stop, and their keys choose: Home every account, an arrow the next cut, the focus following the choice.
+    $checked = '[data-testid="analytics-retention-chip"][aria-checked="true"]';
+
+    expect($page->script("[...document.querySelectorAll('[data-testid=\"analytics-retention-chip\"]')].filter((chip) => chip.tabIndex === 0).map((chip) => chip.textContent.trim())"))->toBe(['Reddit · organic_social']);
+
+    $page->keys($checked, 'Home');
+    waitForScript($page, "new URLSearchParams(location.search).get('dim')", null, 10.0);
+    waitForScript($page, "document.activeElement?.matches('{$checked}') && document.activeElement.textContent.trim()", 'All new users', 10.0);
+
+    $page->keys(':focus', 'ArrowRight');
+    waitForScript($page, "new URLSearchParams(location.search).get('dim')", 'google:organic', 10.0);
+    waitForScript($page, "document.activeElement?.matches('{$checked}') && document.activeElement.textContent.trim()", 'Google · organic_search', 10.0);
+
     $page->assertNoJavaScriptErrors();
 });

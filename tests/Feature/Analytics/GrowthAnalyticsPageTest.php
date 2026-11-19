@@ -123,6 +123,19 @@ it('keeps the tab, period, filters and sorting in the address, and reads anythin
     expect(GrowthAnalyticsPage::topbar(Request::create('/admin/analytics', 'GET', ['period' => 'yesterday'])))->toContain('17 Nov 2026');
 });
 
+it('tells the top bar the days it read the figures of, a preset that rolled over at midnight included', function () {
+    $this->travelTo(CarbonImmutable::parse('2026-11-18 23:59:00'));
+    $page = Livewire::withQueryParams(['period' => '7d'])->test(GrowthAnalyticsPage::class)->call('load')
+        ->assertDispatched('rg-admin-analytics-range', text: '12 Nov — 18 Nov 2026');
+
+    // Left open overnight, then Refresh: the figures and the top bar both move to the new day.
+    $this->travelTo(CarbonImmutable::parse('2026-11-19 00:05:00'));
+
+    $page->call('refreshFigures')
+        ->assertViewHas('range', '13 Nov — 19 Nov 2026')
+        ->assertDispatched('rg-admin-analytics-range', text: '13 Nov — 19 Nov 2026');
+});
+
 it('lists only the tabs that are built, each drawn from its own view and figures', function () {
     analyticsVisit('ann');
 
@@ -473,7 +486,11 @@ it('marks the chart’s buckets on which a version was published, a paid campaig
 });
 
 it('reads a tab in a bounded number of queries, however many sources, campaigns and visitors there are', function () {
-    $queries = function (array $query): int {
+    // The figures as they are at each read: the read cache has tests of its own (AnalyticsReadCacheTest).
+    config(['analytics.read_cache_minutes' => 0]);
+
+    /** @return array{0: int, 1: mixed} how many queries the page read its figures in, and the page */
+    $queries = function (array $query): array {
         $page = Livewire::withQueryParams($query)->test(GrowthAnalyticsPage::class);
 
         DB::flushQueryLog();
@@ -482,25 +499,31 @@ it('reads a tab in a bounded number of queries, however many sources, campaigns 
         $count = count(DB::getQueryLog());
         DB::disableQueryLog();
 
-        return $count;
+        return [$count, $page];
     };
 
     analyticsVisit('ann', ['source_key' => 'reddit:organic']);
-    $few = $queries([]);
+    [$few] = $queries([]);
 
     $sources = TrafficSource::factory()->count(15)->create();
+    $campaigns = [];
 
     foreach ($sources as $index => $source) {
-        $campaign = TrafficCampaign::factory()->create(['source_id' => $source->id]);
+        $campaigns[$index] = TrafficCampaign::factory()->create(['source_id' => $source->id]);
 
         foreach (range(1, 3) as $n) {
-            analyticsVisit("paid-{$index}-{$n}", ['source_key' => 'paid:'.$source->id, 'campaign_key' => 'paid:'.$campaign->id]);
+            analyticsVisit("paid-{$index}-{$n}", ['source_key' => 'paid:'.$source->id, 'campaign_key' => 'paid:'.$campaigns[$index]->id]);
             analyticsVisit("tag-{$index}-{$n}", ['source_key' => 'host.site'.$index.'.com:referral', 'campaign_key' => 'tag:launch-'.$index]);
         }
     }
 
-    $many = $queries([]);
-    $narrowed = $queries(['source' => 'paid:'.$sources[0]->id, 'campaign' => 'paid:'.$sources[0]->id]);
+    [$many, $everyone] = $queries([]);
+    [$narrowed, $one] = $queries(['source' => 'paid:'.$sources[0]->id, 'campaign' => 'paid:'.$campaigns[0]->id]);
+
+    // Each load read the larger fixture: everyone, and the first source's campaign alone.
+    expect($everyone->viewData('data')['kpis'][0]['value'])->toBe('91');
+    $one->assertSet('campaign', 'paid:'.$campaigns[0]->id);
+    expect($one->viewData('data')['kpis'][0]['value'])->toBe('3');
 
     // The shell's filters and hints, the tiles now and before, the chart and its markers, the sources
     // table with everyone else's row, Referral, Data notes and the Tracking card: never one per row.

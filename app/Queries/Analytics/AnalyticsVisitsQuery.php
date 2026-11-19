@@ -38,7 +38,7 @@ use InvalidArgumentException;
  *  - by()            the same per source, campaign, country … the most
  *                    people first, and the people of every group past the
  *                    top ones, or too small to list, counted together, each
- *                    once;
+ *                    once; a group asked for listed whatever its size;
  *  - series()        the people of each bucket of a chart;
  *  - returning()     those who came on two days of the period or before it;
  *  - quality()       what the people leave out: the visitors no tag or
@@ -47,7 +47,8 @@ use InvalidArgumentException;
  *  - attempts()      the attempts played on the period's visits;
  *  - resultShares()  the clicks on a result's share buttons, and the results;
  *  - top()           the values a dimension's people came through, the most
- *                    first, with nothing counted: what a filter offers;
+ *                    first, with nothing counted — those beginning as asked,
+ *                    when asked: what a filter offers;
  *  - of()            the figures of each of the values given of a dimension;
  *  - among()         the figures of each group of a dimension's columns
  *                    among the values given of its first — the tags of the
@@ -106,9 +107,17 @@ final class AnalyticsVisitsQuery implements RawSqlPersistenceBoundary
      * counted at all (UNNAMED_LEFT_OUT). Only apart is `unnamed` read; it is
      * none otherwise, and when no one is left.
      *
+     * Groups to keep — each by its columns' values, a null one by being null
+     * — are listed whatever the people given, so long as anyone came through
+     * them, after the others and in place of the last listed ones when the
+     * limit is reached; the rest is then what is no longer listed. A kept
+     * group past those read is read on its own, one more read; a group of no
+     * value is kept only while such visits are a group (UNNAMED_LISTED).
+     *
+     * @param  list<array<string, int|string|null>>  $keep
      * @return array{rows: list<array{keys: array<string, int|string|null>, figures: VisitorFigures, visits: int, tagged: int}>, rest: array{figures: VisitorFigures, visits: int, tagged: int}|null, unnamed: array{figures: VisitorFigures, visits: int, tagged: int}|null}
      */
-    public function by(AnalyticsFilter $filter, AnalyticsDimension $dimension, ?int $limit = null, int $least = 1, string $unnamed = self::UNNAMED_LISTED): array
+    public function by(AnalyticsFilter $filter, AnalyticsDimension $dimension, ?int $limit = null, int $least = 1, string $unnamed = self::UNNAMED_LISTED, array $keep = []): array
     {
         if (! in_array($unnamed, [self::UNNAMED_LISTED, self::UNNAMED_IN_REST, self::UNNAMED_APART, self::UNNAMED_LEFT_OUT], true)) {
             throw new InvalidArgumentException("No split treats the visits of no value as [{$unnamed}].");
@@ -134,6 +143,7 @@ final class AnalyticsVisitsQuery implements RawSqlPersistenceBoundary
             ->all();
         // The most people first: a group too small to be listed is followed only by others as small.
         $rows = array_values(array_filter($read, fn (array $row): bool => $row['figures']->visitors >= $least));
+        $rows = $this->keeping($filter, $columns, $read, $rows, $keep, $limit, $unnamed);
         $left = count($read) >= $limit || count($rows) < count($read) || $unnamed === self::UNNAMED_IN_REST;
         $rest = null;
 
@@ -296,15 +306,25 @@ final class AnalyticsVisitsQuery implements RawSqlPersistenceBoundary
     /**
      * The groups of a dimension the most people came through, the most first
      * and then by the value, at most the limit given: only their values, by
-     * column, what a filter of the page offers to choose from.
+     * column, what a filter of the page offers to choose from. Given a
+     * beginning, only the groups whose first column begins with it are
+     * ranked — the campaigns named by their tags ("tag:"), say — so none of
+     * the others takes a place of the limit; a beginning that is empty or
+     * holds a LIKE wildcard (% or _) or a backslash is refused, since it
+     * would match more than itself.
      *
      * @return list<array<string, int|string|null>>
      */
-    public function top(AnalyticsFilter $filter, AnalyticsDimension $dimension, int $limit): array
+    public function top(AnalyticsFilter $filter, AnalyticsDimension $dimension, int $limit, ?string $prefix = null): array
     {
         $columns = $dimension->columns();
 
+        if ($prefix !== null && ($prefix === '' || strpbrk($prefix, '%_\\') !== false)) {
+            throw new InvalidArgumentException("No values are offered by the beginning [{$prefix}].");
+        }
+
         return $this->visits($filter)
+            ->when($prefix !== null, fn (Builder $begins) => $begins->where($columns[0], 'like', $prefix.'%'))
             ->groupBy(...$columns)
             ->select($columns)
             ->orderByRaw('COUNT(DISTINCT visitor_hash) DESC', [])
@@ -373,16 +393,7 @@ final class AnalyticsVisitsQuery implements RawSqlPersistenceBoundary
 
         $query = $this->visits($filter)
             ->whereIn($columns[0], $firstValues)
-            ->when($only !== [], fn (Builder $asked) => $asked->where(function (Builder $any) use ($columns, $only): void {
-                foreach ($only as $keys) {
-                    $any->orWhere(function (Builder $same) use ($columns, $keys): void {
-                        foreach ($columns as $column) {
-                            $value = $keys[$column] ?? null;
-                            $value === null ? $same->whereNull($column) : $same->where($column, $value);
-                        }
-                    });
-                }
-            }))
+            ->when($only !== [], fn (Builder $asked) => self::ofGroups($asked, $columns, $only))
             ->groupBy(...$columns)
             ->select($columns)
             ->selectRaw($metrics, $bindings)
@@ -562,6 +573,83 @@ final class AnalyticsVisitsQuery implements RawSqlPersistenceBoundary
     private function visitIds(AnalyticsFilter $filter): Builder
     {
         return $this->visits($filter)->select('id');
+    }
+
+    /**
+     * The rows of a split with the groups to keep among them (by()): each one
+     * not listed yet that anyone came through — found among the groups read,
+     * else read on its own, only while the read was full, since only then
+     * can it have been left out — after the others, in place of the last
+     * listed ones once the limit is reached.
+     *
+     * @param  list<string>  $columns
+     * @param  list<array{keys: array<string, int|string|null>, figures: VisitorFigures, visits: int, tagged: int}>  $read
+     * @param  list<array{keys: array<string, int|string|null>, figures: VisitorFigures, visits: int, tagged: int}>  $rows
+     * @param  list<array<string, int|string|null>>  $keep
+     * @return list<array{keys: array<string, int|string|null>, figures: VisitorFigures, visits: int, tagged: int}>
+     */
+    private function keeping(AnalyticsFilter $filter, array $columns, array $read, array $rows, array $keep, int $limit, string $unnamed): array
+    {
+        $listed = array_column($rows, 'keys');
+        $wanted = [];
+
+        foreach ($keep as $group) {
+            $keys = self::keys($group, $columns);
+
+            if (! in_array($keys, $listed, true) && ! in_array($keys, $wanted, true) && ($keys[$columns[0]] !== null || $unnamed === self::UNNAMED_LISTED)) {
+                $wanted[] = $keys;
+            }
+        }
+
+        if ($wanted === []) {
+            return $rows;
+        }
+
+        $found = array_values(array_filter($read, fn (array $row): bool => in_array($row['keys'], $wanted, true)));
+        $unread = array_values(array_filter($wanted, fn (array $keys): bool => ! in_array($keys, array_column($found, 'keys'), true)));
+
+        if ($unread !== [] && count($read) >= $limit) {
+            [$metrics, $bindings] = self::metrics($filter);
+
+            // Past every group read, so after those found among them: the most people first still.
+            array_push($found, ...self::ofGroups($this->visits($filter), $columns, $unread)
+                ->groupBy(...$columns)
+                ->select($columns)
+                ->selectRaw($metrics, $bindings)
+                ->orderByRaw('COUNT(DISTINCT visitor_hash) DESC', [])
+                ->toBase()
+                ->get()
+                ->map(fn (object $row): array => ['keys' => self::keys((array) $row, $columns), ...self::counted((array) $row)])
+                ->values()
+                ->all());
+        }
+
+        $found = array_slice($found, 0, $limit);
+
+        return [...array_slice($rows, 0, max(0, $limit - count($found))), ...$found];
+    }
+
+    /**
+     * The visits of any of the groups given: a visit whose columns all hold
+     * a group's values — a null value by being null.
+     *
+     * @param  Builder<TrafficVisit>  $query
+     * @param  list<string>  $columns
+     * @param  list<array<string, int|string|null>>  $groups
+     * @return Builder<TrafficVisit>
+     */
+    private static function ofGroups(Builder $query, array $columns, array $groups): Builder
+    {
+        return $query->where(function (Builder $any) use ($columns, $groups): void {
+            foreach ($groups as $keys) {
+                $any->orWhere(function (Builder $same) use ($columns, $keys): void {
+                    foreach ($columns as $column) {
+                        $value = $keys[$column] ?? null;
+                        $value === null ? $same->whereNull($column) : $same->where($column, $value);
+                    }
+                });
+            }
+        });
     }
 
     /**

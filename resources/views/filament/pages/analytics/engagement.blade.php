@@ -81,11 +81,40 @@
                         @foreach ($data['compare']['pickers'] as $picker)
                             <div class="rg-admin-analytics__versus-picker">
                                 <span @class(['rg-admin-analytics__versus-tag', 'rg-admin-analytics__versus-tag--b' => $picker['key'] === 'B']) aria-hidden="true">{{ $picker['key'] }}</span>
-                                <div class="rg-admin-analytics__versus-options" role="radiogroup" aria-label="Source {{ $picker['key'] }}">
+                                {{-- One radio group a side: one tab stop, and the arrows, Home and End choose, as every radio group here. --}}
+                                <div
+                                    class="rg-admin-analytics__versus-options"
+                                    role="radiogroup"
+                                    aria-label="Source {{ $picker['key'] }}"
+                                    x-data="{
+                                        move(to) {
+                                            const radios = [...$el.querySelectorAll('[role=radio]')]
+                                            const at = Math.max(0, radios.findIndex((radio) => radio.getAttribute('aria-checked') === 'true'))
+                                            const next = radios[to === 'first' ? 0 : (to === 'last' ? radios.length - 1 : (at + to + radios.length) % radios.length)]
+
+                                            if (next.getAttribute('aria-checked') === 'true') return
+
+                                            // The focus follows the choice once it is drawn — unless it went elsewhere meanwhile.
+                                            $wire.$set(@js($picker['property']), next.dataset.value).then(() => {
+                                                if ($el.contains(document.activeElement) || document.activeElement === document.body) {
+                                                    $el.querySelector('[role=radio][aria-checked=true]')?.focus()
+                                                }
+                                            }, () => {})
+                                        },
+                                    }"
+                                    x-on:keydown.arrow-right.prevent="move(1)"
+                                    x-on:keydown.arrow-down.prevent="move(1)"
+                                    x-on:keydown.arrow-left.prevent="move(-1)"
+                                    x-on:keydown.arrow-up.prevent="move(-1)"
+                                    x-on:keydown.home.prevent="move('first')"
+                                    x-on:keydown.end.prevent="move('last')"
+                                >
                                     @foreach ($picker['options'] as $option)
                                         <button
                                             type="button"
                                             role="radio"
+                                            data-value="{{ $option['key'] }}"
+                                            tabindex="{{ $option['on'] ? '0' : '-1' }}"
                                             aria-checked="{{ $option['on'] ? 'true' : 'false' }}"
                                             title="{{ $option['title'] }}"
                                             @class(['rg-admin-analytics__versus-option', 'rg-admin-analytics__versus-option--on' => $option['on']])

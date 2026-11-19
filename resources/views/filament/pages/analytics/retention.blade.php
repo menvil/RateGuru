@@ -46,11 +46,40 @@
     @php($cohorts = $data['cohorts'])
     <x-admin.ui.card :title="$cohorts['title']" :description="$cohorts['note']" flush class="rg-admin-analytics__retention-card" data-testid="analytics-retention-cohorts">
         <x-slot:aside>
-            <div class="rg-admin-analytics__retention-chips" role="radiogroup" aria-label="Cohorts of">
+            {{-- One radio group: one tab stop, and the arrows, Home and End choose, as every radio group here. --}}
+            <div
+                class="rg-admin-analytics__retention-chips"
+                role="radiogroup"
+                aria-label="Cohorts of"
+                x-data="{
+                    move(to) {
+                        const radios = [...$el.querySelectorAll('[role=radio]')]
+                        const at = Math.max(0, radios.findIndex((radio) => radio.getAttribute('aria-checked') === 'true'))
+                        const next = radios[to === 'first' ? 0 : (to === 'last' ? radios.length - 1 : (at + to + radios.length) % radios.length)]
+
+                        if (next.getAttribute('aria-checked') === 'true') return
+
+                        // The focus follows the choice once it is drawn — unless it went elsewhere meanwhile.
+                        $wire.$set('dim', next.dataset.value).then(() => {
+                            if ($el.contains(document.activeElement) || document.activeElement === document.body) {
+                                $el.querySelector('[role=radio][aria-checked=true]')?.focus()
+                            }
+                        }, () => {})
+                    },
+                }"
+                x-on:keydown.arrow-right.prevent="move(1)"
+                x-on:keydown.arrow-down.prevent="move(1)"
+                x-on:keydown.arrow-left.prevent="move(-1)"
+                x-on:keydown.arrow-up.prevent="move(-1)"
+                x-on:keydown.home.prevent="move('first')"
+                x-on:keydown.end.prevent="move('last')"
+            >
                 @foreach ($cohorts['chips'] as $chip)
                     <button
                         type="button"
                         role="radio"
+                        data-value="{{ $chip['dim'] }}"
+                        tabindex="{{ $chip['on'] ? '0' : '-1' }}"
                         aria-checked="{{ $chip['on'] ? 'true' : 'false' }}"
                         title="{{ $chip['label'] }}"
                         @class(['rg-admin-analytics__retention-chip', 'rg-admin-analytics__retention-chip--on' => $chip['on']])

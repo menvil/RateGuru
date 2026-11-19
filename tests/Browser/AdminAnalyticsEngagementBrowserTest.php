@@ -91,5 +91,18 @@ it('keeps a source picked for a side in the address, and asks for two different 
 
     expect($page->script("[...document.querySelectorAll('[role=\"radio\"][aria-checked=\"true\"]')].filter((option) => option.closest('[data-testid=\"analytics-engagement-compare\"]')).map((option) => option.textContent.trim())"))->toBe(['Email', 'Email']);
 
+    // A side is one tab stop, and its keys choose: Home the first source, an arrow the next, the focus following the choice.
+    $checked = '[aria-label="Source A"] [role="radio"][aria-checked="true"]';
+
+    expect($page->script("[...document.querySelectorAll('[aria-label=\"Source A\"] [role=\"radio\"]')].filter((radio) => radio.tabIndex === 0).map((radio) => radio.textContent.trim())"))->toBe(['Email']);
+
+    $page->keys($checked, 'Home');
+    waitForScript($page, "new URLSearchParams(location.search).get('a')", 'reddit:organic', 10.0);
+    waitForScript($page, "document.activeElement?.matches('{$checked}') && document.activeElement.textContent.trim()", 'Reddit', 10.0);
+
+    $page->keys(':focus', 'ArrowRight');
+    waitForScript($page, "new URLSearchParams(location.search).get('a')", 'google:organic', 10.0);
+    waitForScript($page, "document.activeElement?.matches('{$checked}') && document.activeElement.textContent.trim()", 'Google', 10.0);
+
     $page->assertNoJavaScriptErrors();
 });

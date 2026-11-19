@@ -169,6 +169,15 @@ it('shows no post figure for a period older than the posts are kept, and no chan
         ->and($old['content']['rows'])->toBe([])
         ->and(array_column($old['compare']['rows'], 'a', 'label'))->toMatchArray(['Unique visitors' => '1', 'Viewed a post' => '—', 'Voted · of post viewers' => '—', 'Comments per 100 viewers' => '—']);
 
+    // The posts are kept back to a moment of 20 Aug: a period from that day shows none of them, one from the next day all, Dan's of 1 Sep in both.
+    $cut = analyticsEngagement(['from' => '2026-08-20', 'to' => '2026-09-10']);
+    $whole = analyticsEngagement(['from' => '2026-08-21', 'to' => '2026-09-10']);
+
+    expect(array_slice(engagementCards($cut), 2, 2))->toBe(['Post views | — | Actions | Post views are kept for 90 days', 'Unique post viewers | — | Visitors | Post views are kept for 90 days'])
+        ->and($cut['content']['kept'])->toBeFalse()
+        ->and(array_slice(engagementCards($whole), 2, 2))->toBe(['Post views | 3 | Actions | 3.0 per viewer', 'Unique post viewers | 1 | Visitors | 100.0% of visitors'])
+        ->and($whole['content']['kept'])->toBeTrue();
+
     // Last 90 days is whole; the 90 days before it aren't, so its post figures have no change.
     $ninety = analyticsEngagement(['period' => '90d']);
 
@@ -197,16 +206,22 @@ it('compares two of the six biggest sources of the period and the device, kept i
         'post' => ['voted' => $n <= 4],
     ]);
     engagementVisitors('email:email', 3, fn (int $n): array => ['post' => null]);
+    // Seven sources of the device: the three of two people in the order of their keys, the one of a single person left out.
+    foreach (['facebook:organic' => 2, 'instagram:organic' => 2, 'x:organic' => 2, 'yandex:organic' => 1] as $source => $people) {
+        engagementVisitors($source, $people, fn (int $n): array => ['post' => null]);
+    }
     // Of another device: never compared.
     engagementVisitors('bing:organic', 50, fn (int $n): array => ['visit' => ['device' => TrafficDevice::Desktop], 'post' => null]);
 
     $compare = analyticsEngagement(['device' => 'mobile', 'source' => 'email:email'])['compare'];
+    $six = ['Reddit', 'Google', 'Email', 'Facebook', 'Instagram', 'X'];
 
-    expect(array_column($compare['pickers'][0]['options'], 'label'))->toBe(['Reddit', 'Google', 'Email'])
-        ->and(array_column($compare['pickers'][0]['options'], 'title'))->toBe(['Reddit · organic_social', 'Google · organic_search', 'Email · email'])
+    expect(array_column($compare['pickers'][0]['options'], 'label'))->toBe($six)
+        ->and(array_column($compare['pickers'][1]['options'], 'label'))->toBe($six)
+        ->and(array_column($compare['pickers'][0]['options'], 'title'))->toBe(['Reddit · organic_social', 'Google · organic_search', 'Email · email', 'Facebook · organic_social', 'Instagram · organic_social', 'X · organic_social'])
         // The biggest on A, the next on B, whatever source the page is filtered by.
-        ->and(array_column($compare['pickers'][0]['options'], 'on'))->toBe([true, false, false])
-        ->and(array_column($compare['pickers'][1]['options'], 'on'))->toBe([false, true, false])
+        ->and(array_column($compare['pickers'][0]['options'], 'on'))->toBe([true, false, false, false, false, false])
+        ->and(array_column($compare['pickers'][1]['options'], 'on'))->toBe([false, true, false, false, false, false])
         ->and($compare['names'])->toBe(['a' => 'Reddit', 'b' => 'Google'])
         ->and(array_map(fn (array $row): string => implode(' | ', [$row['label'], $row['a'], $row['b'], $row['lead'] ?? '-']), $compare['rows']))->toBe([
             'Unique visitors | 40 | 32 | a',
@@ -234,8 +249,9 @@ it('compares two of the six biggest sources of the period and the device, kept i
         ->and($sameAsB['answer'])->toBe('Pick two different sources to compare.')
         ->and($sameAsA['names'])->toBe(['a' => 'Reddit', 'b' => 'Reddit'])
         ->and($sameAsA['answer'])->toBe('Pick two different sources to compare.')
-        // A source not offered is the default.
-        ->and(analyticsEngagement(['device' => 'mobile', 'a' => 'bing:organic'])['compare']['names'])->toBe(['a' => 'Reddit', 'b' => 'Google']);
+        // A source not offered is the default: of another device, or the seventh of this one.
+        ->and(analyticsEngagement(['device' => 'mobile', 'a' => 'bing:organic'])['compare']['names'])->toBe(['a' => 'Reddit', 'b' => 'Google'])
+        ->and(analyticsEngagement(['device' => 'mobile', 'a' => 'yandex:organic'])['compare']['names'])->toBe(['a' => 'Reddit', 'b' => 'Google']);
 
     // The same source on both sides asks for two.
     $same = analyticsEngagement(['device' => 'mobile', 'a' => 'google:organic', 'b' => 'google:organic'])['compare'];
@@ -244,15 +260,37 @@ it('compares two of the six biggest sources of the period and the device, kept i
         ->and(array_unique(array_column($same['rows'], 'lead')))->toBe([null]);
 
     // A pick is kept in the address, and only on this tab; anything it can't read is the default.
-    Livewire::withQueryParams(['tab' => 'engagement', 'device' => 'mobile'])->test(GrowthAnalyticsPage::class)->call('load')
-        ->assertSeeHtml('aria-checked="true"')
-        ->set('b', 'email:email')
+    $page = Livewire::withQueryParams(['tab' => 'engagement', 'device' => 'mobile'])->test(GrowthAnalyticsPage::class)->call('load');
+    // Each side is one tab stop, on its checked source, and the arrows move the choice from there: each option says which source it picks.
+    $tabStops = fn (string $side): array => array_map(
+        fn (DOMElement $radio): string => $radio->getAttribute('data-value').' '.$radio->getAttribute('tabindex').' '.$radio->getAttribute('aria-checked'),
+        iterator_to_array(livewireDom($page)->query("//*[@role='radiogroup'][@aria-label='Source {$side}']/*[@role='radio']")),
+    );
+
+    expect($tabStops('A'))->toBe(['reddit:organic 0 true', 'google:organic -1 false', 'email:email -1 false', 'facebook:organic -1 false', 'instagram:organic -1 false', 'x:organic -1 false'])
+        ->and($tabStops('B'))->toBe(['reddit:organic -1 false', 'google:organic 0 true', 'email:email -1 false', 'facebook:organic -1 false', 'instagram:organic -1 false', 'x:organic -1 false']);
+
+    $page->set('b', 'email:email')
         ->assertSet('b', 'email:email')
-        ->assertViewHas('data', fn (array $data): bool => $data['compare']['names'] === ['a' => 'Reddit', 'b' => 'Email'])
-        ->set('a', "reddit\n:organic")
+        ->assertViewHas('data', fn (array $data): bool => $data['compare']['names'] === ['a' => 'Reddit', 'b' => 'Email']);
+
+    expect($tabStops('B'))->toBe(['reddit:organic -1 false', 'google:organic -1 false', 'email:email 0 true', 'facebook:organic -1 false', 'instagram:organic -1 false', 'x:organic -1 false']);
+
+    $page->set('a', "reddit\n:organic")
         ->assertSet('a', '')
         ->set('tab', 'overview')
         ->assertSet('b', '');
+});
+
+it('calls two sources alike when their rates read the same, however little they differ underneath', function () {
+    // Twelve of 37 and eleven of 34 post viewers voted: 32.43% and 32.35%, both 32.4% as shown.
+    engagementVisitors('reddit:organic', 37, fn (int $n): array => ['post' => ['voted' => $n <= 12]]);
+    engagementVisitors('google:organic', 34, fn (int $n): array => ['post' => ['voted' => $n <= 11]]);
+
+    $compare = analyticsEngagement()['compare'];
+
+    expect(collect($compare['rows'])->firstWhere('label', 'Voted · of post viewers'))->toMatchArray(['a' => '32.4%', 'b' => '32.4%', 'lead' => null])
+        ->and($compare['answer'])->toBe('Reddit and Google visitors vote as often: 32.4% of post viewers voted.');
 });
 
 it('says when there is only one source to compare', function () {
