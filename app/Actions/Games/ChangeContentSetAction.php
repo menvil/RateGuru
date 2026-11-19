@@ -28,8 +28,15 @@ final class ChangeContentSetAction
 
     public function __construct(private readonly MediaLifecycleService $lifecycleService) {}
 
-    /** @throws CannotManageGameException */
-    public function rename(User $admin, GameContentSet $set, string $name, ?int $expectedLockVersion = null): void
+    /**
+     * The set's name, which only the editor shows: a name kept as it was
+     * writes nothing, and a new one doesn't count as an edit players would
+     * see (GameUnpublishedChangesQuery reads when a set was saved). Whether
+     * it wrote one.
+     *
+     * @throws CannotManageGameException
+     */
+    public function rename(User $admin, GameContentSet $set, string $name, ?int $expectedLockVersion = null): bool
     {
         $name = mb_substr(trim($name), 0, CreateContentSetAction::NAME_MAX);
 
@@ -37,9 +44,19 @@ final class ChangeContentSetAction
             throw CannotManageGameException::because('Give the content set a name.');
         }
 
-        $this->change($admin, $set, function (GameContentSet $locked) use ($name): void {
+        $renamed = false;
+
+        $this->change($admin, $set, function (GameContentSet $locked) use ($name, &$renamed): void {
+            if ($locked->name === $name) {
+                return;
+            }
+
+            $locked->timestamps = false;
             $locked->forceFill(['name' => $name, 'lock_version' => $locked->lock_version + 1])->save();
+            $renamed = true;
         }, $expectedLockVersion);
+
+        return $renamed;
     }
 
     /** @throws CannotManageGameException */

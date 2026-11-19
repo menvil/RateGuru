@@ -1,10 +1,14 @@
 <?php
 
+use App\Enums\GameStatus;
 use App\Filament\Pages\Dashboard;
+use App\Filament\Pages\ExperimentsPage;
+use App\Filament\Pages\GrowthAnalyticsPage;
 use App\Filament\Pages\LanguagesPage;
 use App\Filament\Pages\MediaDiagnosticsPage;
 use App\Filament\Pages\ProjectSettingsPage;
 use App\Filament\Pages\StudioActionQueue;
+use App\Filament\Pages\TrafficSourcesPage;
 use App\Filament\Pages\TranslationAiPage;
 use App\Filament\Pages\TranslationCenterPage;
 use App\Filament\Resources\Categories\CategoryResource;
@@ -21,6 +25,7 @@ use App\Filament\Support\AdminNavigationGroup;
 use App\Filament\Support\AdminShellNavigation;
 use App\Livewire\Admin\Sidebar;
 use App\Livewire\Admin\Topbar;
+use App\Models\Game;
 use App\Models\ProjectSettings;
 use App\Models\RatingGroup;
 use App\Models\StudioPlan;
@@ -45,7 +50,7 @@ const ADMIN_SHELL_DESTINATIONS = [
     'Moderation' => ['Posts', 'Comments', 'Reports', 'Users'],
     'Content' => ['Categories', 'Tags', 'Rating groups'],
     'Content Studio' => ['Publications & plans', 'Action queue', 'Personas'],
-    'Growth' => ['Games'],
+    'Growth' => ['Games', 'Experiments', 'Analytics', 'Traffic sources'],
     'Localization' => ['Languages', 'Translation Center', 'Translation AI'],
     'Configuration' => ['Project settings'],
     'System' => ['Media diagnostics'],
@@ -160,6 +165,7 @@ it('marks the destination of the current page', function (string $path, string $
     'personas' => ['/admin/personas', 'Personas'],
     'publications and plans' => ['/admin/studio-plans', 'Publications & plans'],
     'action queue' => ['/admin/studio-actions', 'Action queue'],
+    'analytics' => ['/admin/analytics', 'Analytics'],
 ]);
 
 it('keeps a resource marked on its create and edit pages, with a breadcrumb back to its list', function (Closure $url, string $active) {
@@ -182,6 +188,43 @@ it('keeps a resource marked on its create and edit pages, with a breadcrumb back
     'publication create' => [fn (): string => StudioPlanResource::getUrl('create'), 'Publications & plans'],
     'publication edit' => [fn (): string => StudioPlanResource::getUrl('edit', ['record' => StudioPlan::factory()->create()]), 'Publications & plans'],
 ]);
+
+it('leads back to Experiments from a period’s results, which open at the page’s own address', function () {
+    $this->actingAs(User::factory()->admin()->create());
+    $url = ExperimentsPage::getUrl();
+
+    expect($this->get($url)->assertOk()->getContent())->toContain('aria-current="page">Experiments');
+
+    $period = $this->get(ExperimentsPage::getUrl(['period' => 1]))->assertOk()->getContent();
+
+    expect(adminShellCurrent($period))->toBe('Experiments')
+        ->and($period)->toContain('<a class="rg-admin-breadcrumb__link" href="'.e($url).'">Experiments</a>')
+        ->not->toContain('rg-admin-breadcrumb__current');
+});
+
+it('carries Analytics’ period in the top bar, beside its breadcrumb', function () {
+    $this->travelTo(now()->setDate(2026, 11, 18));
+
+    $html = $this->actingAs(User::factory()->admin()->create())->get(GrowthAnalyticsPage::getUrl(['period' => '7d']))->assertOk()->getContent();
+    $topbar = substr($html, (int) strpos($html, 'class="rg-admin rg-admin-shell-topbar"'), 6000);
+
+    expect(adminShellCurrent($html))->toBe('Analytics')
+        ->and($topbar)->toContain('aria-current="page">Analytics')
+        ->and($topbar)->toContain('x-on:rg-admin-analytics-range.window')
+        ->and($topbar)->toContain('>12 Nov — 18 Nov 2026</span>');
+});
+
+it('keeps Analytics’ own breadcrumb on its Games tab, naming no game', function () {
+    $game = Game::factory()->status(GameStatus::Live)->create(['title' => 'Trust Your Taste']);
+
+    $html = $this->actingAs(User::factory()->admin()->create())->get(GrowthAnalyticsPage::getUrl(['tab' => 'games', 'game' => $game->id]))->assertOk()->getContent();
+    $topbar = substr($html, (int) strpos($html, 'class="rg-admin rg-admin-shell-topbar"'), 6000);
+
+    expect(adminShellCurrent($html))->toBe('Analytics')
+        ->and($topbar)->toContain('aria-current="page">Analytics')
+        ->and($topbar)->not->toContain('Trust Your Taste')
+        ->and($topbar)->not->toContain('rg-admin-breadcrumb__link');
+});
 
 it('names the section and page in the breadcrumb without loading any record', function () {
     $this->actingAs(User::factory()->admin()->create())
@@ -208,6 +251,8 @@ it('shows a moderator only the destinations Filament lets a moderator open', fun
         'Publications & plans' => StudioPlanResource::canAccess(),
         'Action queue' => StudioActionQueue::canAccess(),
         'Personas' => PersonaResource::canAccess(),
+        'Experiments' => ExperimentsPage::canAccess(),
+        'Analytics' => GrowthAnalyticsPage::canAccess(),
         'Languages' => LanguagesPage::canAccess(),
         'Project settings' => ProjectSettingsPage::canAccess(),
         'Media diagnostics' => MediaDiagnosticsPage::canAccess(),
@@ -227,6 +272,8 @@ it('shows a moderator only the destinations Filament lets a moderator open', fun
     $this->get(PersonaResource::getUrl('index'))->assertForbidden();
     $this->get(StudioPlanResource::getUrl('index'))->assertForbidden();
     $this->get(StudioActionQueue::getUrl())->assertForbidden();
+    $this->get(ExperimentsPage::getUrl())->assertForbidden();
+    $this->get(GrowthAnalyticsPage::getUrl())->assertForbidden();
 });
 
 it('lets nobody past the panel\'s own access check', function () {
@@ -255,7 +302,7 @@ it('has an Admin v2 icon for every production destination', function () {
 
     $keys = collect(AdminShellNavigation::sections())->flatMap(fn (array $section): array => $section['items'])->pluck('key');
 
-    expect($keys)->toHaveCount(17);
+    expect($keys)->toHaveCount(20);
 
     foreach ($keys as $key) {
         expect(array_key_exists($key, AdminShellNavigation::ICONS))->toBeTrue("{$key} has no Admin v2 icon");
@@ -274,6 +321,9 @@ it('has an Admin v2 icon for every production destination', function () {
         StudioActionQueue::class => 'list-checks',
         PersonaResource::class => 'bot',
         GameResource::class => 'gamepad-2',
+        ExperimentsPage::class => 'flask-conical',
+        GrowthAnalyticsPage::class => 'chart-no-axes-column',
+        TrafficSourcesPage::class => 'megaphone',
         LanguagesPage::class => 'globe',
         TranslationCenterPage::class => 'languages',
         TranslationAiPage::class => 'bot',
@@ -312,12 +362,14 @@ it('runs no queries of its own to draw the shell, only the counts its destinatio
     Livewire::test(Topbar::class)->assertOk();
 
     // Posts gives its count of posts waiting for review, Comments its count
-    // of reported comments still visible, Reports its open reports and Media
-    // diagnostics the missing masters of the last completed audit, once per
-    // navigation drawn; every other query would be the shell's own.
+    // of reported comments still visible, Reports its open reports, Media
+    // diagnostics the missing masters of the last completed audit and
+    // Experiments its comparisons running now, once per navigation drawn;
+    // every other query would be the shell's own.
     [$counts, $others] = collect(DB::getQueryLog())->pluck('query')
         ->partition(fn (string $query): bool => preg_match('/count\(\*\).* from [`"](posts|comments|reports)[`"] where [`"]status[`"] = \?/', $query) === 1
-            || preg_match('/^select [`"]missing_masters[`"] from [`"]media_audit_runs[`"] where [`"]status[`"] = \?/', $query) === 1);
+            || preg_match('/^select [`"]missing_masters[`"] from [`"]media_audit_runs[`"] where [`"]status[`"] = \?/', $query) === 1
+            || preg_match('/^select count\(\*\) as [`"]?aggregate[`"]? from [`"]game_traffic_periods[`"] inner join [`"]games[`"]/', $query) === 1);
 
     expect($counts)->not->toBeEmpty();
 

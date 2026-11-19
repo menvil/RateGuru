@@ -27,6 +27,14 @@ return [
             'cookie',
             'remember_token',
             '_token',
+            // Ad networks' keys and sessions (Growth → Traffic sources).
+            'credentials',
+            'api_key',
+            'api_token',
+            'key',
+            'session_token',
+            'refresh_token',
+            'secret',
         ],
     ],
 

@@ -1,0 +1,43 @@
+<?php
+
+namespace App\Actions\Traffic;
+
+use App\Enums\TrafficBlockLevel;
+use App\Enums\TrafficBlockNetworkState;
+use App\Models\TrafficBlock;
+use App\Models\TrafficVisit;
+
+/**
+ * A click from a site or zone that was blocked more than an hour ago: the
+ * network is still sending it. The visit is marked, the block counts it —
+ * an applied block with a growing count is worth pushing again — and the
+ * click is counted and paid for like any other.
+ */
+final class RecordBlockedHitAction
+{
+    private const int GRACE_MINUTES = 60;
+
+    public function handle(TrafficVisit $visit): void
+    {
+        if ($visit->source_id === null || ($visit->site_ref === null && $visit->zone_ref === null)) {
+            return;
+        }
+
+        $block = TrafficBlock::query()
+            ->where('source_id', $visit->source_id)
+            ->whereIn('network_state', [TrafficBlockNetworkState::ByHand, TrafficBlockNetworkState::Applied])
+            ->where('blocked_at', '<', $visit->arrived_at->subMinutes(self::GRACE_MINUTES))
+            ->where(fn ($match) => $match
+                ->when($visit->zone_ref !== null, fn ($zone) => $zone->orWhere(fn ($query) => $query->where('level', TrafficBlockLevel::Zone)->where('ref', $visit->zone_ref)))
+                ->when($visit->site_ref !== null, fn ($site) => $site->orWhere(fn ($query) => $query->where('level', TrafficBlockLevel::Site)->where('ref', $visit->site_ref))))
+            ->where(fn ($campaign) => $campaign->whereNull('campaign_id')->orWhere('campaign_id', $visit->campaign_id))
+            ->first();
+
+        if ($block === null) {
+            return;
+        }
+
+        TrafficVisit::query()->whereKey($visit->id)->update(['blocked_hit' => true]);
+        TrafficBlock::query()->whereKey($block->id)->update(['clicks_after' => $block->clicks_after + 1, 'last_click_after_at' => $visit->arrived_at]);
+    }
+}

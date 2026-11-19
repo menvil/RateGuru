@@ -6,6 +6,7 @@ use App\Actions\Translations\Concerns\ResolvesProjectTranslationGeneration;
 use App\Exceptions\Translations\CannotGenerateTranslationsException;
 use App\Jobs\Translations\GenerateProjectTranslationChunkJob;
 use App\Models\User;
+use App\Queries\Translations\ProjectTranslationSourcesQuery;
 use App\Support\Locale\LocaleManager;
 use App\Support\TranslationEngine\Exceptions\InvalidTranslationRequestException;
 use App\Support\TranslationEngine\Exceptions\TranslationConfigurationException;
@@ -14,6 +15,7 @@ use App\Support\Translations\Generation\ProjectTranslationGenerationIssue;
 use App\Support\Translations\Generation\ProjectTranslationGenerationPlanner;
 use App\Support\Translations\Generation\ProjectTranslationGenerationStatus;
 use App\Support\Translations\Generation\ProjectTranslationGenerationStore;
+use App\Support\Translations\Generation\ProjectTranslationSourceFingerprint;
 use App\Support\Translations\ProjectTranslationCatalog;
 use App\Support\Translations\ProjectTranslationRequestFactory;
 use App\Support\Translations\ProjectTranslationUnit;
@@ -22,7 +24,10 @@ use Throwable;
 
 /**
  * Generate missing: AI suggestions for every translation a language is
- * missing, made in the background.
+ * missing, and for every one that is outdated — made from English the unit
+ * no longer has (ProjectTranslationSourceFingerprint::isOutdated()) — made in
+ * the background. An outdated translation stays stored, and what visitors
+ * see, until its suggestion is saved.
  *
  * Every one, whatever the page's filters show — the units are the catalog's
  * own, read now; the browser names only the language. They are described to
@@ -38,7 +43,7 @@ use Throwable;
  *    waiting for review, is returned rather than generated again;
  *  - a language another administrator is generating is refused, until that
  *    generation finishes;
- *  - nothing missing, or no provider configured, queues nothing.
+ *  - nothing missing or outdated, or no provider configured, queues nothing.
  */
 final class StartProjectTranslationGenerationAction
 {
@@ -49,6 +54,7 @@ final class StartProjectTranslationGenerationAction
         private readonly ProjectTranslationRequestFactory $requests,
         private readonly ProjectTranslationGenerationPlanner $planner,
         private readonly ProjectTranslationGenerationStore $store,
+        private readonly ProjectTranslationSourcesQuery $sources,
     ) {}
 
     /**
@@ -68,17 +74,19 @@ final class StartProjectTranslationGenerationAction
             return $current;
         }
 
-        $missing = array_values(array_filter(
+        $recorded = $this->sources->fingerprints($locale);
+        $wanted = array_values(array_filter(
             $this->catalog->units(),
-            fn (ProjectTranslationUnit $unit): bool => $unit->requiresTranslation() && $unit->translation($locale) === null,
+            fn (ProjectTranslationUnit $unit): bool => $unit->requiresTranslation()
+                && ($unit->translation($locale) === null || ProjectTranslationSourceFingerprint::isOutdated($unit, $locale, $recorded[$unit->id] ?? null)),
         ));
 
-        if ($missing === []) {
+        if ($wanted === []) {
             throw CannotGenerateTranslationsException::becauseNothingIsMissing();
         }
 
         try {
-            $plan = $this->planner->plan($this->requests->make($missing, $locale));
+            $plan = $this->planner->plan($this->requests->make($wanted, $locale));
         } catch (TranslationConfigurationException $exception) {
             throw CannotGenerateTranslationsException::becauseTheEngineFailed($exception->errorCode);
         } catch (InvalidTranslationRequestException) {

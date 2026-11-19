@@ -11,67 +11,170 @@ use App\Models\GameResultProfile;
 use App\Models\GameRound;
 use App\Models\GameRoundOption;
 use App\Models\GameVersion;
+use App\Support\Games\Drafts\ContentSetReport;
+use App\Support\Games\Publishing\VersionChanges;
+use App\Support\Games\Publishing\VersionSnapshotBuilder;
+use App\Support\Games\Snapshot\GameVersionSnapshot;
 use App\Support\Games\Snapshot\LocalizedText;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Collection;
 
 /**
- * Whether a game's players play what is saved in its draft. They play the
- * versions in traffic, each frozen when it was published; a content set or a
- * flow one of them was made from, saved after it, or the game's own title,
- * description or cover changed since, is something they don't see until a
- * new version is published. Saved means saved: a translation made in
+ * Whether a game's players play what is saved in its draft, and if not, what
+ * they miss. They play the versions in traffic, each frozen when it was
+ * published; a new version would freeze the draft as it stands.
+ *
+ * Decided by content: the draft is frozen the way publishing freezes it
+ * (VersionSnapshotBuilder), stored nowhere, and compared with the version's
+ * snapshot (VersionChanges) — so a save that changed nothing players meet is
+ * no change, whatever it did to save times. Save times are only the gate:
+ * while nothing of the set or the flow was saved after the version, nothing
+ * is frozen or compared; the game's own title, description and cover are
+ * compared as they stand, which needs no freezing. Saved means saved: a translation made in
  * Translation Center counts, as it is saved on the row it translates.
  */
 final class GameUnpublishedChangesQuery
 {
-    public function __construct(private readonly GameTrafficQuery $traffic) {}
+    public function __construct(
+        private readonly GameTrafficQuery $traffic,
+        private readonly GameDraftQuery $draftQuery,
+    ) {}
 
-    /** A content set saved after the newest version in traffic made from it. */
+    /**
+     * A content set saved after the newest version in traffic made from it,
+     * other than it froze it — named with the flow's changes too, as the
+     * version Publish makes freezes both.
+     */
     public function forSet(Game $game, int $setId): ?UnpublishedChanges
     {
         $versions = $this->inTraffic($game)->filter(fn (GameVersion $version): bool => (int) $version->content_set_id === $setId)->values();
         $newest = $versions->last();
 
-        return $newest !== null && $this->setEditedAfter($setId, $newest->published_at)
-            ? $this->changes($versions, $setId, (int) $newest->flow_id, $newest)
-            : null;
+        return $newest === null ? null : $this->pair($game, $versions, $setId, (int) $newest->flow_id, own: 'set');
     }
 
-    /** A flow saved after the newest version in traffic made from it. */
+    /**
+     * A flow saved after the newest version in traffic made from it, other
+     * than it froze it — named with the set's changes too, as the version
+     * Publish makes freezes both.
+     */
     public function forFlow(Game $game, int $flowId): ?UnpublishedChanges
     {
         $versions = $this->inTraffic($game)->filter(fn (GameVersion $version): bool => (int) $version->flow_id === $flowId)->values();
         $newest = $versions->last();
 
-        return $newest !== null && $this->flowEditedAfter($flowId, $newest->published_at)
-            ? $this->changes($versions, (int) $newest->content_set_id, $flowId, $newest)
-            : null;
+        return $newest === null ? null : $this->pair($game, $versions, (int) $newest->content_set_id, $flowId, own: 'flow');
     }
 
-    /** The game's title, description or cover, other than the versions in traffic froze them. */
+    /**
+     * The game's title, description or cover, other than the versions in
+     * traffic froze them: any of them, not only the newest, as each plays
+     * its own. A new version takes over the newest one's traffic.
+     */
     public function forGame(Game $game): ?UnpublishedChanges
     {
         $versions = $this->inTraffic($game);
-        $title = $this->sorted(LocalizedText::fromColumns($game->title, $game->title_translations)->toArray());
-        $description = $this->sorted(LocalizedText::fromColumns($game->description, $game->description_translations)->toArray());
-        $behind = $versions->filter(function (GameVersion $version) use ($game, $title, $description): bool {
-            $snapshot = $version->read();
-
-            return $this->sorted($snapshot->title->toArray()) !== $title
-                || $this->sorted($snapshot->description->toArray()) !== $description
-                || $snapshot->coverAssetId !== ($game->cover_asset_id !== null ? (int) $game->cover_asset_id : null);
-        })->values();
         $newest = $versions->last();
 
-        return $newest !== null && $behind->isNotEmpty()
-            ? $this->changes($behind, (int) $newest->content_set_id, (int) $newest->flow_id, $newest)
-            : null;
+        if ($newest === null) {
+            return null;
+        }
+
+        // Three of the game's own columns against each snapshot: cheap enough to need no gate, and none can hide a change.
+        $title = LocalizedText::fromColumns($game->title, $game->title_translations);
+        $description = LocalizedText::fromColumns($game->description, $game->description_translations);
+        $cover = $game->cover_asset_id !== null ? (int) $game->cover_asset_id : null;
+        $diff = fn (GameVersion $version): array => VersionChanges::gameAgainst($version->read(), $title, $description, $cover);
+        $behind = $versions->filter(fn (GameVersion $version): bool => $diff($version) !== [])->values();
+        $since = $behind->last();
+
+        return $since === null ? null : new UnpublishedChanges(
+            $behind->map(fn (GameVersion $version): string => $version->label())->values()->all(),
+            (int) $newest->content_set_id,
+            (int) $newest->flow_id,
+            (int) $newest->id,
+            $since->label(),
+            [['title' => 'Game', 'changes' => $diff($since)]],
+        );
+    }
+
+    /**
+     * What a version published now from this set and flow would change
+     * against the newest of the versions: the set's changes and the flow's,
+     * since Publish freezes both. The versions missing them are those whose
+     * own part — the tab's set or flow — differs from the draft.
+     *
+     * @param  Collection<int, GameVersion>  $versions  oldest first, made from the tab's set or flow
+     * @param  'set'|'flow'  $own
+     */
+    private function pair(Game $game, Collection $versions, int $setId, int $flowId, string $own): ?UnpublishedChanges
+    {
+        $newest = $versions->last();
+
+        if ($newest === null || (! $this->setEditedAfter($setId, $newest->published_at) && ! $this->flowEditedAfter($flowId, $newest->published_at))) {
+            return null;
+        }
+
+        $draft = $this->draft($game, $setId, $flowId);
+
+        if ($draft === null) {
+            return null;
+        }
+
+        $groups = fn (GameVersion $version): array => array_values(array_filter([
+            ['title' => 'Content set “'.$draft['set'].'”', 'changes' => VersionChanges::content($version->read(), $draft['snapshot'])],
+            ['title' => 'Flow “'.$draft['flow'].'”', 'changes' => VersionChanges::flow($version->read(), $draft['snapshot'])],
+        ], fn (array $group): bool => $group['changes'] !== []));
+        $listed = $groups($newest);
+
+        if ($listed === []) {
+            return null;
+        }
+
+        $ownDiff = fn (GameVersion $version): array => $own === 'set'
+            ? VersionChanges::content($version->read(), $draft['snapshot'])
+            : VersionChanges::flow($version->read(), $draft['snapshot']);
+        $behind = $versions->filter(fn (GameVersion $version): bool => $version->is($newest) || $ownDiff($version) !== [])->values();
+
+        return new UnpublishedChanges(
+            $behind->map(fn (GameVersion $version): string => $version->label())->values()->all(),
+            $setId,
+            $flowId,
+            (int) $newest->id,
+            $newest->label(),
+            $listed,
+        );
+    }
+
+    /**
+     * What publishing this set and flow now would change against a version —
+     * the newest made from them, on Versions — or null while it would change
+     * nothing players meet. The game's own texts are left out: every new
+     * version takes them, from whichever set and flow.
+     */
+    public function sinceVersion(Game $game, GameVersion $version, int $setId, int $flowId): ?UnpublishedChanges
+    {
+        if (! $this->setEditedAfter($setId, $version->published_at) && ! $this->flowEditedAfter($flowId, $version->published_at)) {
+            return null;
+        }
+
+        $draft = $this->draft($game, $setId, $flowId);
+
+        if ($draft === null) {
+            return null;
+        }
+
+        $groups = array_values(array_filter([
+            ['title' => 'Content set “'.$draft['set'].'”', 'changes' => VersionChanges::content($version->read(), $draft['snapshot'])],
+            ['title' => 'Flow “'.$draft['flow'].'”', 'changes' => VersionChanges::flow($version->read(), $draft['snapshot'])],
+        ], fn (array $group): bool => $group['changes'] !== []));
+
+        return $groups === [] ? null : new UnpublishedChanges([$version->label()], $setId, $flowId, (int) $version->id, $version->label(), $groups);
     }
 
     /** Whether the set, a round, an option or a result profile of it was saved after a moment. */
-    public function setEditedAfter(int $setId, CarbonInterface $moment): bool
+    private function setEditedAfter(int $setId, CarbonInterface $moment): bool
     {
         $rounds = GameRound::query()->select('id')->where('content_set_id', $setId);
 
@@ -84,12 +187,31 @@ final class GameUnpublishedChangesQuery
     }
 
     /** Whether the flow or a step of it was saved after a moment. */
-    public function flowEditedAfter(int $flowId, CarbonInterface $moment): bool
+    private function flowEditedAfter(int $flowId, CarbonInterface $moment): bool
     {
         return $this->after($moment, [
             GameFlow::query()->whereKey($flowId)->value('updated_at'),
             GameFlowStep::query()->where('flow_id', $flowId)->max('updated_at'),
         ]);
+    }
+
+    /**
+     * What a version published now from this set and flow would freeze —
+     * built as PublishGameVersionAction builds it, stored nowhere — with the
+     * set's and the flow's names; null once either is gone.
+     *
+     * @return array{snapshot: GameVersionSnapshot, set: string, flow: string}|null
+     */
+    private function draft(Game $game, int $setId, int $flowId): ?array
+    {
+        $set = $this->draftQuery->contentSet((int) $game->id, $setId);
+        $flow = $this->draftQuery->flow((int) $game->id, $flowId);
+
+        return $set === null || $flow === null ? null : [
+            'snapshot' => VersionSnapshotBuilder::buildForPreview($game, ContentSetReport::of($set), $flow),
+            'set' => $set->name,
+            'flow' => $flow->name,
+        ];
     }
 
     /**
@@ -104,32 +226,15 @@ final class GameUnpublishedChangesQuery
         return $ids === [] ? collect() : GameVersion::query()->whereIn('id', $ids)->orderBy('number')->get();
     }
 
-    /** @param  Collection<int, GameVersion>  $versions */
-    private function changes(Collection $versions, int $setId, int $flowId, GameVersion $newest): UnpublishedChanges
-    {
-        return new UnpublishedChanges($versions->map(fn (GameVersion $version): string => $version->label())->values()->all(), $setId, $flowId, (int) $newest->id);
-    }
-
     /** @param  list<mixed>  $saved */
     private function after(CarbonInterface $moment, array $saved): bool
     {
         foreach ($saved as $at) {
-            if ($at !== null && CarbonImmutable::parse($at)->greaterThan($moment)) {
+            if ($at !== null && ($at instanceof CarbonInterface ? $at : CarbonImmutable::parse($at))->greaterThan($moment)) {
                 return true;
             }
         }
 
         return false;
-    }
-
-    /**
-     * @param  array<string, string>  $values
-     * @return array<string, string>
-     */
-    private function sorted(array $values): array
-    {
-        ksort($values);
-
-        return $values;
     }
 }

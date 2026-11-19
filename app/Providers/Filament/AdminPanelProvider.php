@@ -3,8 +3,11 @@
 namespace App\Providers\Filament;
 
 use App\Filament\Pages\Dashboard;
+use App\Filament\Pages\ExperimentsPage;
+use App\Filament\Pages\GrowthAnalyticsPage;
 use App\Filament\Pages\MediaDiagnosticsPage;
 use App\Filament\Pages\ProjectSettingsPage;
+use App\Filament\Pages\TrafficSourcesPage;
 use App\Filament\Resources\Categories\CategoryResource;
 use App\Filament\Resources\Categories\Pages\ManageCategories;
 use App\Filament\Resources\Games\Pages\EditGameContent;
@@ -45,6 +48,7 @@ use Illuminate\Cookie\Middleware\EncryptCookies;
 use Illuminate\Foundation\Http\Middleware\PreventRequestForgery;
 use Illuminate\Routing\Middleware\SubstituteBindings;
 use Illuminate\Session\Middleware\StartSession;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\View\Middleware\ShareErrorsFromSession;
 
 class AdminPanelProvider extends PanelProvider
@@ -157,6 +161,23 @@ class AdminPanelProvider extends PanelProvider
                 PanelsRenderHook::TOPBAR_END,
                 fn (): string => view('filament.pages.media-diagnostics.topbar', ['at' => now()->format('H:i')])->render(),
                 scopes: MediaDiagnosticsPage::class,
+            )
+            ->renderHook(
+                PanelsRenderHook::TOPBAR_END,
+                fn (): string => self::createAction(Gate::allows('manage-traffic-sources'), 'Add source', 'add-traffic-source'),
+                scopes: TrafficSourcesPage::class,
+            )
+            // A period's results: Delete period while it can be, and the way to the game's Traffic.
+            ->renderHook(
+                PanelsRenderHook::TOPBAR_END,
+                fn (): string => ExperimentsPage::topbar(request()),
+                scopes: ExperimentsPage::class,
+            )
+            // Analytics: the days its period covers, moved as another period is chosen.
+            ->renderHook(
+                PanelsRenderHook::TOPBAR_END,
+                fn (): string => GrowthAnalyticsPage::topbar(request()),
+                scopes: GrowthAnalyticsPage::class,
             )
             ->navigationGroups(AdminNavigationGroup::all())
             // Admin v2 is light only; a dark page inside a light shell, with

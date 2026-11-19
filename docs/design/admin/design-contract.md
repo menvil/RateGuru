@@ -15,7 +15,8 @@ The authoritative visual and UX references are:
 | File | What it defines |
 |---|---|
 | [`reference/original/RateGuru-Dev-UI-Kit.html`](reference/original/RateGuru-Dev-UI-Kit.html) | Foundations, every component with a stable reference ID, measurements, tokens and rules |
-| [`reference/original/RateGuru-Admin.html`](reference/original/RateGuru-Admin.html) | The full admin prototype: shell, navigation and every screen (Dashboard, Posts, Comments, Reports, Users, User edit, Categories, Tags, Rating groups, Rating group edit, Project settings, Languages, Translation Center, Translation AI, Media diagnostics, the Content Studio section: Publications & plans with the publication editor, Personas with the persona editor, Reply rules, Reply log and Action queue, and the Growth section: Games with the game editor — General, Content with Results, Flow, Versions, Traffic and Analytics — and its playable previews, Experiments with the experiment editor and its periods, Analytics, and the media picker) |
+| [`reference/original/RateGuru-Admin.html`](reference/original/RateGuru-Admin.html) | The full admin prototype: shell, navigation and every screen (Dashboard, Posts, Comments, Reports, Users, User edit, Categories, Tags, Rating groups, Rating group edit, Project settings, Languages, Translation Center, Translation AI, Media diagnostics, the Content Studio section: Publications & plans with the publication editor, Personas with the persona editor, Reply rules, Reply log and Action queue, and the Growth section: Games with the game editor — General, Content with Results, Flow with each flow's goal, Versions, Traffic, Value and Analytics — and its playable previews, Traffic sources with its Report, Campaigns, Value, Spend, Sources and Logs, Experiments with the experiment editor and its periods, Analytics, and the media picker) |
+| [`reference/original/RateGuru-Admin-v4.html`](reference/original/RateGuru-Admin-v4.html) | The fourth delivery of the admin prototype, which Growth → Games — the game editor's General, Content with Results, Flow, Versions, Traffic, Analytics and Preview, and the Library — was built against. Superseded; kept as it was delivered, so a screen built on it can still be compared with what it was built from |
 | [`reference/original/RateGuru-Admin-v3.html`](reference/original/RateGuru-Admin-v3.html) | The third delivery of the admin prototype, which Content Studio's Publications & plans with the publication editor, Action queue and Personas with the persona editor were built against. Superseded; kept as it was delivered, so a screen built on it can still be compared with what it was built from |
 | [`reference/original/RateGuru-Admin-v2.html`](reference/original/RateGuru-Admin-v2.html) | The second delivery of the admin prototype, which Categories, Tags, Rating groups, Project settings, Posts, Comments, Reports, Users and Media diagnostics were built against. Superseded; kept as it was delivered, so a screen built on it can still be compared with what it was built from |
 | [`reference/original/RateGuru-Admin-v1.html`](reference/original/RateGuru-Admin-v1.html) | The first delivery of the admin prototype, which Languages and Translation Center were built against. Superseded; kept as it was delivered, so a screen built on it can still be compared with what it was built from |
@@ -189,7 +190,7 @@ This section is the target design from the prototype. Production builds it as de
   | Moderation | Posts (pending count, warning) · Comments (reported count, warning) · Reports (open count, warning) · Users |
   | Content | Categories · Tags · Rating groups |
   | Content Studio | Publications & plans · Action queue · Personas |
-  | Growth | Games |
+  | Growth | Games · Traffic sources |
   | Localization | Languages · Translation Center (missing count, neutral) · Translation AI |
   | Configuration | Project settings |
   | System | Media diagnostics (critical count, danger) |
@@ -204,8 +205,9 @@ This section is the target design from the prototype. Production builds it as de
 - **Top bar (NAV-02):** padding 0 24 0 28, breadcrumb (section › page, last item current) on the left, page
   actions on the right with gap 10 and the primary action last. Meta text 13 tertiary (“Updated 09:41”); unsaved
   state 13 due-colour (“2 unsaved changes”) next to Save. Edit pages save from the top bar; there is no sticky
-  bottom save bar. A record edited in a drawer over its list — a persona, a person — saves from the drawer's
-  footer instead, which counts its own unsaved changes.
+  bottom save bar — a game's Flow tab repeats Save flow, enabled as the top bar's, at the foot of the selected
+  step's settings, where a long panel ends. A record edited in a drawer over its list — a persona, a person — saves
+  from the drawer's footer instead, which counts its own unsaved changes.
 - **Toasts (FBK-01):** bottom centre of the main column, 24 from the bottom, at most three stacked, 5.2 s.
 
 ### Production shell
@@ -1258,12 +1260,33 @@ check; global search stays with Users, whose result for a persona opens its edit
 
 ```text
 Growth
-└── Games
+├── Games
+└── Traffic sources
 ```
 
 Growth holds the games visitors play to discover the site. Its section holds only screens that work: the
 prototype's Experiments and Growth Analytics arrive with their own screens, never as items before them; a game's
 traffic periods are what experiments will build on.
+
+Every day chosen in Growth is chosen in a drop-down calendar, never the browser's own, and nothing in it waits for
+an Apply or a Cancel. A range of days is chosen as a booking site has it, in the date range field
+(`x-admin.ui.date-range-field`): one calendar of the date field's month grids — two months side by side where they
+fit, one on a phone — whose first click starts the range and whose next ends it, a day before the start starting it
+again; while only the start is chosen the days from it to the pointer or the focus are lightly filled, and a range
+chosen shows its two ends filled and the days between lightly. The range is taken the moment its end is clicked;
+Escape or a click outside keep what was taken before. It keeps the date field's keys (the arrows, Home and End, Page
+Up and Page Down, with Shift a year; Enter or Space chooses), marks today, disables the days outside min and max, and
+its days are Y-m-d, so what the server reads and validates is unchanged. It is the period picker's custom range on
+Traffic sources, Growth → Analytics and a game's Analytics — drawn in the picker's own panel beside the presets, so
+the period is one drop-down, applied at once within the days visits are kept and, on Analytics, no longer than the
+range it reads at a time: past that the days can't end the range, and the calendar says “Up to 93 days at a time”.
+It is also a source's fixed price, whose end may stay open: the start is taken the moment it is clicked, the
+calendar says “Pick the end date, or close for no end”, the field then reads “From 12 Nov 2026 · no end”, and No end
+takes the end off a range that has one. A single day — a campaign's price From, and the day corrected on Spend, one
+of the network's last fourteen in its own time zone — is the date field (`x-admin.ui.date-time-field`) with
+`date-only`: the same trigger and dialog, with the day and how many days it is from today, quick picks named for
+the field, the month or the months of a year, and no time; a day clicked or a quick pick is taken at once and the
+dialog closes. Every calendar opens whole on the screen and inside a drawer's scrolling body.
 
 ### Games
 
@@ -1284,7 +1307,11 @@ games' actions (`docs/architecture/games.md`); the operator guide is `docs/admin
   the internal name, each behind its icon; the status menu (Go live, Pause,
   Resume, Archive, Restore — each asked first, Go live only with traffic) and the tabs (NAV-03): General, Content,
   Flow, Versions, Traffic, Analytics and Preview. Save, Discard and the unsaved count sit in the top bar on the tabs
-  that edit, and the browser asks before unsaved changes are left.
+  that edit, and the browser asks before unsaved changes are left. Under the tabs, edge to edge, a warning strip
+  (FBK-02) while a tab holds saved changes players don't see: “n changes since Vm:” in medium weight and the changes
+  as the editors name them — each while there are three at most, else the first three and “and n more” — then which
+  versions players play and Publish Vn…; past three, a native disclosure, “All n changes”, lists every change under
+  its flow or content set.
 - **General:** General information across the page: Title and Internal name side by side, Address (FRM-09, locked
   once first published), Description (FRM-03, 240) and the cover image as a row — its thumbnail, file name and
   size, Upload or Replace and Remove; stored the moment it is chosen. Beside it, 320 wide and below it under 1280,
@@ -1323,12 +1350,13 @@ games' actions (`docs/architecture/games.md`); the operator guide is `docs/admin
   published, and its steps as cards joined by a line (each its sign, name, audience, one-line summary and problems;
   Move up, Move down and Remove; the game on the sunken ground, “Same in every flow”), the + on the line between two
   cards opening the steps that fit there beside it; and the selected step (360) — its sign, name and place, Settings
-  (Show to with who skips it, Next pair as rows, the delay with − and +, sign-up as rows, the texts, Remove step) or
+  (Show to with who skips it, Next pair as rows, the delay with − and +, sign-up as rows, the texts, then Remove step
+  and Save flow at the far end of its foot) or
   Preview (Preview as Anonymous or Logged in; Theme Dark or Light, kept from step to step; the step in an iPhone from
   the flow as it stands, unsaved edits included; Open full preview).
 - **Versions:** a content set and a flow, the checks (rounds, results, flow) and Publish Vn — asked first, with
   “take over Vm's traffic” as an option; the note when the set or flow, or a translation of it, changed since the
-  newest version made from them; the versions with their set, flow, rounds, traffic, attempts, publisher and
+  newest version made from them, naming the changes as the notice under the tabs does; the versions with their set, flow, rounds, traffic, attempts, publisher and
   Preview, Retire and Restore (retired versions behind Show archived).
 - **Traffic:** per audience — anonymous visitors and logged-in players — the shares of the active versions (FRM-05,
   whole percentages adding up to 100), Add, Remove, Split evenly, Reset and Apply shares; the periods, newest
@@ -1348,6 +1376,29 @@ games' actions (`docs/architecture/games.md`); the operator guide is `docs/admin
   Inside a frame the game page leaves out its own preview banner.
 - **Access:** an active administrator's (`manage-games`): the navigation item, every page, every Livewire request
   and the preview route ask, and so do the actions.
+
+
+### Traffic sources
+
+`TrafficSourcesPage` (`/admin/traffic-sources`, `megaphone`), for active administrators
+(`manage-traffic-sources`). The header band carries the period and the source filter; the tabs are Report,
+Campaigns, Value, Spend, Sources and Logs, each read once the page is in a browser. The top bar holds only
+Add source. Editors — a source, a campaign — are OVL-02 drawers with a draft saved by their footer.
+
+Deviations from the fifth delivery, each for the reason given:
+
+| Prototype | Built | Why |
+|---|---|---|
+| Full Result: one "Action on the card" choice | sign-up and share switches kept, plus "Way on": next step, a post, the feed | the app already keeps them apart |
+| "Email the card" | not built | nothing is ever sent |
+| Go to Page → Games catalog | a feed category, a tag, a page of the site, another site | the site has no catalog |
+| Feeds Main / Top today / Newest | the site's sorts Newest / Top / Hot | that is how the feed sorts |
+| Post `/p/{id}-{slug}` | `/posts/{id}`, shown as `#id` | the site's own address |
+| ExoClick blocks sites by API | zones by API, sites by hand | the API cannot block a site |
+| Draft / Tracking only source states | no draft; "Tracking only" is an active network without rules | a state too many |
+| The report's period in calendar days | each network's own day, in its reporting time zone | the figures match the network's |
+| Country only in the report | country › city | the owner's decision |
+| Losing always judged | only once 30 accounts are measured on the site | otherwise the first weeks block everything |
 
 ## Moderation
 
