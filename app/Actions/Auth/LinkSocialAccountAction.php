@@ -109,8 +109,9 @@ final class LinkSocialAccountAction
         });
 
         if ($account->wasRecentlyCreated) {
-            $user->notify(new SocialAccountConnectedNotification($identity->provider, $identity->email));
+            // Confirmed first: a repeat finds the link already there and would never confirm it.
             $this->confirmNewAccount($user);
+            $user->notify(new SocialAccountConnectedNotification($identity->provider, $identity->email));
         }
 
         return $account;

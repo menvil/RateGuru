@@ -13,6 +13,8 @@
 @php
     $fine = fn ($amount): string => \App\Support\Traffic\Money\TrafficMoney::fine($amount);
     $brief = fn ($amount): string => \App\Support\Traffic\Money\TrafficMoney::brief($amount);
+    // A price as typed, kept after Save refused it so it can be corrected: an amount only once it is one.
+    $draft = fn (mixed $amount): string => is_string($amount) && preg_match('/^\d+(\.\d+)?$/', $amount) === 1 ? $brief($amount) : '—';
     $share = fn (?float $rate): string => $rate === null ? '—' : \App\Filament\Resources\Games\Pages\GameValue::percent($rate);
     $grouped = collect($groups)->flatMap(fn (array $group): array => array_values(array_filter(array_map('trim', explode(',', (string) $group['countries'])))))->map(fn (string $code): string => strtoupper($code))->all();
 @endphp
@@ -49,7 +51,7 @@
                     @error($field)<p class="rg-admin-games__note rg-admin-games__note--danger">{{ $message }}</p>@enderror
                 @endforeach
                 <div class="rg-admin-traffic__outcome rg-admin-traffic__outcome--foot">
-                    <span>An account brings on average <span class="rg-admin-games__note">{{ $brief($prices['account_price']) }} + {{ $share($postRate) }} post × {{ $brief($prices['post_bonus']) }} + {{ $share($returnRate) }} back × {{ $brief($prices['returned_bonus']) }}@if ($ownPrices !== []) · own account price: {{ collect($ownPrices)->map(fn (array $own): string => $own['name'].' '.$brief($own['price']))->implode(', ') }}@endif</span></span>
+                    <span>An account brings on average <span class="rg-admin-games__note">{{ $draft($prices['account_price']) }} + {{ $share($postRate) }} post × {{ $draft($prices['post_bonus']) }} + {{ $share($returnRate) }} back × {{ $draft($prices['returned_bonus']) }}@if ($ownPrices !== []) · own account price: {{ collect($ownPrices)->map(fn (array $own): string => $own['name'].' '.$brief($own['price']))->implode(', ') }}@endif</span></span>
                     <strong>{{ $brief($accountBrings) }}</strong>
                     <x-admin.ui.button size="sm" variant="primary" type="submit">Save prices</x-admin.ui.button>
                 </div>

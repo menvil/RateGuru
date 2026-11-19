@@ -194,12 +194,18 @@ it('lets go of what the tracker credited to an account that never confirmed, and
     AccountAttribution::factory()->create(['user_id' => $bot->id, 'credited_attempt_id' => $attempt->id, 'credited_visit_id' => $visit->id]);
     $others = AccountAttribution::factory()->create(['user_id' => $member->id, 'credited_attempt_id' => $attempt->id]);
     AccountBrowser::factory()->create(['user_id' => $bot->id]);
+    // Another account's play, and what was credited to it: none of the purged account's to let go of.
+    $kept = GameAttempt::factory()->create(['audience' => GameAudience::Authenticated, 'user_id' => $member->id, 'visitor_hash' => null]);
+    $keptConversion = TrafficConversion::factory()->create(['attempt_id' => $kept->id]);
+    $keptAttribution = AccountAttribution::factory()->create(['user_id' => User::factory(), 'credited_attempt_id' => $kept->id]);
 
     expect(purgeUnconfirmed($bot))->toBe(UnconfirmedAccountPurgeOutcome::Purged)
         ->and(AccountAttribution::query()->where('user_id', $bot->id)->exists())->toBeFalse()
         ->and(AccountBrowser::query()->where('user_id', $bot->id)->exists())->toBeFalse()
         ->and($others->fresh()->credited_attempt_id)->toBeNull()
         ->and($conversion->fresh()->attempt_id)->toBeNull()
+        ->and($keptConversion->fresh()->attempt_id)->toBe($kept->id)
+        ->and($keptAttribution->fresh()->credited_attempt_id)->toBe($kept->id)
         ->and($visit->fresh()->signup_at)->not->toBeNull()
         ->and($visit->fresh()->account_at)->toBeNull();
 });

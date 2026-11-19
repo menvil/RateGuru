@@ -142,7 +142,8 @@
             <x-admin.ui.button size="sm" variant="primary" icon="check" type="submit">Use it</x-admin.ui.button>
             <label class="rg-admin-button rg-admin-button--secondary rg-admin-button--sm rg-admin-traffic__file">
                 <x-admin.ui.icon name="file" :size="14" /> Import CSV
-                <input type="file" accept=".csv,text/csv" wire:model="spendFile" class="rg-admin-sr-only" />
+                {{-- Uploads under the source on screen as the file is chosen, so it is that source's file even if another is picked before it has uploaded. --}}
+                <input type="file" accept=".csv,text/csv" wire:model="spendFiles.{{ $spendSource }}" wire:key="spend-file-{{ $spendSource }}" class="rg-admin-sr-only" />
             </label>
         </form>
         @foreach (['day', 'amount', 'file'] as $field)

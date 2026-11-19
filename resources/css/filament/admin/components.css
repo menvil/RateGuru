@@ -16400,6 +16400,19 @@
         background: var(--rg-admin-surface-sunken);
     }
 
+    /* The campaign's name as the button that opens its row, drawn as the name. */
+    .rg-admin-traffic__camp-open {
+        max-width: 100%;
+        padding: 0;
+        border: 0;
+        background: transparent;
+        font: inherit;
+        letter-spacing: inherit;
+        text-align: left;
+        color: inherit;
+        cursor: pointer;
+    }
+
     .rg-admin-traffic__camp-row.rg-admin-traffic__perf-row--head {
         padding-block: 6px;
         background: var(--rg-admin-surface-sunken);
@@ -17471,10 +17484,6 @@
         font: inherit;
         font-size: var(--rg-admin-text-micro);
         cursor: pointer;
-    }
-
-    .rg-admin-traffic__chip--toggle:disabled {
-        cursor: default;
     }
 
     .rg-admin-traffic__chip--on {

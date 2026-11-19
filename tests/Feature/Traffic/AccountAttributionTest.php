@@ -23,6 +23,8 @@ use App\Models\User;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Exceptions;
+use Illuminate\Support\Facades\Notification;
 use Livewire\Livewire;
 
 beforeEach(function () {
@@ -189,6 +191,16 @@ it('confirms a new account when it links Google from its profile', function () {
         ->and($attempt->fresh()->goal_reached_at)->not->toBeNull();
 });
 
+it('confirms a new account that links Google even when the security email cannot be sent', function () {
+    $member = registerIn($this->token);
+    Notification::shouldReceive('send')->andThrow(new RuntimeException('The mail queue is down.'));
+
+    expect(fn () => app(LinkSocialAccountAction::class)->execute($member, new SocialIdentity(SocialProvider::Google, 'g-3', 'new@example.com', 'New Member', null, false)))
+        ->toThrow(RuntimeException::class, 'The mail queue is down.');
+
+    expect(AccountAttribution::query()->sole()->confirmed_at)->not->toBeNull();
+});
+
 it('credits a new account only to a flow whose goal takes it', function () {
     $attempt = finishGameIn($this->token, 'shared');
     $member = registerIn($this->token);
@@ -291,6 +303,40 @@ it('looks for a return again once the account is old enough, not only the next d
     $this->travelTo(CarbonImmutable::parse('2026-11-18 10:00:00'));
     $this->get('/')->assertOk();
     expect(AccountAttribution::query()->sole()->returned_at)->not->toBeNull();
+});
+
+it('looks for a return again the same day when looking failed, and once a day when it did not', function () {
+    Exceptions::fake();
+    $member = User::factory()->create();
+    AccountAttribution::factory()->create(['user_id' => $member->id, 'signed_up_at' => now()->subDay()->subHours(2)]);
+    $failing = true;
+    $looks = 0;
+    DB::listen(function (QueryExecuted $query) use (&$failing, &$looks): void {
+        if (! str_contains($query->sql, 'account_attributions') || ! str_contains($query->sql, 'returned_at')) {
+            return;
+        }
+
+        if (str_starts_with(strtolower($query->sql), 'select')) {
+            $looks++;
+        }
+
+        if ($failing && str_starts_with(strtolower($query->sql), 'update')) {
+            $failing = false;
+
+            throw new RuntimeException('The return cannot be written.');
+        }
+    });
+
+    $this->actingAs($member)->get('/')->assertOk();
+    expect(AccountAttribution::query()->sole()->returned_at)->toBeNull();
+    Exceptions::assertReported(fn (RuntimeException $exception): bool => $exception->getMessage() === 'The return cannot be written.');
+
+    $this->get('/')->assertOk();
+    expect(AccountAttribution::query()->sole()->returned_at)->not->toBeNull()
+        ->and($looks)->toBe(2);
+
+    $this->get('/')->assertOk();
+    expect($looks)->toBe(2);
 });
 
 it('counts no first post after 30 days', function () {

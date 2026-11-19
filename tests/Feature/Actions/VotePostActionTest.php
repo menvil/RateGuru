@@ -47,6 +47,16 @@ it('allows user to downvote a published post', function () {
     expect($post->downvotes_count)->toBe(1);
 });
 
+it('says whether it cast a vote or took one back', function () {
+    $user = User::factory()->create();
+    $post = Post::factory()->published()->create();
+
+    expect(app(VotePostAction::class)->handle($user, $post, VoteType::Up))->toBeTrue()
+        ->and(app(VotePostAction::class)->handle($user, $post->fresh(), VoteType::Down))->toBeFalse()
+        ->and(PostVote::query()->where('post_id', $post->id)->exists())->toBeFalse()
+        ->and(app(VotePostAction::class)->handle($user, $post->fresh(), VoteType::Down))->toBeTrue();
+});
+
 it('toggles upvote off when clicked again', function () {
     $user = User::factory()->create();
     $post = Post::factory()->published()->create();

@@ -1,5 +1,6 @@
 <?php
 
+use App\Actions\Traffic\EnterSpendAction;
 use App\Enums\TrafficBlockLevel;
 use App\Enums\TrafficChannel;
 use App\Enums\TrafficKnownReason;
@@ -20,6 +21,8 @@ use App\Models\TrafficVisit;
 use App\Models\TrafficVisitDetail;
 use App\Models\User;
 use Carbon\CarbonImmutable;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Str;
 use Livewire\Livewire;
 
 /**
@@ -373,12 +376,39 @@ it('lays out Campaigns: the new campaign to set up, the link with samples, the l
         ->assertSee('Germany, Austria')
         ->assertSee('$0.0100 / $0.0170')
         ->assertSee('Banners & links')
-        ->assertSee('Cat blog sidebar');
+        ->assertSee('Cat blog sidebar')
+        // A campaign's row is a table row whose name is the button that opens it, never a button standing in for the row.
+        ->assertSeeHtml('aria-label="Open campaign TYT push"')
+        ->assertDontSeeHtml('<button type="button" class="rg-admin-traffic__camp-row');
 
     $page->set('stage', 'scale')->assertSee('TYT push')->assertDontSee('New campaign 881377')
         ->set('stage', 'new')->assertSee('New campaign 881377')
         ->call('openCampaign', $new->id)->assertSet('camp', (string) $new->id)
-        ->call('reportFor', $banner->id)->assertSet('tab', 'report')->assertSet('source', (string) $banner->id);
+        // A network's campaign, its type and its sites ticked: none of it the banner's, so its report drops them.
+        ->set('campaignId', (string) $scaling->id)->set('type', 'network')->set('selected', [$network->id.':site:47494'])
+        ->call('reportFor', $banner->id)->assertSet('tab', 'report')->assertSet('source', (string) $banner->id)
+        ->assertSet('campaignId', '')->assertSet('type', '')->assertSet('selected', []);
+});
+
+it('marks the source and the game of the link Campaigns shows as chosen in their pickers', function () {
+    $exo = TrafficSource::factory()->create(['name' => 'ExoClick tests', 'link_key' => 'exo']);
+    $first = Game::factory()->create(['title' => 'A taste test']);
+    $second = Game::factory()->create(['title' => 'Trust Your Taste']);
+
+    // The link starts on the first network by name and the first game by title.
+    $page = Livewire::withQueryParams(['tab' => 'campaigns'])->test(TrafficSourcesPage::class)->call('load')->assertSee('rg_src=exo');
+    $pickers = Str::betweenFirst($page->html(), 'rg-admin-traffic__link-pickers', '</div>');
+
+    expect($pickers)->toContain('<option value="'.$exo->id.'" selected>')
+        ->not->toContain('<option value="'.$this->source->id.'" selected>')
+        ->toContain('<option value="'.$first->id.'" selected>')
+        ->not->toContain('<option value="'.$second->id.'" selected>');
+});
+
+it('asks Campaigns for a game, not another source, when there is a source but no game to link to', function () {
+    Livewire::withQueryParams(['tab' => 'campaigns'])->test(TrafficSourcesPage::class)->call('load')
+        ->assertSee('Add a game to get its link: every link opens one game.')
+        ->assertDontSee('Add a network or a banner under Sources');
 });
 
 it('lays out Value: outcome prices with what an account brings, accounts by source against a target, who counts, and country groups with their countries', function () {
@@ -436,6 +466,24 @@ it('lays out Spend: where spend comes from, spend by source by campaign — thos
     expect(TrafficSpendDay::query()->where('source_id', $this->source->id)->where('origin', 'manual')->sole()->amount)->toBe('5.00000000');
 });
 
+it('imports a spend file into the source it was chosen for, whichever source Spend shows by the time it has uploaded', function () {
+    $other = TrafficSource::factory()->create(['name' => 'ExoClick tests', 'link_key' => 'exo']);
+    app(EnterSpendAction::class)->file(auth()->user(), $this->source, 'popads.csv', "day,amount\n2026-11-14,10\n");
+    app(EnterSpendAction::class)->file(auth()->user(), $other, 'exoclick.csv', "day,amount\n2026-11-14,20\n");
+    $amounts = fn (TrafficSource $source): array => TrafficSpendDay::query()->where('source_id', $source->id)->where('origin', 'csv')->pluck('amount')->all();
+
+    // The file was chosen with PopAds main on screen, and ExoClick tests picked while it was still uploading.
+    Livewire::withQueryParams(['tab' => 'spend'])->test(TrafficSourcesPage::class)->call('load')
+        ->set('spendSource', (string) $other->id)
+        ->set('spendFiles.'.$this->source->id, UploadedFile::fake()->createWithContent('popads-again.csv', "day,amount\n2026-11-14,7\n"))
+        ->assertHasNoErrors()
+        ->assertSet('spendFiles', [])
+        ->assertDispatched('rg-admin-toast', message: '1 figures imported');
+
+    expect($amounts($this->source))->toBe(['7.00000000'])
+        ->and($amounts($other))->toBe(['20.00000000']);
+});
+
 it('lays out Sources: networks and banners with their postbacks, spend and clicks, then the unpaid channels', function () {
     TrafficPostbackRule::factory()->create(['source_id' => $this->source->id, 'event' => 'goal']);
     TrafficSource::factory()->create(['name' => 'Cat blog sidebar', 'type' => 'placement', 'link_key' => 'cat', 'spend_mode' => 'fixed', 'fixed_amount' => '120', 'fixed_period' => 'month', 'fixed_from' => '2026-11-01']);
@@ -465,6 +513,19 @@ it('lays out Logs: postbacks first, with the milestone, the click, the exact req
         ->assertSee('Resend')
         ->set('logFilter', 'failed')->assertSee('tag-81442')
         ->set('log', 'clicks')->assertSee('/games/x');
+});
+
+it('leads an empty later page of a log back to the newest entries, as an address kept from before may open one', function () {
+    $milestone = TrafficConversion::factory()->create(['source_id' => $this->source->id]);
+
+    Livewire::withQueryParams(['tab' => 'logs', 'log' => 'milestones', 'page' => 5])->test(TrafficSourcesPage::class)->call('load')
+        ->assertSet('pageNumber', 5)
+        ->assertSee('Nothing on this page')
+        ->assertSeeHtml('wire:click="goToPage(1)"')
+        ->assertDontSee('Nothing in this log yet')
+        ->call('goToPage', 1)
+        ->assertDontSee('Nothing on this page')
+        ->assertSeeHtml('wire:key="milestone-'.$milestone->id.'"');
 });
 
 it('shows sign-ups and confirmation by the dimension chosen, ten rows and the rest in one, with the paid part How accounts come counts', function () {

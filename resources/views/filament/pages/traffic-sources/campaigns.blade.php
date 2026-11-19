@@ -40,18 +40,21 @@
         <header class="rg-admin-traffic__panel-head">
             <h2 class="rg-admin-traffic__panel-title">Get the link</h2>
         </header>
-        @if ($link === null)
+        @if ($linkSources === [])
             <p class="rg-admin-traffic__note">Add a network or a banner under Sources to get its link.</p>
+        @elseif ($games === [])
+            <p class="rg-admin-traffic__note">Add a game to get its link: every link opens one game.</p>
         @else
             <div class="rg-admin-traffic__link-pickers">
+                {{-- The keys are ids PHP made integers; the chosen ids are strings. --}}
                 <select class="rg-admin-traffic__select" wire:model.live="linkSource" aria-label="Source">
                     @foreach ($linkSources as $id => $name)
-                        <option value="{{ $id }}" @selected($id === $linkSourceId)>{{ $name }}</option>
+                        <option value="{{ $id }}" @selected((string) $id === $linkSourceId)>{{ $name }}</option>
                     @endforeach
                 </select>
                 <select class="rg-admin-traffic__select" wire:model.live="linkGame" aria-label="Game">
                     @foreach ($games as $id => $title)
-                        <option value="{{ $id }}" @selected($id === $linkGameId)>{{ $title }}</option>
+                        <option value="{{ $id }}" @selected((string) $id === $linkGameId)>{{ $title }}</option>
                     @endforeach
                 </select>
             </div>
@@ -147,9 +150,10 @@
                     </div>
                     @foreach ($group['rows'] as $row)
                         @php($f = $row['figures'])
-                        <button type="button" class="rg-admin-traffic__camp-row rg-admin-traffic__camp-row--open" role="row" wire:click="openCampaign({{ $row['id'] }})" wire:key="campaign-{{ $row['id'] }}" data-testid="traffic-campaign-row">
+                        {{-- A row a pointer opens anywhere; its name is the button the keyboard and a screen reader open it by, the click bubbling to the row. --}}
+                        <div class="rg-admin-traffic__camp-row rg-admin-traffic__camp-row--open" role="row" wire:click="openCampaign({{ $row['id'] }})" wire:key="campaign-{{ $row['id'] }}" data-testid="traffic-campaign-row">
                             <span role="cell" class="rg-admin-traffic__perf-label">
-                                <span @class(['rg-admin-traffic__perf-title', 'rg-admin-traffic__warn' => $row['new']])>{{ $row['name'] }}</span>
+                                <button type="button" class="rg-admin-traffic__camp-open" aria-label="Open campaign {{ $row['name'] }}"><span @class(['rg-admin-traffic__perf-title', 'rg-admin-traffic__warn' => $row['new']])>{{ $row['name'] }}</span></button>
                                 <span class="rg-admin-traffic__note">{{ $row['sub'] }}</span>
                             </span>
                             <span role="cell" class="rg-admin-traffic__perf-label">
@@ -175,11 +179,14 @@
                             <span role="cell" @class(['rg-admin-traffic__fig', 'rg-admin-traffic__bad' => $over, 'rg-admin-traffic__good' => ! $over && $f->costPerAccount() !== null && $row['target'] !== null])><strong>{{ $f->costPerAccount() === null ? '—' : $money($f->costPerAccount()) }}</strong><small>{{ $row['target'] === null ? 'no target' : 'target '.$money($row['target']).' · '.$row['targetFrom'] }}</small></span>
                             <span role="cell" @class(['rg-admin-traffic__fig', 'rg-admin-traffic__good' => ($f->roi() ?? 0) > 0, 'rg-admin-traffic__bad' => ($f->roi() ?? 0) < 0])><strong>{{ $f->roi() === null ? '—' : ($f->roi() > 0 ? '+' : '').number_format($f->roi(), 0).'%' }}</strong></span>
                             <span role="cell">@if ($row['toBlock'] > 0)<x-admin.ui.badge tone="danger">{{ $row['toBlock'] }} to block</x-admin.ui.badge>@endif</span>
-                        </button>
+                        </div>
                     @endforeach
                 @endforeach
             </div>
         </div>
+        @if ($campaignsMore > 0)
+            <p class="rg-admin-traffic__note">The {{ $campaignCap }} newest are shown; {{ $campaignsMore }} older {{ \Illuminate\Support\Str::plural('campaign', $campaignsMore) }} {{ $campaignsMore === 1 ? 'isn’t' : 'aren’t' }}. Choose a source or a stage to narrow them down.</p>
+        @endif
         @if ($archivedHidden > 0)
             <p class="rg-admin-traffic__note">{{ $archivedHidden }} archived {{ \Illuminate\Support\Str::plural('campaign', $archivedHidden) }} hidden here; their results stay in reports for the dates they ran. A campaign with no clicks for 30 days is archived by itself, and comes back with its next click.</p>
         @endif

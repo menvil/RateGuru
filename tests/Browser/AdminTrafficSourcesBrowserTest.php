@@ -198,7 +198,8 @@ it('keeps the focus on a day when the fixed price’s calendar turns the month, 
     waitForScript($page, "document.querySelector('{$field}').offsetParent !== null");
     $page->click($field);
     waitForScript($page, $open);
-    waitForScript($page, 'document.activeElement?.getAttribute("aria-label")', $start->format('l j F Y').', the start');
+    // The 1st of this month is today on the 1st: the calendar says so before the start.
+    waitForScript($page, 'document.activeElement?.getAttribute("aria-label")', $start->format('l j F Y').($start->isSameDay(CarbonImmutable::now('UTC')) ? ', today' : '').', the start');
 
     // The month turned by the pointer: the focus moves to the day Tab reaches in the months now shown, not to the drawer's Close.
     $page->click($dialog.' [aria-label="Next month"]:visible');
@@ -269,6 +270,32 @@ it('opens a source’s blocked sites from its Blocking pane at the list itself, 
     expect($list->script("document.querySelector('#traffic-performance').textContent"))->toContain('site 40123')->toContain('Blocked');
 
     $list->assertNoJavaScriptErrors();
+});
+
+it('says the ticked sites’ IDs were copied only when the clipboard took them', function () {
+    $today = CarbonImmutable::now('UTC')->startOfDay();
+    $source = TrafficSource::factory()->create(['name' => 'PopAds main', 'block_level' => TrafficBlockLevel::Site]);
+    TrafficVisit::factory()->count(3)->create(['source_id' => $source->id, 'site_ref' => '40123', 'arrived_at' => $today->subDay()->setTime(10, 0), 'network_day' => $today->subDay()->toDateString()]);
+    $page = visitAdminEditor('/admin/traffic-sources?view=sites');
+    $tick = 'input[aria-label^="Tick "][aria-label$=" 40123"]';
+    $copy = "[...document.querySelectorAll('[data-testid=\"traffic-selection\"] .rg-admin-button')].find((button) => /Copy IDs|Copied/.test(button.textContent))";
+
+    waitForScript($page, "document.querySelector('{$tick}') !== null", true, 10.0);
+    $page->click($tick);
+    waitForScript($page, "document.querySelector('[data-testid=\"traffic-selection\"]') !== null");
+
+    // Refused: the button never says Copied, and the toast says nothing was copied.
+    $page->script("(() => { navigator.clipboard.writeText = () => Promise.reject(new DOMException('Denied', 'NotAllowedError')) })()");
+    $page->script("{$copy}.click()");
+    waitForScript($page, "document.querySelector('.rg-admin-toast')?.textContent.includes('nothing was copied') === true");
+    expect($page->script("{$copy}.textContent.trim()"))->toBe('Copy IDs');
+
+    // Taken: Copied.
+    $page->script('(() => { navigator.clipboard.writeText = () => Promise.resolve() })()');
+    $page->script("{$copy}.click()");
+    waitForScript($page, "{$copy}.textContent.trim()", 'Copied');
+
+    $page->assertNoJavaScriptErrors();
 });
 
 it('switches a source between the general block rule and its own thresholds on its Blocking pane, saving each with the source', function () {

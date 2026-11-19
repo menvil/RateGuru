@@ -38,9 +38,10 @@ final class RecordAccountReturn
                 $waiting = is_int($notBefore) && $now->getTimestamp() < $notBefore;
 
                 if (! $waiting && ($request->session()->get(self::SESSION_KEY) !== $today || is_int($notBefore))) {
+                    // Remembered only once it has looked: a look that failed is tried again on the next page.
+                    $retryAt = $this->bonuses->returned((int) $user->id, $now);
                     $request->session()->put(self::SESSION_KEY, $today);
-                    $next = $this->bonuses->returned((int) $user->id, $now);
-                    $next === null ? $request->session()->forget(self::NOT_BEFORE_KEY) : $request->session()->put(self::NOT_BEFORE_KEY, $next->getTimestamp());
+                    $retryAt === null ? $request->session()->forget(self::NOT_BEFORE_KEY) : $request->session()->put(self::NOT_BEFORE_KEY, $retryAt->getTimestamp());
                 }
             }
         } catch (Throwable $exception) {

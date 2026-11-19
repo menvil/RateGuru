@@ -119,6 +119,9 @@ final class TrafficSourcesView
     /** How many rows a level of the tree shows before the rest fold into one. */
     private const int CAP = 10;
 
+    /** How many campaigns of a stage Campaigns lists, the newest first. */
+    private const int CAMPAIGN_CAP = 300;
+
     /** @var array<string, array{general: array<string, int|string>, rules: array<int, array<string, int|string>>, startRates: array<int, float|null>, openRates: array<int, float|null>, campaignTargets: array<int, string>, sourceTargets: array<int, string|null>, worthKnown: bool, blocks: Collection<string, TrafficBlock>, firstClicks: array<string, CarbonImmutable>, windowFrom: CarbonImmutable, now: CarbonImmutable}> what the block rule needs, by filter, for this render */
     private array $judged = [];
 
@@ -175,10 +178,9 @@ final class TrafficSourcesView
             'postbacks' => (bool) $settings->postbacks_enabled,
             'geo' => $this->geo($settings->geo_edition ?? GeoEdition::GeoLite2City),
             'ready' => $page->ready,
-            'labels' => $this->labels($sources),
             'presetCards' => $page->adding ? $this->presetCards() : null,
             'editor' => $page->edit !== '' ? $this->editor($page, $sources) : null,
-            'campaign' => $page->camp !== '' ? $this->campaignPanel((int) $page->camp) : null,
+            'campaign' => $page->camp !== '' ? $this->campaignPanel((int) $page->camp, $page->ready) : null,
         ];
 
         if (! $page->ready) {
@@ -190,7 +192,7 @@ final class TrafficSourcesView
             'value' => $this->value($filter, $sources),
             'spend' => $this->spendTab($page, $filter, $sources),
             'sources' => $this->sourcesTab($sources),
-            'logs' => $this->logsTab($page),
+            'logs' => $this->logsTab($page, $sources),
             default => $this->report($page, $filter, $sources),
         }];
     }
@@ -605,13 +607,14 @@ final class TrafficSourcesView
     /**
      * Sites & zones: every network site or zone on the filters as one list,
      * each judged by the block rule and put in its segment, then searched,
-     * thresholded, sorted and paged.
+     * thresholded, sorted and paged — the rows read already where given.
      *
+     * @param  list<array<string, mixed>>|null  $rows
      * @return array<string, mixed>
      */
-    private function siteList(TrafficSourcesPage $page, TrafficReportFilter $filter, $sources): array
+    private function siteList(TrafficSourcesPage $page, TrafficReportFilter $filter, $sources, ?array $rows = null): array
     {
-        $rows = $this->siteRows($page, $filter, $sources);
+        $rows ??= $this->siteRows($page, $filter, $sources);
         $list = SiteZoneList::of($rows, (string) $page->segment, (string) $page->q, (int) $page->minClicks, (string) $page->sort, (string) $page->dir, (int) $page->pageNumber);
         $all = collect($rows)->filter(fn (array $row): bool => $row['figures']->visits >= (int) $page->minClicks);
         $spend = $all->sum(fn (array $row): float => (float) $row['figures']->spend);
@@ -695,17 +698,17 @@ final class TrafficSourcesView
             ];
         }
 
-        // A block in force that sent no click in the period — a working block stops them — is listed too, with no
-        // figures, so Blocked lists what a source's Blocking pane counts. Blocks are a source's, so only while the
-        // filters go no narrower than the source; a site whose clicks show as its zones is left to them.
+        // A block in force not listed by its clicks is listed too, with no figures, so Blocked lists what a source's
+        // Blocking pane counts: one that sent no click in the period — a working block stops them — and, by zone, a
+        // site block whose clicks show as its zones, a row of its own beside theirs. Blocks are a source's, so only
+        // while the filters go no narrower than the source.
         if (array_diff_key($filter->where, array_flip(['source_id', 'channel'])) === [] && ($filter->where['channel'] ?? 'network') === 'network') {
             $shown = array_flip(array_column($out, 'key'));
-            $zonedSites = $byZone ? collect($rows)->filter(fn (array $row): bool => (string) $row['zone_ref'] !== '')->map(fn (array $row): string => $row['source_id'].':'.$row['site_ref'])->flip() : collect();
 
             foreach ($judge['blocks'] as $key => $block) {
                 if (isset($shown[$key]) || $block->network_state === TrafficBlockNetworkState::Removing
                     || (array_key_exists('source_id', $filter->where) && $filter->where['source_id'] !== (int) $block->source_id)
-                    || ($block->level === TrafficBlockLevel::Zone ? ! $byZone : $zonedSites->has($block->source_id.':'.$block->ref))) {
+                    || ($block->level === TrafficBlockLevel::Zone && ! $byZone)) {
                     continue;
                 }
 
@@ -773,15 +776,17 @@ final class TrafficSourcesView
 
     /**
      * What the page needs to tick sites and zones: the keys on the page on
-     * screen and every key the list matches, each one that can be ticked.
+     * screen and every key the list matches, each one that can be ticked,
+     * both from one reading of the rows.
      *
      * @return array{selectable: list<string>, matchingSelectable: list<string>}
      */
     public function siteSelection(TrafficSourcesPage $page, TrafficReportFilter $filter): array
     {
         $sources = TrafficSource::query()->get(['id', 'name']);
-        $list = $this->siteList($page, $filter, $sources);
-        $rows = collect($this->siteRows($page, $filter, $sources))->keyBy('key');
+        $read = $this->siteRows($page, $filter, $sources);
+        $list = $this->siteList($page, $filter, $sources, $read);
+        $rows = collect($read)->keyBy('key');
 
         return [
             'selectable' => $list['selectable'],
@@ -804,19 +809,28 @@ final class TrafficSourcesView
     {
         $figures = $this->reports->byCampaign($filter);
         $games = Game::query()->orderBy('title')->get(['id', 'slug', 'title']);
-        $all = TrafficCampaign::query()
-            ->when(is_numeric($page->source), fn ($query) => $query->where('source_id', (int) $page->source))
-            ->orderByDesc('first_click_at')
-            ->orderByDesc('id')
-            ->limit(300)
-            ->get();
+        $ofSource = fn () => TrafficCampaign::query()->when(is_numeric($page->source), fn ($query) => $query->where('source_id', (int) $page->source));
         $stageOf = fn (TrafficCampaign $campaign): string => match (true) {
             $campaign->status === TrafficCampaignStatus::Archived => 'archived',
             $campaign->status === TrafficCampaignStatus::New => 'new',
             default => $campaign->stage->value ?? 'test',
         };
-        $counts = ['all' => $all->where('status', '!=', TrafficCampaignStatus::Archived)->count()] + collect(['test', 'optimise', 'scale', 'paused', 'new', 'archived'])->mapWithKeys(fn (string $stage): array => [$stage => $all->filter(fn (TrafficCampaign $campaign): bool => $stageOf($campaign) === $stage)->count()])->all();
-        $shown = $all->filter(fn (TrafficCampaign $campaign): bool => $page->stage === 'all' ? $campaign->status !== TrafficCampaignStatus::Archived : $stageOf($campaign) === $page->stage);
+        // Every campaign of the source in its stage, however many; then the newest of the stage chosen, so many at most.
+        $byStage = $ofSource()->get(['status', 'stage'])->countBy($stageOf);
+        $counts = ['all' => $byStage->except('archived')->sum()] + collect(['test', 'optimise', 'scale', 'paused', 'new', 'archived'])->mapWithKeys(fn (string $stage): array => [$stage => (int) $byStage->get($stage, 0)])->all();
+        $shown = $ofSource()
+            ->tap(fn ($query) => match ($page->stage) {
+                'all' => $query->where('status', '!=', TrafficCampaignStatus::Archived),
+                'archived' => $query->where('status', TrafficCampaignStatus::Archived),
+                'new' => $query->where('status', TrafficCampaignStatus::New),
+                // A running campaign given no stage yet is testing.
+                default => $query->whereNotIn('status', [TrafficCampaignStatus::New, TrafficCampaignStatus::Archived])
+                    ->where(fn ($stage) => $stage->where('stage', $page->stage)->when($page->stage === 'test', fn ($test) => $test->orWhereNull('stage'))),
+            })
+            ->orderByDesc('first_click_at')
+            ->orderByDesc('id')
+            ->limit(self::CAMPAIGN_CAP)
+            ->get();
         $since = TrafficCampaignStagePeriod::query()->whereIn('campaign_id', $shown->pluck('id'))->whereNull('ended_at')->pluck('started_at', 'campaign_id');
         $blocked = TrafficBlock::query()->pluck('source_id')->countBy();
         $toBlock = $this->toBlockByCampaign($filter);
@@ -829,7 +843,7 @@ final class TrafficSourcesView
         $link = $linkSource === null || $linkGame === null ? null : ($linkSource->type === TrafficSourceType::Network
             ? TrackingLinkBuilder::forNetwork(route('games.play', ['slug' => $linkGame->slug]), $linkSource->link_key, $linkSource->link_params)
             : TrackingLinkBuilder::forPlacement(route('games.play', ['slug' => $linkGame->slug]), $linkSource->link_key, $linkSource->creatives[0] ?? null));
-        $new = $all->first(fn (TrafficCampaign $campaign): bool => $campaign->status === TrafficCampaignStatus::New);
+        $new = $ofSource()->where('status', TrafficCampaignStatus::New)->orderByDesc('first_click_at')->orderByDesc('id')->first();
 
         return [
             'newCampaign' => $new === null ? null : [
@@ -897,6 +911,9 @@ final class TrafficSourcesView
                 ])->values()->all(),
             ])->values()->all(),
             'archivedHidden' => $page->stage === 'archived' ? 0 : $counts['archived'],
+            // The older campaigns of the stage chosen past the newest shown.
+            'campaignsMore' => max(0, $counts[$page->stage] - $shown->count()),
+            'campaignCap' => self::CAMPAIGN_CAP,
             'placements' => $this->placementRows($placements, $filter),
         ];
     }
@@ -1174,10 +1191,13 @@ final class TrafficSourcesView
      */
     private function spendTab(TrafficSourcesPage $page, TrafficReportFilter $filter, $sources): array
     {
-        $paid = $sources->whereIn('type', [TrafficSourceType::Network, TrafficSourceType::Placement])->values();
+        $paid = $sources->whereIn('type', [TrafficSourceType::Network, TrafficSourceType::Placement])->values()->loadCount('campaigns');
         $unallocated = collect($this->spend->unallocated($filter->fromDay, $filter->toDay));
         $bySource = collect($this->reports->level($filter, TrafficDimension::Source))->keyBy(fn (array $group): string => (string) ($group['keys']['source_id'] ?? ''));
-        $network = TrafficSpendDay::query()->whereBetween('network_day', [$filter->fromDay, $filter->toDay])->whereIn('origin', [TrafficSpendOrigin::Api, TrafficSpendOrigin::Csv])->get(['source_id', 'campaign_id', 'origin', 'network_day', 'amount']);
+        // What the network itself says, one origin a source's day as the day is counted: its file where one was taken, else its API.
+        $network = TrafficSpendDay::query()->whereBetween('network_day', [$filter->fromDay, $filter->toDay])->whereIn('origin', [TrafficSpendOrigin::Api, TrafficSpendOrigin::Csv])->get(['source_id', 'campaign_id', 'origin', 'network_day', 'amount'])
+            ->groupBy(fn (TrafficSpendDay $fact): string => $fact->source_id.':'.$fact->network_day)
+            ->flatMap(fn (Collection $day): Collection => $day->contains('origin', TrafficSpendOrigin::Csv) ? $day->where('origin', TrafficSpendOrigin::Csv) : $day);
         $campaignFigures = $this->reports->byCampaign($filter);
         $connections = TrafficApiConnection::query()->get()->keyBy('source_id');
         $users = fn (array $modes): array => $paid->filter(fn (TrafficSource $source): bool => in_array($source->spend_mode, $modes, true))->pluck('name')->all();
@@ -1200,12 +1220,14 @@ final class TrafficSourcesView
                 $networkFacts = $network->where('source_id', $source->id);
                 $networkSum = $networkFacts->sum(fn (TrafficSpendDay $fact): float => (float) $fact->amount);
                 $connection = $connections->get($source->id);
-                $campaigns = TrafficCampaign::query()->where('source_id', $source->id)->orderByDesc('first_click_at')->limit(50)->get(['id', 'external_id', 'name', 'game_id']);
+                $open = in_array((int) $source->id, $page->spendOpen, true);
+                // Its newest campaigns only for a source opened by campaign.
+                $campaigns = $open ? TrafficCampaign::query()->where('source_id', $source->id)->orderByDesc('first_click_at')->orderByDesc('id')->limit(50)->get(['id', 'external_id', 'name', 'game_id']) : collect();
 
                 return [
                     'id' => $source->id,
                     'name' => $source->name,
-                    'kind' => $source->type === TrafficSourceType::Placement ? 'Banner or link' : 'Ad network · '.$campaigns->count().' '.Str::plural('campaign', $campaigns->count()),
+                    'kind' => $source->type === TrafficSourceType::Placement ? 'Banner or link' : 'Ad network · '.$source->campaigns_count.' '.Str::plural('campaign', (int) $source->campaigns_count),
                     'how' => $this->spendHow($source),
                     'visits' => $figures->visits,
                     'reported' => (string) $reported,
@@ -1218,7 +1240,7 @@ final class TrafficSourcesView
                     },
                     'status' => $this->spendStatus($source, $connection),
                     'api' => $connection !== null,
-                    'open' => in_array((int) $source->id, $page->spendOpen, true),
+                    'open' => $open,
                     'campaigns' => $campaigns->map(fn (TrafficCampaign $campaign): array => [
                         'external' => $campaign->external_id,
                         'name' => $campaign->name ?? 'Campaign '.$campaign->external_id,
@@ -1234,7 +1256,8 @@ final class TrafficSourcesView
                 'date' => $day,
                 'clicks' => $row['clicks'],
                 'costs' => $row['costs'],
-                'network' => $row['figures']['api'] ?? $row['figures']['csv'] ?? null,
+                // The network's file over its API, as the day is counted.
+                'network' => $row['figures']['csv'] ?? $row['figures']['api'] ?? null,
                 'networkOpen' => $day === $today,
                 'origin' => $row['counted_origin'],
                 'counted' => $row['counted'],
@@ -1294,8 +1317,10 @@ final class TrafficSourcesView
         $failed = TrafficPostback::query()->where('created_at', '>=', now()->subDays(7))->whereIn('status', [TrafficPostbackStatus::Pending, TrafficPostbackStatus::Failed])->where('attempts', '>', 0)->orderByDesc('id')->get(['id', 'source_id', 'rule_id', 'status', 'http_status', 'attempts', 'run_after', 'outcome']);
         $row = function (TrafficSource $source) use ($byGroup, $blocked, $rules, $failed): array {
             $connection = $source->apiConnection;
-            $ruleCount = $rules->where('source_id', $source->id)->count();
-            $failing = $failed->where('source_id', $source->id);
+            $enabled = $rules->where('source_id', $source->id)->pluck('id');
+            $ruleCount = $enabled->count();
+            // A rule switched off keeps its postbacks, but no longer counts among the source's.
+            $failing = $failed->where('source_id', $source->id)->whereIn('rule_id', $enabled);
             $failingRules = $failing->pluck('rule_id')->unique()->count();
             $last = $failing->first();
 
@@ -1341,11 +1366,11 @@ final class TrafficSourcesView
      * Logs, as the reference draws them: postbacks — the milestone, how the
      * account came where it did, the click, the exact request and the
      * network's answer — milestones, clicks and blocking, newest first, fifty
-     * to a page, with how many postbacks are failing.
+     * to a page, with how many postbacks are failing, and each source by name.
      *
      * @return array<string, mixed>
      */
-    private function logsTab(TrafficSourcesPage $page): array
+    private function logsTab(TrafficSourcesPage $page, $sources): array
     {
         $source = is_numeric($page->source) ? (int) $page->source : null;
         $logPage = match ($page->log) {
@@ -1357,6 +1382,7 @@ final class TrafficSourcesView
         $failing = TrafficPostback::query()->where('status', TrafficPostbackStatus::Failed)->where('created_at', '>=', now()->subDays(7))->when($source !== null, fn ($query) => $query->where('source_id', $source))->count();
 
         return [
+            'labels' => ['source_id' => self::named($sources->pluck('name', 'id'))],
             'logPage' => $logPage,
             'logRows' => $page->log === 'postbacks' ? $this->postbackRows($logPage->items()) : [],
             'failing' => $failing,
@@ -1573,12 +1599,13 @@ final class TrafficSourcesView
 
     /**
      * A campaign's panel: the campaign, its source and whether the network
-     * reports its targeting, its figures over the last 30 days and by stage,
-     * its history, and what its fields choose from.
+     * reports its targeting, its figures over the last 30 days and by stage —
+     * read only once the page is in a browser, null until then — its history,
+     * and what its fields choose from.
      *
      * @return array<string, mixed>|null
      */
-    private function campaignPanel(int $id): ?array
+    private function campaignPanel(int $id, bool $ready): ?array
     {
         $campaign = TrafficCampaign::query()->find($id);
 
@@ -1594,8 +1621,8 @@ final class TrafficSourcesView
             'source' => $source?->name,
             'sourceModel' => $source,
             'reported' => TrafficApiConnection::query()->where('source_id', $campaign->source_id)->where('status', TrafficConnectionStatus::Connected)->exists(),
-            'figures' => $this->reports->byCampaign($month)[$campaign->id] ?? new ReportFigures,
-            'stages' => $this->reports->stages($campaign->id),
+            'figures' => $ready ? ($this->reports->byCampaign(new TrafficReportFilter($month->fromDay, $month->toDay, ['campaign_id' => (int) $campaign->id]))[$campaign->id] ?? new ReportFigures) : null,
+            'stages' => $ready ? $this->reports->stages($campaign->id) : null,
             'history' => TrafficCampaignEvent::query()->where('campaign_id', $campaign->id)->orderByDesc('occurred_at')->orderByDesc('id')->limit(30)->get(),
             'games' => Game::query()->orderBy('title')->pluck('title', 'id')->all(),
             'countries' => Countries::all(),

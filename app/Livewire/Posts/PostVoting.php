@@ -111,7 +111,7 @@ final class PostVoting extends Component
         $voteToApply = $voteType;
 
         try {
-            $votePostAction->handle($user, $post, $voteToApply);
+            $cast = $votePostAction->handle($user, $post, $voteToApply);
         } catch (CannotVoteException $e) {
             $this->error = $e->getMessage();
             $this->dispatch('post-vote-error', postId: $this->postId, message: $this->error);
@@ -123,8 +123,9 @@ final class PostVoting extends Component
 
         $this->creditGame(fn (CreditGameSiteActivityAction $credit) => $credit->postVoteChanged($user, $this->postId, app(GameVisitorResolver::class)->browserHash()));
 
-        // A vote cast where there was none; one taken back or turned the other way is no new vote.
-        if ($currentVote === null) {
+        // A vote cast where there was none, as the action found it under its lock — not as read above,
+        // which a concurrent vote can have changed; one taken back or turned the other way is no new vote.
+        if ($cast) {
             app(RecordUserActivityAction::class)->quietly($user, UserActivity::Voted, $this->postId, app(GameVisitorResolver::class)->browserHash(), CarbonImmutable::now());
         }
 
