@@ -1,0 +1,110 @@
+tests/Feature/Seeders/GameAnalyticsDemoSeederTest.php
+  s_4b9dc6ab6b25d3::t_ad61bfcfe95ee9 99
+  s_4b9dc6ab6b25d3::t_bcf6b1f71a8160 6,14,17-18
+  s_4b9dc6ab6b25d3::t_a385e2586c1608 97-98
+  s_4b9dc6ab6b25d3::t_708380e5363fac 16
+  s_4b9dc6ab6b25d3::t_1e6cfe7b26ba98 45-67
+  s_4b9dc6ab6b25d3::t_89639fb88f0dcb 87,91-96,100
+  s_4b9dc6ab6b25d3::t_05b646b10906b0 36-38
+docs/architecture/translation-engine.md
+  s_4b9dc6ab6b25d3::t_73388862f6e737 139-140
+  s_4b9dc6ab6b25d3::t_29688238b5644f 166-171
+  s_4b9dc6ab6b25d3::t_58b9f42e891213 165
+docs/dev/seed-data.md
+  s_4b9dc6ab6b25d3::t_c34f7a820e7182 117-125
+  s_4b9dc6ab6b25d3::t_7e5f1ad8e90f31 115-116
+tests/Feature/Seeders/TrafficVolumeSeederTest.php
+  s_4b9dc6ab6b25d3::t_a8c76ed654ff8a 11-12
+  s_4b9dc6ab6b25d3::t_2cd0d8ca2c4c5f 1-10,13-15
+docs/architecture/traffic.md
+  s_4b9dc6ab6b25d3::t_8b9c4bbee6bd6d 78-79
+  s_4b9dc6ab6b25d3::t_4bedbb5672f75d 76-77
+  s_4b9dc6ab6b25d3::t_2ec7166759f7c5 231-234
+docs/admin/traffic-sources.md
+  s_4b9dc6ab6b25d3::t_2f776adec82be8 13-15
+  s_4b9dc6ab6b25d3::t_3e784e82958682 9
+app/Actions/Traffic/OpenTrafficVisitAction.php
+  s_4b9dc6ab6b25d3::t_0597a8887d278f 357-360
+  s_4b9dc6ab6b25d3::t_6fd5a144b93cf9 364
+app/Console/Commands/GeoUpdateCommand.php
+  s_4b9dc6ab6b25d3::t_26c49c228b4aee 18-25
+tests/Feature/Seeders/AnalyticsVolumeSeederTest.php
+  s_4b9dc6ab6b25d3::t_e8abc4960cad00 17
+  s_4b9dc6ab6b25d3::t_1ca3b7a35689c7 74-75
+  s_4b9dc6ab6b25d3::t_ac3e64930635ae 107-115,118
+  s_4b9dc6ab6b25d3::t_581487a8889a7b 55-56
+  s_4b9dc6ab6b25d3::t_4028fc63075292 131-132
+database/seeders/TrafficVolumeSeeder.php
+  s_4b9dc6ab6b25d3::t_ececb54a0b18b5 6
+  s_4b9dc6ab6b25d3::t_f543ff24a154dd 20
+  s_4b9dc6ab6b25d3::t_cfaba8ef799a68 58-60,62-63,65,67-68
+  s_4b9dc6ab6b25d3::t_88494a724ff4ae 33-39
+tests/Feature/Seeders/AnalyticsDemoSeederTest.php
+  s_4b9dc6ab6b25d3::t_ec6af38ab71dd1 89
+  s_4b9dc6ab6b25d3::t_001efd83502427 42-49,52
+  s_4b9dc6ab6b25d3::t_a868ac2f8028aa 9-13
+  s_4b9dc6ab6b25d3::t_76b1c8c36e9155 71-76
+  s_4b9dc6ab6b25d3::t_887dfbd453410e 61
+  s_4b9dc6ab6b25d3::t_18d2b903ca4e1e 87-88,96-111
+database/seeders/AnalyticsDemoSeeder.php
+  s_4b9dc6ab6b25d3::t_a9434f8bd34658 143,146-147
+  s_4b9dc6ab6b25d3::t_3a83726303cf24 79-82
+  s_4b9dc6ab6b25d3::t_1d62a3e6d9decf 180-181
+  s_4b9dc6ab6b25d3::t_ef6bf3bc6f40b4 95-97
+  s_4b9dc6ab6b25d3::t_309c8c5fb2ce7c 308-309
+  s_4b9dc6ab6b25d3::t_949c04eb208509 591-592,594-610
+  s_4b9dc6ab6b25d3::t_f9e6e1aa2f177b 173
+  s_4b9dc6ab6b25d3::t_26d07c52ea43cf 33
+  s_4b9dc6ab6b25d3::t_edfe930ee27b84 403-406,412-418
+  s_4b9dc6ab6b25d3::t_02ff66bcc13434 333-338
+database/seeders/AnalyticsVolumeSeeder.php
+  s_4b9dc6ab6b25d3::t_29397d3753960c 720-721
+  s_4b9dc6ab6b25d3::t_71e60727682836 105-106
+  s_4b9dc6ab6b25d3::t_c8f422ce0e4713 308
+docs/architecture/geo.md
+  s_4b9dc6ab6b25d3::t_332c9025debc23 16-23
+database/seeders/Support/DemoPlaythrough.php
+  s_4b9dc6ab6b25d3::t_00e7f29deaaadd 69-71
+  s_4b9dc6ab6b25d3::t_9c7e84197e2d82 158-159
+  s_4b9dc6ab6b25d3::t_93e14f6a5b0c51 428
+database/seeders/GameAnalyticsDemoSeeder.php
+  s_4b9dc6ab6b25d3::t_6a54016dda8ae9 349,356-359
+  s_4b9dc6ab6b25d3::t_487099ecec7521 330-332
+  s_4b9dc6ab6b25d3::t_6e2deaddfbfb79 72-74
+  s_4b9dc6ab6b25d3::t_b74456ad1903df 37
+  s_4b9dc6ab6b25d3::t_52790e4586b8e0 377-382,387,389-390
+  s_4b9dc6ab6b25d3::t_e8a61f6aa28fef 246
+  s_4b9dc6ab6b25d3::t_f10f0b5bbc0617 388
+tests/Feature/Seeders/TrafficDemoSeederTest.php
+  s_4b9dc6ab6b25d3::t_521b6fd6242f54 30-34,37-56
+  s_4b9dc6ab6b25d3::t_cf0b7b30eecd6b 8,11
+  s_4b9dc6ab6b25d3::t_a8c76ed654ff8a 35-36
+tests/Feature/Traffic/OpenTrafficVisitTest.php
+  s_4b9dc6ab6b25d3::t_b0c3a2bbe1f3f3 356-371
+  s_4b9dc6ab6b25d3::t_c1ae100ec1c157 3
+database/seeders/TrafficDemoSeeder.php
+  s_4b9dc6ab6b25d3::t_d4ead00165d0c9 48-49
+  s_4b9dc6ab6b25d3::t_c61af993f4373c 57-62,77,79-80,84
+  s_4b9dc6ab6b25d3::t_bb17e6a744d360 34
+  s_4b9dc6ab6b25d3::t_e172d637b1fa2f 82
+  s_4b9dc6ab6b25d3::t_eff4eae380db2b 78,83
+tests/Pest.php
+  s_4b9dc6ab6b25d3::t_d8672277cdb526 14509
+  s_4b9dc6ab6b25d3::t_4049b7b8d4be3e 14688
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "09b6ab797ddc156526270dc4522e52ddc8db3837",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
