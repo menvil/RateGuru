@@ -118,3 +118,5 @@ Homestead.yaml
 # deploy-staging.yml / release.yml and read by config/deployment.php; it is
 # per-release and must never be committed from a working copy.
 /release.json
+
+/storage/geoip

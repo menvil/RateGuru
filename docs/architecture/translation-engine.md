@@ -174,6 +174,43 @@ Translation engine  ≠  translation storage  ≠  draft storage
 - **Nothing sensitive in logs.** A failed chunk logs `translation.generation_chunk_failed` with the batch and chunk
   ids and an error code — never a source text, a translation, a prompt or a provider request.
 
+## Outdated translations
+
+A translation is outdated when the English it was made from has changed since. Which English that was is recorded
+beside each translation, in `project_translation_sources` — one row per unit id and language, holding the unit's
+`ProjectTranslationSourceFingerprint` and its English text as the translation was saved:
+
+```text
+UpdateProjectTranslationAction (one transaction, the unit's row locked)
+→ ProjectTranslationCatalog::write()              the translation
+→ RecordProjectTranslationSourceAction            upserted for text, deleted for a blank save
+```
+
+- **Outdated, missing, unknown.** A translation is outdated when it is stored, a record exists, and the record's
+  fingerprint is not the unit's now (`ProjectTranslationSourceFingerprint::isOutdated()`). A missing translation is
+  missing, not outdated; a stored one with no record is not known to be outdated, and is not.
+- **The old translation stays.** Nothing removes or hides an outdated translation: it stays stored, and what
+  visitors see, until it is saved again — changed, or as it is — which records the English it stands beside now.
+- **Translation Center** marks an outdated row (English changed) and shows the English it was made from, counts
+  the rows that need an update, and filters them with Needs update beside Missing only and All (`?mode=outdated`),
+  in the browser like the other filters.
+- **Generate missing takes outdated translations too.** `StartProjectTranslationGenerationAction` plans every
+  missing and every outdated unit; the chunk job sends an item only while its unit is still missing or still
+  outdated; and `SaveProjectTranslationGenerationAction` replaces a stored translation only while it is still
+  outdated on the locked row — never one saved for the current English meanwhile, never a suggestion whose English
+  changed since it was planned.
+- **A baseline for the rest.** Translations saved before records were kept, and those written some other way — a
+  project preset, the deploy's backfill — get a record of the English they stand beside from
+  `BaselineProjectTranslationSourcesAction`: on every deploy, in `rateguru:translations:backfill` after the backfill
+  and before the release serves anyone, and daily as `translations:baseline-sources`. It only adds records and never
+  replaces one, so a change of English stays visible.
+- **A save from an older page is refused.** Translation Center's Save sends the fingerprint of the English the row
+  was drawn with, and a text is saved only while the unit still has that English: otherwise it would be recorded as
+  made from English the administrator never saw. A text sent without that fingerprint is refused the same way.
+  Removing a translation needs no such check.
+- **Copies keep their records.** A content set or flow copied with its translations carries the records over to the
+  copy's unit ids, so a translation outdated on the original is outdated on the copy too.
+
 ## Translation AI telemetry
 
 Every request a provider was actually sent leaves one row of technical metadata in the database, the raw material of
