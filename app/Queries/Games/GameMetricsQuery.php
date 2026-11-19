@@ -7,6 +7,7 @@ use App\Enums\GameAccountOutcome;
 use App\Enums\GameAttemptStatus;
 use App\Enums\GameAudience;
 use App\Enums\GameEventType;
+use App\Enums\GameOnwardKind;
 use App\Enums\TrafficDimension;
 use App\Models\AccountAttribution;
 use App\Models\GameAnswer;
@@ -27,11 +28,14 @@ use InvalidArgumentException;
  * Games → Analytics, the library and Traffic show.
  *
  *  - funnels()      visitors, starts, completions, emails, sign-ups begun,
- *                   accounts, shares and repeat players — attempts and the
- *                   people behind them — in all, or per version, flow or set,
- *                   or per device, country or country group of their visits;
+ *                   accounts, shares, repeat players, and the people the
+ *                   flow sent on to a post, the feed, a page or the next game
+ *                   and what they did there — attempts and the people behind
+ *                   them — in all, or per version, flow or set, or per
+ *                   device, country or country group of their visits;
  *  - visitors()     the visitors alone;
  *  - finishers()    the people who finished one of some versions, each once;
+ *  - sentToPost()   the people some versions sent on to a post, each once;
  *  - signUpMethods() the people who began signing up, by how;
  *  - reach()        how many started attempts answered each round of a version;
  *  - results()      the completed attempts of a version by result;
@@ -76,6 +80,17 @@ final class GameMetricsQuery implements RawSqlPersistenceBoundary
         'group' => TrafficDimension::Country,
     ];
 
+    /** The events of an attempt funnels() counts people by: shares, sign-ups begun, and the ways on and what came of them. */
+    private const FUNNEL_EVENTS = [
+        GameEventType::ShareClicked,
+        GameEventType::RegistrationCtaClicked,
+        GameEventType::PostOpened,
+        GameEventType::PostVoted,
+        GameEventType::PostRated,
+        GameEventType::FeedVoted,
+        GameEventType::Exit,
+    ];
+
     /**
      * The funnel of the scope, in all (keyed 0) or split by version, flow or
      * content set (keyed by its id), or by the device, country or country
@@ -83,7 +98,9 @@ final class GameMetricsQuery implements RawSqlPersistenceBoundary
      * country — '' where it is not known — or the group's index). A person
      * who saw two versions, or came from two countries, is one visitor in
      * all and one in each row; a play without a recorded visit is in no row
-     * of a visit's.
+     * of a visit's. The ways on count the people a play's way on sent to a
+     * post, the feed, a page or the next game (LeaveGameAction), and those
+     * the votes after it were credited to (CreditGameSiteActivityAction).
      *
      * @param  list<list<string>>  $countryGroups  split by group: the countries of each group of the price set but the last, which holds every other country and an unknown one
      * @return array<int|string, GameFunnel>
@@ -116,21 +133,41 @@ final class GameMetricsQuery implements RawSqlPersistenceBoundary
             $split($this->cohortJoin(GameEmailCapture::query(), 'game_email_captures.attempt_id', $scope), 'game_attempts.version_id')
                 ->selectRaw("COUNT(*) AS emails, COUNT(DISTINCT {$person}) AS emailers", []),
         );
-        $shared = $this->counts(
+        // A way on is the exit the flow's own way on recorded, on a play it sent there: never the
+        // link to the feed every screen has, nor the feed a post no longer published falls back to.
+        $wayOn = 'game_events.type = ? AND game_events.step_type = ? AND game_attempts.onward_kind = ?';
+        $events = $this->counts(
             $split(
-                $this->cohortJoin(GameEvent::query(), 'game_events.attempt_id', $scope)->where('game_events.type', GameEventType::ShareClicked->value),
+                $this->cohortJoin(GameEvent::query(), 'game_events.attempt_id', $scope)->whereIn('game_events.type', array_map(fn (GameEventType $type): string => $type->value, self::FUNNEL_EVENTS)),
                 'game_attempts.version_id',
-            )->selectRaw("COUNT(DISTINCT game_events.attempt_id) AS shared, COUNT(DISTINCT {$person}) AS sharers", []),
-        );
-        $signUps = $this->counts(
-            $split(
-                $this->cohortJoin(GameEvent::query(), 'game_events.attempt_id', $scope)->where('game_events.type', GameEventType::RegistrationCtaClicked->value),
-                'game_attempts.version_id',
-            )->selectRaw("COUNT(DISTINCT {$person}) AS sign_up_starters", []),
+            )->selectRaw(
+                "COUNT(DISTINCT CASE WHEN game_events.type = ? THEN game_events.attempt_id END) AS shared,
+                COUNT(DISTINCT CASE WHEN game_events.type = ? THEN {$person} END) AS sharers,
+                COUNT(DISTINCT CASE WHEN game_events.type = ? THEN {$person} END) AS sign_up_starters,
+                COUNT(DISTINCT CASE WHEN game_events.type = ? THEN {$person} END) AS went_to_post,
+                COUNT(DISTINCT CASE WHEN game_events.type = ? THEN {$person} END) AS voted_on_post,
+                COUNT(DISTINCT CASE WHEN game_events.type = ? THEN {$person} END) AS rated_post,
+                COUNT(DISTINCT CASE WHEN {$wayOn} THEN {$person} END) AS went_to_feed,
+                COUNT(DISTINCT CASE WHEN game_events.type = ? THEN {$person} END) AS voted_in_feed,
+                COUNT(DISTINCT CASE WHEN {$wayOn} THEN {$person} END) AS went_to_page,
+                COUNT(DISTINCT CASE WHEN {$wayOn} THEN {$person} END) AS went_to_next_game",
+                [
+                    GameEventType::ShareClicked->value,
+                    GameEventType::ShareClicked->value,
+                    GameEventType::RegistrationCtaClicked->value,
+                    GameEventType::PostOpened->value,
+                    GameEventType::PostVoted->value,
+                    GameEventType::PostRated->value,
+                    GameEventType::Exit->value, GameOnwardKind::Feed->value, GameOnwardKind::Feed->value,
+                    GameEventType::FeedVoted->value,
+                    GameEventType::Exit->value, GameOnwardKind::Page->value, GameOnwardKind::Page->value,
+                    GameEventType::Exit->value, GameOnwardKind::NextGame->value, GameOnwardKind::NextGame->value,
+                ],
+            ),
         );
         $replayers = $this->replayers($this->grouped($this->attempts($scope), 'game_attempts.version_id', $by, $scope, $countryGroups, false), $scope, $by !== null);
 
-        $buckets = array_unique([...array_keys($visitors), ...array_keys($attempts), ...array_keys($emails), ...array_keys($shared), ...array_keys($signUps), ...array_keys($replayers)]);
+        $buckets = array_unique([...array_keys($visitors), ...array_keys($attempts), ...array_keys($emails), ...array_keys($events), ...array_keys($replayers)]);
         sort($buckets);
 
         if ($by === null) {
@@ -147,15 +184,22 @@ final class GameMetricsQuery implements RawSqlPersistenceBoundary
                 emails: $emails[$bucket]['emails'] ?? 0,
                 registered: $attempts[$bucket]['registered'] ?? 0,
                 signedIn: $attempts[$bucket]['signed_in'] ?? 0,
-                shared: $shared[$bucket]['shared'] ?? 0,
+                shared: $events[$bucket]['shared'] ?? 0,
                 replayers: $replayers[$bucket] ?? 0,
                 starters: $attempts[$bucket]['starters'] ?? 0,
                 finishers: $attempts[$bucket]['finishers'] ?? 0,
                 emailers: $emails[$bucket]['emailers'] ?? 0,
-                sharers: $shared[$bucket]['sharers'] ?? 0,
-                signUpStarters: $signUps[$bucket]['sign_up_starters'] ?? 0,
+                sharers: $events[$bucket]['sharers'] ?? 0,
+                signUpStarters: $events[$bucket]['sign_up_starters'] ?? 0,
                 goalReached: $attempts[$bucket]['goal_reached'] ?? 0,
                 goalPeople: $attempts[$bucket]['goal_people'] ?? 0,
+                wentToPost: $events[$bucket]['went_to_post'] ?? 0,
+                votedOnPost: $events[$bucket]['voted_on_post'] ?? 0,
+                ratedPost: $events[$bucket]['rated_post'] ?? 0,
+                wentToFeed: $events[$bucket]['went_to_feed'] ?? 0,
+                votedInFeed: $events[$bucket]['voted_in_feed'] ?? 0,
+                wentToPage: $events[$bucket]['went_to_page'] ?? 0,
+                wentToNextGame: $events[$bucket]['went_to_next_game'] ?? 0,
             );
         }
 
@@ -186,6 +230,28 @@ final class GameMetricsQuery implements RawSqlPersistenceBoundary
         return $this->attempts($scope)
             ->whereIn('game_attempts.version_id', $versionIds)
             ->where('game_attempts.status', GameAttemptStatus::Completed->value)
+            ->distinct()
+            ->count(self::person($scope));
+    }
+
+    /**
+     * The people of the scope a way on of one of the versions given sent to
+     * a post (`post_opened`), each person once however many of them sent
+     * them: what Rated the post is a share of, of the versions whose step
+     * sending to a post asks for ratings, while another version in view
+     * sends there without asking.
+     *
+     * @param  list<int>  $versionIds
+     */
+    public function sentToPost(GameMetricsScope $scope, array $versionIds): int
+    {
+        if ($versionIds === []) {
+            return 0;
+        }
+
+        return $this->cohortJoin(GameEvent::query(), 'game_events.attempt_id', $scope)
+            ->where('game_events.type', GameEventType::PostOpened->value)
+            ->whereIn('game_attempts.version_id', $versionIds)
             ->distinct()
             ->count(self::person($scope));
     }

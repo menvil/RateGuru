@@ -4,6 +4,7 @@ namespace App\Filament\Resources\Games\Pages;
 
 use App\Enums\TrafficDevice;
 use App\Filament\Concerns\ChoosesReportPeriod;
+use App\Filament\Pages\TrafficSourcesPage;
 use App\Filament\Resources\Games\Analytics\GameAnalyticsView;
 use App\Filament\Resources\Games\Analytics\GameAnalyticsWindow;
 use App\Filament\Resources\Games\Analytics\ReadsGameAnalytics;
@@ -38,10 +39,13 @@ final class GameAnalytics extends Page
     use ReadsGameAnalytics;
 
     /** The windows a game's figures are read over, by days up to now; all time has none. */
-    public const PERIODS = ['7d' => 'Last 7 days', '30d' => 'Last 30 days', '90d' => 'Last 90 days', 'all' => 'All time'];
+    public const PERIODS = ['today' => 'Today', '7d' => 'Last 7 days', '30d' => 'Last 30 days', '90d' => 'Last 90 days', 'all' => 'All time'];
+
+    /** The name the administrator's last choice of period is kept under (ReportPeriodMemory): one for every game's Analytics. */
+    public const string PERIOD_MEMORY = 'game-analytics';
 
     /** How many days each window but all time reaches back. */
-    private const array PERIOD_DAYS = ['7d' => 7, '30d' => 30, '90d' => 90];
+    private const array PERIOD_DAYS = ['today' => 1, '7d' => 7, '30d' => 30, '90d' => 90];
 
     protected static string $resource = GameResource::class;
 
@@ -56,6 +60,7 @@ final class GameAnalytics extends Page
     public function mount(int|string $record): void
     {
         $this->mountGame($record);
+        $this->openPeriod();
         $this->normalizeFilters();
     }
 
@@ -143,7 +148,9 @@ final class GameAnalytics extends Page
 
     /**
      * The period of the links to Traffic sources: the same preset where it
-     * has one, the same days for a range, its own default for all time.
+     * has one, the same days for a range, its own default for all time —
+     * always named, since an address that names none opens on the period
+     * last chosen there.
      *
      * @return array<string, string|null>
      */
@@ -153,6 +160,6 @@ final class GameAnalytics extends Page
             return ['from' => $period->fromDay, 'to' => $period->toDay];
         }
 
-        return ['period' => in_array($period->preset, ['7d', '90d'], true) ? $period->preset : null];
+        return ['period' => array_key_exists($period->preset, TrafficSourcesPage::PERIODS) ? $period->preset : '30d'];
     }
 }

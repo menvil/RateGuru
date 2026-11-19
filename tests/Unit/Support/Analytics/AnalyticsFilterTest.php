@@ -10,7 +10,8 @@ use Carbon\CarbonImmutable;
  * Which visits an Analytics figure counts: the period's days, read through a
  * wider span of arrivals; the device, the source and the campaign, together;
  * the path a breakdown opened — every column from AnalyticsDimension — and
- * the same over the window before.
+ * the same over the window before, today alone's stopping its arrivals as
+ * far into the day before as today has gone.
  */
 
 function analyticsFilterPeriod(string $preset = '7d'): AnalyticsPeriod
@@ -56,6 +57,16 @@ it('carries every condition over to the window before', function () {
 
     expect([$previous?->fromDay(), $previous?->toDay()])->toBe(['2026-11-05', '2026-11-11'])
         ->and($previous?->conditions())->toBe($filter->conditions());
+});
+
+it('stops the arrivals of the window before today alone as far into the day before as today has gone', function () {
+    $previous = (new AnalyticsFilter(analyticsFilterPeriod('today')))->previous();
+
+    expect([$previous?->fromDay(), $previous?->toDay()])->toBe(['2026-11-17', '2026-11-17'])
+        ->and($previous?->arrivedFrom()->toDateTimeString())->toBe('2026-11-16 10:00:00')
+        ->and($previous?->arrivedBefore()->toDateTimeString())->toBe('2026-11-17 12:00:00')
+        // The same day read as Yesterday, over and done, runs its whole span of arrivals.
+        ->and((new AnalyticsFilter(analyticsFilterPeriod('yesterday')))->arrivedBefore()->toDateTimeString())->toBe('2026-11-18 12:00:00');
 });
 
 it('refuses a path on a column no dimension reads', function () {

@@ -4,6 +4,7 @@ namespace App\Filament\Pages\Analytics;
 
 use App\Enums\GameStatus;
 use App\Filament\Pages\GrowthAnalyticsPage;
+use App\Filament\Pages\TrafficSourcesPage;
 use App\Filament\Resources\Games\Analytics\GameAnalyticsView;
 use App\Filament\Resources\Games\Analytics\GameAnalyticsWindow;
 use App\Filament\Resources\Games\GameResource;
@@ -83,7 +84,7 @@ final class GamesTab implements AnalyticsTab
         return GrowthAnalyticsPage::getUrl(array_filter([
             'tab' => 'games',
             'game' => $gameId,
-            'period' => $period->isCustom() || $period->preset === AnalyticsPeriod::DEFAULT ? null : $period->preset,
+            'period' => $period->isCustom() ? null : $period->preset,
             'from' => $period->isCustom() ? $period->fromDay : null,
             'to' => $period->isCustom() ? $period->toDay : null,
             'device' => $filter->device?->value,
@@ -92,16 +93,15 @@ final class GamesTab implements AnalyticsTab
 
     /**
      * The period of the links to Traffic sources: the same preset where it
-     * has one — Last 30 days its default — else the same days.
+     * has one, else the same days — always named, since an address that
+     * names none opens on the period last chosen there.
      *
      * @return array<string, string|null>
      */
     private static function links(AnalyticsPeriod $period): array
     {
-        return match ($period->preset) {
-            'yesterday', '7d', '90d' => ['period' => $period->preset],
-            AnalyticsPeriod::DEFAULT => ['period' => null],
-            default => ['from' => $period->fromDay, 'to' => $period->toDay],
-        };
+        return array_key_exists($period->preset, TrafficSourcesPage::PERIODS)
+            ? ['period' => $period->preset]
+            : ['from' => $period->fromDay, 'to' => $period->toDay];
     }
 }

@@ -337,6 +337,7 @@ visitor was actually sent.
 | New accounts | confirmed accounts credited to an attempt in the window (`account_attributions`): signed up within 7 days of finishing it, on any page of the site, then confirmed — an email or Google or Facebook. An account never confirmed never counts |
 | Shared | attempts in the window whose result was shared; in the funnel, the people who shared |
 | Played again | people with more than one attempt in the window |
+| Ways on | people one of those attempts sent on to a post (`post_opened`), the feed, a page or the next game (an `exit` whose `step_type` is the attempt's own `onward_kind`, so the link to the feed every screen has counts for nothing), and the people credited with `post_voted`, `post_rated` or `feed_voted` |
 
 Narrowed to a device or country (a `VisitFilter` in the scope), or split by
 them, the figures read the recorded visits, since the game's tables keep no
@@ -355,7 +356,16 @@ are shares of the people who completed, Email captured of those who finished a
 version that asks for an email (each person once, however many such versions
 they finished), and Played again of the players who started. The Completed
 figure counts people as well; for logged-in players its note counts the plays
-behind it, and how many of them were completed.
+behind it, and how many of them were completed. The ways on come before
+Sign-up begun (after Shared result for logged-in players), a row only for those
+the versions in view offer the audience (`GameVersion::waysOn()`): Went on to
+the post, to the feed, to a page and to the next game are shares of the people
+who completed; Voted on the post and Rated the post — only where a step sending
+to a post asks for ratings (`GameVersion::asksForPostRatings()`) — of the
+people sent to the post, and Voted in the feed of those sent to the feed. While
+another version in view sends to a post without asking, Rated the post is of
+the people asked to rate instead: those the versions that ask sent to a post,
+each person once however many of them sent them (`GameMetricsQuery::sentToPost()`).
 
 Goal reached counts the attempts of the window that reached their flow's goal,
 however late — an account confirmed within 7 days on any page of the site

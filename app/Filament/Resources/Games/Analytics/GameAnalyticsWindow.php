@@ -10,20 +10,24 @@ use Carbon\CarbonImmutable;
  * moment up to the one after its last — whole days, up to now where they
  * reach today — and the window of the same length right before it, to
  * compare with, unless those days are no longer kept or the window is all
- * time. It names itself as the notes say it (“last 30 days”, or its days)
- * and carries the period the links to Traffic sources open with. Now is
- * given, never read from the clock.
+ * time. Today alone, not over yet, is compared with the day before only as
+ * far into it as today has gone — the same hours of the day, as Growth →
+ * Analytics compares it. It names itself as the notes say it (“last 30
+ * days”, or its days) and carries the period the links to Traffic sources
+ * open with. Now is given, never read from the clock.
  */
 final readonly class GameAnalyticsWindow
 {
     /**
      * @param  CarbonImmutable|null  $before  the window before's first moment; none for all time, or once those days are gone
+     * @param  CarbonImmutable|null  $beforeUntil  the moment after the window before's last: the window's own first, or — today alone — as far into the day before as today has gone; none with no window before
      * @param  array<string, string|null>  $links  the period the links to Traffic sources carry
      */
     private function __construct(
         public CarbonImmutable $from,
         public CarbonImmutable $until,
         public ?CarbonImmutable $before,
+        public ?CarbonImmutable $beforeUntil,
         public bool $beforeGone,
         public bool $allTime,
         public string $name,
@@ -32,7 +36,8 @@ final readonly class GameAnalyticsWindow
 
     /**
      * Whole days, from the first one's start to the moment after the last —
-     * up to now where that is later — against as long a time right before.
+     * up to now where that is later — against as long a time right before;
+     * today alone against the day before up to the same time of day.
      *
      * @param  string|null  $name  what the notes call the window; its days for none
      * @param  int  $keptDays  how many days back the figures are kept: the window before is dropped once it starts earlier
@@ -41,11 +46,15 @@ final readonly class GameAnalyticsWindow
     public static function days(CarbonImmutable $start, CarbonImmutable $end, CarbonImmutable $now, int $keptDays, ?string $name, array $links): self
     {
         $until = $end->lessThan($now) ? $end : $now;
-        $before = $start->subSeconds((int) $start->diffInSeconds($until));
+        // Today alone stops at now: the day before counts only as far into it, the rest of today being still to come.
+        $today = $until->equalTo($now) && $start->greaterThanOrEqualTo($now->subSecond()->startOfDay());
+        [$before, $beforeUntil] = $today
+            ? [$start->subDay(), $until->subDay()]
+            : [$start->subSeconds((int) $start->diffInSeconds($until)), $start];
         // The days before are compared only while they are still kept.
         $gone = $before->lessThan($now->subDays($keptDays));
 
-        return new self($start, $until, $gone ? null : $before, $gone, false, $name ?? self::span($start, $until), $links);
+        return new self($start, $until, $gone ? null : $before, $gone ? null : $beforeUntil, $gone, false, $name ?? self::span($start, $until), $links);
     }
 
     /**
@@ -55,7 +64,7 @@ final readonly class GameAnalyticsWindow
      */
     public static function allTime(CarbonImmutable $now, array $links): self
     {
-        return new self(CarbonImmutable::createFromTimestampUTC(0), $now, null, false, true, 'all time', $links);
+        return new self(CarbonImmutable::createFromTimestampUTC(0), $now, null, null, false, true, 'all time', $links);
     }
 
     /** Its days as the filter bar names them: “20 Oct — 18 Nov 2026”. */
@@ -68,7 +77,7 @@ final readonly class GameAnalyticsWindow
     public function text(): string
     {
         return match (true) {
-            $this->before !== null => $this->dates().' · compared with '.self::span($this->before, $this->from),
+            $this->before !== null && $this->beforeUntil !== null => $this->dates().' · compared with '.self::span($this->before, $this->beforeUntil).($this->beforeUntil->lessThan($this->from) ? ' up to the same time' : ''),
             $this->beforeGone => $this->dates().' · the days before are no longer kept, nothing to compare with',
             default => 'All time · nothing earlier to compare with',
         };

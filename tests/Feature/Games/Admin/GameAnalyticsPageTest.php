@@ -6,25 +6,35 @@ use App\Actions\Games\PublishGameVersionAction;
 use App\Enums\GameAttemptStatus;
 use App\Enums\GameAudience;
 use App\Enums\GameEventType;
+use App\Enums\GameFlowStepType;
 use App\Enums\TrafficChannel;
 use App\Enums\TrafficDevice;
 use App\Filament\Pages\TrafficSourcesPage;
 use App\Filament\Resources\Games\GameResource;
 use App\Filament\Resources\Games\Pages\GameAnalytics;
 use App\Livewire\Games\PlayGame;
+use App\Livewire\Posts\PostVoting;
+use App\Livewire\Voting\RatingVoting;
 use App\Models\AccountAttribution;
+use App\Models\Category;
 use App\Models\GameAssignment;
 use App\Models\GameAttempt;
 use App\Models\GameEmailCapture;
 use App\Models\GameEvent;
+use App\Models\GameFlow;
+use App\Models\GameRoundOption;
 use App\Models\GameTrafficPeriod;
 use App\Models\GameVersion;
+use App\Models\Post;
 use App\Models\ProjectSettings;
+use App\Models\RatingGroup;
+use App\Models\RatingOption;
 use App\Models\TrafficSetting;
 use App\Models\TrafficSource;
 use App\Models\TrafficVisit;
 use App\Models\User;
 use App\Support\Games\Flow\GameFlowTemplate;
+use Livewire\Features\SupportTesting\Testable;
 use Livewire\Livewire;
 
 /**
@@ -37,6 +47,15 @@ beforeEach(function () {
     ProjectSettings::factory()->create();
     $this->draft = publishableGameDraft(1);
 });
+
+/** A guest's browser (its cookie token) plays the one-round game to its Full Result, on whichever version the traffic gives it. */
+function guestAtResult(array $draft, string $token): Testable
+{
+    return Livewire::withCookie((string) config('games.visitor_cookie.name'), $token)
+        ->test(PlayGame::class, ['slug' => $draft['game']->slug])
+        ->call('init')->call('continue')->call('choose', 0)->call('next')
+        ->assertSee('data-testid="game-step-full_result"', false);
+}
 
 it('says there is nothing to measure before a version is published', function () {
     $this->actingAs($this->draft['admin'])
@@ -247,6 +266,165 @@ it('leaves the emails out for a version chosen that asks for none, though anothe
         ->assertDontSee('Email captured');
 
     expect(collect($page->viewData('funnel'))->pluck('label'))->not->toContain('Email captured');
+});
+
+it('follows the guests the result sends on to a post: who went, voted on it and rated it, each a share of the step it follows', function () {
+    $group = RatingGroup::factory()->create(['key' => 'cuteness']);
+    $option = RatingOption::factory()->for($group, 'group')->create();
+    replaceFlowSteps($this->draft['flow'], [GameFlowStepType::Landing, GameFlowStepType::Game, GameFlowStepType::FullResult], settings: ['full_result' => ['onward' => 'post', 'ask_groups' => 'cuteness']]);
+    liveGame($this->draft);
+    $cookie = (string) config('games.visitor_cookie.name');
+
+    // Forty days ago, in the 30 days before the ones shown, guest e went on to the post.
+    $this->travelTo(now()->subDays(40));
+    guestAtResult($this->draft, str_repeat('e', 40))->call('leave', 'step');
+    session()->flush();
+    $this->travelBack();
+
+    // Guests a, b and c go on to the post, guest d stays.
+    foreach (['a', 'b', 'c'] as $guest) {
+        guestAtResult($this->draft, str_repeat($guest, 40))->call('leave', 'step');
+        session()->flush();
+    }
+
+    guestAtResult($this->draft, str_repeat('d', 40));
+    session()->flush();
+    // Signed up, a votes on the post and rates it, b only votes. Signed in from here on: no guest plays after it.
+    $post = Post::query()->findOrFail(GameRoundOption::query()->where('position', 0)->sole()->post_id);
+    [$memberA, $memberB] = User::factory()->count(2)->create()->all();
+    Livewire::withCookie($cookie, str_repeat('a', 40))->actingAs($memberA)->test(PostVoting::class, ['postId' => $post->id])->call('vote', 'up');
+    Livewire::withCookie($cookie, str_repeat('a', 40))->actingAs($memberA)->test(RatingVoting::class, ['post' => $post, 'groupKey' => 'cuteness'])->call('vote', $option->id);
+    Livewire::withCookie($cookie, str_repeat('b', 40))->actingAs($memberB)->test(PostVoting::class, ['postId' => $post->id])->call('vote', 'up');
+    $this->actingAs($this->draft['admin']);
+
+    $funnel = collect(Livewire::test(GameAnalytics::class, ['record' => $this->draft['game']->id])->viewData('funnel'))->keyBy('label');
+
+    expect($funnel->keys()->all())->toBe(['Visitors', 'Game started', 'Completed', 'Went on to the post', 'Voted on the post', 'Rated the post', 'Sign-up begun', 'Goal reached', 'Account confirmed'])
+        ->and($funnel['Completed']['count'])->toBe('4')
+        // Going on is of the people who finished; what came of it, of the people it sent there.
+        ->and($funnel['Went on to the post'])->toMatchArray(['count' => '3', 'rate' => '75.0%', 'rateOf' => 'of Completed', 'hint' => 'Followed the result’s way on, or a Go to Post step, to the post'])
+        ->and($funnel['Voted on the post'])->toMatchArray(['count' => '2', 'rate' => '66.7%', 'rateOf' => 'of Went on to the post', 'hint' => 'Voted up or down on that post within 30 minutes; a vote needs an account'])
+        ->and($funnel['Rated the post'])->toMatchArray(['count' => '1', 'rate' => '33.3%', 'rateOf' => 'of Went on to the post', 'hint' => 'Answered the rating the step asked for, within 30 minutes'])
+        // Three went on, against the one of the 30 days before.
+        ->and($funnel['Went on to the post']['change'])->toBe(['text' => '▲ 200% vs previous period', 'tone' => 'good']);
+});
+
+it('shows a row only for the ways on the versions in view offer the audience', function () {
+    // V1's result goes on to a post that asks for no rating; V2 ends with Go to Feed, for anonymous visitors only.
+    replaceFlowSteps($this->draft['flow'], [GameFlowStepType::Landing, GameFlowStepType::Game, GameFlowStepType::FullResult], settings: ['full_result' => ['onward' => 'post']]);
+    liveGame($this->draft);
+    $feedFlow = GameFlow::factory()->create(['game_id' => $this->draft['game']->id]);
+    replaceFlowSteps($feedFlow, [GameFlowStepType::Landing, GameFlowStepType::Game, GameFlowStepType::FullResult, GameFlowStepType::Feed]);
+    $feedFlow->steps()->where('type', GameFlowStepType::Feed->value)->update(['audience' => 'anonymous']);
+    $second = app(PublishGameVersionAction::class)->handle($this->draft['admin'], $this->draft['game']->fresh(), $this->draft['set']->id, $feedFlow->id);
+    $cookie = (string) config('games.visitor_cookie.name');
+
+    // Guests f and g are given V2 and go on to the feed; once signed up, f votes three times there.
+    app(ApplyGameTrafficAction::class)->handle($this->draft['admin'], $this->draft['game'], GameAudience::Anonymous, [$second->id => 100]);
+
+    foreach (['f', 'g'] as $guest) {
+        guestAtResult($this->draft, str_repeat($guest, 40))->call('continue')->call('leave', 'step');
+        session()->flush();
+    }
+
+    $member = User::factory()->create();
+
+    foreach (Post::factory()->published()->count(3)->create() as $post) {
+        Livewire::withCookie($cookie, str_repeat('f', 40))->actingAs($member)->test(PostVoting::class, ['postId' => $post->id])->call('vote', 'up');
+    }
+
+    $this->actingAs($this->draft['admin']);
+    $funnel = fn ($page) => collect($page->viewData('funnel'))->keyBy('label');
+
+    $page = Livewire::test(GameAnalytics::class, ['record' => $this->draft['game']->id]);
+    expect($funnel($page)->keys()->all())->toBe(['Visitors', 'Game started', 'Completed', 'Went on to the post', 'Voted on the post', 'Went on to the feed', 'Voted in the feed', 'Sign-up begun', 'Goal reached', 'Account confirmed'])
+        ->and($funnel($page)['Completed']['count'])->toBe('2')
+        // Nobody went on to the post; both went on to the feed, and one voted three times there.
+        ->and($funnel($page)['Went on to the post'])->toMatchArray(['count' => '0', 'rate' => '0.0%', 'rateOf' => 'of Completed', 'hint' => 'Followed the result’s way on, or a Go to Post step, to the post'])
+        ->and($funnel($page)['Voted on the post'])->toMatchArray(['count' => '0', 'rate' => '—', 'rateOf' => 'of Went on to the post', 'hint' => 'Voted up or down on that post within 30 minutes; a vote needs an account'])
+        ->and($funnel($page)['Went on to the feed'])->toMatchArray(['count' => '2', 'rate' => '100.0%', 'rateOf' => 'of Completed', 'hint' => 'Followed the result’s way on, or a Go to Feed step, to the feed'])
+        ->and($funnel($page)['Voted in the feed'])->toMatchArray(['count' => '1', 'rate' => '50.0%', 'rateOf' => 'of Went on to the feed', 'hint' => 'Three votes in the feed within 30 minutes']);
+
+    // One version chosen: its own way on alone.
+    $page->set('version', $second->id);
+    expect($funnel($page)->keys()->all())->toBe(['Visitors', 'Game started', 'Completed', 'Went on to the feed', 'Voted in the feed', 'Sign-up begun', 'Goal reached', 'Account confirmed']);
+
+    // Logged-in players are never sent to the feed, and need no account to vote.
+    $page->set('version', 0)->set('audience', 'authenticated');
+    expect($funnel($page)->keys()->all())->toBe(['Players', 'Game started', 'Completed', 'Shared result', 'Went on to the post', 'Voted on the post', 'Played again'])
+        ->and($funnel($page)['Voted on the post']['hint'])->toBe('Voted up or down on that post within 30 minutes');
+});
+
+it('follows the guests sent on to a page or the next game, each a share of the people who finished', function () {
+    Category::factory()->create(['slug' => 'cats']);
+    $next = publishableGameDraft(1);
+    liveGame($next);
+    // V1 ends with Go to Page, V2 with Next Game.
+    replaceFlowSteps($this->draft['flow'], [GameFlowStepType::Landing, GameFlowStepType::Game, GameFlowStepType::FullResult, GameFlowStepType::GoToPage], settings: ['go_to_page' => ['destination' => 'category', 'category' => 'cats']]);
+    liveGame($this->draft);
+    $nextFlow = GameFlow::factory()->create(['game_id' => $this->draft['game']->id]);
+    replaceFlowSteps($nextFlow, [GameFlowStepType::Landing, GameFlowStepType::Game, GameFlowStepType::FullResult, GameFlowStepType::NextGame], $next['game']);
+    $second = app(PublishGameVersionAction::class)->handle($this->draft['admin'], $this->draft['game']->fresh(), $this->draft['set']->id, $nextFlow->id);
+
+    // Guest p goes on to the page from V1; then, given V2, guests n and o go on to the next game and guest q stays.
+    guestAtResult($this->draft, str_repeat('p', 40))->call('continue')->call('leave', 'step');
+    session()->flush();
+    app(ApplyGameTrafficAction::class)->handle($this->draft['admin'], $this->draft['game'], GameAudience::Anonymous, [$second->id => 100]);
+
+    foreach (['n', 'o'] as $guest) {
+        guestAtResult($this->draft, str_repeat($guest, 40))->call('continue')->call('leave', 'next');
+        session()->flush();
+    }
+
+    guestAtResult($this->draft, str_repeat('q', 40));
+    session()->flush();
+    $this->actingAs($this->draft['admin']);
+
+    $funnel = collect(Livewire::test(GameAnalytics::class, ['record' => $this->draft['game']->id])->viewData('funnel'))->keyBy('label');
+
+    expect($funnel->keys()->all())->toBe(['Visitors', 'Game started', 'Completed', 'Went on to a page', 'Went on to the next game', 'Sign-up begun', 'Goal reached', 'Account confirmed'])
+        ->and($funnel['Completed']['count'])->toBe('4')
+        ->and($funnel['Went on to a page'])->toMatchArray(['count' => '1', 'rate' => '25.0%', 'rateOf' => 'of Completed', 'hint' => 'Followed the result’s way on, or a Go to Page step, to a category, a tag, a page or another site'])
+        ->and($funnel['Went on to the next game'])->toMatchArray(['count' => '2', 'rate' => '50.0%', 'rateOf' => 'of Completed', 'hint' => 'Followed the Next Game step to the game it suggests']);
+});
+
+it('measures Rated the post against the people asked to rate, while another version shown sends to a post without asking', function () {
+    $group = RatingGroup::factory()->create(['key' => 'cuteness']);
+    $option = RatingOption::factory()->for($group, 'group')->create();
+    // V1's result goes on to a post and asks for a rating there; V2's goes on to one and asks for none.
+    replaceFlowSteps($this->draft['flow'], [GameFlowStepType::Landing, GameFlowStepType::Game, GameFlowStepType::FullResult], settings: ['full_result' => ['onward' => 'post', 'ask_groups' => 'cuteness']]);
+    $first = liveGame($this->draft);
+    $plainFlow = GameFlow::factory()->create(['game_id' => $this->draft['game']->id]);
+    replaceFlowSteps($plainFlow, [GameFlowStepType::Landing, GameFlowStepType::Game, GameFlowStepType::FullResult], settings: ['full_result' => ['onward' => 'post']]);
+    $second = app(PublishGameVersionAction::class)->handle($this->draft['admin'], $this->draft['game']->fresh(), $this->draft['set']->id, $plainFlow->id);
+
+    // Guests a and b go on to the post from V1, then guest c from V2; once signed up, a rates it.
+    foreach (['a', 'b'] as $guest) {
+        guestAtResult($this->draft, str_repeat($guest, 40))->call('leave', 'step');
+        session()->flush();
+    }
+
+    app(ApplyGameTrafficAction::class)->handle($this->draft['admin'], $this->draft['game'], GameAudience::Anonymous, [$second->id => 100]);
+    guestAtResult($this->draft, str_repeat('c', 40))->call('leave', 'step');
+    session()->flush();
+    $post = Post::query()->findOrFail(GameRoundOption::query()->where('position', 0)->sole()->post_id);
+    Livewire::withCookie((string) config('games.visitor_cookie.name'), str_repeat('a', 40))->actingAs(User::factory()->create())
+        ->test(RatingVoting::class, ['post' => $post, 'groupKey' => 'cuteness'])->call('vote', $option->id);
+    $this->actingAs($this->draft['admin']);
+    $funnel = fn ($page) => collect($page->viewData('funnel'))->keyBy('label');
+
+    // Every version: of the two V1 asked, not of the three both sent to the post.
+    $page = Livewire::test(GameAnalytics::class, ['record' => $this->draft['game']->id]);
+    expect($funnel($page)['Went on to the post']['count'])->toBe('3')
+        ->and($funnel($page)['Rated the post'])->toMatchArray(['count' => '1', 'rate' => '50.0%', 'rateOf' => 'of people asked to rate', 'hint' => 'Answered the rating the step asked for, within 30 minutes, of the people sent to a post by a version that asks']);
+
+    // V1 alone: every version shown asks, so it is of the people sent to the post.
+    $page->set('version', $first->id);
+    expect($funnel($page)['Rated the post'])->toMatchArray(['count' => '1', 'rate' => '50.0%', 'rateOf' => 'of Went on to the post', 'hint' => 'Answered the rating the step asked for, within 30 minutes']);
+
+    // V2 alone asks for none.
+    $page->set('version', $second->id);
+    expect($funnel($page)->keys()->all())->not->toContain('Rated the post');
 });
 
 it('compares the versions on paid traffic and shows every visitor by where they came from', function () {

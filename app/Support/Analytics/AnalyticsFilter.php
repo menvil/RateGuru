@@ -10,7 +10,8 @@ use InvalidArgumentException;
 
 /**
  * Which visits an Analytics figure counts: those of the period's network
- * days, of one device or either, from one source and one campaign or any —
+ * days — only those arrived before the moment it stops at, when it has one
+ * — of one device or either, from one source and one campaign or any —
  * both together when both are chosen — and along the path a breakdown has
  * opened, each step a dimension with its value. Every column it names comes
  * from AnalyticsDimension; a path naming any other is refused.
@@ -90,9 +91,13 @@ final readonly class AnalyticsFilter
         return $this->window()->arrivedFrom();
     }
 
+    /** The end of that span — or, sooner, the moment the period stops counting arrivals at (the day before today, as far into it as today has gone). */
     public function arrivedBefore(): CarbonImmutable
     {
-        return $this->window()->arrivedBefore();
+        $before = $this->window()->arrivedBefore();
+        $cutoff = $this->period->arrivedBefore;
+
+        return $cutoff !== null && $cutoff->lessThan($before) ? $cutoff : $before;
     }
 
     /**

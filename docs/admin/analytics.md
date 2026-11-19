@@ -29,11 +29,16 @@ Across the top: the **period**, **Device**, **Source** and **Campaign**, and
 the tabs. Everything you choose — the tab, the filters, each tab's own sort and
 choices — is kept in the page's address, so a link opens the same view.
 
-- **Period.** Yesterday, Last 7, 30 or 90 days, This month or Last month — or
-  click a start day and an end day on the calendar beside them. Today is
-  included. A range can be up to 93 days ("Up to 93 days at a time"), within the
-  400 days visits are kept. Every figure with a change beside it is compared
-  with as many days right before the period.
+- **Period.** Today, Yesterday, Last 7, 30 or 90 days, This month or Last
+  month — or click a start day and an end day on the calendar beside them.
+  Today is included. A range can be up to 93 days ("Up to 93 days at a time"),
+  within the 400 days visits are kept. Every figure with a change beside it is
+  compared with as many days right before the period — Yesterday with the day
+  before, and Today with yesterday by this time ("vs yesterday by this time"),
+  since the rest of today hasn't come yet. The period is always in the address,
+  Last 30 days too. Opened from an address that names no period, the page shows
+  the period you last chose here, unless it is a range older than the visits
+  are kept, which opens the last 30 days.
 - **Device.** Mobile, desktop or both.
 - **Source.** Where a visit's session came from: a paid source by its name; a
   network and the kind of traffic it sent — Reddit, Google (its search results)
@@ -90,7 +95,8 @@ reads the visitors each version was given.
   step counts people, not attempts. **See an example journey** opens one of the
   funnel's people on the Journeys tab.
 - **Visitors per hour, day or week**: one day by the hour, up to 31 days by the
-  day, longer periods by blocks of 7 days. Marked days say what happened: a
+  day, longer periods by blocks of 7 days. Today's hours not yet begun say
+  "still to come" instead of a count. Marked days say what happened: a
   version published, a paid campaign's first click, a comparison started.
 - **Traffic sources**: the ten sources the most people came from, then "Other
   referrals", with starts, completions, accounts and activations; **Attribution

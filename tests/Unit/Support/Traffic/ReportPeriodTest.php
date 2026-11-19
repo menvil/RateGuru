@@ -9,7 +9,7 @@ use Carbon\CarbonImmutable;
  * order, not past today and not starting before the oldest day kept. Anything
  * else is the default preset, never an error.
  */
-const REPORT_PERIOD_PRESETS = ['yesterday' => 'Yesterday', '7d' => 'Last 7 days', '30d' => 'Last 30 days', '90d' => 'Last 90 days'];
+const REPORT_PERIOD_PRESETS = ['today' => 'Today', 'yesterday' => 'Yesterday', '7d' => 'Last 7 days', '30d' => 'Last 30 days', '90d' => 'Last 90 days'];
 
 function readReportPeriod(mixed $preset, mixed $from = '', mixed $to = ''): ReportPeriod
 {
@@ -21,6 +21,7 @@ it('reads a preset the page has, and the default for any other', function (mixed
         ->and(readReportPeriod($preset)->isCustom())->toBeFalse();
 })->with([
     'a preset' => ['7d', '7d'],
+    'today' => ['today', 'today'],
     'yesterday' => ['yesterday', 'yesterday'],
     'one the page lacks' => ['all', '30d'],
     'nothing' => ['', '30d'],

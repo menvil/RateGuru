@@ -130,14 +130,16 @@ shows with no figures.
 ## Period
 
 The period picker in the header — the same as a game's Analytics tab and
-Growth → Analytics have — offers Yesterday and the last 7, 30 or 90 days
-beside a calendar: click the first day of a range, then the last, and the
+Growth → Analytics have — offers Today, Yesterday and the last 7, 30 or 90
+days beside a calendar: click the first day of a range, then the last, and the
 period is taken at once, with no Apply. Days before the oldest day visits are
 kept (400 days) can't be picked. Days are each network's own. The period is
-kept in the page's address (`period`, or `from` and `to` for a range); a range
-in an address that ends after today, runs backwards or starts before the
-oldest kept day opens the last 30 days instead. A game's Analytics links here
-with its own period and device.
+always kept in the page's address (`period`, Last 30 days too, or `from` and
+`to` for a range); a range in an address that ends after today, runs backwards
+or starts before the oldest kept day opens the last 30 days instead. An
+address that names no period opens the period you last chose on this page, and
+the last 30 days once that is a range older than visits are kept. A game's
+Analytics links here with its own period and device.
 
 ## Sign-ups that never confirm
 

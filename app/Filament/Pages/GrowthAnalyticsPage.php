@@ -29,6 +29,7 @@ use App\Support\Analytics\AnalyticsFilter;
 use App\Support\Analytics\AnalyticsPeriod;
 use App\Support\Analytics\AnalyticsSource;
 use App\Support\Analytics\CampaignKey;
+use App\Support\Traffic\Reports\ReportPeriodMemory;
 use Carbon\CarbonImmutable;
 use Filament\Pages\Page;
 use Filament\Support\Enums\Width;
@@ -70,8 +71,11 @@ use UnitEnum;
  * the cut of the cohorts Retention shows, the country Geography opens, the
  * journey Journeys looks up — and anything it can't read is the default;
  * only the rows of the Campaigns tree opened or closed by hand stay with the
- * page alone. A segment is saved, deleted and brought back by Undo through
- * its drawer (TrafficSegmentEditor) and the toast it leaves; a tracking link
+ * page alone. The period the page opens on, and every one its picker sets,
+ * is kept as the administrator's last choice (ReportPeriodMemory), and an
+ * address that names no period opens on it. A segment is saved, deleted and
+ * brought back by Undo through its drawer (TrafficSegmentEditor) and the
+ * toast it leaves; a tracking link
  * is made and edited through its own (TrackingLinkEditor), whose save opens
  * the link's details. Asking for the page reads no visits: the open tab's
  * figures are read once the page is in a browser (wire:init), and only the
@@ -135,6 +139,9 @@ final class GrowthAnalyticsPage extends Page
      */
     public const array READ_CACHED = ['overview', 'engagement', 'campaigns', 'links', 'landings', 'games', 'experiments', 'retention', 'geo'];
 
+    /** The name the administrator's last choice of period is kept under (ReportPeriodMemory). */
+    public const string PERIOD_MEMORY = 'analytics';
+
     /** @var array<string, string> how Overview's sources table can be sorted */
     public const array SORTS = ['visitors' => 'Visitors', 'start' => 'Start rate', 'registration' => 'Registration rate', 'activation' => 'Activation rate'];
 
@@ -156,8 +163,12 @@ final class GrowthAnalyticsPage extends Page
     #[Url(except: 'overview')]
     public mixed $tab = 'overview';
 
-    /** One of AnalyticsPeriod::PRESETS; the default while a range is chosen. */
-    #[Url(except: AnalyticsPeriod::DEFAULT)]
+    /**
+     * One of AnalyticsPeriod::PRESETS; the default while a range is chosen.
+     * Always in the address, the default too: an address naming no period
+     * opens on the administrator's last choice instead.
+     */
+    #[Url(keep: true)]
     public mixed $period = AnalyticsPeriod::DEFAULT;
 
     /** A range's first day, Y-m-d; none for a preset. */
@@ -267,9 +278,10 @@ final class GrowthAnalyticsPage extends Page
 
     /**
      * The period's days in the top bar (a panel render hook), read from the
-     * page's own request; every render after that moves them to the days its
-     * figures were read for, by a browser event the page sends — a period
-     * chosen, or a preset that rolled over at midnight.
+     * page's own request — or, its address naming none, the administrator's
+     * last choice, as the page opens on it; every render after that moves
+     * them to the days its figures were read for, by a browser event the page
+     * sends — a period chosen, or a preset that rolled over at midnight.
      */
     public static function topbar(Request $request): string
     {
@@ -277,14 +289,23 @@ final class GrowthAnalyticsPage extends Page
             return '';
         }
 
-        $period = self::readPeriod($request->query('period'), $request->query('from'), $request->query('to'));
+        $kept = ReportPeriodMemory::recall($request, self::PERIOD_MEMORY);
+        $period = self::readPeriod($kept['period'] ?? $request->query('period'), $kept['from'] ?? $request->query('from'), $kept['to'] ?? $request->query('to'));
 
         return view('filament.pages.analytics.topbar', ['range' => $period->range()])->render();
     }
 
     public function mount(): void
     {
+        // An address that names no period opens on the one last chosen; whichever it opens on is kept in turn.
+        $kept = ReportPeriodMemory::recall(request(), self::PERIOD_MEMORY);
+
+        if ($kept !== null) {
+            [$this->period, $this->from, $this->to] = [$kept['period'], $kept['from'], $kept['to']];
+        }
+
         $this->normalize();
+        $this->rememberPeriod();
     }
 
     /** The open tab's figures are read once the page is in a browser (wire:init), never by asking for it. */
@@ -371,6 +392,7 @@ final class GrowthAnalyticsPage extends Page
         $this->from = '';
         $this->to = '';
         $this->normalize();
+        $this->rememberPeriod();
     }
 
     public function applyRange(mixed $from, mixed $to): void
@@ -379,6 +401,13 @@ final class GrowthAnalyticsPage extends Page
         $this->from = $from;
         $this->to = $to;
         $this->normalize();
+        $this->rememberPeriod();
+    }
+
+    /** Keeps the period as read as the administrator's last choice in the picker. */
+    private function rememberPeriod(): void
+    {
+        ReportPeriodMemory::remember(self::PERIOD_MEMORY, (string) $this->period, (string) $this->from, (string) $this->to);
     }
 
     /** A row of Overview's sources table: filters the page by its source, or — chosen already — by every source again. */

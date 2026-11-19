@@ -9,7 +9,6 @@ use App\Models\TrackingLink;
 use App\Models\User;
 use App\Queries\Analytics\TrackingLinksQuery;
 use App\Support\Analytics\AnalyticsFilter;
-use App\Support\Analytics\AnalyticsPeriod;
 use App\Support\Analytics\CampaignKey;
 use App\Support\Analytics\TrackingLinkUrl;
 use App\Support\Analytics\VisitorFigures;
@@ -87,7 +86,7 @@ final class TrackingLinksTab implements AnalyticsTab
             'campaign' => CampaignKey::tag($link->utm_campaign),
             'creative' => $link->tags()->creative() ?? CampaignKey::NO_CREATIVE,
             'link' => $link->id,
-            'period' => $period->isCustom() || $period->preset === AnalyticsPeriod::DEFAULT ? null : $period->preset,
+            'period' => $period->isCustom() ? null : $period->preset,
             'from' => $period->isCustom() ? $period->fromDay : null,
             'to' => $period->isCustom() ? $period->toDay : null,
             'device' => $filter->device?->value,

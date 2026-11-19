@@ -1460,7 +1460,7 @@ final class TrafficSourcesView
                 'own' => $set->worth()->hasOwnAccountPrice((int) $source->id),
                 'site' => (string) $set->account_price,
                 // The same period, at the card where it is set.
-                'url' => TrafficSourcesPage::getUrl(array_filter(['tab' => 'value', 'period' => $page->period === '30d' ? null : $page->period, 'from' => $page->from, 'to' => $page->to])).'#traffic-value-sources',
+                'url' => TrafficSourcesPage::getUrl(array_filter(['tab' => 'value', 'period' => $page->period, 'from' => $page->from, 'to' => $page->to])).'#traffic-value-sources',
             ],
             'preset' => $preset,
             'connector' => $connector === null ? null : [...($this->presets->connector($connector->value) ?? []), 'verified' => $this->connectors->verified($connector)],

@@ -5,6 +5,7 @@ use App\Enums\GameAccountOutcome;
 use App\Enums\GameAttemptStatus;
 use App\Enums\GameAudience;
 use App\Enums\GameEventType;
+use App\Enums\GameOnwardKind;
 use App\Enums\TrafficDevice;
 use App\Models\AccountAttribution;
 use App\Models\AccountBrowser;
@@ -64,7 +65,7 @@ function metricsVisit(GameVersion $version, string $browser, TrafficDevice $devi
 }
 
 /** A `view` of the version by a guest (a hash) or a player (a user), or another event with its detail. */
-function metricsView(GameVersion $version, string|User $who, string $at = '2026-11-05 12:00:00', GameEventType $type = GameEventType::View, ?GameAttempt $attempt = null, ?string $provider = null): void
+function metricsView(GameVersion $version, string|User $who, string $at = '2026-11-05 12:00:00', GameEventType $type = GameEventType::View, ?GameAttempt $attempt = null, ?string $provider = null, ?GameOnwardKind $stepType = null): void
 {
     (new GameEvent)->forceFill([
         'game_id' => $version->game_id,
@@ -74,9 +75,29 @@ function metricsView(GameVersion $version, string|User $who, string $at = '2026-
         'user_id' => $who instanceof User ? $who->id : null,
         'visitor_hash' => $who instanceof User ? null : hash('sha256', $who),
         'type' => $type,
+        'step_type' => $stepType?->value,
         'provider' => $provider,
         'occurred_at' => $at,
     ])->save();
+}
+
+/**
+ * An attempt started at a moment and finished five minutes on, which the
+ * flow's way on sent somewhere a minute later, as LeaveGameAction records it:
+ * where it went on the attempt, its exit there, and for a post the post opened.
+ */
+function metricsWentOn(GameVersion $version, string|User $who, GameOnwardKind $way, string $at = '2026-11-05 12:00:00'): GameAttempt
+{
+    $start = CarbonImmutable::parse($at);
+    $onward = $start->addMinutes(6)->toDateTimeString();
+    $attempt = metricsAttempt($version, $who, $at, [...metricsCompleted(), 'completed_at' => $start->addMinutes(5)->toDateTimeString(), 'onward_kind' => $way, 'onward_at' => $onward]);
+    metricsView($version, $who, $onward, GameEventType::Exit, $attempt, stepType: $way);
+
+    if ($way === GameOnwardKind::Post) {
+        metricsView($version, $who, $onward, GameEventType::PostOpened, $attempt);
+    }
+
+    return $attempt;
 }
 
 /** An attempt at the version by a guest (a hash) or a player (a user), started at a moment. */
@@ -207,6 +228,81 @@ it('counts a share made through the site’s own share address, a person once ho
         ->and($sharing())->toBe([2, 1]);
 });
 
+it('counts the people the flow’s way on sent to a post, the feed, a page or the next game, and the votes credited to those plays, each person once', function () {
+    $version = liveGame(publishableGameDraft(rounds: 2));
+    $player = User::factory()->create();
+    // Within the 30 minutes after a play went on at 12:06.
+    $credited = '2026-11-05 12:10:00';
+    $wentOn = fn (GameOnwardKind $way, string $guest): GameAttempt => metricsWentOn($version, $guest, $way);
+
+    // Every count differs from the others, so a condition read for the wrong one changes the figures.
+    // Seven guests went on to the post, post-1 twice. Six voted there and five rated it, each as the account they
+    // signed up as, on their guest play: post-6 voted without rating, post-7 did neither.
+    $toPost = array_map(fn (int $n): GameAttempt => $wentOn(GameOnwardKind::Post, "post-{$n}"), range(1, 7));
+    $wentOn(GameOnwardKind::Post, 'post-1');
+
+    foreach (User::factory()->count(6)->create() as $index => $voter) {
+        metricsView($version, $voter, $credited, GameEventType::PostVoted, $toPost[$index]);
+
+        if ($index < 5) {
+            metricsView($version, $voter, $credited, GameEventType::PostRated, $toPost[$index]);
+        }
+    }
+
+    // Four went on to the feed; feed-1 left for it again, and alone voted three times there.
+    $toFeed = array_map(fn (int $n): GameAttempt => $wentOn(GameOnwardKind::Feed, "feed-{$n}"), range(1, 4));
+    metricsView($version, 'feed-1', $credited, GameEventType::Exit, $toFeed[0], stepType: GameOnwardKind::Feed);
+    metricsView($version, 'feed-1', $credited, GameEventType::FeedVoted, $toFeed[0]);
+    // Another took the link to the feed at the top of the screen: an exit to the feed, but no way on of the flow's.
+    $skipped = metricsAttempt($version, 'header-link', attributes: metricsCompleted());
+    metricsView($version, 'header-link', '2026-11-05 12:06:00', GameEventType::Exit, $skipped, stepType: GameOnwardKind::Feed);
+
+    // Two went on to a page, and three to the next game.
+    foreach (['page-1', 'page-2'] as $guest) {
+        $wentOn(GameOnwardKind::Page, $guest);
+    }
+
+    foreach (['next-1', 'next-2', 'next-3'] as $guest) {
+        $wentOn(GameOnwardKind::NextGame, $guest);
+    }
+
+    // Started before the window, and a logged-in player's: neither is an anonymous visitor's of the window.
+    metricsWentOn($version, 'early', GameOnwardKind::Post, '2026-10-30 12:00:00');
+    metricsWentOn($version, $player, GameOnwardKind::Post);
+
+    $ways = fn (GameFunnel $f): array => [$f->wentToPost, $f->votedOnPost, $f->ratedPost, $f->wentToFeed, $f->votedInFeed, $f->wentToPage, $f->wentToNextGame];
+    $anonymous = metricsQuery()->funnels(metricsScope($version))[0];
+
+    expect($ways($anonymous))->toBe([7, 6, 5, 4, 1, 2, 3])
+        // The other counts read from the same events stay as they were.
+        ->and([$anonymous->shared, $anonymous->sharers, $anonymous->signUpStarters, $anonymous->finishers])->toBe([0, 0, 0, 17])
+        ->and($ways(metricsQuery()->funnels(metricsScope($version, GameAudience::Authenticated))[0]))->toBe([1, 0, 0, 0, 0, 0, 0]);
+});
+
+it('splits the ways on by version and by the device of the play’s visit, a person once in each', function () {
+    $draft = publishableGameDraft(rounds: 2);
+    $first = liveGame($draft);
+    $second = metricsSecondVersion($draft);
+    $phone = metricsVisit($first, 'guest-a', TrafficDevice::Mobile, 'DE');
+
+    // guest-a went on to the post from both versions, the first time on a phone; guest-b to the feed from the second.
+    $onPhone = metricsWentOn($first, 'guest-a', GameOnwardKind::Post);
+    $onPhone->forceFill(['traffic_visit_id' => $phone->id])->save();
+    metricsView($first, 'guest-a', type: GameEventType::PostVoted, attempt: $onPhone);
+    metricsWentOn($second, 'guest-a', GameOnwardKind::Post);
+    metricsWentOn($second, 'guest-b', GameOnwardKind::Feed);
+
+    $ways = fn (GameFunnel $f): array => [$f->wentToPost, $f->votedOnPost, $f->wentToFeed];
+    $byVersion = metricsQuery()->funnels(metricsScope($first), 'version');
+
+    expect($ways(metricsQuery()->funnels(metricsScope($first))[0]))->toBe([1, 1, 1])
+        ->and($ways($byVersion[$first->id]))->toBe([1, 1, 0])
+        ->and($ways($byVersion[$second->id]))->toBe([1, 0, 1])
+        ->and($ways(metricsQuery()->funnels(metricsScope($first, versionId: $second->id))[0]))->toBe([1, 0, 1])
+        ->and(array_map($ways, metricsQuery()->funnels(metricsScope($first), 'device')))->toBe(['mobile' => [1, 1, 0]])
+        ->and($ways(metricsQuery()->funnels(metricsScope($first, visits: new VisitFilter(TrafficDevice::Desktop)))[0]))->toBe([0, 0, 0]);
+});
+
 it('splits the figures by version, flow and content set, a person once in each', function () {
     $draft = publishableGameDraft(rounds: 2);
     $first = liveGame($draft);
@@ -254,6 +350,31 @@ it('counts the people who finished one of the versions given, each once however 
         ->and(metricsQuery()->finishers(metricsScope($first), [$first->id]))->toBe(1)
         ->and(metricsQuery()->finishers(metricsScope($first), []))->toBe(0)
         ->and(metricsQuery()->finishers(metricsScope($first, GameAudience::Authenticated), [$first->id, $second->id]))->toBe(1);
+});
+
+it('counts the people one of the versions given sent on to a post, each once however many of them sent them', function () {
+    $draft = publishableGameDraft(rounds: 2);
+    $first = liveGame($draft);
+    $second = metricsSecondVersion($draft);
+    $third = metricsSecondVersion($draft);
+    $player = User::factory()->create();
+
+    // guest-a was sent to a post by both versions, guest-b by the second, twice.
+    metricsWentOn($first, 'guest-a', GameOnwardKind::Post);
+    metricsWentOn($second, 'guest-a', GameOnwardKind::Post);
+    metricsWentOn($second, 'guest-b', GameOnwardKind::Post);
+    metricsWentOn($second, 'guest-b', GameOnwardKind::Post);
+    // Sent to the feed, finished without going on, sent by another version, before the window, or a logged-in player: none of them.
+    metricsWentOn($first, 'guest-c', GameOnwardKind::Feed);
+    metricsAttempt($first, 'guest-d', attributes: metricsCompleted());
+    metricsWentOn($third, 'guest-e', GameOnwardKind::Post);
+    metricsWentOn($first, 'guest-f', GameOnwardKind::Post, '2026-10-30 12:00:00');
+    metricsWentOn($first, $player, GameOnwardKind::Post);
+
+    expect(metricsQuery()->sentToPost(metricsScope($first), [$first->id, $second->id]))->toBe(2)
+        ->and(metricsQuery()->sentToPost(metricsScope($first), [$first->id]))->toBe(1)
+        ->and(metricsQuery()->sentToPost(metricsScope($first), []))->toBe(0)
+        ->and(metricsQuery()->sentToPost(metricsScope($first, GameAudience::Authenticated), [$first->id, $second->id]))->toBe(1);
 });
 
 it('refuses to split the figures by anything else', function () {

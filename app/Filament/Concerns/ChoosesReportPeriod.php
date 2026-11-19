@@ -3,6 +3,7 @@
 namespace App\Filament\Concerns;
 
 use App\Support\Traffic\Reports\ReportPeriod;
+use App\Support\Traffic\Reports\ReportPeriodMemory;
 use Carbon\CarbonImmutable;
 use Livewire\Attributes\Url;
 
@@ -12,12 +13,18 @@ use Livewire\Attributes\Url;
  * range of whole days chosen in its calendar (`from`, `to`). Whatever the
  * address or an update sends is read through ReportPeriod and written back
  * as read, so a range that cannot be read becomes the default preset, never
- * an error. The page says how many days back its data is kept, and what else
- * starts over when the period changes.
+ * an error. The period the page opens on, and every one the picker sets, is
+ * kept as the administrator's last choice in the page's picker
+ * (ReportPeriodMemory), and an address that names no period opens on that
+ * choice, read the same way. The page names its presets (PERIODS) and the
+ * name its picker's choice is kept under (PERIOD_MEMORY), and says how many
+ * days back its data is kept and what else starts over when the period
+ * changes.
  */
 trait ChoosesReportPeriod
 {
-    #[Url(except: '30d')]
+    /** Always in the address, the default too: an address naming no period opens on the administrator's last choice instead. */
+    #[Url(keep: true)]
     public mixed $period = '30d';
 
     /** A range's first day, Y-m-d; none for a preset. */
@@ -40,6 +47,7 @@ trait ChoosesReportPeriod
         $this->from = '';
         $this->to = '';
         $this->settlePeriod();
+        $this->rememberPeriod();
         $this->periodChanged();
     }
 
@@ -49,7 +57,26 @@ trait ChoosesReportPeriod
         $this->from = $from;
         $this->to = $to;
         $this->settlePeriod();
+        $this->rememberPeriod();
         $this->periodChanged();
+    }
+
+    /**
+     * The period the page opens on: the address's own when it names one,
+     * else the administrator's last choice in the page's picker — read as
+     * any address is, and kept as the last choice in turn. Called as the
+     * page opens.
+     */
+    protected function openPeriod(): void
+    {
+        $kept = ReportPeriodMemory::recall(request(), static::PERIOD_MEMORY);
+
+        if ($kept !== null) {
+            [$this->period, $this->from, $this->to] = [$kept['period'], $kept['from'], $kept['to']];
+        }
+
+        $this->settlePeriod();
+        $this->rememberPeriod();
     }
 
     protected function reportPeriod(): ReportPeriod
@@ -64,6 +91,12 @@ trait ChoosesReportPeriod
         $this->period = $period->isCustom() ? '30d' : $period->preset;
         $this->from = $period->fromDay ?? '';
         $this->to = $period->toDay ?? '';
+    }
+
+    /** Keeps the period as settled as the administrator's last choice in the page's picker. */
+    private function rememberPeriod(): void
+    {
+        ReportPeriodMemory::remember(static::PERIOD_MEMORY, (string) $this->period, (string) $this->from, (string) $this->to);
     }
 
     /**

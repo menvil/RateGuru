@@ -176,14 +176,18 @@ from `VisitorFigures`, so a step of a funnel and the tile beside it agree.
 
 ### Periods
 
-`AnalyticsPeriod` reads the days asked for — Yesterday, Last 7, 30 or 90 days,
-This month, Last month, or a range of whole days — as every report reads its
-period: network days (a paid visit's day in its source's time zone, UTC for
-every unpaid one), today included. A range is at most `analytics.max_range_days`
-(93) days inside the 400 days visits are kept; one longer, backwards or out of
-reach reads as the default, Last 30 days. Each period is compared with the
-window of the same length right before it — none once that would start before
-the oldest day kept — and a chart splits it into hours of a single day, days up
+`AnalyticsPeriod` reads the days asked for — Today, Yesterday, Last 7, 30 or
+90 days, This month, Last month, or a range of whole days — as every report
+reads its period: network days (a paid visit's day in its source's time zone,
+UTC for every unpaid one), today included. A range is at most
+`analytics.max_range_days` (93) days inside the 400 days visits are kept; one
+longer, backwards or out of reach reads as the default, Last 30 days. Each
+period is compared with the window of the same length right before it — none
+once that would start before the oldest day kept. Today alone is compared with
+the day before only as far into it as today has gone: that window carries a
+moment (`arrivedBefore`) that `AnalyticsFilter::arrivedBefore()` stops every
+read's arrivals at, so no query needs to know. A chart splits a period into
+hours of a single day — today's not yet begun marked still to come — days up
 to 31, else blocks of seven days from the first, the last as long as the days
 left (`FigureChange` says the change; "No earlier data" when the window before
 counted none).

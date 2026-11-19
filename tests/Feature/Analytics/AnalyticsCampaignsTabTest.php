@@ -447,6 +447,8 @@ it('reads every filter of the page in the tree, says when no campaign matches, a
         ->and($campaigns(['source' => 'facebook:organic']))->toBe(['spring 5'])
         ->and($campaigns(['source' => 'reddit:organic', 'campaign' => 'tag:spring']))->toBe(['spring 30'])
         ->and($campaigns(['from' => '2026-10-05', 'to' => '2026-10-15']))->toBe(['spring 1']);
+    // The range is the period last chosen: forgotten, an address naming none opens on the last 30 days again.
+    forgetChosenReportPeriods();
 
     // People, but no campaign brought them.
     $none = Livewire::withQueryParams(['tab' => 'campaigns', 'source' => 'direct'])->test(GrowthAnalyticsPage::class)->call('load');

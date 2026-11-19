@@ -67,7 +67,10 @@ final class TrafficSourcesPage extends Page
 
     public const array TABS = ['report' => 'Report', 'campaigns' => 'Campaigns', 'value' => 'Value', 'spend' => 'Spend', 'sources' => 'Sources', 'logs' => 'Logs'];
 
-    public const array PERIODS = ['yesterday' => 'Yesterday', '7d' => 'Last 7 days', '30d' => 'Last 30 days', '90d' => 'Last 90 days'];
+    /** The name the administrator's last choice of period is kept under (ReportPeriodMemory). */
+    public const string PERIOD_MEMORY = 'traffic-sources';
+
+    public const array PERIODS = ['today' => 'Today', 'yesterday' => 'Yesterday', '7d' => 'Last 7 days', '30d' => 'Last 30 days', '90d' => 'Last 90 days'];
 
     protected string $view = 'filament.pages.traffic-sources';
 
@@ -236,6 +239,7 @@ final class TrafficSourcesPage extends Page
 
     public function mount(): void
     {
+        $this->openPeriod();
         $this->normalize();
         // Campaigns' link starts on the first network, or the first banner, and the first game.
         $this->linkSource = (string) (TrafficSource::query()->where('type', TrafficSourceType::Network)->orderBy('name')->value('id')
@@ -1156,7 +1160,7 @@ final class TrafficSourcesPage extends Page
     {
         $period = $this->reportPeriod();
         $days = match ($period->preset) {
-            'yesterday' => 1,
+            'today', 'yesterday' => 1,
             '7d' => 7,
             '90d' => 90,
             default => 30,

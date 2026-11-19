@@ -125,6 +125,7 @@ use App\Support\Studio\StudioExecutionSwitch;
 use App\Support\Studio\StudioVerifiedAdults;
 use App\Support\Traffic\Capture\ArrivalToken;
 use App\Support\Traffic\Capture\TrafficArrival;
+use App\Support\Traffic\Reports\ReportPeriodMemory;
 use App\Support\TranslationEngine\Contracts\TranslationProvider;
 use App\Support\TranslationEngine\Data\TranslationBatchRequest;
 use App\Support\TranslationEngine\Data\TranslationItem;
@@ -14957,6 +14958,16 @@ function finishedChanceRun(array $slices, int $sliceAccounts = 40): TrafficChanc
     }
 
     return $run;
+}
+
+/**
+ * Forgets the period the administrator last chose in every report page's
+ * picker, as a new session would: an address that names no period opens on
+ * the page's default again, not on a period an earlier open chose.
+ */
+function forgetChosenReportPeriods(): void
+{
+    session()->forget(ReportPeriodMemory::SESSION_KEY);
 }
 
 /** The visits of an Analytics preset, or of a range of days, narrowed as given, read for today. */

@@ -14,6 +14,7 @@ use App\Enums\TrafficConnector;
 use App\Enums\TrafficEvent;
 use App\Enums\TrafficPostbackStatus;
 use App\Enums\TrafficSourceStatus;
+use App\Filament\Pages\GrowthAnalyticsPage;
 use App\Filament\Pages\TrafficSourcesPage;
 use App\Models\Game;
 use App\Models\TrafficApiConnection;
@@ -34,6 +35,7 @@ use App\Models\User;
 use App\Support\Traffic\Blocking\BlockRule;
 use App\Support\Traffic\Money\TrafficMoney;
 use App\Support\Traffic\Postbacks\PostbackSchedule;
+use App\Support\Traffic\Reports\ReportPeriodMemory;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Facades\Http;
@@ -270,8 +272,8 @@ it('shows a source’s account price in its editor, its own or the site’s, wit
     $exo = TrafficSource::factory()->create(['name' => 'ExoClick main']);
     $pop = TrafficSource::factory()->create(['name' => 'PopAds main']);
     TrafficPriceSet::factory()->create(['source_account_prices' => [$exo->id => '0.8500']]);
-    // The same period, at the card where it is set, in a tab of its own.
-    $value = e(TrafficSourcesPage::getUrl(['tab' => 'value']).'#traffic-value-sources');
+    // The same period, named even when it is the default, at the card where it is set, in a tab of its own.
+    $value = e(TrafficSourcesPage::getUrl(['tab' => 'value', 'period' => '30d']).'#traffic-value-sources');
 
     Livewire::withQueryParams(['tab' => 'sources', 'edit' => $exo->id])->test(TrafficSourcesPage::class)
         ->assertSeeHtmlInOrder(['data-testid="traffic-source-account-price"', 'What an account from it is worth', '$0.85', 'href="'.$value.'"', 'Set on Value', 'Its own account price, in place of the site’s $0.50.']);
@@ -656,7 +658,7 @@ it('reads its period from the address — a preset or a range of network days �
 
     // The period picker the game Analytics shares, in the header band.
     $page = $open([])
-        ->assertSeeInOrder(['Traffic sources', 'Last 30 days', '19 Oct — 17 Nov 2026', 'Yesterday', 'Last 7 days', 'Last 30 days', 'Last 90 days', 'Custom range'])
+        ->assertSeeInOrder(['Traffic sources', 'Last 30 days', '19 Oct — 17 Nov 2026', 'Today', 'Yesterday', 'Last 7 days', 'Last 30 days', 'Last 90 days', 'Custom range'])
         ->assertDontSee('All time');
     expect($days($page))->toBe(['2026-10-19', '2026-11-17']);
 
@@ -667,6 +669,11 @@ it('reads its period from the address — a preset or a range of network days �
 
     $yesterday = $open(['period' => 'yesterday']);
     expect($days($yesterday))->toBe(['2026-11-16', '2026-11-16']);
+
+    // Today: today's network day alone, named by the picker as that one day.
+    $today = $open(['period' => 'today'])->assertSet('period', 'today')
+        ->assertViewHas('periodPicker', fn (array $picker): bool => array_key_first($picker['presets']) === 'today' && $picker['label'] === 'Today' && $picker['dates'] === '17 Nov 2026' && [$picker['from'], $picker['to']] === ['2026-11-17', '2026-11-17']);
+    expect($days($today))->toBe(['2026-11-17', '2026-11-17']);
 
     // Reversed, past today, longer than visits are kept, no such day: the preset in the address, else the default.
     foreach ([['2026-11-05', '2026-11-01'], ['2026-11-10', '2026-11-18'], ['2025-10-13', '2026-11-17'], ['2026-04-31', '2026-05-02']] as [$from, $to]) {
@@ -688,6 +695,34 @@ it('reads its period from the address — a preset or a range of network days �
         ->set('from', '2026-11-01')
         ->assertSet('from', '')
         ->assertSet('period', 'yesterday');
+});
+
+it('opens on the period last chosen in its picker when the address names none, an address naming one winning and kept in turn', function () {
+    $open = fn (array $query = []) => Livewire::withQueryParams($query)->test(TrafficSourcesPage::class);
+    $days = fn ($page): array => [$page->instance()->filter()->fromDay, $page->instance()->filter()->toDay];
+
+    // Nothing chosen yet: the default. A preset chosen, then a range on another tab: what an address naming none opens on.
+    $open()->assertSet('period', '30d')->call('choosePeriod', 'today');
+    expect($days($open()->assertSet('period', 'today')))->toBe(['2026-11-17', '2026-11-17']);
+    $open(['tab' => 'value'])->call('applyRange', '2026-11-02', '2026-11-04');
+    expect($days($open()->assertSet('from', '2026-11-02')->assertSet('to', '2026-11-04')))->toBe(['2026-11-02', '2026-11-04']);
+
+    // An address naming a period wins — the default too, as a game's Analytics names it in its links — and is kept in turn.
+    $open(['period' => '30d', 'tab' => 'report'])->assertSet('period', '30d')->assertSet('from', '');
+    $open()->assertSet('period', '30d')->assertSet('from', '')->assertSet('to', '');
+    $open(['period' => 'yesterday']);
+    $open()->assertSet('period', 'yesterday');
+
+    // Growth → Analytics keeps its own.
+    Livewire::withQueryParams(['period' => '90d'])->test(GrowthAnalyticsPage::class);
+    $open()->assertSet('period', 'yesterday');
+
+    // A range now older than visits are kept, or a preset the page doesn't offer: the default, silently.
+    $open(['from' => '2026-11-02', 'to' => '2026-11-04']);
+    $this->travelTo(CarbonImmutable::parse('2027-12-31 12:00:00'));
+    $open()->assertSet('period', '30d')->assertSet('from', '')->assertSet('to', '');
+    ReportPeriodMemory::remember(TrafficSourcesPage::PERIOD_MEMORY, 'this-month', '', '');
+    $open()->assertSet('period', '30d');
 });
 
 it('shows on Blocking what a source blocked, where its blocks stand with the network and the rule’s day, with the ways to them', function () {

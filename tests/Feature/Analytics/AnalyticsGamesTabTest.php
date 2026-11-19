@@ -154,6 +154,8 @@ it('draws the very cards and figures of the game’s own Analytics for the same 
     ];
 
     foreach ($cases as $case => [$analytics, $own]) {
+        // Each case a first visit: a case naming no period opens on the default, not on the period an earlier case chose.
+        forgetChosenReportPeriods();
         $tab = analyticsGames(['game' => $game->id, ...$analytics])->viewData('data');
         $page = Livewire::withQueryParams($own)->test(GameAnalytics::class, ['record' => $game->id]);
 
@@ -166,6 +168,7 @@ it('draws the very cards and figures of the game’s own Analytics for the same 
     }
 
     expect(analyticsGames(['period' => 'last-month'])->viewData('data')['window'])->toBe('last month');
+    forgetChosenReportPeriods();
 
     // The figures are there to compare: the shell's days and device do narrow them.
     $kpi = fn (array $data, string $label): string => collect($data['kpis'])->firstWhere('label', $label)['value'];
@@ -179,10 +182,14 @@ it('draws the very cards and figures of the game’s own Analytics for the same 
         ->and($mobile['sourcesSwitch'])->toBeFalse()
         ->and($all['datesText'])->toBe('20 Oct — 18 Nov 2026 · compared with 20 Sep — 19 Oct 2026')
         ->and(analyticsGames(['period' => 'yesterday'])->viewData('data')['datesText'])->toBe('17 Nov 2026 · compared with 16 Nov 2026')
+        // Today, as Overview compares it: with the day before up to the same time.
+        ->and(analyticsGames(['period' => 'today'])->viewData('data')['datesText'])->toBe('18 Nov 2026 · compared with 17 Nov 2026 up to the same time')
         ->and(analyticsGames(['period' => 'yesterday'])->viewData('data')['noData'])->toBeTrue();
 
-    // The way to Traffic sources carries the page's period as Traffic sources names it.
+    // The way to Traffic sources carries the page's period as Traffic sources names it — the default too, since an address naming none opens on the period last chosen there.
     expect(analyticsGames(['period' => '7d'])->viewData('data')['sources']['reportUrl'])->toContain('period=7d')
+        ->and(analyticsGames(['period' => 'today'])->viewData('data')['sources']['reportUrl'])->toContain('period=today')
+        ->and(analyticsGames(['period' => '30d'])->viewData('data')['sources']['reportUrl'])->toContain('period=30d')
         ->and(analyticsGames(['period' => 'this-month'])->viewData('data')['sources']['reportUrl'])->toContain('from=2026-11-01')->toContain('to=2026-11-18');
 });
 

@@ -7,9 +7,11 @@ use Carbon\CarbonImmutable;
  * The days Analytics reads, today included: a preset, or a range of whole
  * days no longer than 93 within the 400 days kept — anything else the preset
  * named or the default; the window of the same length before it, none past
- * the oldest day kept; how the comparison and the days read; and the buckets
- * of its chart — hours of one day, days up to 31, then blocks of seven days
- * from the first, the last as long as the days left.
+ * the oldest day kept, today alone's only as far into the day before as
+ * today has gone; how the comparison and the days read; and the buckets of
+ * its chart — hours of one day, today's still to come said so, days up to
+ * 31, then blocks of seven days from the first, the last as long as the days
+ * left.
  */
 
 function analyticsPeriod(mixed $preset, mixed $from = null, mixed $to = null, string $today = '2026-11-18 15:30:00'): AnalyticsPeriod
@@ -23,6 +25,7 @@ it('reads each preset as its days, today included', function (string $preset, st
     expect([$period->preset, $period->fromDay, $period->toDay, $period->days(), $period->label()])->toBe([$preset, $from, $to, $days, $label])
         ->and($period->isCustom())->toBeFalse();
 })->with([
+    ['today', '2026-11-18', '2026-11-18', 1, 'Today'],
     ['yesterday', '2026-11-17', '2026-11-17', 1, 'Yesterday'],
     ['7d', '2026-11-12', '2026-11-18', 7, 'Last 7 days'],
     ['30d', '2026-10-20', '2026-11-18', 30, 'Last 30 days'],
@@ -72,13 +75,30 @@ it('compares with the window of the same length just before it, none once that i
 
     expect([$previous?->fromDay, $previous?->toDay, $previous?->days()])->toBe(['2026-09-20', '2026-10-19', 30])
         ->and(analyticsPeriod('yesterday')->previous()?->fromDay)->toBe('2026-11-16')
+        ->and([analyticsPeriod('today')->previous()?->fromDay, analyticsPeriod('today')->previous()?->toDay])->toBe(['2026-11-17', '2026-11-17'])
         ->and(analyticsPeriod('last-month')->previous()?->fromDay)->toBe('2026-08-31')
         ->and($atTheEdge->previous()?->fromDay)->toBe('2025-10-15')
         ->and($pastTheEdge->previous())->toBeNull();
 });
 
+it('compares today alone with the day before only as far into it as today has gone, and no other period', function () {
+    $today = analyticsPeriod('today')->previous();
+
+    expect($today?->arrivedBefore?->toDateTimeString())->toBe('2026-11-17 15:30:00')
+        // Today typed in as a range, or this month on its first day, is today alone too.
+        ->and(analyticsPeriod('nope', '2026-11-18', '2026-11-18')->previous()?->arrivedBefore?->toDateTimeString())->toBe('2026-11-17 15:30:00')
+        ->and(analyticsPeriod('this-month', today: '2026-12-01 00:10:00')->previous()?->arrivedBefore?->toDateTimeString())->toBe('2026-11-30 00:10:00')
+        ->and(analyticsPeriod('today')->arrivedBefore)->toBeNull()
+        ->and(analyticsPeriod('yesterday')->previous()?->arrivedBefore)->toBeNull()
+        ->and(analyticsPeriod('7d')->previous()?->arrivedBefore)->toBeNull()
+        ->and(analyticsPeriod('nope', '2026-11-17', '2026-11-18')->previous()?->arrivedBefore)->toBeNull();
+});
+
 it('names the comparison and the days', function () {
     expect(analyticsPeriod('yesterday')->comparison())->toBe('the day before')
+        ->and(analyticsPeriod('today')->comparison())->toBe('yesterday by this time')
+        ->and(analyticsPeriod('today')->range())->toBe('18 Nov 2026')
+        ->and(analyticsPeriod('today')->end()->toDateTimeString())->toBe('2026-11-19 00:00:00')
         ->and(analyticsPeriod('30d')->comparison())->toBe('the previous 30 days')
         ->and(analyticsPeriod('30d')->range())->toBe('20 Oct — 18 Nov 2026')
         ->and(analyticsPeriod('yesterday')->range())->toBe('17 Nov 2026')
@@ -88,15 +108,22 @@ it('names the comparison and the days', function () {
         ->and(analyticsPeriod('7d')->end()->toDateTimeString())->toBe('2026-11-19 00:00:00');
 });
 
-it('splits a single day into its hours', function () {
+it('splits a single day into its hours, those of today not yet begun still to come', function () {
     $buckets = analyticsPeriod('yesterday')->buckets();
+    $today = analyticsPeriod('today')->buckets();
 
     expect($buckets)->toHaveCount(24)
         ->and(array_column($buckets, 'label'))->toBe(array_map(fn (int $hour): string => sprintf('%02d:00', $hour), range(0, 23)))
         ->and($buckets[13]['from']->toDateTimeString())->toBe('2026-11-17 13:00:00')
         ->and($buckets[13]['before']->toDateTimeString())->toBe('2026-11-17 14:00:00')
         ->and($buckets[13]['hint'])->toBe('17 Nov 2026 · 13:00–14:00 UTC')
-        ->and(array_unique(array_column($buckets, 'unit')))->toBe([AnalyticsPeriod::HOUR]);
+        ->and(array_unique(array_column($buckets, 'unit')))->toBe([AnalyticsPeriod::HOUR])
+        ->and(array_unique(array_column($buckets, 'toCome')))->toBe([false])
+        ->and($today)->toHaveCount(24)
+        ->and($today[0]['from']->toDateTimeString())->toBe('2026-11-18 00:00:00')
+        ->and($today[23]['before']->toDateTimeString())->toBe('2026-11-19 00:00:00')
+        // At 15:30 the hour from 15:00 has begun; the ones after it haven't.
+        ->and(array_keys(array_filter(array_column($today, 'toCome'))))->toBe(range(16, 23));
 });
 
 it('splits up to 31 days into days', function () {

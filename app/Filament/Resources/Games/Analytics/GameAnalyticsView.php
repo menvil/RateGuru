@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\Games\Analytics;
 
 use App\Enums\GameAudience;
+use App\Enums\GameOnwardKind;
 use App\Enums\TrafficDevice;
 use App\Filament\Pages\Experiments\ExperimentsView;
 use App\Filament\Pages\ExperimentsPage;
@@ -96,18 +97,28 @@ final class GameAnalyticsView
         $reports = $this->reports;
 
         $total = $metrics->funnels($scope)[0];
-        $earlier = $before !== null ? $metrics->funnels($scope->with(from: $before, to: $from))[0] : null;
+        $earlier = $before !== null ? $metrics->funnels($scope->with(from: $before, to: $window->beforeUntil))[0] : null;
         $byVersion = $metrics->funnels($scope, 'version');
         $ofVersion = fn (array $row): bool => $versionId === null || $row['version_id'] === $versionId;
         $traffic = collect($reports->gameBreakdown((int) $game->id, $from, $until, $visits))->filter($ofVersion)->values();
         $worth = self::sum($traffic);
-        $worthBefore = $before !== null ? self::sum(collect($reports->gameBreakdown((int) $game->id, $before, $from, $visits))->filter($ofVersion)) : null;
+        $worthBefore = $before !== null ? self::sum(collect($reports->gameBreakdown((int) $game->id, $before, $window->beforeUntil, $visits))->filter($ofVersion)) : null;
         $goals = ($versionId !== null ? $versions->only([$versionId]) : $versions)->map(fn (GameVersion $version): string => $version->flowGoal()->label())->unique()->values();
         // Of the versions the figures are of: the one chosen, or every one.
         $ofScope = $versionId !== null ? $versions->only([$versionId]) : $versions;
         $emailVersions = $ofScope->filter(fn (GameVersion $version): bool => $version->asksAnonymousForEmail())->keys()->all();
         // Each person once, however many of those versions they finished.
         $finishedWithEmail = count($emailVersions) === $ofScope->count() ? $total->finishers : $metrics->finishers($scope, $emailVersions);
+        // The ways on those versions offer the audience.
+        $waysOf = $ofScope->map(fn (GameVersion $version): array => $version->waysOn($audience));
+        $ways = array_values(array_filter(GameOnwardKind::cases(), fn (GameOnwardKind $way): bool => $waysOf->contains(fn (array $own): bool => in_array($way, $own, true))));
+        // Those whose step sending to a post asks for ratings: Rated the post is of the people they sent there, each
+        // once — of everyone sent to a post (null) while every version sending to one asks.
+        $ratingVersions = $ofScope->filter(fn (GameVersion $version): bool => $version->asksForPostRatings($audience))->keys()->all();
+        $asksForRatings = $ratingVersions !== [];
+        $askedToRate = ! $asksForRatings || count($ratingVersions) === $waysOf->filter(fn (array $own): bool => in_array(GameOnwardKind::Post, $own, true))->count()
+            ? null
+            : $metrics->sentToPost($scope, $ratingVersions);
         $focus = $versionId !== null ? $versions->get($versionId) : self::busiest($versions, $byVersion);
         $other = $audience === GameAudience::Anonymous ? GameAudience::Authenticated : GameAudience::Anonymous;
         $visitorCounts = [$audience->value => $total->visitors, $other->value => $metrics->visitors($scope->with(audience: $other))];
@@ -146,8 +157,9 @@ final class GameAnalyticsView
             'noData' => $total->isEmpty(),
             'kpis' => $audience === GameAudience::Anonymous ? self::anonymousKpis($total, $earlier, $worth, $worthBefore, $goals->count() === 1 ? $goals[0] : 'each flow’s own goal') : self::playerKpis($total, $earlier),
             'funnel' => self::withChanges(
-                $audience === GameAudience::Anonymous ? self::anonymousFunnel($total, $finishedWithEmail, $emailVersions !== [], $metrics->signUpMethods($scope)) : self::playerFunnel($total),
-                $earlier === null ? null : ($audience === GameAudience::Anonymous ? self::anonymousFunnel($earlier, 0, $emailVersions !== [], []) : self::playerFunnel($earlier)),
+                $audience === GameAudience::Anonymous ? self::anonymousFunnel($total, $finishedWithEmail, $emailVersions !== [], $metrics->signUpMethods($scope), $ways, $asksForRatings, $askedToRate) : self::playerFunnel($total, $ways, $asksForRatings, $askedToRate),
+                // Only the counts of the window before are compared, so its bases are left at nought.
+                $earlier === null ? null : ($audience === GameAudience::Anonymous ? self::anonymousFunnel($earlier, 0, $emailVersions !== [], [], $ways, $asksForRatings, $askedToRate === null ? null : 0) : self::playerFunnel($earlier, $ways, $asksForRatings, $askedToRate === null ? null : 0)),
             ),
             'compared' => $earlier !== null,
             'focus' => $focus !== null ? self::focus($focus, $metrics, $scope, $byVersion[(int) $focus->id] ?? new GameFunnel, $versionId === null) : null,
@@ -528,20 +540,23 @@ final class GameAnalyticsView
 
     /**
      * The anonymous funnel, people at every step: Email captured only where
-     * a version asks for one, then who began signing up — by how — and the
-     * accounts made, both shares of the people who finished rather than of
-     * the step above.
+     * a version asks for one, the ways on the versions offer (onwardSteps),
+     * then who began signing up — by how — and the accounts made, both
+     * shares of the people who finished rather than of the step above.
      *
      * @param  array<string, int>  $methods
+     * @param  list<GameOnwardKind>  $ways
+     * @param  int|null  $askedToRate  the people the versions asking for ratings sent to a post; null while every version sending to one asks
      * @return list<array<string, mixed>>
      */
-    private static function anonymousFunnel(GameFunnel $total, int $finishedWithEmail, bool $asksForEmail, array $methods): array
+    private static function anonymousFunnel(GameFunnel $total, int $finishedWithEmail, bool $asksForEmail, array $methods, array $ways, bool $asksForRatings, ?int $askedToRate): array
     {
         return self::funnelRows($total->visitors, array_values(array_filter([
             ['Visitors', $total->visitors, null, null, 'People who opened the game'],
             ['Game started', $total->starters, $total->visitors, 'Visitors', 'People who started at least once'],
             ['Completed', $total->finishers, $total->starters, 'Game started', 'People who finished at least once'],
             $asksForEmail ? ['Email captured', $total->emailers, $finishedWithEmail, 'finishers asked', 'Of the people who finished a version that asks for an email'] : null,
+            ...self::onwardSteps($total, $ways, $asksForRatings, $askedToRate, true),
             ['Sign-up begun', $total->signUpStarters, $total->finishers, 'Completed', self::methods($methods)],
             ['Goal reached', $total->goalPeople, $total->starters, 'Game started', 'People who reached their flow’s goal at least once, on any page of the site'],
             ['Account confirmed', $total->registered, $total->finishers, 'Completed', 'Signed up within 7 days of finishing, on any page of the site, and confirmed'],
@@ -568,20 +583,69 @@ final class GameAnalyticsView
     }
 
     /**
-     * The logged-in funnel: who played again is of the players who started,
+     * The logged-in funnel: the ways on the versions offer players after the
+     * shares (onwardSteps), and who played again, of the players who started,
      * since a replay needs no share before it.
      *
+     * @param  list<GameOnwardKind>  $ways
+     * @param  int|null  $askedToRate  as anonymousFunnel() takes it
      * @return list<array<string, mixed>>
      */
-    private static function playerFunnel(GameFunnel $total): array
+    private static function playerFunnel(GameFunnel $total, array $ways, bool $asksForRatings, ?int $askedToRate): array
     {
         return self::funnelRows($total->visitors, [
             ['Players', $total->visitors, null, null, 'Logged-in players who opened the game'],
             ['Game started', $total->starters, $total->visitors, 'Players', 'Players who started at least once'],
             ['Completed', $total->finishers, $total->starters, 'Game started', 'Players who finished at least once'],
             ['Shared result', $total->sharers, $total->finishers, 'Completed', null],
+            ...self::onwardSteps($total, $ways, $asksForRatings, $askedToRate, false),
             ['Played again', $total->replayers, $total->starters, 'Game started', 'Players who started more than once'],
         ]);
+    }
+
+    /**
+     * The steps of the ways on the versions in view offer, in the order of
+     * GameOnwardKind: each a share of the people who finished, and what came
+     * of it — a vote on the post, a rating it asked for (only where a version
+     * asks for one), three votes in the feed — a share of the people the way
+     * on sent there; a rating, while another version sends to a post without
+     * asking, of the people the versions that ask sent there.
+     *
+     * @param  list<GameOnwardKind>  $ways
+     * @param  int|null  $askedToRate  as anonymousFunnel() takes it
+     * @return list<array{0: string, 1: int, 2: int, 3: string, 4: string}>
+     */
+    private static function onwardSteps(GameFunnel $total, array $ways, bool $asksForRatings, ?int $askedToRate, bool $anonymous): array
+    {
+        $steps = [];
+
+        foreach ($ways as $way) {
+            array_push($steps, ...match ($way) {
+                GameOnwardKind::Post => [
+                    ['Went on to the post', $total->wentToPost, $total->finishers, 'Completed', 'Followed the result’s way on, or a Go to Post step, to the post'],
+                    ['Voted on the post', $total->votedOnPost, $total->wentToPost, 'Went on to the post', 'Voted up or down on that post within 30 minutes'.($anonymous ? '; a vote needs an account' : '')],
+                    ...($asksForRatings ? [[
+                        'Rated the post',
+                        $total->ratedPost,
+                        $askedToRate ?? $total->wentToPost,
+                        $askedToRate === null ? 'Went on to the post' : 'people asked to rate',
+                        'Answered the rating the step asked for, within 30 minutes'.($askedToRate === null ? '' : ', of the people sent to a post by a version that asks'),
+                    ]] : []),
+                ],
+                GameOnwardKind::Feed => [
+                    ['Went on to the feed', $total->wentToFeed, $total->finishers, 'Completed', 'Followed the result’s way on, or a Go to Feed step, to the feed'],
+                    ['Voted in the feed', $total->votedInFeed, $total->wentToFeed, 'Went on to the feed', 'Three votes in the feed within 30 minutes'],
+                ],
+                GameOnwardKind::Page => [
+                    ['Went on to a page', $total->wentToPage, $total->finishers, 'Completed', 'Followed the result’s way on, or a Go to Page step, to a category, a tag, a page or another site'],
+                ],
+                GameOnwardKind::NextGame => [
+                    ['Went on to the next game', $total->wentToNextGame, $total->finishers, 'Completed', 'Followed the Next Game step to the game it suggests'],
+                ],
+            });
+        }
+
+        return $steps;
     }
 
     /**
