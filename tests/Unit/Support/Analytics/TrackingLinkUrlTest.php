@@ -29,6 +29,12 @@ it('keeps the path’s own parameters, replaces its utm_ ones and drops what fol
         ->and(TrackingLinkUrl::gamePath('trust-your-taste'))->toBe('/games/trust-your-taste');
 });
 
+it('drops a parameter PHP would read as a campaign tag, however its name is spelled, and keeps the rest as written', function () {
+    expect(TrackingLinkUrl::withoutTags('/?utm.content=old&a.b=1&utm+term=x&utm%2Esource=s'))->toBe('/?a.b=1')
+        ->and(TrackingLinkUrl::compose('https://rateguru.com', '/games/x?utm.content=old&%20utm_medium=y&utm[campaign=z&ref=a.b', ['utm_source' => 'reddit', 'utm_medium' => 'referral']))
+        ->toBe('https://rateguru.com/games/x?ref=a.b&utm_source=reddit&utm_medium=referral');
+});
+
 it('reads a destination typed by hand as a path of the site, or a full https address on its host', function (string $typed, ?string $path, ?string $error) {
     expect(TrackingLinkUrl::customPath($typed, 'rateguru.com'))->toBe(['path' => $path, 'error' => $error]);
 })->with([

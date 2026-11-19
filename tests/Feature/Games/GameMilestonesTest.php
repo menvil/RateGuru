@@ -1,6 +1,7 @@
 <?php
 
 use App\Enums\GameEventType;
+use App\Enums\GameFlowStepType;
 use App\Enums\GameMilestone;
 use App\Events\Games\GameMilestoneReached;
 use App\Livewire\Games\PlayGame;
@@ -90,6 +91,44 @@ it('credits a replay to the play the visitor came back from', function () {
         ->and($attempts[0]->goal_reached_at)->not->toBeNull()
         ->and($attempts[1]->goal_reached_at)->toBeNull();
 });
+
+it('credits a next game started to the play whose Next Game sent the visitor there, past another game’s since', function (bool $detour) {
+    Event::fake([GameMilestoneReached::class]);
+    [$a, $b, $c, $d] = [publishableGameDraft(1), publishableGameDraft(1), publishableGameDraft(1), publishableGameDraft(1)];
+    liveGame($b);
+    liveGame($d);
+    replaceFlowSteps($a['flow'], [GameFlowStepType::Landing, GameFlowStepType::Game, GameFlowStepType::FullResult, GameFlowStepType::NextGame], $b['game']);
+    liveGame($a);
+    replaceFlowSteps($c['flow'], [GameFlowStepType::Landing, GameFlowStepType::Game, GameFlowStepType::FullResult, GameFlowStepType::NextGame], $d['game']);
+    liveGame($c);
+    $token = str_repeat('n', 40);
+
+    playEveryRound($a['game']->slug, 1, $token)->call('continue')->call('leave', 'next')
+        ->assertRedirect(route('games.play', ['slug' => $b['game']->slug]));
+
+    // Another game's Next Game taken later, to a game other than the one started.
+    if ($detour) {
+        $this->travel(1)->minutes();
+        playEveryRound($c['game']->slug, 1, $token)->call('continue')->call('leave', 'next')
+            ->assertRedirect(route('games.play', ['slug' => $d['game']->slug]));
+    }
+
+    $this->travel(5)->minutes();
+    Livewire::withCookie((string) config('games.visitor_cookie.name'), $token)
+        ->test(PlayGame::class, ['slug' => $b['game']->slug])
+        ->call('init')->call('continue');
+
+    $credited = Event::dispatched(GameMilestoneReached::class, fn (GameMilestoneReached $event): bool => $event->milestone === GameMilestone::NextGame)
+        ->map(fn (array $arguments): int => $arguments[0]->attemptId)
+        ->values()
+        ->all();
+
+    expect(GameAttempt::query()->where('game_id', $b['game']->id)->exists())->toBeTrue()
+        ->and($credited)->toBe([GameAttempt::query()->where('game_id', $a['game']->id)->sole()->id]);
+})->with([
+    'straight from the game that sent them' => [false],
+    'another game’s Next Game taken since' => [true],
+]);
 
 it('freezes the flow’s goal into the version it publishes', function () {
     $draft = publishableGameDraft(1);

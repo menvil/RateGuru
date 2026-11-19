@@ -192,13 +192,14 @@
             <div class="rg-admin-section-label"><h3 id="rg-admin-tracking-link-url" class="rg-admin-section-label__text">Generated URL</h3></div>
             <div @class(['rg-admin-analytics__link-url', 'rg-admin-analytics__link-url--empty' => $url === null]) data-testid="analytics-link-url">{{ $url ?? 'Choose a destination to build the URL' }}</div>
             <div class="rg-admin-analytics__link-buttons">
+                {{-- Says Link copied only once the clipboard took the address: the write can be refused, and there is no clipboard outside a secure page. --}}
                 <x-admin.ui.button
                     size="sm"
                     icon="copy"
                     :disabled="$url === null"
                     :data-copy="$url"
                     data-testid="analytics-link-copy"
-                    x-on:click="navigator.clipboard?.writeText($el.dataset.copy).then(() => $dispatch('rg-admin-toast', { message: 'Link copied', tone: 'success' }))"
+                    x-on:click="async () => { try { await navigator.clipboard.writeText($el.dataset.copy); $dispatch('rg-admin-toast', { message: 'Link copied', tone: 'success' }) } catch { $dispatch('rg-admin-toast', { message: 'The browser refused the clipboard, so nothing was copied.', tone: 'error' }) } }"
                 >Copy link</x-admin.ui.button>
                 <x-admin.ui.button size="sm" icon="external-link" :href="$preview" target="_blank" :disabled="$preview === null">Open destination preview</x-admin.ui.button>
             </div>

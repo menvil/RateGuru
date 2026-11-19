@@ -78,11 +78,13 @@ it('allows one open period per game, audience and scope, and any number of ended
 
 it('keeps a source or campaign a period names from being deleted', function (string $table) {
     $source = TrafficSource::factory()->create();
-    $campaign = TrafficCampaign::factory()->create(['source_id' => $source->id]);
-    DB::table('game_traffic_periods')->insert(scopedPeriodRow(Game::factory()->create(), ['source_id' => $source->id, 'campaign_id' => $campaign->id]));
-    $id = $table === 'traffic_sources' ? $source->id : $campaign->id;
+    // A source's period names no campaign: the campaign's own reference would keep the source too.
+    $campaign = $table === 'traffic_campaigns' ? TrafficCampaign::factory()->create(['source_id' => $source->id]) : null;
+    DB::table('game_traffic_periods')->insert(scopedPeriodRow(Game::factory()->create(), ['source_id' => $source->id, 'campaign_id' => $campaign?->id]));
+    $unnamed = $table === 'traffic_sources' ? TrafficSource::factory()->create() : TrafficCampaign::factory()->create(['source_id' => $source->id]);
 
-    expect(fn () => DB::table($table)->where('id', $id)->delete())->toThrow(QueryException::class);
+    expect(DB::table($table)->where('id', $unnamed->id)->delete())->toBe(1)
+        ->and(fn () => DB::table($table)->where('id', $campaign?->id ?? $source->id)->delete())->toThrow(QueryException::class);
 })->with(['traffic_sources', 'traffic_campaigns']);
 
 it('still refuses an audience the table doesn’t know', function () {

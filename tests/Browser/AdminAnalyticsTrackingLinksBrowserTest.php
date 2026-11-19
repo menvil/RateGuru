@@ -11,7 +11,8 @@ use function Pest\Laravel\actingAs;
 /**
  * Analytics → Tracking links in a real browser: Create tracking link opening
  * the drawer, the address built as the link is picked and typed, Copy link
- * putting it on the clipboard, Create link opening the new link's details,
+ * putting it on the clipboard or saying the browser refused it, Create link
+ * opening the new link's details,
  * and View in Campaigns opening its campaign with the banner and its rows
  * marked; the editor closed before what was typed in it was sent, leaving the
  * page whole; and the list and both drawers at each width, never wider than
@@ -66,6 +67,13 @@ it('creates a link, copies its address, opens its details and its campaign', fun
 
     expect($page->script("document.querySelector('#rg-admin-tracking-link-name').value"))->toBe('Reddit · versus_launch · post_01')
         ->and($page->script("document.querySelector('[data-testid=\"analytics-link-foot\"]').textContent.trim()"))->toBe('Ready to create');
+
+    // Refused: the toast says nothing was copied, never that it was.
+    $page->script("(() => { navigator.clipboard.writeText = () => Promise.reject(new DOMException('Denied', 'NotAllowedError')) })()");
+    $page->click('[data-testid="analytics-link-copy"]');
+    waitForScript($page, "document.body.textContent.includes('The browser refused the clipboard, so nothing was copied.')", true, 10.0);
+
+    expect($page->script("document.body.textContent.includes('Link copied')"))->toBeFalse();
 
     // A headless browser may not write to the clipboard: what is written is kept for the test to read.
     $page->script("() => { Object.defineProperty(navigator.clipboard, 'writeText', { value: (text) => { window.copiedLink = text; return Promise.resolve() } }); return true; }");

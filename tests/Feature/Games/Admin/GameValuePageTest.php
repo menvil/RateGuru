@@ -1,11 +1,16 @@
 <?php
 
+use App\Enums\GameFlowGoal;
 use App\Enums\TrafficEvent;
+use App\Enums\TrafficPostbackStatus;
 use App\Enums\TrafficStepValueMode;
 use App\Filament\Pages\TrafficSourcesPage;
 use App\Filament\Resources\Games\GameResource;
 use App\Filament\Resources\Games\Pages\GameValue;
+use App\Models\GameVersion;
 use App\Models\ProjectSettings;
+use App\Models\TrafficConversion;
+use App\Models\TrafficPostback;
 use App\Models\TrafficPostbackRule;
 use App\Models\TrafficPriceSet;
 use App\Models\TrafficSource;
@@ -102,6 +107,19 @@ it('sets a step’s value by hand in place, and goes back to the worked-out valu
     expect(TrafficStepValue::query()->count())->toBe(0);
 });
 
+it('refuses a value by hand that is not a plain amount, rather than reading it as another one', function (string $typed) {
+    TrafficStepValue::factory()->create(['game_id' => $this->draft['game']->id, 'step' => 'started', 'value' => '0.0200']);
+
+    Livewire::test(GameValue::class, ['record' => $this->draft['game']->id])
+        ->call('editStep', 'started')
+        ->set('editValue', $typed)
+        ->call('saveValue')
+        ->assertDispatched('rg-admin-toast', tone: 'error')
+        ->assertSet('editing', 'started');
+
+    expect(TrafficStepValue::query()->sole()->value)->toBe('0.0200');
+})->with(['a negative amount' => '-0.03', 'scientific notation' => '1e2', 'a decimal comma' => '1,5']);
+
 it('never opens the account or a sign-in for setting by hand, and links both to the prices of the whole site', function () {
     Livewire::test(GameValue::class, ['record' => $this->draft['game']->id])
         ->call('editStep', 'account')
@@ -191,6 +209,49 @@ it('shows the game’s paid traffic by source on its analytics, and compares its
         ->assertSee('Versions on paid traffic')
         ->assertSee('No paid visitor reached a version in this period.')
         ->assertSeeInOrder(['Traffic sources', 'Ad networks', 'PopAds main', '3 visits']);
+});
+
+it('marks a postback failing while the last one its rule sent failed, and only then', function () {
+    $source = TrafficSource::factory()->create(['name' => 'PopAds main']);
+    $sent = TrafficPostbackRule::factory()->create(['source_id' => $source->id, 'event' => 'started', 'goal_code' => '81442']);
+    // A rule that has sent nothing yet is not failing.
+    TrafficPostbackRule::factory()->create(['source_id' => $source->id, 'event' => 'completed', 'goal_code' => '81443', 'position' => 1]);
+    $postback = fn (TrafficPostbackStatus $status) => TrafficPostback::factory()->create([
+        'rule_id' => $sent->id,
+        'source_id' => $source->id,
+        'status' => $status,
+        'conversion_id' => TrafficConversion::factory()->create(['visit_id' => TrafficVisit::factory()->create(['source_id' => $source->id])->id])->id,
+    ]);
+    $failing = fn (array $expected): Closure => fn (array $postbacks): bool => collect($postbacks)->mapWithKeys(fn (array $row): array => [$row['code'] => $row['failing']])->all() === $expected;
+
+    $postback(TrafficPostbackStatus::Failed);
+
+    Livewire::test(GameValue::class, ['record' => $this->draft['game']->id])
+        ->assertViewHas('postbacks', $failing(['81442' => true, '81443' => false]))
+        ->assertSee('Goal 81442 · by device and country group · failing');
+
+    $postback(TrafficPostbackStatus::Delivered);
+
+    Livewire::test(GameValue::class, ['record' => $this->draft['game']->id])
+        ->assertViewHas('postbacks', $failing(['81442' => false, '81443' => false]))
+        ->assertDontSee('· failing');
+});
+
+it('tags a Goal postback on the goal the live versions count, not on a goal not published yet', function () {
+    // V1, the live version, counts Account confirmed; its flow has since been given Result shared, not published.
+    expect(GameVersion::query()->where('game_id', $this->draft['game']->id)->sole()->flowGoal())->toBe(GameFlowGoal::Account);
+    $this->draft['flow']->forceFill(['goal' => GameFlowGoal::Shared])->save();
+    $source = TrafficSource::factory()->create(['name' => 'ExoClick main']);
+    TrafficPostbackRule::factory()->create(['source_id' => $source->id, 'event' => TrafficEvent::Goal, 'goal_code' => 'g1']);
+    $row = fn (array $rows, string $step): array => collect($rows)->flatten(1)->firstWhere('step', $step);
+
+    Livewire::test(GameValue::class, ['record' => $this->draft['game']->id])
+        ->assertViewHas('postbacks', fn (array $postbacks): bool => $postbacks[0]['steps'] === ['account'])
+        ->assertViewHas('rows', fn (array $rows): bool => $row($rows, 'account')['postbacks'] === ['Postback · ExoClick main g1 (flow goal)']
+            && $row($rows, 'shared')['postbacks'] === []
+            // The flow's own tag follows the flow as it is being edited.
+            && $row($rows, 'shared')['goal'] === $this->draft['flow']->name
+            && $row($rows, 'account')['goal'] === null);
 });
 
 it('lists a Visit settled postback with what it can send, without tagging every step', function () {

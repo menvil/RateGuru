@@ -5,7 +5,8 @@
     the page's presets beside a calendar of whole days, the date range field
     drawn in place. A preset is taken at once; so is a range, the moment its
     last day is clicked — there is no Apply and no Cancel. Escape or a click
-    outside leave the period as it was. The calendar's limits only help: the
+    outside leave the period as it was, and drop a start picked without an
+    end, wherever the focus is. The calendar's limits only help: the
     server reads whatever it is sent, and a range it cannot read is the
     default preset.
 
@@ -27,6 +28,8 @@
             }
 
             this.open = false
+            // A start picked without an end is dropped, wherever the focus was: the calendar hears only its own Escape.
+            Alpine.$data(this.$root.querySelector('.rg-admin-date-range')).reset()
 
             if (returnFocus) {
                 this.$refs.trigger.focus()
@@ -66,7 +69,7 @@
                     type="button"
                     class="rg-admin-period__preset"
                     aria-pressed="{{ $picker['value'] === $key ? 'true' : 'false' }}"
-                    x-on:click="open = false"
+                    x-on:click="close(false)"
                     wire:click="choosePeriod(@js($key))"
                 >
                     <span>{{ $label }}</span>

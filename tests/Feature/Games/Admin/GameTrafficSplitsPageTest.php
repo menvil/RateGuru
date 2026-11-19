@@ -164,6 +164,44 @@ it('ends a split once asked, keeping the visitors it sent on their version', fun
     expect($split->fresh())->ended_at->not->toBeNull()->open_scope->toBeNull();
 });
 
+it('keeps the shares typed in the form of one split while another is ended, and starts over the form of the split ended', function () {
+    $exo = gameSplit($this->draft, TrafficScope::source($this->exo->id), [$this->v1->id => 100]);
+    $campaign = gameSplit($this->draft, TrafficScope::campaign($this->pop->id, $this->campaign->id), [$this->v2->id => 100]);
+
+    $page = Livewire::test(GameTraffic::class, ['record' => $this->game->id])
+        ->call('openSplit', $exo->id)
+        ->call('addSplitVersion', $this->v2->id)
+        ->set('split.shares.'.$this->v1->id, '40')
+        ->set('split.shares.'.$this->v2->id, '60')
+        ->call('askEndSplit', $campaign->id)
+        ->call('endSplit')
+        ->assertDispatched('rg-admin-toast', message: 'Split ended. Its period stays in the history.', tone: 'success')
+        ->assertSet('split.shares', [$this->v1->id => '40', $this->v2->id => '60'])
+        ->assertSee('Shares add up to 100%. Saving changes this split.');
+
+    // The form's own split ended: what is typed stays, and saving starts the split again.
+    $page->call('askEndSplit', $exo->id)
+        ->call('endSplit')
+        ->assertSet('splitApplied', [])
+        ->assertSet('split.shares', [$this->v1->id => '40', $this->v2->id => '60'])
+        ->assertSee('Shares add up to 100%. Saving starts the split.');
+});
+
+it('offers the campaign a split is for though two hundred newer campaigns of its source come first', function () {
+    $old = TrafficCampaign::factory()->create(['source_id' => $this->pop->id, 'external_id' => '100777', 'status' => TrafficCampaignStatus::Active, 'first_click_at' => now()->subYear()]);
+    $split = gameSplit($this->draft, TrafficScope::campaign($this->pop->id, $old->id), [$this->v2->id => 100]);
+    TrafficCampaign::factory()->count(200)->create(['source_id' => $this->pop->id, 'status' => TrafficCampaignStatus::Active]);
+
+    $campaigns = collect(Livewire::test(GameTraffic::class, ['record' => $this->game->id])
+        ->call('openSplit', $split->id)
+        ->assertSet('split.campaign', (string) $old->id)
+        ->viewData('splitForm')['campaigns']);
+
+    expect($campaigns->pluck('id'))->toContain($old->id)
+        ->and($campaigns)->toHaveCount(201)
+        ->and($campaigns->pluck('id')->unique())->toHaveCount(201);
+});
+
 it('counts a version given a share by a split alone as in traffic on Versions', function () {
     gameSplit($this->draft, TrafficScope::source($this->exo->id), [$this->v2->id => 100]);
 

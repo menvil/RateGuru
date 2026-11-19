@@ -96,7 +96,7 @@
                         <legend class="rg-admin-label">Next pair</legend>
                         @foreach ($advances as $value => $label)
                             <label @class(['rg-admin-games__radio-row', 'rg-admin-games__radio-row--on' => ($step['settings']['advance'] ?? 'auto') === $value])>
-                                <input type="radio" value="{{ $value }}" wire:model.live="{{ $path }}.settings.advance" />
+                                <input type="radio" name="{{ $path }}.settings.advance" value="{{ $value }}" wire:model.live="{{ $path }}.settings.advance" />
                                 {{ $label }}
                             </label>
                         @endforeach
@@ -153,7 +153,7 @@
                             <legend class="rg-admin-label">Sign-up for anonymous visitors</legend>
                             @foreach ($signups as $signup)
                                 <label @class(['rg-admin-games__radio-row', 'rg-admin-games__radio-row--on' => ($step['settings']['signup'] ?? 'inline') === $signup['value']])>
-                                    <input type="radio" value="{{ $signup['value'] }}" wire:model.live="{{ $path }}.settings.signup" />
+                                    <input type="radio" name="{{ $path }}.settings.signup" value="{{ $signup['value'] }}" wire:model.live="{{ $path }}.settings.signup" />
                                     {{ $signup['label'] }}
                                 </label>
                             @endforeach

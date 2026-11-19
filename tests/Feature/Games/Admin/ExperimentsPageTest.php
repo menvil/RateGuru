@@ -13,6 +13,8 @@ use App\Models\GameTrafficPeriod;
 use App\Models\GameVersion;
 use App\Models\User;
 use Carbon\CarbonImmutable;
+use Illuminate\Database\Events\QueryExecuted;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Livewire\Livewire;
 
@@ -131,11 +133,26 @@ it('reads fifty periods a page, every period’s figures in one query', function
             ->versions()->attach($version->id, ['share_percent' => 100]);
     }
 
-    $page = Livewire::test(ExperimentsPage::class)->call('load')->assertSee('52 periods')->assertSee('1–50 of 52 periods');
+    // The figures' query is periodFunnel()'s, named by its alias; the request's every query is counted too, so a read per row fails as well.
+    $queries = [];
+    DB::listen(function (QueryExecuted $query) use (&$queries): void {
+        $queries[] = $query->sql;
+    });
+    $figures = function () use (&$queries): int {
+        return count(array_filter($queries, fn (string $sql): bool => str_contains($sql, 'AS assigned')));
+    };
+
+    $page = Livewire::test(ExperimentsPage::class);
+    $queries = [];
+    $page->call('load')->assertSee('52 periods')->assertSee('1–50 of 52 periods');
+    [$firstFigures, $firstTotal] = [$figures(), count($queries)];
     expect($page->viewData('rows'))->toHaveCount(50);
 
+    $queries = [];
     $page->call('goToPage', 2);
-    expect($page->viewData('rows'))->toHaveCount(2);
+    expect($page->viewData('rows'))->toHaveCount(2)
+        ->and([$firstFigures, $figures()])->toBe([1, 1])
+        ->and(count($queries))->toBe($firstTotal);
 });
 
 it('shows a period’s versions against the one with the largest share, with the dashes and the footnote', function () {

@@ -31,6 +31,7 @@ it('saves the goal chosen, and offers the step a goal out of reach needs', funct
         ->set('goal', 'email')
         ->assertSee('Nothing in this flow can reach this goal. Add an Email Capture step, or choose another goal.')
         ->assertSee('The goal “'.GameFlowGoal::Email->label().'” needs an Email Capture step.')
+        ->assertSeeHtml('data-testid="game-flow-goal-fix"')
         ->call('addGoalStep');
 
     expect(collect($page->get('steps'))->pluck('type')->all())->toContain(GameFlowStepType::EmailCapture->value);
@@ -42,6 +43,17 @@ it('saves the goal chosen, and offers the step a goal out of reach needs', funct
     $page->set('goal', '')->call('save');
 
     expect($this->draft['flow']->fresh()->goal)->toBeNull();
+});
+
+it('offers no step a goal needs while it doesn’t fit, and says what to change first', function () {
+    // With no sign-up on Full Result, Registration CTA fits only once Full Result hands sign-up to a separate step.
+    Livewire::test(EditGameFlow::class, ['record' => $this->draft['game']->id])
+        ->set('steps.2.settings.signup', 'none')
+        ->set('goal', 'account')
+        ->assertSee('Nothing in this flow can reach this goal.')
+        ->assertDontSeeHtml('data-testid="game-flow-goal-fix"')
+        ->assertSeeHtml('data-testid="game-flow-goal-fix-hint"')
+        ->assertSee('Set Full Result’s sign-up to a separate step first, then add Registration CTA.');
 });
 
 it('links a post to a Go to Post step by its address, and finds one by words of its title', function () {
@@ -80,6 +92,15 @@ it('asks for a rating group on the post, and stops asking', function () {
         ->assertSet('steps.3.settings.ask_groups', 'cuteness')
         ->call('toggleAsk', 'cuteness')
         ->assertSet('steps.3.settings.ask_groups', '');
+});
+
+it('groups each setting’s radios by their own name, so the arrow keys move within one setting', function () {
+    Livewire::test(EditGameFlow::class, ['record' => $this->draft['game']->id])
+        ->call('selectStep', 2)
+        ->assertSeeHtml('name="steps.2.settings.onward" value="next"')
+        ->assertSeeHtml('name="steps.2.settings.signup" value="none"')
+        ->call('selectStep', 1)
+        ->assertSeeHtml('name="steps.1.settings.advance" value="button"');
 });
 
 it('blocks sign-up and sharing while Full Result sends visitors on', function () {

@@ -109,10 +109,11 @@ final class AnalyticsVisitsQuery implements RawSqlPersistenceBoundary
      *
      * Groups to keep — each by its columns' values, a null one by being null
      * — are listed whatever the people given, so long as anyone came through
-     * them, after the others and in place of the last listed ones when the
-     * limit is reached; the rest is then what is no longer listed. A kept
-     * group past those read is read on its own, one more read; a group of no
-     * value is kept only while such visits are a group (UNNAMED_LISTED).
+     * them, after the others and in place of the last listed ones not kept
+     * themselves when the limit is reached; the rest is then what is no
+     * longer listed. A kept group past those read is read on its own, one
+     * more read; a group of no value is kept only while such visits are a
+     * group (UNNAMED_LISTED).
      *
      * @param  list<array<string, int|string|null>>  $keep
      * @return array{rows: list<array{keys: array<string, int|string|null>, figures: VisitorFigures, visits: int, tagged: int}>, rest: array{figures: VisitorFigures, visits: int, tagged: int}|null, unnamed: array{figures: VisitorFigures, visits: int, tagged: int}|null}
@@ -580,7 +581,7 @@ final class AnalyticsVisitsQuery implements RawSqlPersistenceBoundary
      * not listed yet that anyone came through — found among the groups read,
      * else read on its own, only while the read was full, since only then
      * can it have been left out — after the others, in place of the last
-     * listed ones once the limit is reached.
+     * listed ones not kept themselves once the limit is reached.
      *
      * @param  list<string>  $columns
      * @param  list<array{keys: array<string, int|string|null>, figures: VisitorFigures, visits: int, tagged: int}>  $read
@@ -590,16 +591,18 @@ final class AnalyticsVisitsQuery implements RawSqlPersistenceBoundary
      */
     private function keeping(AnalyticsFilter $filter, array $columns, array $read, array $rows, array $keep, int $limit, string $unnamed): array
     {
-        $listed = array_column($rows, 'keys');
-        $wanted = [];
+        $kept = [];
 
         foreach ($keep as $group) {
             $keys = self::keys($group, $columns);
 
-            if (! in_array($keys, $listed, true) && ! in_array($keys, $wanted, true) && ($keys[$columns[0]] !== null || $unnamed === self::UNNAMED_LISTED)) {
-                $wanted[] = $keys;
+            if (! in_array($keys, $kept, true) && ($keys[$columns[0]] !== null || $unnamed === self::UNNAMED_LISTED)) {
+                $kept[] = $keys;
             }
         }
+
+        $listed = array_column($rows, 'keys');
+        $wanted = array_values(array_filter($kept, fn (array $keys): bool => ! in_array($keys, $listed, true)));
 
         if ($wanted === []) {
             return $rows;
@@ -624,9 +627,17 @@ final class AnalyticsVisitsQuery implements RawSqlPersistenceBoundary
                 ->all());
         }
 
-        $found = array_slice($found, 0, $limit);
+        // A kept group already listed keeps its place: only the listed ones not kept give way, the last first.
+        $held = count(array_filter($listed, fn (array $keys): bool => in_array($keys, $kept, true)));
+        $found = array_slice($found, 0, max(0, $limit - $held));
 
-        return [...array_slice($rows, 0, max(0, $limit - count($found))), ...$found];
+        for ($index = count($rows) - 1; $index >= 0 && count($rows) + count($found) > $limit; $index--) {
+            if (! in_array($rows[$index]['keys'], $kept, true)) {
+                array_splice($rows, $index, 1);
+            }
+        }
+
+        return [...$rows, ...$found];
     }
 
     /**

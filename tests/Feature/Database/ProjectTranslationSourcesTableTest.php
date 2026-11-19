@@ -11,14 +11,21 @@ use Illuminate\Support\Facades\Schema;
  */
 function translationSourceRow(string $unit = 'categories:1:name', string $locale = 'de'): array
 {
-    return ['unit_id' => $unit, 'locale' => $locale, 'fingerprint' => str_repeat('a', 64), 'reference' => str_repeat('Ж', 20_000)];
+    return ['unit_id' => $unit, 'locale' => $locale, 'fingerprint' => str_repeat('a', 64), 'reference' => longestTranslationReference()];
+}
+
+/** A whole static page of four-byte characters: 80,000 bytes, more than MariaDB's TEXT holds. */
+function longestTranslationReference(): string
+{
+    return str_repeat("\u{10348}", 20_000);
 }
 
 it('keeps one record per unit and language, long enough for a whole static page', function () {
     ProjectTranslationSource::query()->create(translationSourceRow());
     ProjectTranslationSource::query()->create(translationSourceRow(locale: 'ru'));
 
-    expect(ProjectTranslationSource::query()->where('locale', 'de')->value('reference'))->toBe(str_repeat('Ж', 20_000))
+    expect(strlen(longestTranslationReference()))->toBe(80_000)
+        ->and(ProjectTranslationSource::query()->where('locale', 'de')->value('reference'))->toBe(longestTranslationReference())
         ->and(fn () => ProjectTranslationSource::query()->create(translationSourceRow()))->toThrow(QueryException::class);
 });
 

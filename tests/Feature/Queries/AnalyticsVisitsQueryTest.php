@@ -20,10 +20,11 @@ use Carbon\CarbonImmutable;
  * browser once however many visits and days it came on, and only once its
  * page ran; a known browser never a new one; a person in each source they
  * came through and once in all; a source and a campaign narrowing together;
- * the people past the top groups counted together, each once; the people of
- * each hour, day and block of days; those who came back; what the people
- * leave out; the attempts and result shares of the visits; what the
- * page's filters offer, whether a filter admits anyone, and when the first
+ * the people past the top groups counted together, each once, a group kept
+ * listed whatever its size; the people of each hour, day and block of days;
+ * those who came back; what the people leave out; the attempts and result
+ * shares of the visits; what the page's filters offer, only the values that
+ * begin as asked when asked, whether a filter admits anyone, and when the first
  * visit was recorded; the figures of the values asked for, the people of
  * pairs of values, what the paid clicks cost by one dimension or more, the
  * first day each value came on, and the people of each set of campaign tags
@@ -155,6 +156,22 @@ it('counts the people past the top groups together, each once, those of no group
         ->and($all['rest'])->toBeNull();
 });
 
+it('counts the people of the groups past the most a split reads in the rest, though no limit was given', function () {
+    // One more source than a split reads, each with a browser of its own.
+    $visit = collect(analyticsVisit('first', ['source_key' => 'source:0'])->getAttributes())->except('id')->all();
+    $rows = array_map(fn (int $n): array => [...$visit, 'source_key' => 'source:'.$n, 'visitor_hash' => hash('sha256', 'browser-'.$n)], range(1, AnalyticsVisitsQuery::MOST_GROUPS));
+
+    foreach (array_chunk($rows, 200) as $chunk) {
+        TrafficVisit::query()->insert($chunk);
+    }
+
+    $by = analyticsQuery()->by(analyticsFilter(), AnalyticsDimension::Source);
+
+    expect($by['rows'])->toHaveCount(AnalyticsVisitsQuery::MOST_GROUPS)
+        ->and($by['rest']['figures']->visitors)->toBe(1)
+        ->and($by['rest']['visits'])->toBe(1);
+});
+
 it('counts the rest of a split on two columns by both, and leaves a top group of no value out of it', function () {
     foreach (['a', 'b', 'c'] as $browser) {
         analyticsVisit($browser, ['country' => 'US', 'city' => 'Austin']);
@@ -259,6 +276,44 @@ it('leaves the visits of no value out of a split altogether when asked', functio
         ->and($out['rest']['figures']->visitors)->toBe(2)
         ->and($out['unnamed'])->toBeNull()
         ->and(analyticsQuery()->by(analyticsFilter(), AnalyticsDimension::Campaign, 5, unnamed: AnalyticsVisitsQuery::UNNAMED_LEFT_OUT))->toMatchArray(['rest' => null, 'unnamed' => null]);
+});
+
+it('lists a group kept whatever its size, in place of the last listed one, the rest counting what that leaves out', function () {
+    foreach (['a1', 'a2', 'a3'] as $browser) {
+        analyticsVisit($browser, ['creative_key' => 'big']);
+    }
+
+    analyticsVisit('b1', ['creative_key' => 'mid']);
+    analyticsVisit('b2', ['creative_key' => 'mid']);
+    analyticsVisit('c1', ['creative_key' => 'small']);
+    analyticsVisit('n1', ['creative_key' => null]);
+    analyticsVisit('n2', ['creative_key' => null, 'network_day' => '2026-11-16']);
+    analyticsVisit('n2', ['creative_key' => 'mid', 'network_day' => '2026-11-17']);
+
+    $creatives = fn (array $by): array => array_map(fn (array $row): string => ($row['keys']['creative_key'] ?? '-').' '.$row['figures']->visitors, $by['rows']);
+    $kept = analyticsQuery()->by(analyticsFilter(), AnalyticsDimension::Creative, 2, keep: [['creative_key' => 'small']]);
+    $none = analyticsQuery()->by(analyticsFilter(), AnalyticsDimension::Creative, 2, keep: [['creative_key' => null]]);
+    $both = analyticsQuery()->by(analyticsFilter(), AnalyticsDimension::Creative, 2, keep: [['creative_key' => 'mid'], ['creative_key' => 'small']]);
+
+    expect($creatives(analyticsQuery()->by(analyticsFilter(), AnalyticsDimension::Creative, 2)))->toBe(['big 3', 'mid 3'])
+        // The group kept, read apart, takes the last place: the rest is what is no longer listed.
+        ->and($creatives($kept))->toBe(['big 3', 'small 1'])
+        ->and($kept['rest']['figures']->visitors)->toBe(4)
+        ->and($kept['rest']['visits'])->toBe(5)
+        // A group of none is one like any other.
+        ->and($creatives($none))->toBe(['big 3', '- 2'])
+        ->and($none['rest']['figures']->visitors)->toBe(4)
+        // A kept group already listed keeps its place: the one not kept gives way to the other kept group.
+        ->and($creatives($both))->toBe(['mid 3', 'small 1'])
+        ->and($both['rest']['figures']->visitors)->toBe(5)
+        // One already listed, or nobody came through, changes nothing.
+        ->and($creatives(analyticsQuery()->by(analyticsFilter(), AnalyticsDimension::Creative, 2, keep: [['creative_key' => 'big']])))->toBe(['big 3', 'mid 3'])
+        ->and($creatives(analyticsQuery()->by(analyticsFilter(), AnalyticsDimension::Creative, 2, keep: [['creative_key' => 'nobody']])))->toBe(['big 3', 'mid 3'])
+        // One read but too small for the people asked is listed all the same, after the others.
+        ->and($creatives(analyticsQuery()->by(analyticsFilter(), AnalyticsDimension::Creative, 10, 2, keep: [['creative_key' => 'small']])))->toBe(['big 3', 'mid 3', '- 2', 'small 1'])
+        ->and(analyticsQuery()->by(analyticsFilter(), AnalyticsDimension::Creative, 10, 2, keep: [['creative_key' => 'small']])['rest'])->toBeNull()
+        // Where the visits of no value are never a group, they are never kept as one.
+        ->and($creatives(analyticsQuery()->by(analyticsFilter(), AnalyticsDimension::Creative, 2, unnamed: AnalyticsVisitsQuery::UNNAMED_LEFT_OUT, keep: [['creative_key' => null]])))->toBe(['big 3', 'mid 3']);
 });
 
 it('counts the figures of each value asked for, leaving out a value nobody came through', function () {
@@ -492,6 +547,23 @@ it('offers the values the most people came through, the most first, without coun
         ->and(analyticsQuery()->top(analyticsFilter(), AnalyticsDimension::Source, 2))->toBe([['source_key' => 'reddit:organic'], ['source_key' => 'google:organic']])
         ->and(array_column(analyticsQuery()->top(analyticsFilter(source: 'google:organic'), AnalyticsDimension::Campaign, 10), 'campaign_key'))->toBe(['tag:launch', null])
         ->and(analyticsQuery()->top(analyticsFilter('yesterday'), AnalyticsDimension::Source, 10))->toBe([]);
+});
+
+it('offers only the values that begin as asked, the limit counting none of the others', function () {
+    // A paid campaign and the visits of no campaign, both with more people than the one tagged.
+    foreach (range(1, 4) as $n) {
+        analyticsVisit('paid-'.$n, ['campaign_key' => 'paid:7']);
+        analyticsVisit('none-'.$n);
+    }
+
+    analyticsVisit('none-5');
+    analyticsVisit('tagged', ['campaign_key' => 'tag:launch']);
+
+    expect(analyticsQuery()->top(analyticsFilter(), AnalyticsDimension::Campaign, 1))->toBe([['campaign_key' => null]])
+        ->and(analyticsQuery()->top(analyticsFilter(), AnalyticsDimension::Campaign, 1, 'tag:'))->toBe([['campaign_key' => 'tag:launch']])
+        ->and(analyticsQuery()->top(analyticsFilter(), AnalyticsDimension::Campaign, 10, 'paid:'))->toBe([['campaign_key' => 'paid:7']])
+        // A beginning that would match more than itself is refused.
+        ->and(fn () => analyticsQuery()->top(analyticsFilter(), AnalyticsDimension::Campaign, 1, 'tag_'))->toThrow(InvalidArgumentException::class);
 });
 
 it('tells whether a filter admits anyone, and when the first visit of all was recorded', function () {

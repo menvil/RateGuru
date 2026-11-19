@@ -394,8 +394,8 @@ it('discards every ready suggestion, keeps what was saved, and lets the language
 });
 
 it('supersedes a suggestion once the row is saved some other way', function () {
-    Livewire::withQueryParams(['locale' => $this->target])->test(TranslationCenterPage::class)
-        ->call('save', ($this->unit)('A'), $this->target, 'Von Hand korrigiert');
+    $page = Livewire::withQueryParams(['locale' => $this->target])->test(TranslationCenterPage::class);
+    $page->call('save', ($this->unit)('A'), $this->target, 'Von Hand korrigiert', translationCenterFingerprint($page, ($this->unit)('A')));
 
     expect(translationGenerationItem(translationGenerationOf($this->admin, $this->target), ($this->unit)('A'))['status'])->toBe('discarded')
         ->and($this->categories['A']->fresh()->name_translations)->toBe([$this->target => 'Von Hand korrigiert']);

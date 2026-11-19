@@ -168,6 +168,22 @@ it('renames or restores a set at the version its editor was drawn from, and refu
         ->and($set->fresh()->lock_version)->toBe(3);
 });
 
+it('writes nothing, the game included, when a set is renamed to the name it has', function () {
+    $draft = publishableGameDraft(1);
+    $game = $draft['game'];
+    $other = User::factory()->admin()->create();
+
+    expect(app(ChangeContentSetAction::class)->rename($other, $draft['set'], ' '.$draft['set']->name.' ', 1))->toBeFalse()
+        ->and($draft['set']->fresh()->lock_version)->toBe(1)
+        ->and($game->fresh()->lock_version)->toBe($game->lock_version)
+        ->and($game->fresh()->updated_by_user_id)->toBe($draft['admin']->id);
+
+    expect(app(ChangeContentSetAction::class)->rename($other, $draft['set'], 'Renamed', 1))->toBeTrue()
+        ->and($draft['set']->fresh()->lock_version)->toBe(2)
+        ->and($game->fresh()->lock_version)->toBe($game->lock_version + 1)
+        ->and($game->fresh()->updated_by_user_id)->toBe($other->id);
+});
+
 it('copies a set with its rounds, options and profiles', function () {
     $draft = publishableGameDraft(2);
 

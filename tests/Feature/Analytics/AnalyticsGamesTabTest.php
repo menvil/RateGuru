@@ -106,14 +106,18 @@ it('shows the game chosen among those not archived, the address’s or else the 
     }
 
     // The game's own filters, read as the game's Analytics tab reads them.
-    Livewire::withQueryParams(['tab' => 'games', 'game' => $first->id, 'group' => 'authenticated', 'version' => $version->id, 'country' => 'group:t1', 'by' => 'device', 'paid' => '7', 'sources_device' => 'mobile'])
+    $paid = TrafficSource::factory()->create(['name' => 'Cat blog', 'type' => 'placement']);
+    Livewire::withQueryParams(['tab' => 'games', 'game' => $first->id, 'group' => 'authenticated', 'version' => $version->id, 'country' => 'group:t1', 'by' => 'device', 'paid' => (string) $paid->id, 'sources_device' => 'mobile'])
         ->test(GrowthAnalyticsPage::class)
         ->assertSet('audience', 'authenticated')
         ->assertSet('version', (string) $version->id)
         ->assertSet('country', 'group:t1')
         ->assertSet('breakdown', 'device')
-        ->assertSet('paidSource', '7')
+        ->assertSet('paidSource', (string) $paid->id)
         ->assertSet('sourcesDevice', 'mobile');
+
+    // A paid source there is no such is every paid source.
+    Livewire::withQueryParams(['tab' => 'games', 'game' => $first->id, 'paid' => (string) ($paid->id + 1000)])->test(GrowthAnalyticsPage::class)->assertSet('paidSource', '0');
 
     Livewire::withQueryParams(['tab' => 'games', 'group' => 'everyone', 'version' => GameVersion::factory()->create()->id, 'country' => 'ZZ', 'by' => 'city', 'paid' => 'all', 'sources_device' => 'tablet'])
         ->test(GrowthAnalyticsPage::class)

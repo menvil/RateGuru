@@ -234,6 +234,28 @@ it('splits the figures by version, flow and content set, a person once in each',
         ->and(metricsQuery()->funnels(metricsScope($first, versionId: $second->id))[0]->started)->toBe(1);
 });
 
+it('counts the people who finished one of the versions given, each once however many of them they finished', function () {
+    $draft = publishableGameDraft(rounds: 2);
+    $first = liveGame($draft);
+    $second = metricsSecondVersion($draft);
+    $third = metricsSecondVersion($draft);
+    $player = User::factory()->create();
+
+    metricsAttempt($first, 'guest-a', attributes: metricsCompleted());
+    metricsAttempt($second, 'guest-a', attributes: metricsCompleted());
+    metricsAttempt($second, 'guest-b', attributes: metricsCompleted());
+    // Started only, of another version, before the window, or a logged-in player's: none of them.
+    metricsAttempt($first, 'guest-c');
+    metricsAttempt($third, 'guest-d', attributes: metricsCompleted());
+    metricsAttempt($first, 'guest-e', '2026-10-30 12:00:00', metricsCompleted());
+    metricsAttempt($first, $player, attributes: metricsCompleted());
+
+    expect(metricsQuery()->finishers(metricsScope($first), [$first->id, $second->id]))->toBe(2)
+        ->and(metricsQuery()->finishers(metricsScope($first), [$first->id]))->toBe(1)
+        ->and(metricsQuery()->finishers(metricsScope($first), []))->toBe(0)
+        ->and(metricsQuery()->finishers(metricsScope($first, GameAudience::Authenticated), [$first->id, $second->id]))->toBe(1);
+});
+
 it('refuses to split the figures by anything else', function () {
     $version = liveGame(publishableGameDraft(rounds: 1));
 

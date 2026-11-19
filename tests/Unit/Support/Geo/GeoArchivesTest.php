@@ -46,6 +46,26 @@ it('refuses a gzip stream cut short, a file that is not gzip, and one that unpac
         ->and(geoFailure(fn () => $gzip->inflate($this->dir.'/big.gz', $this->dir.'/out', 1_000_000)))->toBe(GeoUpdateFailure::TooLarge);
 });
 
+it('refuses a gzip bomb past the limit without unpacking it all into memory first', function () {
+    // 256 MiB of zeros packs into about 250 KiB: one read of the old 1 MiB
+    // step would hold every one of those bytes unpacked before the limit
+    // was ever compared.
+    $bomb = gzopen($this->dir.'/bomb.gz', 'wb9');
+    $block = str_repeat("\0", 1024 * 1024);
+
+    for ($i = 0; $i < 256; $i++) {
+        gzwrite($bomb, $block);
+    }
+
+    gzclose($bomb);
+    unset($block);
+    memory_reset_peak_usage();
+    $before = memory_get_usage();
+
+    expect(geoFailure(fn () => (new GzipInflater)->inflate($this->dir.'/bomb.gz', $this->dir.'/out', 1024 * 1024)))->toBe(GeoUpdateFailure::TooLarge)
+        ->and(memory_get_peak_usage() - $before)->toBeLessThan(48 * 1024 * 1024);
+});
+
 it('says so when PHP has no zlib, without touching the file', function () {
     file_put_contents($this->dir.'/in.gz', gzencode('x'));
 

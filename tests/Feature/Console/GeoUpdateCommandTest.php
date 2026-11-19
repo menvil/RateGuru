@@ -4,6 +4,7 @@ use App\Enums\GeoUpdateFailure;
 use App\Support\Geo\GeoLookup;
 use App\Support\Geo\Update\GzipInflater;
 use Carbon\CarbonImmutable;
+use GuzzleHttp\Psr7\Response as GuzzleResponse;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\File;
@@ -74,6 +75,28 @@ function geoState(string $edition = 'geolite2_city'): array
     return json_decode((string) file_get_contents(test()->geoDirectory.'/'.$edition.'/state.json'), true);
 }
 
+/**
+ * Holds an edition's update lock, as a run in another process would: flock
+ * keeps two open descriptions of one file apart even within one process.
+ *
+ * @return resource
+ */
+function holdGeoUpdateLock(string $edition = 'geolite2_city')
+{
+    File::ensureDirectoryExists(test()->geoDirectory.'/'.$edition);
+    $lock = fopen(test()->geoDirectory.'/'.$edition.'/update.lock', 'c');
+    flock($lock, LOCK_EX);
+
+    return $lock;
+}
+
+/** @param  resource  $lock */
+function releaseGeoUpdateLock($lock): void
+{
+    flock($lock, LOCK_UN);
+    fclose($lock);
+}
+
 it('installs the newest build from npm and serves it at once', function () {
     $database = file_get_contents(base_path(GEO_FIXTURE));
     geoServes(fakeNpm('1.0.116', geoPackage($database)));
@@ -138,6 +161,20 @@ it('leaves the serving database alone when a build fails a check, and tries agai
     'a package without the database' => [fn () => fakeNpm('1.0.117', $p = gzencode(tarOf(['package/README.md' => 'x']))), GeoUpdateFailure::ArchiveInvalid],
     'a database that is not one' => [fn () => fakeNpm('1.0.117', geoPackage(str_repeat('x', 4096))), GeoUpdateFailure::MetadataInvalid],
     'an unanswered registry' => [fn () => ['registry.npmjs.org/*' => Http::response('', 500)], GeoUpdateFailure::DiscoveryFailed],
+    'a registry that cannot be reached' => [fn () => ['registry.npmjs.org/*' => Http::failedConnection()], GeoUpdateFailure::DiscoveryFailed],
+    'a download announced past the size cap' => [function () {
+        // A fake response never runs Guzzle's on_headers, so the headers of
+        // a build larger than the cap are handed to it here, as cURL would.
+        Http::globalMiddleware(fn (callable $handler) => function ($request, array $options) use ($handler) {
+            if (isset($options['on_headers'])) {
+                $options['on_headers'](new GuzzleResponse(200, ['Content-Length' => (string) (config('geo.editions.geolite2_city.max_archive_bytes') + 1)]));
+            }
+
+            return $handler($request, $options);
+        });
+
+        return fakeNpm('1.0.117', geoPackage(file_get_contents(base_path(GEO_FIXTURE))));
+    }, GeoUpdateFailure::TooLarge],
 ]);
 
 it('keeps a build that misplaces well-known addresses out of service', function () {
@@ -162,6 +199,18 @@ it('keeps the database a new build replaced, and can put it back', function () {
         ->and(geoState()['previous'])->toMatchArray(['version' => '1.0.116', 'kept_until' => '2026-11-24T10:00:00+00:00'])
         ->and(is_file($this->geoDirectory.'/geolite2_city/previous.mmdb'))->toBeTrue();
 
+    // An update holding the lock may be swapping these very files: the rollback waits for it.
+    $files = fn (): array => array_map(fn (string $name): string|false => @file_get_contents($this->geoDirectory.'/geolite2_city/'.$name), ['current.mmdb', 'previous.mmdb', 'state.json']);
+    $before = $files();
+    $lock = holdGeoUpdateLock();
+
+    $this->artisan('geo:update', ['--rollback' => true])
+        ->expectsOutputToContain('An update of the GeoLite2 City database is running; try again when it finishes.')
+        ->assertFailed();
+
+    expect($files())->toBe($before);
+    releaseGeoUpdateLock($lock);
+
     $this->artisan('geo:update', ['--rollback' => true])->assertSuccessful();
 
     expect(geoState()['installed']['version'])->toBe('1.0.116')
@@ -170,6 +219,48 @@ it('keeps the database a new build replaced, and can put it back', function () {
 
     $this->artisan('geo:update', ['--force' => true])->assertSuccessful();
     expect(geoState()['installed']['version'])->toBe('1.0.116');
+});
+
+it('reads the state and drops an expired previous database only under the update lock', function () {
+    $database = installGeoDatabase();
+    copy($database, $this->geoDirectory.'/geolite2_city/previous.mmdb');
+    file_put_contents($this->geoDirectory.'/geolite2_city/state.json', json_encode([
+        'installed' => ['source' => 'npm', 'version' => '1.0.116', 'size' => filesize($database), 'sha256' => hash_file('sha256', $database)],
+        'previous' => ['source' => 'npm', 'version' => '1.0.115', 'kept_until' => '2026-11-16T10:00:00+00:00'],
+        'last_attempt_at' => '2026-11-17T09:00:00+00:00',
+        'next_check_at' => '2026-11-18T09:00:00+00:00',
+    ]));
+    // A run holding the lock may be installing a build whose previous copy is this file.
+    $lock = holdGeoUpdateLock();
+
+    $this->artisan('geo:update')->assertSuccessful();
+
+    expect(is_file($this->geoDirectory.'/geolite2_city/previous.mmdb'))->toBeTrue()
+        ->and(geoState()['previous'])->toMatchArray(['version' => '1.0.115']);
+
+    releaseGeoUpdateLock($lock);
+    $this->artisan('geo:update')->assertSuccessful();
+
+    expect(is_file($this->geoDirectory.'/geolite2_city/previous.mmdb'))->toBeFalse()
+        ->and(geoState()['previous'])->toBeNull();
+    Http::assertNothingSent();
+});
+
+it('leaves the other edition\'s files alone while a run of it holds its lock, and deletes them on the next run', function () {
+    geoServes(fakeNpm('1.0.116', geoPackage(file_get_contents(base_path(GEO_FIXTURE)))));
+    $standIn = installGeoDatabase('dbip_city_lite');
+    $lock = holdGeoUpdateLock('dbip_city_lite');
+
+    $this->artisan('geo:update')->assertSuccessful();
+
+    expect(geoState()['last_result'])->toBe('updated')
+        ->and(is_file($standIn))->toBeTrue();
+
+    releaseGeoUpdateLock($lock);
+    $this->artisan('geo:update')->assertSuccessful();
+
+    expect(is_file($standIn))->toBeFalse()
+        ->and(geoState('dbip_city_lite')['last_result'])->toBe('discarded');
 });
 
 it('takes a GeoLite2 build out of service after 30 days, and DB-IP stands in until a fresh one comes', function () {

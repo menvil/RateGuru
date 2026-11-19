@@ -30,7 +30,15 @@
         @endif
     </header>
 
-    @if ($logPage->items() === [])
+    @if ($logPage->items() === [] && $pageNumber > 1)
+        {{-- A later page an address kept from before can open after its entries have gone: the newest are a click away. --}}
+        <x-admin.ui.empty-state icon="list" title="Nothing on this page">
+            This page is past the oldest entry.
+            <x-slot:action>
+                <x-admin.ui.button size="sm" wire:click="goToPage(1)">Back to the newest</x-admin.ui.button>
+            </x-slot:action>
+        </x-admin.ui.empty-state>
+    @elseif ($logPage->items() === [])
         <x-admin.ui.empty-state icon="list" title="Nothing in this log yet">{{ $log === 'postbacks' ? 'Postbacks show here once a source has a rule and its clicks reach a milestone.' : 'Entries show here as they happen.' }}</x-admin.ui.empty-state>
     @else
         <div class="rg-admin-traffic__perf rg-admin-table__scroll">

@@ -18,9 +18,9 @@ use function Pest\Laravel\actingAs;
  * set on the Traffic tab — a source chosen, versions added and spread evenly,
  * saved — at a width where the form and the list sit side by side with the
  * general split; and Copy test link in Preview, which puts the version's
- * signed link on the clipboard and says so, the link then playing the
- * version and recording nothing — every Preview action staying on a phone's
- * screen beside it.
+ * signed link on the clipboard and says so only once the clipboard took
+ * it, the link then playing the version and recording nothing — every
+ * Preview action staying on a phone's screen beside it.
  *
  * One kind of page per test: the test server reads the top bar's actions from
  * the first page it drew.
@@ -63,6 +63,13 @@ it('sets a split for a source on the Traffic tab, listed under the general split
 
 it('copies a version’s test link from Preview, which plays the version and records nothing', function () {
     $page = visitAdminEditor(GameResource::getUrl('preview', ['record' => $this->draft['game'], 'source' => (string) $this->v2->id]), 1440);
+
+    // Refused: the toast says nothing was copied, never that it was.
+    $page->script("(() => { navigator.clipboard.writeText = () => Promise.reject(new DOMException('Denied', 'NotAllowedError')) })()");
+    $page->click('[data-testid="game-preview-test-link"]');
+    waitForScript($page, "document.body.textContent.includes('The browser refused the clipboard, so nothing was copied.')", true, 10.0);
+
+    expect($page->script("document.body.textContent.includes('Test link copied')"))->toBeFalse();
 
     // A headless browser may not write to the clipboard: what is written is kept for the test to read.
     $page->script("() => { Object.defineProperty(navigator.clipboard, 'writeText', { value: (text) => { window.copiedLink = text; return Promise.resolve() } }); return true; }");

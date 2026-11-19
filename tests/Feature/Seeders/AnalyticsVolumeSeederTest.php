@@ -14,6 +14,7 @@ use App\Models\TrafficSetting;
 use App\Models\TrafficSource;
 use App\Models\TrafficVisit;
 use App\Models\TrafficVisitPost;
+use App\Models\User;
 use App\Models\UserActivityDay;
 use App\Support\Analytics\CampaignKey;
 use Carbon\CarbonImmutable;
@@ -51,6 +52,8 @@ it('writes a week of visits and the week before as capture records them, once', 
         ->and($paid->filter(fn (TrafficVisit $visit): bool => $visit->source_key !== 'paid:'.$visit->source_id || $visit->campaign_key !== CampaignKey::paid($visit->campaign_id)))->toBeEmpty()
         ->and($paid->where('spend', '<=', 0))->toBeEmpty()
         ->and($paid->whereNull('opened_at'))->not->toBeEmpty()
+        // Every click is to the game's page, which names the game before the page runs, as capture does.
+        ->and($paid->whereNull('game_id'))->toBeEmpty()
         ->and($paid->whereNotNull('campaign_id')->pluck('campaign_id')->unique()->count())->toBeGreaterThan(5)
         // The site's own arrivals, by every kind of source, tagged and not.
         ->and($visits->pluck('source_key')->unique()->all())->toContain('direct', 'google:organic', 'google:paid', 'reddit:organic', 'facebook:paid', 'email:email', 'shared', 'internal')
@@ -68,8 +71,8 @@ it('writes a week of visits and the week before as capture records them, once', 
         ->and($visits->where('known', true))->not->toBeEmpty()
         ->and($visits->whereNotNull('city'))->not->toBeEmpty();
 
-    // The game: a second version, the traffic split between them by period, and for the first ad network.
-    $game = $visits->whereNotNull('game_id');
+    // The game: a second version, the traffic split between them by period, and for the first ad network — on the pages that ran.
+    $game = $visits->whereNotNull('game_id')->whereNotNull('opened_at');
 
     expect(GameVersion::query()->count())->toBe(2)
         ->and(GameTrafficPeriod::query()->whereNotNull('source_id')->count())->toBe(1)
@@ -101,10 +104,18 @@ it('writes a week of visits and the week before as capture records them, once', 
     // The ids came from each table's own sequence: the next row made the usual way follows them.
     expect(TrafficVisit::factory()->unpaid()->create()->id)->toBeGreaterThan($visits->keys()->max());
 
-    $count = TrafficVisit::query()->count();
+    $counts = fn (): array => [
+        'visits' => TrafficVisit::query()->count(),
+        'links' => TrackingLink::query()->count(),
+        'campaigns' => TrafficCampaign::query()->count(),
+        'segments' => TrafficSegment::query()->count(),
+        'accounts' => AccountAttribution::query()->count(),
+        'users' => User::query()->count(),
+    ];
+    $before = $counts();
     (new AnalyticsVolumeSeeder(visits: 3000, days: 7))->__invoke();
 
-    expect(TrafficVisit::query()->count())->toBe($count);
+    expect($counts())->toBe($before);
 });
 
 it('writes less of the window before, and the game’s own rows for the last days only, when asked', function () {
@@ -117,8 +128,8 @@ it('writes less of the window before, and the game’s own rows for the last day
 
     expect($latest)->toBeGreaterThanOrEqual(2000)->toBeLessThan(2020)
         ->and($before)->toBeGreaterThan(150)->toBeLessThan(500)
-        // Every game visit still says what was played; only those of the last two days have their attempt.
-        ->and(TrafficVisit::query()->whereNotNull('game_id')->whereNull('version_id')->count())->toBe(0)
+        // Every game visit whose page ran still says what was played; only those of the last two days have their attempt.
+        ->and(TrafficVisit::query()->whereNotNull('game_id')->whereNotNull('opened_at')->whereNull('version_id')->count())->toBe(0)
         ->and(GameAttempt::query()->where('started_at', '<', now()->startOfDay()->subDay())->count())->toBe(0)
         ->and(GameAttempt::query()->count())->toBe(TrafficVisit::query()->whereNotNull('started_at')->where('arrived_at', '>=', now()->startOfDay()->subDay())->count())
         ->and(GameAssignment::query()->where('assigned_at', '<', now()->startOfDay()->subDay())->count())->toBe(0)

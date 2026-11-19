@@ -598,13 +598,14 @@ class AnalyticsDemoSeeder extends Seeder
 
     /**
      * When the game's general traffic split open now began for the
-     * audience — the split the version is given by — or null with none.
+     * audience — the split the version is given by, the latest one as
+     * GameTrafficQuery::currentPeriods() takes it — or null with none.
      */
     private function splitSince(Game $game, GameAudience $audience): ?CarbonImmutable
     {
         if (! array_key_exists($audience->value, $this->splitsSince)) {
             $this->splitsSince[$audience->value] = GameTrafficPeriod::query()->where('game_id', $game->id)->where('audience', $audience)
-                ->whereNull('source_id')->whereNull('ended_at')->first(['started_at'])?->started_at;
+                ->whereNull('source_id')->whereNull('campaign_id')->whereNull('ended_at')->orderByDesc('id')->first(['started_at'])?->started_at;
         }
 
         return $this->splitsSince[$audience->value];

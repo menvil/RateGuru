@@ -136,6 +136,16 @@ it('judges how sure a difference from the reference is', function () {
         ->and((new PeriodComparison(GameAudience::Anonymous, [$v7]))->evidence($v7, PeriodMetric::Starts))->toBeNull();
 });
 
+it('judges a metric the reference’s flow leaves out by design, even while the version has no visitors yet', function () {
+    $v7 = new ComparedVersion(7, 7, 80, asksForEmail: false);
+    $v8 = new ComparedVersion(8, 8, 20, asksForEmail: true);
+    $comparison = new PeriodComparison(GameAudience::Anonymous, [$v7, $v8], [7 => comparedFunnel(1000)]);
+
+    expect($comparison->evidence($v8, PeriodMetric::Emails))->toBe(ComparisonEvidence::ByDesign)
+        // A metric both flows have waits for the version's visitors.
+        ->and($comparison->evidence($v8, PeriodMetric::Starts))->toBe(ComparisonEvidence::TooEarly);
+});
+
 it('counts an account matured once its seventh day after signing up is over, in UTC', function () {
     expect(ActivityDay::maturedBefore(CarbonImmutable::parse('2026-11-18 00:00:01'), 7)->toDateTimeString())->toBe('2026-11-11 00:00:00')
         ->and(ActivityDay::maturedBefore(CarbonImmutable::parse('2026-11-18 23:59:59'), 7)->toDateTimeString())->toBe('2026-11-11 00:00:00')

@@ -144,6 +144,15 @@ it('is the ordinary game page for a link unsigned, tampered with, expired, or to
 
         return $address;
     }],
+    // A name PHP reads as `v` or `expires` is theirs, whatever its spelling: it overrides the signed one, so it is signed too.
+    'v aliased' => [fn ($test): string => VersionTestLink::url($test->game->slug, (int) $test->v2->id).'&%76='.$test->v1->id],
+    'v aliased by a space' => [fn ($test): string => VersionTestLink::url($test->game->slug, (int) $test->v2->id).'&%20v='.$test->v1->id],
+    'expiry aliased' => [function ($test): string {
+        $address = VersionTestLink::url($test->game->slug, (int) $test->v2->id);
+        $test->travel(VersionTestLink::DAYS + 1)->days();
+
+        return $address.'&%65xpires=4102444800';
+    }],
     'to an archived version' => [function ($test): string {
         $test->v2->forceFill(['status' => GameVersionStatus::Retired])->save();
 

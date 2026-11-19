@@ -75,6 +75,19 @@ it('splits a level of the tree under its path, biggest first', function () {
         ->and(array_column(array_column($cities, 'keys'), 'city'))->toBe(['Austin', 'Boston']);
 });
 
+it('orders groups that tie by every column they are grouped by', function () {
+    $game = Game::factory()->create();
+
+    foreach ([TrafficChannel::Search, TrafficChannel::Referral, TrafficChannel::Direct] as $channel) {
+        TrafficVisit::factory()->unpaid($channel)->create(['game_id' => $game->id, 'arrived_at' => '2026-11-15 10:00:00', 'network_day' => '2026-11-15', 'signup_at' => now(), 'account_at' => now()]);
+    }
+
+    $channels = fn (array $rows): array => array_column(array_column($rows, 'keys'), 'channel');
+
+    expect($channels(app(TrafficReportQuery::class)->signups($this->filter, TrafficDimension::Source)))->toBe(['direct', 'referral', 'search'])
+        ->and($channels(app(TrafficReportQuery::class)->level($this->filter, TrafficDimension::Source)))->toBe(['direct', 'referral', 'search']);
+});
+
 it('lists the networks’ sites with enough clicks, and the campaign they came through', function () {
     $campaign = TrafficCampaign::factory()->create(['source_id' => $this->source->id]);
     reportVisit($this->source, ['site_ref' => 's1', 'zone_ref' => 'z1', 'campaign_id' => $campaign->id]);
@@ -174,6 +187,23 @@ it('reconciles a source’s days, and keeps spend no visit took', function () {
     expect($days['2026-11-15'])->toMatchArray(['clicks' => 1, 'costs' => '0.00100000', 'counted' => '0.25000000', 'counted_origin' => 'manual', 'allocated' => true])
         ->and($days['2026-11-15']['figures'])->toBe(['api' => '0.90000000', 'manual' => '1.00000000'])
         ->and(app(TrafficSpendQuery::class)->unallocated('2026-11-10', '2026-11-17'))->toBe([['source_id' => $this->source->id, 'campaign_id' => null, 'amount' => '0.75000000']]);
+});
+
+it('reconciles each day of the range on its own, newest first, and nothing outside it', function () {
+    reportVisit($this->source, ['cost' => '0.001', 'spend' => '0.25']);
+    TrafficSpendDay::factory()->create(['source_id' => $this->source->id, 'network_day' => '2026-11-15', 'origin' => TrafficSpendOrigin::Manual, 'amount' => '1.00', 'allocated_amount' => '0.25', 'counted' => true, 'allocated_at' => now()]);
+    reportVisit($this->source, ['network_day' => '2026-11-12', 'arrived_at' => '2026-11-12 10:00:00', 'cost' => '0.002', 'spend' => '0.40']);
+    TrafficSpendDay::factory()->create(['source_id' => $this->source->id, 'network_day' => '2026-11-12', 'origin' => TrafficSpendOrigin::Csv, 'amount' => '2.00', 'allocated_amount' => '0.40', 'counted' => true, 'allocated_at' => now()]);
+    // After the range.
+    reportVisit($this->source, ['network_day' => '2026-11-20', 'arrived_at' => '2026-11-20 10:00:00', 'cost' => '0.004', 'spend' => '0.80']);
+    TrafficSpendDay::factory()->create(['source_id' => $this->source->id, 'network_day' => '2026-11-20', 'origin' => TrafficSpendOrigin::Manual, 'amount' => '5.00', 'allocated_amount' => '0', 'counted' => true, 'allocated_at' => now()]);
+
+    $days = app(TrafficSpendQuery::class)->days($this->source->id, '2026-11-10', '2026-11-17');
+
+    expect(array_keys($days))->toBe(['2026-11-15', '2026-11-12'])
+        ->and($days['2026-11-15'])->toMatchArray(['clicks' => 1, 'costs' => '0.00100000', 'counted' => '0.25000000', 'counted_origin' => 'manual', 'figures' => ['manual' => '1.00000000']])
+        ->and($days['2026-11-12'])->toMatchArray(['clicks' => 1, 'costs' => '0.00200000', 'counted' => '0.40000000', 'counted_origin' => 'csv', 'figures' => ['csv' => '2.00000000']])
+        ->and(app(TrafficSpendQuery::class)->unallocated('2026-11-10', '2026-11-17'))->toBe([['source_id' => $this->source->id, 'campaign_id' => null, 'amount' => '2.35000000']]);
 });
 
 it('pages each log newest first, so rows neither move nor repeat from one page to the next', function (string $log) {

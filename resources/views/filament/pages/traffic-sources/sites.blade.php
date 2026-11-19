@@ -71,7 +71,8 @@
             @else
                 <x-admin.ui.button size="sm" variant="danger" icon="ban" wire:click="blockSelected">Block {{ number_format($list['selected']) }}</x-admin.ui.button>
             @endif
-            <x-admin.ui.button size="sm" icon="copy" :data-copy="$list['copyIds']" x-on:click="navigator.clipboard.writeText($el.dataset.copy); copied = true; setTimeout(() => copied = false, 1500)"><span x-text="copied ? 'Copied' : 'Copy IDs'">Copy IDs</span></x-admin.ui.button>
+            {{-- Says Copied only once the clipboard took the IDs: the write can be refused, and there is no clipboard outside a secure page. --}}
+            <x-admin.ui.button size="sm" icon="copy" :data-copy="$list['copyIds']" x-on:click="async () => { try { await navigator.clipboard.writeText($el.dataset.copy); copied = true; setTimeout(() => copied = false, 1500) } catch { $dispatch('rg-admin-toast', { message: 'The browser refused the clipboard, so nothing was copied.', tone: 'error' }) } }"><span x-text="copied ? 'Copied' : 'Copy IDs'">Copy IDs</span></x-admin.ui.button>
             <x-admin.ui.button size="sm" variant="ghost" wire:click="clearSelection">Clear</x-admin.ui.button>
         </span>
     </div>

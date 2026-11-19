@@ -1,6 +1,8 @@
 <?php
 
+use App\Actions\Analytics\RecordVisitPostAction;
 use App\Enums\TrafficDevice;
+use App\Enums\UserActivity;
 use App\Models\Post;
 use App\Queries\Analytics\AnalyticsContentQuery;
 use Carbon\CarbonImmutable;
@@ -116,6 +118,18 @@ it('credits an account to the post its session opened first, across every visit 
         ->and(contentQuery()->firstPostAccounts($period, null, []))->toBe([])
         ->and(contentQuery()->unattributedAccounts($period, null))->toBe(2)
         ->and(contentQuery()->unattributedAccounts($period, TrafficDevice::Desktop))->toBe(0);
+});
+
+it('credits an account to the post its session opened first, though another was voted on before it was opened', function () {
+    $visit = analyticsVisit('ann', ['arrived_at' => '2026-11-15 10:00:00', 'account_at' => '2026-11-15 10:20:00', 'signup_at' => '2026-11-15 10:19:00']);
+    analyticsSession($visit);
+    $posts = app(RecordVisitPostAction::class);
+
+    $posts->actedOn($visit->id, 13, UserActivity::Voted, CarbonImmutable::parse('2026-11-15 10:01:00'));
+    $posts->viewedOn($visit->id, 11, CarbonImmutable::parse('2026-11-15 10:02:00'));
+    $posts->viewedOn($visit->id, 13, CarbonImmutable::parse('2026-11-15 10:03:00'));
+
+    expect(contentQuery()->firstPostAccounts(analyticsFilter()->period, null, [11, 13]))->toBe([11 => 1]);
 });
 
 it('reads the posts given, a deleted one too', function () {

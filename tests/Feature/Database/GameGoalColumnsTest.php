@@ -6,14 +6,19 @@ use Illuminate\Support\Facades\DB;
 /**
  * Goals came after the first versions were published: the migration that
  * adds them gives every earlier version the goal its flow's steps gave it, by
- * the rule as it stood, and leaves the game tables' own checks in place on
- * every engine.
+ * the rule as it stood, keeps the goal a snapshot was published with, and
+ * leaves the game tables' own checks in place on every engine.
  */
-function versionWithSteps(array $steps): GameVersion
+function versionWithSteps(array $steps, ?string $snapshotGoal = null): GameVersion
 {
     $version = GameVersion::factory()->create();
     $snapshot = $version->snapshot;
     $snapshot['flow']['steps'] = array_map(fn (array $step): array => ['key' => 's'.random_int(1, 9999), 'audience' => 'all', 'texts' => [], ...$step], $steps);
+
+    if ($snapshotGoal !== null) {
+        $snapshot['flow']['goal'] = $snapshotGoal;
+    }
+
     DB::table('game_versions')->where('id', $version->id)->update(['snapshot' => json_encode($snapshot), 'goal' => null]);
 
     return $version;
@@ -34,6 +39,16 @@ it('gives every earlier version the goal its flow\'s steps gave it', function (a
     'a share step and the feed' => [[['type' => 'game', 'settings' => []], ['type' => 'full_result', 'settings' => ['signup' => 'none']], ['type' => 'share', 'settings' => []], ['type' => 'feed', 'settings' => []]], 'shared'],
     'nothing after the result' => [[['type' => 'game', 'settings' => []], ['type' => 'full_result', 'settings' => ['signup' => 'none']]], 'completed'],
 ]);
+
+it('keeps the goal a version\'s snapshot was published with when it runs again', function () {
+    $version = versionWithSteps([['type' => 'game', 'settings' => []], ['type' => 'full_result', 'settings' => ['signup' => 'step']], ['type' => 'registration', 'settings' => []]], 'replayed');
+    $migration = require database_path('migrations/2026_11_17_100000_add_goal_to_game_flows_and_versions.php');
+
+    $migration->down();
+    $migration->up();
+
+    expect(DB::table('game_versions')->where('id', $version->id)->value('goal'))->toBe('replayed');
+});
 
 it('keeps the checks of the game tables it added columns to', function () {
     $sql = fn (string $table): string => (string) DB::table('sqlite_master')->where('name', $table)->value('sql');

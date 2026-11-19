@@ -673,6 +673,28 @@ it('says how many days a date-only field\'s day is from today, in the field\'s t
     'years ahead' => ['2029-01-01', 'Mon 01 Jan 2029', 'in 2 years'],
 ]);
 
+it('counts a date-only field\'s days by the calendar, across a day whose midnight daylight saving skips', function (string $now, string $value, string $label, string $relative) {
+    // Santiago's clocks go from midnight straight to 01:00 on 6 September 2026: that day is 23 hours long from its first moment.
+    $this->travelTo(CarbonImmutable::parse($now, 'UTC'));
+
+    $html = (string) $this->blade('<x-admin.ui.date-time-field date-only label="Day" id="day" :value="$value" timezone="America/Santiago" />', ['value' => $value]);
+
+    expect($html)
+        ->toMatch('/long\(chosen\)"\s*>'.preg_quote($label, '/').'<\/span>/')
+        ->toMatch('/relative\(chosen\)\.text"\s*>'.preg_quote($relative, '/').'<\/span>/');
+})->with([
+    'that day, seen the day after' => ['2026-09-07 15:00:00', '2026-09-06', 'Sun 06 Sep 2026', 'Yesterday'],
+    'the day after, seen that day' => ['2026-09-06 15:00:00', '2026-09-07', 'Mon 07 Sep 2026', 'Tomorrow'],
+]);
+
+it('bounds an empty date field by its min and its max apart, so one with only a min opens at that min and not on today', function () {
+    $html = (string) $this->blade('<x-admin.ui.date-time-field date-only label="Day" id="day" value="" min="2027-03-01" />');
+
+    expect($html)
+        ->toContain('const start = this.chosen ?? this.clamp(')
+        ->toContain('return Math.min(this.maximum ?? Infinity, Math.max(this.minimum ?? -Infinity, at))');
+});
+
 it('draws an empty date-only field as its placeholder, and reads only a day as its value', function (string $value) {
     $html = (string) $this->blade('<x-admin.ui.date-time-field date-only label="Day" id="day" :value="$value" />', ['value' => $value]);
 

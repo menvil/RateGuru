@@ -390,7 +390,8 @@ it('marks a translation made from older English, keeping it on the row beside th
 it('marks neither a current translation nor one with nothing recorded of its English', function () {
     [$target] = twoTranslatedLocales();
     $current = untranslatedCategory('Cats');
-    translationCenter($target)->call('save', "categories:{$current->id}:name", $target, 'Katzen');
+    $page = translationCenter($target);
+    $page->call('save', "categories:{$current->id}:name", $target, 'Katzen', translationCenterFingerprint($page, "categories:{$current->id}:name"));
     $unknown = Category::factory()->create(['name' => 'Dogs', 'name_translations' => [$target => 'Hunde'], 'is_active' => true]);
     $unknown->update(['name' => 'Puppies']);
     $page = translationCenter($target);
@@ -460,8 +461,8 @@ it('makes an outdated translation current once the row is saved, as it is or cha
     $changed = outdatedCategory($target, 'Katzen', 'Cats', 'Kittens');
     $page = translationCenter($target);
 
-    $page->call('save', "categories:{$kept->id}:name", $target, 'Willkommen')->assertReturned(['saved' => true, 'value' => 'Willkommen']);
-    $page->call('save', "categories:{$changed->id}:name", $target, 'Kätzchen')->assertReturned(['saved' => true, 'value' => 'Kätzchen']);
+    $page->call('save', "categories:{$kept->id}:name", $target, 'Willkommen', translationCenterFingerprint($page, "categories:{$kept->id}:name"))->assertReturned(['saved' => true, 'value' => 'Willkommen']);
+    $page->call('save', "categories:{$changed->id}:name", $target, 'Kätzchen', translationCenterFingerprint($page, "categories:{$changed->id}:name"))->assertReturned(['saved' => true, 'value' => 'Kätzchen']);
 
     $rows = collect(translationCenter($target)->viewData('rows'));
 
@@ -477,7 +478,7 @@ it('saves one unit and answers the browser without re-rendering the page', funct
     $category = untranslatedCategory();
     $page = translationCenter($target);
 
-    $page->call('save', "categories:{$category->id}:name", $target, '  Грузинская кухня ')
+    $page->call('save', "categories:{$category->id}:name", $target, '  Грузинская кухня ', translationCenterFingerprint($page, "categories:{$category->id}:name"))
         ->assertReturned(['saved' => true, 'value' => 'Грузинская кухня']);
 
     // Stored, and the page still as it was: the browser keeps the drafts of every other row.
@@ -489,8 +490,9 @@ it('says next to the field what is wrong with the text, and writes nothing', fun
     [$target] = twoTranslatedLocales();
     $category = untranslatedCategory();
 
-    translationCenter($target)
-        ->call('save', "categories:{$category->id}:name", $target, str_repeat('x', 84))
+    $page = translationCenter($target);
+
+    $page->call('save', "categories:{$category->id}:name", $target, str_repeat('x', 84), translationCenterFingerprint($page, "categories:{$category->id}:name"))
         ->assertReturned(['saved' => false, 'error' => '4 over the limit', 'field' => true]);
 
     expect($category->fresh()->name_translations)->toBeNull();
@@ -639,7 +641,7 @@ it('answers an engine failure with the engine\'s safe reason, and keeps manual t
     $page = translationCenter($target);
 
     $page->call('suggest', $unit, $target)->assertReturned(['generated' => false, 'error' => 'Machine translation is not configured.']);
-    $page->call('save', $unit, $target, 'Вручную')->assertReturned(['saved' => true, 'value' => 'Вручную']);
+    $page->call('save', $unit, $target, 'Вручную', translationCenterFingerprint($page, $unit))->assertReturned(['saved' => true, 'value' => 'Вручную']);
 
     Http::assertNothingSent();
 });
@@ -728,7 +730,7 @@ it('restores nothing, and keeps working, when there is no generation or the draf
     $category = untranslatedCategory();
     useScriptedTranslationProvider(answeringTranslationProvider(['Грузинская кухня']));
 
-    $page->call('save', "categories:{$category->id}:name", $target, 'Вручную')->assertReturned(['saved' => true, 'value' => 'Вручную']);
+    $page->call('save', "categories:{$category->id}:name", $target, 'Вручную', translationCenterFingerprint(translationCenter($target), "categories:{$category->id}:name"))->assertReturned(['saved' => true, 'value' => 'Вручную']);
     $page->call('suggest', untranslatedCategoryId('Second'), $target)->assertReturned(fn (array $result): bool => $result['generated'] === true);
 });
 
@@ -820,7 +822,8 @@ it('keeps what it saved when the content\'s own editor saves its English', funct
     $category = untranslatedCategory();
     $unit = "categories:{$category->id}:name";
 
-    translationCenter($target)->call('save', $unit, $target, 'From Translation Center');
+    $page = translationCenter($target);
+    $page->call('save', $unit, $target, 'From Translation Center', translationCenterFingerprint($page, $unit));
 
     Livewire::test(ManageCategories::class)
         ->call('edit', $category->id)
@@ -886,6 +889,23 @@ it('refuses a save from a page drawn with English that has changed since, and ke
 
     expect(translationSourceOf($unit, $target)['reference'])->toBe('Hello');
 });
+
+it('refuses a text sent without the fingerprint of the English it was drawn with', function (array $fingerprint) {
+    [$target] = twoTranslatedLocales();
+    $category = untranslatedCategory('Welcome');
+    $unit = "categories:{$category->id}:name";
+
+    // Without it the save could not tell English changed since the page opened, and would record the text as made from the new one.
+    translationCenter($target)->call('save', $unit, $target, 'Willkommen', ...$fingerprint)
+        ->assertReturned(['saved' => false, 'error' => 'The English text changed since this page opened. Reload the page to translate the current text.', 'field' => false]);
+
+    expect($category->fresh()->name_translations)->toBeNull()
+        ->and(translationSourceOf($unit, $target))->toBeNull();
+})->with([
+    'no fingerprint' => [[]],
+    'a null fingerprint' => [[null]],
+    'an array for one' => [[['fingerprint' => 'x']]],
+]);
 
 it('removes a translation from a page drawn with older English, which needs no current English', function () {
     [$target] = twoTranslatedLocales();

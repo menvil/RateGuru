@@ -12,6 +12,7 @@ use App\Enums\TrafficCampaignStatus;
 use App\Enums\TrafficConnectionStatus;
 use App\Enums\TrafficConnector;
 use App\Enums\TrafficEvent;
+use App\Enums\TrafficPostbackStatus;
 use App\Enums\TrafficSourceStatus;
 use App\Filament\Pages\TrafficSourcesPage;
 use App\Models\Game;
@@ -22,15 +23,21 @@ use App\Models\TrafficCampaign;
 use App\Models\TrafficChanceRun;
 use App\Models\TrafficConversion;
 use App\Models\TrafficPostback;
+use App\Models\TrafficPostbackRule;
 use App\Models\TrafficPriceSet;
 use App\Models\TrafficSetting;
 use App\Models\TrafficSource;
+use App\Models\TrafficSpendDay;
 use App\Models\TrafficStepChance;
 use App\Models\TrafficVisit;
 use App\Models\User;
 use App\Support\Traffic\Blocking\BlockRule;
+use App\Support\Traffic\Money\TrafficMoney;
+use App\Support\Traffic\Postbacks\PostbackSchedule;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
+use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 use Livewire\Livewire;
 
 beforeEach(function () {
@@ -161,6 +168,15 @@ it('never keeps site visits on with Record visits off, whatever it is sent', fun
         ->and(TrafficSetting::captureFlags())->toBe(['capture' => false, 'site' => false]);
 });
 
+it('refuses a blank IP database edition, keeping the one saved', function () {
+    $before = TrafficSetting::current()->geo_edition;
+
+    expect(fn () => app(SaveTrafficSettingsAction::class)->handle($this->admin, ['geo_edition' => ''], TrafficSetting::current()->lock_version))
+        ->toThrow(fn (ValidationException $exception) => expect($exception->errors())->toHaveKey('geo_edition'));
+
+    expect(TrafficSetting::current()->geo_edition)->toBe($before);
+});
+
 it('gives a paid source its own account price on Value, beside what its accounts brought, saved with the prices', function () {
     $exo = TrafficSource::factory()->create(['name' => 'ExoClick main']);
     $idle = TrafficSource::factory()->create(['name' => 'PopAds idle']);
@@ -246,14 +262,89 @@ it('refuses a sign-in price that is no amount, by its field', function () {
         ->assertHasErrors(['login_price']);
 });
 
-it('sets a campaign’s stage from its panel', function () {
+it('sets a campaign’s stage from its panel, its figures read only once the page is in a browser', function () {
     $campaign = TrafficCampaign::factory()->create();
+    TrafficVisit::factory()->create(['source_id' => $campaign->source_id, 'campaign_id' => $campaign->id, 'arrived_at' => now(), 'network_day' => '2026-11-17', 'spend' => '0.25']);
 
-    Livewire::withQueryParams(['camp' => $campaign->id])->test(TrafficSourcesPage::class)
+    // Opened from a saved address: its stages to set at once, its results waiting for the page to be in a browser.
+    $page = Livewire::withQueryParams(['camp' => $campaign->id])->test(TrafficSourcesPage::class)
         ->assertSee('Stage')
-        ->call('setStage', 'test');
+        ->assertSeeHtml('data-testid="traffic-campaign-results" aria-busy="true"')
+        ->assertViewHas('campaign', fn (array $panel): bool => $panel['figures'] === null && $panel['stages'] === null);
+
+    $page->call('load')
+        ->assertSeeHtml('data-testid="traffic-campaign-results" aria-busy="false"')
+        ->assertViewHas('campaign', fn (array $panel): bool => $panel['figures']->visits === 1 && $panel['stages'] === [])
+        ->call('setStage', 'test')
+        ->assertViewHas('campaign', fn (array $panel): bool => count($panel['stages']) === 1 && $panel['stages'][0]['stage'] === 'test' && $panel['stages'][0]['figures']->visits === 1);
 
     expect($campaign->fresh())->stage->toBe(TrafficCampaignStage::Test)->status->toBe(TrafficCampaignStatus::Active);
+});
+
+it('keeps a campaign’s draft as typed when its stage changes, it is archived or restored, or a change is refused, and saves it after', function () {
+    $campaign = TrafficCampaign::factory()->create(['name' => 'US popunder']);
+
+    $page = Livewire::withQueryParams(['camp' => $campaign->id])->test(TrafficSourcesPage::class)
+        ->set('campaignDraft.name', 'Renamed')
+        ->call('setStage', 'test')
+        ->assertSet('campaignDraft.name', 'Renamed')
+        ->call('saveCampaign')
+        ->assertHasNoErrors()
+        ->assertDispatched('rg-admin-toast', message: 'Campaign saved');
+
+    expect($campaign->fresh())->name->toBe('Renamed')->stage->toBe(TrafficCampaignStage::Test);
+
+    // Archived, refused a stage while archived, restored: the draft stays as typed through each, and saves after.
+    $page->set('campaignDraft.name', 'Renamed again')
+        ->call('archiveCampaign')
+        ->assertSet('campaignDraft.name', 'Renamed again')
+        ->call('setStage', 'scale')
+        ->assertDispatched('rg-admin-toast', message: 'This campaign is archived. Restore it first.', tone: 'error')
+        ->assertSet('campaignDraft.name', 'Renamed again')
+        ->call('archiveCampaign', true)
+        ->assertSet('campaignDraft.name', 'Renamed again')
+        ->call('saveCampaign')
+        ->assertHasNoErrors();
+
+    expect($campaign->fresh())->name->toBe('Renamed again')->status->toBe(TrafficCampaignStatus::Active)->stage->toBe(TrafficCampaignStage::Test);
+
+    // Saved by someone else after it was opened: the stage still changes, and Save says so rather than overwrite their change.
+    TrafficCampaign::query()->whereKey($campaign->id)->update(['name' => 'Theirs', 'lock_version' => $campaign->fresh()->lock_version + 1]);
+    $page->set('campaignDraft.name', 'Mine')
+        ->call('setStage', 'optimise')
+        ->assertSet('campaignDraft.name', 'Mine')
+        ->call('saveCampaign')
+        ->assertDispatched('rg-admin-toast', message: 'Someone saved this campaign after you opened it. Reload to see their changes.', tone: 'error');
+
+    expect($campaign->fresh())->name->toBe('Theirs')->stage->toBe(TrafficCampaignStage::Optimise);
+});
+
+it('refuses Save after a stage change when someone else saved the campaign between the page’s read and the change’s lock', function () {
+    $campaign = TrafficCampaign::factory()->create(['name' => 'US popunder']);
+    $opened = $campaign->fresh()->lock_version;
+
+    $page = Livewire::withQueryParams(['camp' => $campaign->id])->test(TrafficSourcesPage::class)
+        ->assertSet('campaignLockVersion', $opened)
+        ->set('campaignDraft.name', 'Mine');
+
+    // The other administrator's save lands right after the page reads the campaign, before the stage change locks it.
+    $landed = false;
+    TrafficCampaign::retrieved(function (TrafficCampaign $read) use (&$landed, $campaign, $opened): void {
+        if ($landed || $read->id !== $campaign->id) {
+            return;
+        }
+
+        $landed = true;
+        TrafficCampaign::query()->whereKey($campaign->id)->update(['name' => 'Theirs', 'lock_version' => $opened + 1]);
+    });
+
+    $page->call('setStage', 'test')
+        ->assertSet('campaignLockVersion', $opened)
+        ->call('saveCampaign')
+        ->assertDispatched('rg-admin-toast', message: 'Someone saved this campaign after you opened it. Reload to see their changes.', tone: 'error');
+
+    expect($landed)->toBeTrue()
+        ->and($campaign->fresh())->name->toBe('Theirs')->stage->toBe(TrafficCampaignStage::Test);
 });
 
 it('never lets a password manager fill the network key field', function () {
@@ -358,6 +449,8 @@ it('shows a campaign in its panel — stages, results, targeting typed in where 
         ->assertSee('Results by stage')
         ->assertSee('Typed in here')
         ->assertSee('United States')
+        ->call('load')
+        ->assertSeeHtmlInOrder(['data-testid="traffic-campaign-results" aria-busy="false"', 'Results by stage', 'Visits', 'last 30 days', 'Cost / account', 'ROI'])
         ->call('toggleCampaignCountry', 'ca')
         ->call('toggleCampaignDevice', 'mobile')
         ->call('saveCampaign')
@@ -366,6 +459,88 @@ it('shows a campaign in its panel — stages, results, targeting typed in where 
     expect($campaign->fresh())->countries->toBe(['US', 'CA'])->devices->toBe(['mobile']);
 
     $page->call('campaignReport')->assertSet('tab', 'report')->assertSet('campaignId', (string) $campaign->id)->assertSet('camp', '');
+});
+
+it('binds a campaign’s Pays per as the kit’s segmented control, and its stages as toggles the arrow keys never press', function () {
+    $campaign = TrafficCampaign::factory()->create(['stage' => 'optimise', 'bid_model' => 'click']);
+
+    $html = Livewire::withQueryParams(['tab' => 'campaigns', 'camp' => (string) $campaign->id])->test(TrafficSourcesPage::class)->call('load')->html();
+    $payPer = Str::betweenFirst($html, 'aria-label="Pays per"', '</div>');
+    // Each stage card writes a stage period and a line of History at once: a toggle, not a radio the arrow keys move.
+    $stages = Str::betweenFirst($html, 'rg-admin-traffic__stage-cards', 'Results by stage');
+
+    expect($html)->toMatch('/<div\s[^>]*class="rg-admin-segmented"[^>]*aria-label="Pays per"/')
+        ->and($html)->toMatch('/<div\s[^>]*wire:model\.live="campaignDraft\.bid_model"[^>]*aria-label="Pays per"/')
+        ->and($payPer)->toMatch('/aria-checked="false"\s+tabindex="-1"/')
+        ->and($payPer)->toContain('1,000 impressions')
+        ->and($stages)->not->toContain('role="radio"')
+        ->and($stages)->not->toContain('aria-checked')
+        ->and(substr_count($stages, 'aria-pressed="true"'))->toBe(1)
+        ->and(substr_count($stages, 'aria-pressed="false"'))->toBe(3)
+        ->and($stages)->toMatch('/aria-pressed="true"[^>]*wire:click="setStage\(\'optimise\'\)"/');
+});
+
+it('says which devices a campaign targets: pressed toggles where they are typed in, plain chips where the network reports them', function () {
+    $typed = TrafficCampaign::factory()->create(['devices' => ['mobile']]);
+    $reported = TrafficCampaign::factory()->create(['devices' => ['desktop']]);
+    TrafficApiConnection::factory()->create(['source_id' => $reported->source_id]);
+    $devices = fn (TrafficCampaign $campaign): string => Str::betweenFirst(Livewire::withQueryParams(['tab' => 'campaigns', 'camp' => (string) $campaign->id])->test(TrafficSourcesPage::class)->call('load')->html(), '<dt>Devices</dt>', '<dt>Format</dt>');
+
+    expect($devices($typed))->toMatch('/<button type="button" aria-pressed="true"[^>]*wire:click="toggleCampaignDevice\(\'mobile\'\)"/')
+        ->toMatch('/<button type="button" aria-pressed="false"[^>]*wire:click="toggleCampaignDevice\(\'desktop\'\)"/')
+        ->and($devices($reported))->not->toContain('<button')
+        ->toContain('Desktop')
+        ->not->toContain('Mobile');
+});
+
+it('refuses a campaign target that is no amount by its field, drawing the panel against the source’s target meanwhile', function () {
+    $source = TrafficSource::factory()->create(['target_cpa' => '0.40']);
+    $campaign = TrafficCampaign::factory()->create(['source_id' => $source->id]);
+
+    $page = Livewire::withQueryParams(['tab' => 'campaigns', 'camp' => (string) $campaign->id])->test(TrafficSourcesPage::class)
+        ->call('load')
+        ->set('campaignDraft.target_cpa', '1,5')
+        ->assertOk()
+        ->assertSee('target $0.40')
+        ->call('saveCampaign')
+        ->assertHasErrors(['target_cpa'])
+        ->assertSet('campaignDraft.target_cpa', '1,5');
+
+    $page->assertSee($page->errors()->first('target_cpa'));
+
+    expect($campaign->fresh()->target_cpa)->toBeNull();
+});
+
+it('shows the campaign panel’s refusals of its budget, prices, format and day by their fields', function (string $field, string $value) {
+    $campaign = TrafficCampaign::factory()->create();
+
+    $page = Livewire::withQueryParams(['tab' => 'campaigns', 'camp' => (string) $campaign->id])->test(TrafficSourcesPage::class)
+        ->call('load')
+        ->set('campaignDraft.spend_mode', 'price')
+        ->set('campaignDraft.'.$field, $value)
+        ->call('saveCampaign')
+        ->assertHasErrors([$field])
+        // Said aloud too: the field can be far down the panel from Save.
+        ->assertDispatched('rg-admin-toast', message: 'Some fields need fixing before the campaign can be saved.', tone: 'error');
+
+    $page->assertSee($page->errors()->first($field));
+})->with([
+    'daily budget' => ['daily_budget', 'abc'],
+    'mobile price' => ['bid_mobile', 'abc'],
+    'desktop price' => ['bid_desktop', '-1'],
+    'format' => ['format', str_repeat('x', 61)],
+    'price from' => ['price_from', 'someday'],
+]);
+
+it('keeps a price Value refused to correct, drawing no amount from it', function () {
+    Livewire::withQueryParams(['tab' => 'value'])->test(TrafficSourcesPage::class)
+        ->call('load')
+        ->set('prices.post_bonus', '1,5')
+        ->call('savePrices')
+        ->assertOk()
+        ->assertHasErrors(['post_bonus'])
+        ->assertSet('prices.post_bonus', '1,5')
+        ->assertSee('post × —');
 });
 
 it('warns when two postbacks of a source go to the same goal of the network', function () {
@@ -769,15 +944,121 @@ it('lists under Blocked every block in force of a source, with no figures for on
     // Coming off the network's list: no longer in force.
     $block($source, '41005', TrafficBlockLevel::Site, TrafficBlockNetworkState::Removing);
     $block($other, '50001', TrafficBlockLevel::Site);
+    // A blocked site whose clicks came through one of its zones.
+    TrafficVisit::factory()->create(['source_id' => $source->id, 'site_ref' => '41006', 'zone_ref' => 'z7', 'arrived_at' => '2026-11-16 10:00:00', 'network_day' => '2026-11-16', 'spend' => '0.40']);
+    $block($source, '41006', TrafficBlockLevel::Site);
     $open = fn (array $query) => Livewire::withQueryParams(['view' => 'sites', 'seg' => 'blocked', ...$query])->test(TrafficSourcesPage::class)->call('load');
 
     $open(['source' => (string) $source->id, 'list' => 'site', 'period' => 'yesterday'])
-        ->assertViewHas('list', fn (array $list): bool => $list['counts']['blocked'] === 2 && collect($list['rows'])->pluck('ref')->sort()->values()->all() === ['41003', '41004'])
+        ->assertViewHas('list', fn (array $list): bool => $list['counts']['blocked'] === 3 && collect($list['rows'])->pluck('ref')->sort()->values()->all() === ['41003', '41004', '41006'])
         ->assertDontSee('50001');
-    // By zone it lists the zone blocks too.
+    // By zone it lists the zone blocks too, and a site block whose clicks show as its zones as a site row of its own.
     $open(['source' => (string) $source->id])
-        ->assertViewHas('list', fn (array $list): bool => collect($list['rows'])->pluck('ref')->sort()->values()->all() === ['41003', '41004', 'z9']);
+        ->assertViewHas('list', fn (array $list): bool => collect($list['rows'])->pluck('ref')->sort()->values()->all() === ['41003', '41004', '41006', 'z9']);
+    // That site row has no figures, and its zone keeps its own.
+    $open(['source' => (string) $source->id, 'seg' => 'all'])
+        ->assertViewHas('list', fn (array $list): bool => ($rows = collect($list['rows'])->keyBy('key'))[$source->id.':site:41006']['level'] === 'site'
+            && $rows[$source->id.':site:41006']['figures']->visits === 0
+            && $rows[$source->id.':zone:z7']['figures']->visits === 1
+            && ! $rows[$source->id.':zone:z7']['blocked']);
     // Blocks are a source's: a campaign filter lists only what had clicks.
     $open(['source' => (string) $source->id, 'list' => 'site', 'campaign' => (string) TrafficCampaign::factory()->create(['source_id' => $source->id])->id])
         ->assertViewHas('list', fn (array $list): bool => $list['counts']['blocked'] === 0);
+});
+
+it('counts every campaign of a source in its stage on Campaigns, and lists an older one among hundreds of newer ones', function () {
+    $source = TrafficSource::factory()->create(['name' => 'PopAds main']);
+    $paused = TrafficCampaign::factory()->create(['source_id' => $source->id, 'name' => 'Old paused', 'status' => TrafficCampaignStatus::Active, 'stage' => TrafficCampaignStage::Paused, 'first_click_at' => now()->subDays(20)]);
+    TrafficCampaign::factory()->count(300)->create(['source_id' => $source->id, 'status' => TrafficCampaignStatus::Active, 'stage' => TrafficCampaignStage::Test, 'first_click_at' => now()->subDay()]);
+    $rows = fn (array $groups): array => collect($groups)->flatMap(fn (array $group): array => $group['rows'])->pluck('id')->all();
+
+    // Every running one: the 300 newest, and how many more there are.
+    Livewire::withQueryParams(['tab' => 'campaigns', 'source' => (string) $source->id])->test(TrafficSourcesPage::class)->call('load')
+        ->assertViewHas('stageCounts', fn (array $counts): bool => $counts['all'] === 301 && $counts['test'] === 300 && $counts['paused'] === 1)
+        ->assertViewHas('campaignGroups', fn (array $groups): bool => count($rows($groups)) === 300 && ! in_array($paused->id, $rows($groups), true))
+        ->assertViewHas('campaignsMore', 1)
+        ->assertSee('The 300 newest are shown; 1 older campaign isn’t.', false);
+
+    Livewire::withQueryParams(['tab' => 'campaigns', 'source' => (string) $source->id, 'stage' => 'paused'])->test(TrafficSourcesPage::class)->call('load')
+        ->assertSee('Old paused')
+        ->assertViewHas('campaignGroups', fn (array $groups): bool => $rows($groups) === [$paused->id])
+        ->assertViewHas('campaignsMore', 0);
+});
+
+it('counts one origin of a network’s own figures a day on Spend — its file over its API — in the source, its campaigns and the day alike', function () {
+    $source = TrafficSource::factory()->create(['name' => 'PopAds main', 'spend_mode' => 'api', 'reporting_timezone' => 'UTC']);
+    $campaign = TrafficCampaign::factory()->create(['source_id' => $source->id, 'external_id' => '881204', 'name' => 'US popunder']);
+    // The day the network's API said $10 and its file $12: the file counts, as the day is shared out.
+    $fact = fn (string $origin, string $amount) => TrafficSpendDay::query()->forceCreate(['source_id' => $source->id, 'campaign_id' => $campaign->id, 'network_day' => '2026-11-16', 'origin' => $origin, 'site_ref' => '', 'zone_ref' => '', 'amount' => $amount, 'counted' => $origin === 'csv', 'allocated_amount' => 0, 'allocated_at' => now()]);
+    $fact('api', '10.00');
+    $fact('csv', '12.00');
+    // A day with no figure of the network's: $3 counted on its clicks, so reports count $15 in all.
+    TrafficVisit::factory()->create(['source_id' => $source->id, 'campaign_id' => $campaign->id, 'arrived_at' => '2026-11-15 10:00:00', 'network_day' => '2026-11-15', 'spend' => '3.00']);
+
+    Livewire::withQueryParams(['tab' => 'spend'])->test(TrafficSourcesPage::class)->call('load')
+        ->set('spendSource', (string) $source->id)
+        ->assertViewHas('spendRows', fn (array $rows): bool => $rows[0]['network'] === ['$12.00', 'Differs by 25.0%']
+            && $rows[0]['campaigns'][0]['network'] === '$12.00')
+        ->assertViewHas('dayRows', fn (array $days): bool => TrafficMoney::of(collect($days)->firstWhere('date', '2026-11-16')['network'])->isEqualTo('12'));
+});
+
+it('counts every campaign of a network on Spend, and reads their rows only for a source opened by campaign', function () {
+    $source = TrafficSource::factory()->create(['name' => 'PopAds main']);
+    TrafficCampaign::factory()->count(50)->create(['source_id' => $source->id, 'first_click_at' => now()->subDays(3)]);
+    $visited = TrafficCampaign::factory()->create(['source_id' => $source->id, 'external_id' => '881204', 'first_click_at' => now()]);
+    TrafficVisit::factory()->create(['source_id' => $source->id, 'campaign_id' => $visited->id, 'arrived_at' => '2026-11-16 10:00:00', 'network_day' => '2026-11-16', 'spend' => '0.25']);
+
+    // The only paid source opens by campaign to begin with.
+    Livewire::withQueryParams(['tab' => 'spend'])->test(TrafficSourcesPage::class)->call('load')
+        ->assertSee('Ad network · 51 campaigns')
+        ->assertViewHas('spendRows', fn (array $rows): bool => $rows[0]['open'] && collect($rows[0]['campaigns'])->pluck('external')->all() === ['881204'])
+        ->call('toggleSpendSource', $source->id)
+        ->assertSee('Ad network · 51 campaigns')
+        ->assertViewHas('spendRows', fn (array $rows): bool => ! $rows[0]['open'] && $rows[0]['campaigns'] === []);
+});
+
+it('counts on Sources only the postbacks of a source’s rules that are on as failing', function () {
+    $source = TrafficSource::factory()->create(['name' => 'PopAds main']);
+    $on = TrafficPostbackRule::factory()->create(['source_id' => $source->id, 'event' => TrafficEvent::Account, 'position' => 0]);
+    $failed = fn (TrafficPostbackRule $rule) => TrafficPostback::factory()->create([
+        'conversion_id' => TrafficConversion::factory()->create(['visit_id' => TrafficVisit::factory()->create(['source_id' => $source->id])->id])->id,
+        'rule_id' => $rule->id, 'status' => TrafficPostbackStatus::Failed, 'attempts' => 6, 'http_status' => 503,
+    ]);
+    // Two rules switched off, each with a postback that failed this week.
+    foreach ([1, 2] as $position) {
+        $failed(TrafficPostbackRule::factory()->create(['source_id' => $source->id, 'enabled' => false, 'position' => $position]));
+    }
+    $postbacks = fn (): array => Livewire::withQueryParams(['tab' => 'sources'])->test(TrafficSourcesPage::class)->call('load')->viewData('networks')[0]['postbacks'];
+
+    expect($postbacks()['text'])->toBe('1 postback · delivering');
+
+    $failed($on);
+
+    expect($postbacks())->text->toBe('1 of 1 postback failing')->sub->toBe('HTTP 503 · attempt 6 of '.(count(PostbackSchedule::RETRY_AFTER) + 1));
+});
+
+it('keeps the country groups as typed when the prices are saved, and the prices as typed when the groups are', function () {
+    $page = Livewire::withQueryParams(['tab' => 'value'])->test(TrafficSourcesPage::class)
+        ->set('groups.0.name', 'Top markets')
+        ->set('prices.account_price', '0.65')
+        ->call('savePrices')
+        ->assertHasNoErrors()
+        ->assertSet('groups.0.name', 'Top markets')
+        ->assertSet('prices.account_price', '0.65')
+        ->assertSet('pricesFrom', TrafficPriceSet::current()->id);
+
+    $page->set('prices.post_bonus', '1.25')
+        ->call('saveGroups')
+        ->assertHasNoErrors()
+        ->assertSet('prices.post_bonus', '1.25')
+        ->assertSet('pricesFrom', TrafficPriceSet::current()->id);
+
+    expect(TrafficPriceSet::current())->account_price->toBe('0.6500')
+        ->and(TrafficPriceSet::current()->country_groups[0]['name'])->toBe('Top markets');
+
+    // The price typed meanwhile saves on the set the groups made.
+    $page->call('savePrices')->assertHasNoErrors();
+
+    expect(TrafficPriceSet::current())->post_bonus->toBe('1.2500')->account_price->toBe('0.6500')
+        ->and(TrafficPriceSet::current()->country_groups[0]['name'])->toBe('Top markets');
 });

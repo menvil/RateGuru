@@ -2,6 +2,7 @@
 
 use App\Actions\Traffic\SaveTrafficSourceAction;
 use App\Enums\TrafficBlockLevel;
+use App\Models\Game;
 use App\Models\ProjectSettings;
 use App\Models\TrafficBlock;
 use App\Models\TrafficCampaign;
@@ -21,8 +22,9 @@ use function Pest\Laravel\actingAs;
  * range the moment its end is picked; a fixed price's days in one calendar,
  * given an end by keys, left with none by No end and by closing after a
  * start, each saved as chosen; a campaign's price from the day clicked; a
- * source's blocked sites opened from its editor at the list itself; and a
- * source switched between the general block rule and its own thresholds.
+ * source's blocked sites opened from its editor at the list itself; copies
+ * said to be made only once the clipboard took them; and a source switched
+ * between the general block rule and its own thresholds.
  */
 beforeEach(function () {
     ProjectSettings::factory()->create();
@@ -198,7 +200,8 @@ it('keeps the focus on a day when the fixed price’s calendar turns the month, 
     waitForScript($page, "document.querySelector('{$field}').offsetParent !== null");
     $page->click($field);
     waitForScript($page, $open);
-    waitForScript($page, 'document.activeElement?.getAttribute("aria-label")', $start->format('l j F Y').', the start');
+    // The 1st of this month is today on the 1st: the calendar says so before the start.
+    waitForScript($page, 'document.activeElement?.getAttribute("aria-label")', $start->format('l j F Y').($start->isSameDay(CarbonImmutable::now('UTC')) ? ', today' : '').', the start');
 
     // The month turned by the pointer: the focus moves to the day Tab reaches in the months now shown, not to the drawer's Close.
     $page->click($dialog.' [aria-label="Next month"]:visible');
@@ -269,6 +272,55 @@ it('opens a source’s blocked sites from its Blocking pane at the list itself, 
     expect($list->script("document.querySelector('#traffic-performance').textContent"))->toContain('site 40123')->toContain('Blocked');
 
     $list->assertNoJavaScriptErrors();
+});
+
+it('says the ticked sites’ IDs were copied only when the clipboard took them', function () {
+    $today = CarbonImmutable::now('UTC')->startOfDay();
+    $source = TrafficSource::factory()->create(['name' => 'PopAds main', 'block_level' => TrafficBlockLevel::Site]);
+    TrafficVisit::factory()->count(3)->create(['source_id' => $source->id, 'site_ref' => '40123', 'arrived_at' => $today->subDay()->setTime(10, 0), 'network_day' => $today->subDay()->toDateString()]);
+    $page = visitAdminEditor('/admin/traffic-sources?view=sites');
+    $tick = 'input[aria-label^="Tick "][aria-label$=" 40123"]';
+    $copy = "[...document.querySelectorAll('[data-testid=\"traffic-selection\"] .rg-admin-button')].find((button) => /Copy IDs|Copied/.test(button.textContent))";
+
+    waitForScript($page, "document.querySelector('{$tick}') !== null", true, 10.0);
+    $page->click($tick);
+    waitForScript($page, "document.querySelector('[data-testid=\"traffic-selection\"]') !== null");
+
+    // Refused: the button never says Copied, and the toast says nothing was copied.
+    $page->script("(() => { navigator.clipboard.writeText = () => Promise.reject(new DOMException('Denied', 'NotAllowedError')) })()");
+    $page->script("{$copy}.click()");
+    waitForScript($page, "document.querySelector('.rg-admin-toast')?.textContent.includes('nothing was copied') === true");
+    expect($page->script("{$copy}.textContent.trim()"))->toBe('Copy IDs');
+
+    // Taken: Copied.
+    $page->script('(() => { navigator.clipboard.writeText = () => Promise.resolve() })()');
+    $page->script("{$copy}.click()");
+    waitForScript($page, "{$copy}.textContent.trim()", 'Copied');
+
+    $page->assertNoJavaScriptErrors();
+});
+
+it('says a network’s campaign link was copied only when the clipboard took it', function () {
+    TrafficSource::factory()->create(['name' => 'PopAds main']);
+    Game::factory()->create();
+    $page = visitAdminEditor('/admin/traffic-sources?tab=campaigns');
+    $copy = '[data-testid="traffic-get-link"] .rg-admin-button';
+
+    waitForScript($page, "document.querySelector('[data-testid=\"traffic-link\"]') !== null", true, 10.0);
+
+    // Refused: the toast says nothing was copied, never that it was.
+    $page->script("(() => { navigator.clipboard.writeText = () => Promise.reject(new DOMException('Denied', 'NotAllowedError')) })()");
+    $page->click($copy);
+    waitForScript($page, "document.querySelector('.rg-admin-toast')?.textContent.includes('nothing was copied') === true");
+    expect($page->script("document.body.textContent.includes('Link copied')"))->toBeFalse();
+
+    // Taken: the link as the page shows it, and Link copied.
+    $page->script('(() => { navigator.clipboard.writeText = (text) => { window.copiedLink = text; return Promise.resolve() } })()');
+    $page->click($copy);
+    waitForScript($page, "document.body.textContent.includes('Link copied')");
+    expect($page->script('window.copiedLink'))->toBe($page->script("document.querySelector('[data-testid=\"traffic-link\"]').textContent.trim()"));
+
+    $page->assertNoJavaScriptErrors();
 });
 
 it('switches a source between the general block rule and its own thresholds on its Blocking pane, saving each with the source', function () {

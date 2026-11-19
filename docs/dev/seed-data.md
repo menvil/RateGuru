@@ -112,11 +112,17 @@ nowhere. They read posts in the overlay and share some, go on from the feed to
 the game, sign up there or on the feed — confirming at once, minutes later or
 never — and the new accounts come back on the days after to vote, comment,
 post and play, which activates some on days 1 to 7; members of the site come
-back signed in too. Every visit goes through the tracker's own actions with
-the token the middleware would print, so sessions, source and campaign keys,
-tags and landings are written as live capture writes them. It runs after
-`GameAnalyticsDemoSeeder`, adds nothing once the site's own pages have visits,
-takes a minute or two and is not called by `DatabaseSeeder`.
+back signed in too. Only posts already published at the moment are read, and
+visitors go on from the feed to the game only from the day the game's current
+traffic split began — after `GameAnalyticsDemoSeeder`, the last week for
+visitors signed out and the last twenty days for members — since the game's
+page gives the version by the split open now. Every visit goes through the
+tracker's own actions with the token the middleware would print, so sessions,
+source and campaign keys, tags and landings are written as live capture
+writes them. It runs after `GameAnalyticsDemoSeeder`, adds nothing once the
+site's own pages have visits, takes a minute or two and is not called by
+`DatabaseSeeder`. Each visit is kept or undone whole, but a run stopped
+halfway leaves half a history: start again from `migrate:fresh`.
 
 ## Demo accounts
 

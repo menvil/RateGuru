@@ -10,6 +10,7 @@ use App\Filament\Pages\GrowthAnalyticsPage;
 use App\Filament\Pages\TrafficSourcesPage;
 use App\Livewire\Admin\TrafficSegmentEditor;
 use App\Models\Game;
+use App\Models\TrackingLink;
 use App\Models\TrafficCampaign;
 use App\Models\TrafficSegment;
 use App\Models\TrafficSource;
@@ -205,6 +206,27 @@ it('opens the segments from a paid source, and a segment’s drawer from the add
         ->assertSet('segment', (string) $mine->id)
         ->set('source', 'direct')->assertSet('segment', '')
         ->call('openSegments', 'direct')->assertSet('source', 'direct');
+});
+
+it('drops the creative and the tracking link with the campaign a source drops, and keeps all three with a source the campaign came with', function () {
+    $pop = TrafficSource::factory()->create(['name' => 'PopAds main']);
+    $link = TrackingLink::factory()->create(['utm_campaign' => 'versus_launch', 'utm_content' => 'post_01']);
+    analyticsVisit('reader', ['source_key' => 'reddit:organic', 'campaign_key' => 'tag:versus_launch', 'creative_key' => 'post_01']);
+    analyticsVisit('clicker', ['source_key' => 'paid:'.$this->exo->id, 'campaign_key' => 'tag:versus_launch', 'creative_key' => 'post_01']);
+
+    // Campaigns opened from the link: its campaign, its creative and the link itself in the address.
+    $fromLink = function (string $method, string $source) use ($link): array {
+        $page = Livewire::withQueryParams(['tab' => 'campaigns', 'campaign' => 'tag:versus_launch', 'creative' => 'post_01', 'link' => $link->id])
+            ->test(GrowthAnalyticsPage::class)->call('load')->call($method, $source);
+
+        return [$page->get('campaign'), $page->get('creative'), $page->get('link')];
+    };
+    $all = ['tag:versus_launch', 'post_01', (string) $link->id];
+
+    expect($fromLink('openSegments', 'paid:'.$this->exo->id))->toBe($all)
+        ->and($fromLink('pickSource', 'reddit:organic'))->toBe($all)
+        ->and($fromLink('openSegments', 'paid:'.$pop->id))->toBe(['', '', ''])
+        ->and($fromLink('pickSource', 'google:organic'))->toBe(['', '', '']);
 });
 
 it('makes a segment in the drawer, previewing what its conditions catch as they are typed', function () {

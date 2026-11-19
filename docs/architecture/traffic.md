@@ -73,9 +73,10 @@ site or with no referrer begins a new session, while a result page reached
 from the site's own pages continues it; a page the session entered by,
 reached again from the same place — a reload — is the same visit. Every page
 of the site that shows no game is one visit of its session, the session's
-pages without a game sharing it, so a browser leaves at most one such visit
-every 30 minutes; a game reached from the feed is a visit inside the site,
-entered by the feed. While a paid click holds the browser, such a page records
+pages without a game sharing it, so a session leaves at most one such visit
+(an arrival from outside begins a new session, and with it a new one); a game
+reached from the feed is a visit inside the site, entered by the feed. While a
+paid click holds the browser, such a page records
 nothing and leaves the click as it was — it neither opens it nor keeps it from
 settling. Channels are found as before. A signed-in member of staff or Persona leaves no unpaid
 visit, while paid clicks are recorded for everyone: the owner
@@ -227,7 +228,10 @@ click and an event a network can be told of, a `traffic_conversions` row with
 the step's worth at that moment and a postback waiting for each rule on for it,
 unless `PostbackPlanner` gives the reason not (known visitor, source not active,
 no click ID, window or click ID past, no rule, or a settled visit that didn't
-get as far as its rules ask). While a paid visit can still settle, every mark
+get as far as its rules ask). While Send postbacks
+(`traffic_settings.postbacks_enabled`) is off, the conversion is still written
+but no postback is queued for it, and switching postbacks on later does not
+send it. While a paid visit can still settle, every mark
 but settling counts as the visit seen (`last_seen_at`), and so does every round
 answered; a late mark — an account, a return, a first post — leaves it alone.
 
