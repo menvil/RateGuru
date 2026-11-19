@@ -53,7 +53,7 @@ it('draws the library at every width, the table scrolling inside its card and ne
             }
         })()
     JS))->toBe([
-        'columns' => ['Game', 'Last version', 'Status', 'Plays', 'Completion', 'Sign-ups', 'Last updated', 'Actions'],
+        'columns' => ['Game', 'Last version', 'Status', 'Plays', 'Completion', 'Goal rate', 'Last updated', 'Actions'],
         'scrollsWhenNarrower' => true,
     ])->and(pageOverflows($page))->toBeFalse();
 
@@ -66,13 +66,13 @@ it('draws every tab of the editor at every width, never wider than the screen', 
 
     // A tab's badge, such as the number of versions, follows its name.
     expect($page->script("[...document.querySelectorAll('.rg-admin-tab')].map((tab) => tab.textContent.trim().split(/\\s+/)[0])"))
-        ->toBe(['General', 'Content', 'Flow', 'Versions', 'Traffic', 'Analytics', 'Preview'])
+        ->toBe(['General', 'Content', 'Flow', 'Versions', 'Traffic', 'Value', 'Analytics', 'Preview'])
         ->and($page->script("document.querySelector('.rg-admin-tab[aria-current=\"page\"]')?.textContent.trim().split(/\\s+/)[0]"))
-        ->toBe(['edit' => 'General', 'content' => 'Content', 'flow' => 'Flow', 'versions' => 'Versions', 'traffic' => 'Traffic', 'analytics' => 'Analytics', 'preview' => 'Preview'][$tab])
+        ->toBe(['edit' => 'General', 'content' => 'Content', 'flow' => 'Flow', 'versions' => 'Versions', 'traffic' => 'Traffic', 'value' => 'Value', 'analytics' => 'Analytics', 'preview' => 'Preview'][$tab])
         ->and(pageOverflows($page))->toBeFalse();
 
     $page->assertNoJavaScriptErrors();
-})->with(['edit', 'content', 'flow', 'versions', 'traffic', 'analytics', 'preview'])->with([1440, 1024, 390]);
+})->with(['edit', 'content', 'flow', 'versions', 'traffic', 'value', 'analytics', 'preview'])->with([1440, 1024, 390]);
 
 it('saves the General tab from the top bar', function () {
     $game = $this->draft['game'];
@@ -161,6 +161,75 @@ it('adds a step at the end of a flow, counts it as unsaved, and saves it in its 
 
     expect(GameFlowStep::query()->where('flow_id', $this->draft['flow']->id)->orderBy('position')->pluck('type')->map(fn ($type) => $type->value)->all())
         ->toBe(['landing', 'game', 'full_result', 'share']);
+
+    $page->assertNoJavaScriptErrors();
+});
+
+it('saves a flow from the foot of the selected step’s settings once something is unsaved', function () {
+    $page = visitAdminEditor(GameResource::getUrl('flow', ['record' => $this->draft['game']]), 1440);
+    $foot = "document.querySelector('[data-testid=\"game-flow-step-save\"]')";
+
+    expect($page->script($foot.'.disabled'))->toBeTrue();
+
+    $page->type('#rg-admin-step-title', 'Saved from below');
+    waitForScript($page, $foot.'.disabled', false, 10.0);
+
+    // Still enabled once the server drew the pane again around it.
+    expect($page->script("(() => { const id = {$foot}.closest('[wire\\\\:id]').getAttribute('wire:id'); return Livewire.find(id).\$refresh().then(() => ! {$foot}.disabled) })()"))->toBeTrue();
+
+    $page->click('[data-testid="game-flow-step-save"]');
+    waitForScript($page, 'Alpine.store("adminEditor").changes === 0 && '.$foot.'.disabled', true, 10.0);
+
+    expect(GameFlowStep::query()->where('flow_id', $this->draft['flow']->id)->where('type', 'landing')->sole()->title)->toBe('Saved from below');
+
+    $page->assertNoJavaScriptErrors();
+});
+
+it('chooses a flow’s goal from the keyboard, and closes the goals back to Change', function () {
+    $page = visitAdminEditor(GameResource::getUrl('flow', ['record' => $this->draft['game']]), 1440);
+    $focused = 'document.activeElement?.dataset.testid ?? null';
+    $closed = "getComputedStyle(document.getElementById('rg-admin-games-goal-menu')).display === 'none' && document.querySelector('[data-testid=\"game-flow-goal-change\"]').getAttribute('aria-expanded') === 'false'";
+
+    // The goals open on the one in force: this flow follows its steps.
+    $page->keys('[data-testid="game-flow-goal-change"]', 'Enter');
+    waitForScript($page, $focused, 'game-flow-goal-option-steps', 10.0);
+    $page->keys(':focus', 'ArrowDown');
+    waitForScript($page, $focused, 'game-flow-goal-option-account', 10.0);
+    $page->keys(':focus', 'ArrowUp');
+    waitForScript($page, $focused, 'game-flow-goal-option-steps', 10.0);
+    $page->keys(':focus', 'Escape');
+    waitForScript($page, $focused, 'game-flow-goal-change', 10.0);
+    waitForScript($page, $closed, true, 10.0);
+
+    // Down opens them too; End and Enter choose the last goal, back on Change.
+    $page->keys('[data-testid="game-flow-goal-change"]', 'ArrowDown');
+    waitForScript($page, $focused, 'game-flow-goal-option-steps', 10.0);
+    $page->keys(':focus', 'End');
+    waitForScript($page, $focused, 'game-flow-goal-option-completed', 10.0);
+    $page->keys(':focus', 'Enter');
+    waitForScript($page, "document.querySelector('.rg-admin-games__goal-name')?.textContent.trim()", 'Game finished', 10.0);
+    waitForScript($page, $focused, 'game-flow-goal-change', 10.0);
+    waitForScript($page, $closed, true, 10.0);
+
+    $page->assertNoJavaScriptErrors();
+});
+
+it('opens every unpublished change from the keyboard, and keeps the list open while the page draws again', function () {
+    liveGame($this->draft);
+    $this->travel(1)->minutes();
+    $rounds = $this->draft['set']->rounds()->orderBy('position')->get();
+    $rounds[0]->forceFill(['question' => 'Which one, now?', 'description' => 'Go with your gut.', 'reveal_message' => 'Most picked this one.'])->save();
+    $rounds[1]->forceFill(['question' => 'And this one?'])->save();
+    $page = visitAdminEditor(GameResource::getUrl('content', ['record' => $this->draft['game']]), 1440);
+    $all = "document.querySelector('[data-testid=\"game-unpublished-all\"]')";
+
+    expect($page->script($all.'.open'))->toBeFalse();
+
+    $page->keys('.rg-admin-games__unpublished-toggle', 'Enter');
+    waitForScript($page, $all.'.open', true, 10.0);
+
+    expect($page->script("(() => { const id = {$all}.closest('[wire\\\\:id]').getAttribute('wire:id'); return Livewire.find(id).\$refresh().then(() => {$all}.open) })()"))->toBeTrue()
+        ->and($page->script($all.'.textContent'))->toContain('Round 2 · Question');
 
     $page->assertNoJavaScriptErrors();
 });

@@ -9,6 +9,7 @@ use App\Models\Post;
 use App\Support\Database\LikePattern;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Collection;
 
 /**
  * The posts a round may show: published, not deleted, with a stored, ready
@@ -51,6 +52,37 @@ final class GamePostPickerQuery implements RawSqlPersistenceBoundary, StablePagi
             ->orderByDesc('posts.upvotes_count')
             ->orderByDesc('posts.id')
             ->paginate(self::PER_PAGE, ['posts.*'], 'page', max(1, $page));
+    }
+
+    /**
+     * Up to six published posts a flow step may link to, by words of the
+     * title or the author's username — any published post, with or without a
+     * picture: the visitor opens the post itself.
+     *
+     * @return Collection<int, Post>
+     */
+    public function linkable(string $search): Collection
+    {
+        $search = trim($search);
+
+        if ($search === '') {
+            return new Collection;
+        }
+
+        $title = LikePattern::containing($search);
+        $name = LikePattern::containing(ltrim($search, '@'));
+
+        return Post::query()
+            ->published()
+            ->where(fn (Builder $matching) => $matching
+                ->whereRaw("LOWER(posts.title) LIKE LOWER(?) ESCAPE '!'", [$title])
+                ->orWhereHas('user', fn (Builder $author) => $author->withoutTombstoned()
+                    ->whereRaw("LOWER(users.username) LIKE LOWER(?) ESCAPE '!'", [$name])))
+            ->with('user')
+            ->orderByDesc('posts.published_at')
+            ->orderByDesc('posts.id')
+            ->limit(6)
+            ->get(['posts.*']);
     }
 
     private static function idIn(string $search): ?int

@@ -144,7 +144,7 @@ final class ListGames extends Page
 
     /**
      * @param  list<int>  $inTraffic  the game's versions in traffic now
-     * @param  array{started: int, completed: int, visitors: int, registered: int}|null  $metrics  the last 30 days
+     * @param  array{started: int, completed: int, visitors: int, registered: int, goal_reached: int}|null  $metrics  the last 30 days
      * @return array<string, mixed>
      */
     private function row(Game $game, array $inTraffic, ?array $metrics): array
@@ -175,7 +175,7 @@ final class ListGames extends Page
             'updated' => ModerationListFormat::when($game->updated_at),
             'plays' => $metrics === null ? null : number_format($metrics['started']),
             'completion' => $metrics === null ? null : self::percent($metrics['completed'], $metrics['started']),
-            'signups' => $metrics === null ? null : self::percent($metrics['registered'], $metrics['visitors']),
+            'signups' => $metrics === null ? null : self::percent($metrics['goal_reached'], $metrics['started']),
         ];
     }
 

@@ -9,6 +9,7 @@ use App\Exceptions\Games\CannotManageGameException;
 use App\Models\GameFlow;
 use App\Models\GameFlowStep;
 use App\Models\GameVersion;
+use App\Models\User;
 use App\Support\Games\Flow\GameFlowTemplate;
 use Illuminate\Validation\ValidationException;
 
@@ -101,6 +102,22 @@ it('renames or restores a flow at the version its editor was drawn from, and ref
 
     expect($flow->fresh()->isArchived())->toBeFalse()
         ->and($flow->fresh()->lock_version)->toBe(3);
+});
+
+it('writes nothing, the game included, when a flow is renamed to the name it has', function () {
+    $draft = publishableGameDraft(1);
+    $game = $draft['game'];
+    $other = User::factory()->admin()->create();
+
+    expect(app(ChangeGameFlowAction::class)->rename($other, $draft['flow'], ' '.$draft['flow']->name.' ', 1))->toBeFalse()
+        ->and($draft['flow']->fresh()->lock_version)->toBe(1)
+        ->and($game->fresh()->lock_version)->toBe($game->lock_version)
+        ->and($game->fresh()->updated_by_user_id)->toBe($draft['admin']->id);
+
+    expect(app(ChangeGameFlowAction::class)->rename($other, $draft['flow'], 'Renamed', 1))->toBeTrue()
+        ->and($draft['flow']->fresh()->lock_version)->toBe(2)
+        ->and($game->fresh()->lock_version)->toBe($game->lock_version + 1)
+        ->and($game->fresh()->updated_by_user_id)->toBe($other->id);
 });
 
 it('archives only while another flow remains, and deletes only a flow no version used', function () {

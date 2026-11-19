@@ -3,7 +3,8 @@
      * The selected step, as the reference draws it: its sign, name and place,
      * then Settings — who sees it (fixed for Email Capture and Registration,
      * which ask anonymous visitors only), what it does and what it says, each
-     * text labelled as its kind of step uses it — or Preview: the step played
+     * text labelled as its kind of step uses it, then Remove step and Save flow
+     * for whoever reached the end of them — or Preview: the step played
      * as a phone shows it, for an anonymous visitor or a logged-in player,
      * light or dark, unsaved edits included.
      */
@@ -71,6 +72,10 @@
             </div>
         @else
         <div class="rg-admin-games__step-settings">
+            @if ($stepWorth !== [])
+                @include('filament.pages.games.flow.worth')
+            @endif
+
             @if ($stepType->fixedAudience() === null)
                 <div class="rg-admin-field">
                     <span class="rg-admin-label">Show to</span>
@@ -91,7 +96,7 @@
                         <legend class="rg-admin-label">Next pair</legend>
                         @foreach ($advances as $value => $label)
                             <label @class(['rg-admin-games__radio-row', 'rg-admin-games__radio-row--on' => ($step['settings']['advance'] ?? 'auto') === $value])>
-                                <input type="radio" value="{{ $value }}" wire:model.live="{{ $path }}.settings.advance" />
+                                <input type="radio" name="{{ $path }}.settings.advance" value="{{ $value }}" wire:model.live="{{ $path }}.settings.advance" />
                                 {{ $label }}
                             </label>
                         @endforeach
@@ -120,19 +125,61 @@
                     <p class="rg-admin-games__note">The email is stored, never sent anything, and it creates no account.</p>
                     @break
                 @case('full_result')
+                    @php($onward = $step['settings']['onward'] ?? 'next')
                     <x-admin.ui.switch label="Show score" id="rg-admin-step-score" :checked="(bool) ($step['settings']['show_score'] ?? true)" wire:model.live="{{ $path }}.settings.show_score" />
                     <x-admin.ui.switch label="Show profile" id="rg-admin-step-profile" :checked="(bool) ($step['settings']['show_profile'] ?? true)" wire:model.live="{{ $path }}.settings.show_profile" />
-                    <x-admin.ui.switch label="Share buttons" id="rg-admin-step-share" :checked="(bool) ($step['settings']['share_enabled'] ?? true)" wire:model.live="{{ $path }}.settings.share_enabled" />
-                    <fieldset class="rg-admin-field rg-admin-games__radio-rows">
-                        <legend class="rg-admin-label">Sign-up for anonymous visitors</legend>
-                        @foreach ($signups as $signup)
-                            <label @class(['rg-admin-games__radio-row', 'rg-admin-games__radio-row--on' => ($step['settings']['signup'] ?? 'inline') === $signup['value']])>
-                                <input type="radio" value="{{ $signup['value'] }}" wire:model.live="{{ $path }}.settings.signup" />
-                                {{ $signup['label'] }}
-                            </label>
-                        @endforeach
-                        <span class="rg-admin-games__note">Signed-in players are never asked.</span>
-                    </fieldset>
+                    <x-admin.ui.switch label="Share buttons" id="rg-admin-step-share" :checked="(bool) ($step['settings']['share_enabled'] ?? true)" on-hint="A row of ways to share the result, whichever way on." wire:model.live="{{ $path }}.settings.share_enabled" />
+                    @include('filament.pages.games.flow.choice', [
+                        'label' => 'Way on',
+                        'options' => ['next' => 'Sign-up and sharing, then the next step', 'post' => 'Go to a post — one you link to, or one from the game', 'feed' => 'Go to the feed', 'page' => 'Go to a page — a category, a tag, a page of this site or another site'],
+                        'value' => $onward,
+                        'model' => $path.'.settings.onward',
+                        'note' => 'Go to a post, the feed or a page send the visitor on into the site; what they do there counts for the goal and for postbacks. That includes signing up: voting asks for an account, and a sign-up within 7 days counts — though not on another site. The share buttons stay on the card; the steps after this one are then never shown.',
+                        'testid' => 'game-flow-way-on',
+                    ])
+                    @if ($onward === 'post')
+                        @include('filament.pages.games.flow.post-settings')
+                        @include('filament.pages.games.flow.texts', ['columns' => ['secondary_label', 'notice', 'button_label']])
+                        @include('filament.pages.games.flow.auto-open', ['hint' => 'The prompt shows for 3 seconds, then the post opens. Players can still tap the button sooner.'])
+                    @elseif ($onward === 'page')
+                        @include('filament.pages.games.flow.page-settings')
+                        @include('filament.pages.games.flow.texts', ['columns' => ['secondary_label', 'notice', 'button_label']])
+                    @elseif ($onward === 'feed')
+                        @include('filament.pages.games.flow.choice', ['label' => 'Which feed', 'options' => $feedSorts, 'value' => $step['settings']['feed_sort'] ?? '', 'model' => $path.'.settings.feed_sort'])
+                        @include('filament.pages.games.flow.texts', ['columns' => ['secondary_label', 'notice', 'button_label']])
+                        <p class="rg-admin-games__note">Three votes in the feed within 30 minutes count as Voted in the feed.</p>
+                    @else
+                        <fieldset class="rg-admin-field rg-admin-games__radio-rows">
+                            <legend class="rg-admin-label">Sign-up for anonymous visitors</legend>
+                            @foreach ($signups as $signup)
+                                <label @class(['rg-admin-games__radio-row', 'rg-admin-games__radio-row--on' => ($step['settings']['signup'] ?? 'inline') === $signup['value']])>
+                                    <input type="radio" name="{{ $path }}.settings.signup" value="{{ $signup['value'] }}" wire:model.live="{{ $path }}.settings.signup" />
+                                    {{ $signup['label'] }}
+                                </label>
+                            @endforeach
+                            <span class="rg-admin-games__note">Signed-in players are never asked.</span>
+                        </fieldset>
+                        @if (($step['settings']['signup'] ?? 'inline') === 'inline')
+                            @include('filament.pages.games.flow.texts', ['columns' => ['title', 'body']])
+                        @endif
+                    @endif
+                    @break
+                @case('feed')
+                    @include('filament.pages.games.flow.texts', ['columns' => ['title', 'body']])
+                    @include('filament.pages.games.flow.choice', ['label' => 'Which feed', 'options' => $feedSorts, 'value' => $step['settings']['feed_sort'] ?? '', 'model' => $path.'.settings.feed_sort'])
+                    @include('filament.pages.games.flow.texts', ['columns' => ['button_label']])
+                    <p class="rg-admin-games__note">Three votes in the feed within 30 minutes count as Voted in the feed.</p>
+                    @break
+                @case('go_to_post')
+                    @include('filament.pages.games.flow.texts', ['columns' => ['title', 'body']])
+                    @include('filament.pages.games.flow.post-settings')
+                    @include('filament.pages.games.flow.texts', ['columns' => ['button_label']])
+                    @include('filament.pages.games.flow.auto-open', ['hint' => 'The card shows for 3 seconds, then the post opens. Players can still tap the button sooner.'])
+                    @break
+                @case('go_to_page')
+                    @include('filament.pages.games.flow.texts', ['columns' => ['title']])
+                    @include('filament.pages.games.flow.page-settings')
+                    @include('filament.pages.games.flow.texts', ['columns' => ['button_label']])
                     @break
                 @case('next_game')
                     <label class="rg-admin-field">
@@ -148,21 +195,17 @@
                     @break
             @endswitch
 
-            @foreach ($stepTexts as $column => $text)
-                @php($multiline = in_array($column, ['body', 'notice', 'consent_label'], true) && ! in_array($column, $singleLine[$stepType->value] ?? [], true))
-                @php($hint = $hints[$stepType->value][$column] ?? null)
-                @if ($multiline)
-                    <x-admin.ui.textarea :label="$text['label']" :id="'rg-admin-step-'.$column" :value="$step['texts'][$column] ?? ''" :rows="3" :limit="$textLimits[$column]" :required="in_array($column, $stepRequired, true) ? null : false" :hint="$hint" :error="$errors->first($path.'.texts.'.$column) ?: null" wire:model.live.debounce.400ms="{{ $path }}.texts.{{ $column }}" />
-                @else
-                    <x-admin.ui.text-field :label="$text['label']" :required="in_array($column, $stepRequired, true) ? null : false" :id="'rg-admin-step-'.$column" :value="$step['texts'][$column] ?? ''" :hint="$hint" :error="$errors->first($path.'.texts.'.$column) ?: null" wire:model.live.debounce.400ms="{{ $path }}.texts.{{ $column }}" />
-                @endif
-            @endforeach
-
-            @unless ($stepType->value === 'game')
-                <div class="rg-admin-games__step-remove">
-                    <x-admin.ui.button size="sm" icon="trash-2" wire:click="removeStep({{ $selected }})">Remove step</x-admin.ui.button>
-                </div>
+            @unless (in_array($stepType->value, ['full_result', 'feed', 'go_to_post', 'go_to_page'], true))
+                @include('filament.pages.games.flow.texts', ['columns' => array_keys($stepTexts)])
             @endunless
+
+            {{-- Where the settings end, the top bar's Save again: the same save, waiting as it waits for an unsaved change. --}}
+            <div class="rg-admin-games__step-foot">
+                @unless ($stepType->value === 'game')
+                    <x-admin.ui.button size="sm" icon="trash-2" wire:click="removeStep({{ $selected }})">Remove step</x-admin.ui.button>
+                @endunless
+                <x-admin.ui.button size="sm" variant="primary" class="rg-admin-games__step-save" disabled x-bind:disabled="! ($store.adminEditor?.changes > 0) || $store.adminEditor?.blocked" wire:click="save" data-testid="game-flow-step-save">Save flow</x-admin.ui.button>
+            </div>
         </div>
         @endif
     </div>

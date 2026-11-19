@@ -11,6 +11,7 @@ window.rgNativeShare = function ({ title, text, url }) {
                 : { title, text, url };
             try {
                 await navigator.share(data);
+                this.$dispatch('rg-shared');
             } catch (_) {
                 // User cancelled or share failed — silently ignore.
             }
@@ -66,9 +67,13 @@ window.rgSharePicture = function ({ pictureUrl, fileName, title, text }) {
 
             if (this.picture && prefersShareSheet() && canShareFiles(this.picture)) {
                 event.preventDefault();
-                navigator.share({ files: [this.picture], title, text }).catch((error) => {
-                    if (error.name !== 'AbortError') this.openOrOffer(link);
-                });
+                // Shared from the sheet, the post never passes the site's own redirect: the tracker is told here.
+                navigator.share({ files: [this.picture], title, text }).then(
+                    () => this.$dispatch('rg-shared'),
+                    (error) => {
+                        if (error.name !== 'AbortError') this.openOrOffer(link);
+                    },
+                );
 
                 return;
             }

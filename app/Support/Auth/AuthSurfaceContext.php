@@ -110,6 +110,15 @@ final readonly class AuthSurfaceContext
     }
 
     /**
+     * The page the attempt comes back to, when it does; null for the
+     * standalone pages.
+     */
+    public function returnPath(): ?string
+    {
+        return $this->returnsToPage ? $this->returnPath : null;
+    }
+
+    /**
      * Whether the attempt comes back to the page it started on: true for the
      * modal and for a form embedded in a page alike, false for the
      * standalone pages.

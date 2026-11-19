@@ -5,6 +5,8 @@ namespace App\Actions\Profile;
 use App\Enums\ProfileActivityVisibility;
 use App\Enums\UserRole;
 use App\Enums\UserStatus;
+use App\Models\AccountAttribution;
+use App\Models\AccountBrowser;
 use App\Models\Follow;
 use App\Models\GameAttempt;
 use App\Models\GameEmailCapture;
@@ -115,6 +117,13 @@ final class AnonymizeUserAccountAction
             // may recognise them by it, and "Log in with Google" must not
             // find the row again.
             SocialAccount::query()->where('user_id', $locked->id)->delete();
+
+            // The browsers the tracker knew the account by: nothing may tie
+            // a visitor's cookie to the person once the account is gone. What
+            // the account was credited to stays, as the anonymous count it
+            // already is, without the browser.
+            AccountBrowser::query()->where('user_id', $locked->id)->delete();
+            AccountAttribution::query()->where('user_id', $locked->id)->update(['visitor_hash' => null]);
 
             // What Content Studio kept about a Persona — its character, how it
             // speaks, what it never writes about — is internal to the account

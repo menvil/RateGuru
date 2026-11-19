@@ -4,6 +4,7 @@ use App\Models\RatingGroup;
 use Carbon\CarbonImmutable;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Pagination\Paginator;
+use Illuminate\Support\Js;
 use Illuminate\View\ViewException;
 
 /**
@@ -29,6 +30,36 @@ it('keeps an icon with a blank label decorative', function () {
         ->assertDontSee('role="img"', false)
         ->assertDontSee('<title>', false);
 });
+
+it('draws the icons Growth → Experiments uses with the reference’s Lucide geometry', function (string $name, string $geometry) {
+    $this->blade('<x-admin.ui.icon name="'.$name.'" />')->assertSee($geometry, false);
+})->with([
+    'flask-conical' => ['flask-conical', '<path d="M10 2v7.527a2 2 0 0 1-.211.896L4.72 20.55a1 1 0 0 0 .9 1.45h12.76a1 1 0 0 0 .9-1.45l-5.069-10.127A2 2 0 0 1 14 9.527V2"/>'],
+    'user-round' => ['user-round', '<circle cx="12" cy="8" r="5"/><path d="M20 21a8 8 0 0 0-16 0"/>'],
+    'user-check' => ['user-check', '<polyline points="16 11 18 13 22 9"/>'],
+    'history' => ['history', '<path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>'],
+    'route' => ['route', '<path d="M9 19h8.5a3.5 3.5 0 0 0 0-7h-11a3.5 3.5 0 0 1 0-7H15"/>'],
+]);
+
+it('draws the icons Growth → Analytics uses with the reference’s Lucide geometry', function (string $name, string $geometry) {
+    $this->blade('<x-admin.ui.icon name="'.$name.'" />')->assertSee($geometry, false);
+})->with([
+    'circle-help' => ['circle-help', '<path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/>'],
+    'circle-pause' => ['circle-pause', '<line x1="10" x2="10" y1="15" y2="9"/><line x1="14" x2="14" y1="15" y2="9"/>'],
+    'hourglass' => ['hourglass', '<path d="M17 22v-4.172a2 2 0 0 0-.586-1.414L12 12l-4.414 4.414A2 2 0 0 0 7 17.828V22"/>'],
+    'scale' => ['scale', '<path d="M3 7h2c2 0 5-1 7-2 2 1 5 2 7 2h2"/>'],
+    'map-pin' => ['map-pin', '<path d="M20 10c0 4.993-5.539 10.193-7.399 11.799a1 1 0 0 1-1.202 0C9.539 20.193 4 14.993 4 10a8 8 0 0 1 16 0"/><circle cx="12" cy="10" r="3"/>'],
+    'plug' => ['plug', '<path d="M18 8v5a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8Z"/>'],
+    'unplug' => ['unplug', '<path d="m12 6 6 6 2.3-2.3a2.4 2.4 0 0 0 0-3.4l-2.6-2.6a2.4 2.4 0 0 0-3.4 0Z"/>'],
+    'filter' => ['filter', '<path d="M10 20a1 1 0 0 0 .553.895l2 1A1 1 0 0 0 14 21v-7a2 2 0 0 1 .517-1.341L21.74 4.67A1 1 0 0 0 21 3H3a1 1 0 0 0-.742 1.67l7.225 7.989A2 2 0 0 1 10 14z"/>'],
+    'link-2' => ['link-2', '<path d="M15 7h2a5 5 0 1 1 0 10h-2"/>'],
+    'radio' => ['radio', '<circle cx="12" cy="12" r="2"/>'],
+    'copy-plus' => ['copy-plus', '<path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/>'],
+    'repeat' => ['repeat', '<path d="M3 11v-1a4 4 0 0 1 4-4h14"/>'],
+    'mouse-pointer-click' => ['mouse-pointer-click', '<path d="M7.2 2.2 8 5.1"/>'],
+    'badge-check' => ['badge-check', '<path d="m9 12 2 2 4-4"/>'],
+    'mail-check' => ['mail-check', '<path d="m16 19 2 2 4-4"/>'],
+]);
 
 it('fails loudly on an icon it does not have', function () {
     $this->blade('<x-admin.ui.icon name="no-such-icon" />');
@@ -585,6 +616,203 @@ it('draws a date and time field with no moment as its placeholder, and an error 
         ->toContain('aria-describedby="when-error"')
         ->toContain('Choose a date from 1970 to 2038.')
         ->not->toContain('Any date.');
+});
+
+it('draws a date-only field: the same trigger and calendar over a day, with the quick picks it names, no time and nothing to confirm', function () {
+    $this->travelTo(CarbonImmutable::parse('2026-10-24 12:00:00', 'UTC'));
+
+    $html = (string) $this->blade('<x-admin.ui.date-time-field date-only label="From" id="range-from" value="2026-10-20" min="2025-10-26" max="2026-10-24" timezone="UTC" :quick-picks="[\'today\', \'week-ago\', \'month-start\']" x-model="from" />');
+
+    expect($html)
+        ->toContain('class="rg-admin-field rg-admin-date-time rg-admin-date-time--date"')
+        // The trigger: the day, and how many days it is from today — the past no different from the future.
+        ->toMatch('/<button\s+type="button"\s+id="range-from"\s+class="rg-admin-date-time__trigger"\s+aria-haspopup="dialog"/')
+        ->toMatch('/x-text="chosen === null \? \'Choose a date\' : long\(chosen\)"\s*>Tue 20 Oct 2026<\/span>/')
+        ->toMatch('/relative\(chosen\)\.text"\s*>4 days ago<\/span>/')
+        ->not->toContain('rg-admin-date-time__relative--past"')
+        // A day both ways through x-model, and its bounds as days.
+        ->toContain('x-model="from"')
+        ->toContain('x-modelable="value"')
+        ->toContain("value: '2026-10-20'")
+        ->toContain("min: '2025-10-26'")
+        ->toContain("max: '2026-10-24'")
+        ->toContain('dateOnly: true')
+        // Only the quick picks named, in their order.
+        ->toContain('quickPicks: '.Js::from([['key' => 'today', 'label' => 'Today'], ['key' => 'week-ago', 'label' => 'A week ago'], ['key' => 'month-start', 'label' => 'Start of month']]))
+        // The calendar as the date and time field draws it, without the time.
+        ->toContain('role="group" aria-label="Quick picks"')
+        ->toContain('role="grid" class="rg-admin-date-time__grid" aria-labelledby="range-from-title"')
+        ->toContain('x-bind:aria-label="`Months of ${view.year}`"')
+        ->not->toContain('role="group" aria-label="Time"')
+        ->not->toContain('aria-label="Hour earlier"')
+        ->not->toContain('rg-admin-date-time__chip')
+        // A day clicked, or a quick pick, is taken at once: no summary to confirm, no Apply, no Cancel.
+        ->toContain('x-on:click="pickDay(day)"')
+        ->toContain('x-on:click="choose(preset.moment)"')
+        ->not->toContain('rg-admin-date-time__footer')
+        ->not->toContain('rg-admin-date-time__summary')
+        ->and($html)->not->toMatch('/>\s*(Cancel|Apply|Clear)\s*<\/button>/');
+});
+
+it('says how many days a date-only field\'s day is from today, in the field\'s time zone', function (string $value, string $label, string $relative) {
+    // Already the 25th in Tokyo.
+    $this->travelTo(CarbonImmutable::parse('2026-10-24 18:00:00', 'UTC'));
+
+    $html = (string) $this->blade('<x-admin.ui.date-time-field date-only label="Day" id="day" :value="$value" timezone="Asia/Tokyo" />', ['value' => $value]);
+
+    expect($html)
+        ->toMatch('/long\(chosen\)"\s*>'.preg_quote($label, '/').'<\/span>/')
+        ->toMatch('/relative\(chosen\)\.text"\s*>'.preg_quote($relative, '/').'<\/span>/')
+        ->not->toContain('rg-admin-date-time__relative--past"');
+})->with([
+    'today' => ['2026-10-25', 'Sun 25 Oct 2026', 'Today'],
+    'tomorrow' => ['2026-10-26', 'Mon 26 Oct 2026', 'Tomorrow'],
+    'yesterday' => ['2026-10-24', 'Sat 24 Oct 2026', 'Yesterday'],
+    'days ahead' => ['2026-11-04', 'Wed 04 Nov 2026', 'in 10 days'],
+    'months ago' => ['2026-07-25', 'Sat 25 Jul 2026', '3 months ago'],
+    'years ahead' => ['2029-01-01', 'Mon 01 Jan 2029', 'in 2 years'],
+]);
+
+it('counts a date-only field\'s days by the calendar, across a day whose midnight daylight saving skips', function (string $now, string $value, string $label, string $relative) {
+    // Santiago's clocks go from midnight straight to 01:00 on 6 September 2026: that day is 23 hours long from its first moment.
+    $this->travelTo(CarbonImmutable::parse($now, 'UTC'));
+
+    $html = (string) $this->blade('<x-admin.ui.date-time-field date-only label="Day" id="day" :value="$value" timezone="America/Santiago" />', ['value' => $value]);
+
+    expect($html)
+        ->toMatch('/long\(chosen\)"\s*>'.preg_quote($label, '/').'<\/span>/')
+        ->toMatch('/relative\(chosen\)\.text"\s*>'.preg_quote($relative, '/').'<\/span>/');
+})->with([
+    'that day, seen the day after' => ['2026-09-07 15:00:00', '2026-09-06', 'Sun 06 Sep 2026', 'Yesterday'],
+    'the day after, seen that day' => ['2026-09-06 15:00:00', '2026-09-07', 'Mon 07 Sep 2026', 'Tomorrow'],
+]);
+
+it('bounds an empty date field by its min and its max apart, so one with only a min opens at that min and not on today', function () {
+    $html = (string) $this->blade('<x-admin.ui.date-time-field date-only label="Day" id="day" value="" min="2027-03-01" />');
+
+    expect($html)
+        ->toContain('const start = this.chosen ?? this.clamp(')
+        ->toContain('return Math.min(this.maximum ?? Infinity, Math.max(this.minimum ?? -Infinity, at))');
+});
+
+it('draws an empty date-only field as its placeholder, and reads only a day as its value', function (string $value) {
+    $html = (string) $this->blade('<x-admin.ui.date-time-field date-only label="Day" id="day" :value="$value" />', ['value' => $value]);
+
+    expect($html)
+        ->toMatch('/class="rg-admin-date-time__value rg-admin-date-time__value--empty"[^>]*>Choose a date<\/span>/')
+        ->toMatch('/x-show="chosen !== null"[^>]*style="display: none"/');
+})->with([
+    'empty' => [''],
+    'a moment, not a day' => ['2026-10-24T12:00'],
+    'no such day' => ['2026-02-30'],
+]);
+
+it('refuses a date-only quick pick it does not know', function () {
+    expect(fn () => (string) $this->blade('<x-admin.ui.date-time-field date-only label="Day" id="day" :quick-picks="[\'someday\']" />'))
+        ->toThrow(ViewException::class, 'No quick pick named someday.');
+});
+
+it('draws a date range field: a trigger with the range and its days over one calendar of two months, nothing to confirm', function () {
+    $this->travelTo(CarbonImmutable::parse('2026-10-24 12:00:00', 'UTC'));
+
+    $html = (string) $this->blade('<x-admin.ui.date-range-field label="Dates" id="dates" from="2026-10-20" to="2026-11-02" min="2025-10-26" max="2026-12-31" timezone="UTC" :required="false" hint="When it runs." />');
+
+    expect($html)
+        ->toContain('class="rg-admin-field rg-admin-date-range"')
+        // The label names the trigger together with the range it shows; the hint describes it.
+        ->toContain('<label for="dates" id="dates-label" class="rg-admin-label">Dates</label>')
+        ->toContain('<span class="rg-admin-field__tag">Optional</span>')
+        ->toMatch('/<button\s+type="button"\s+id="dates"\s+class="rg-admin-date-time__trigger"\s+aria-haspopup="dialog"\s+aria-expanded="false"\s+aria-controls="dates-dialog"\s+aria-labelledby="dates-label dates-value"\s+aria-describedby="dates-hint"/')
+        ->toMatch('/x-text="shown"\s*>20 Oct — 02 Nov 2026<\/span>/')
+        ->toMatch('/x-text="shownLength"\s*>14 days<\/span>/')
+        ->toContain('<p id="dates-hint" class="rg-admin-hint">When it runs.</p>')
+        // Held by the field itself, its bounds as days, today in its time zone.
+        ->toContain("from: '2026-10-20'")
+        ->toContain("to: '2026-11-02'")
+        ->toContain("min: '2025-10-26'")
+        ->toContain("max: '2026-12-31'")
+        ->toContain('most: null')
+        ->toContain('openEnd: false')
+        ->toContain('data-now="2026-10-24T12:00:00"')
+        // The calendar: its months as grids of days under their weekdays, each named by its title, a day's role read aloud.
+        ->toMatch('/id="dates-dialog"\s+role="dialog"\s+aria-labelledby="dates-label"\s+class="rg-admin-date-time__popover rg-admin-date-range__popover rg-admin-date-range__body"/')
+        ->toContain('x-for="(month, index) in visible()"')
+        ->toContain('role="grid" class="rg-admin-date-time__grid" x-bind:aria-labelledby="\'dates-month-\' + index"')
+        ->toContain('<span role="columnheader" class="rg-admin-date-time__weekday" aria-label="Monday">Mo</span>')
+        ->toContain('x-bind:aria-current="isToday(day) ? \'date\' : false"')
+        ->toContain('x-bind:disabled="! reachable(day)"')
+        ->toContain('aria-label="Previous month"')
+        ->toContain('aria-label="Next month"')
+        // A click picks a day, the pointer and the focus light the days up to it; what the calendar says is read aloud.
+        ->toContain('x-on:click="pick(day)"')
+        ->toContain('x-on:mouseenter="pointer = day"')
+        ->toContain('x-on:focus="pointer = day"')
+        ->toContain("'rg-admin-date-range__day--between': isBetween(day)")
+        ->toContain('<p class="rg-admin-date-range__status" aria-live="polite" x-text="status"></p>')
+        // Nothing to confirm, nothing to clear, and no limit to say.
+        ->not->toContain('No end')
+        ->not->toContain('days at a time')
+        ->and($html)->not->toMatch('/>\s*(Cancel|Apply|Clear)\s*<\/button>/');
+});
+
+it('names a date range field\'s range as the period picker names one', function (string $from, string $to, string $shown, string $length) {
+    $html = (string) $this->blade('<x-admin.ui.date-range-field label="Dates" id="dates" :from="$from" :to="$to" />', ['from' => $from, 'to' => $to]);
+
+    expect($html)->toMatch('/x-text="shown"\s*>'.preg_quote($shown, '/').'<\/span>/')
+        ->toMatch('/x-text="shownLength"\s*'.($length === '' ? 'style="display: none"\s*><\/span>' : '>'.preg_quote($length, '/').'<\/span>').'/');
+})->with([
+    'within a year' => ['2026-11-12', '2026-11-30', '12 Nov — 30 Nov 2026', '19 days'],
+    'across years' => ['2026-12-20', '2027-01-05', '20 Dec 2026 — 05 Jan 2027', '17 days'],
+    'one day' => ['2026-11-12', '2026-11-12', '12 Nov 2026', '1 day'],
+    'only a start' => ['2026-11-12', '', 'From 12 Nov 2026', ''],
+    'an end before the start' => ['2026-11-12', '2026-11-01', 'From 12 Nov 2026', ''],
+    'no start' => ['', '2026-11-12', 'Choose the days', ''],
+    'no such day' => ['2026-02-30', '2026-03-02', 'Choose the days', ''],
+]);
+
+it('gives a date range field whose end may stay open No end, and says a range has none', function () {
+    $html = (string) $this->blade('<x-admin.ui.date-range-field open-end label="Dates" id="dates" from="2026-11-12" to="" error="Choose the first day." />');
+
+    expect($html)
+        ->toMatch('/x-text="shown"\s*>From 12 Nov 2026 · no end<\/span>/')
+        ->toContain('openEnd: true')
+        ->toContain('class="rg-admin-date-time__trigger rg-admin-date-time__trigger--invalid"')
+        ->toContain('aria-describedby="dates-error"')
+        ->toContain('Choose the first day.')
+        ->toMatch('/class="[^"]*rg-admin-date-range__no-end"[^>]*x-show="end !== null"[^>]*x-on:click="noEnd\(\)"[^>]*>\s*No end\s*<\/button>/');
+
+    expect((string) $this->blade('<x-admin.ui.date-range-field open-end label="Dates" id="dates" from="" to="" />'))
+        ->toMatch('/class="rg-admin-date-time__value rg-admin-date-time__value--empty"[^>]*>Choose the first day<\/span>/');
+});
+
+it('binds a date range field\'s two days to Livewire, each as wire:model binds one', function () {
+    $html = (string) $this->blade('<x-admin.ui.date-range-field label="Dates" id="dates" from="2026-11-12" to="" from-model="draft.source.fixed_from" to-model="draft.source.fixed_to" />');
+
+    expect($html)
+        ->toContain("from: \$wire.\$entangle('draft.source.fixed_from'),")
+        ->toContain("to: \$wire.\$entangle('draft.source.fixed_to'),")
+        ->not->toContain('wire:model')
+        // The trigger still reads as the server drew it before the script runs.
+        ->toMatch('/x-text="shown"\s*>From 12 Nov 2026<\/span>/');
+});
+
+it('draws a date range field in place: the calendar alone, with the longest range it takes', function () {
+    $html = (string) $this->blade('<x-admin.ui.date-range-field inline label="Custom range" id="period-calendar" from="2026-10-01" to="2026-10-31" min="2025-10-14" max="2026-11-17" :most="93" timezone="UTC" />');
+
+    expect($html)
+        ->toContain('class="rg-admin-date-range rg-admin-date-range--inline"')
+        ->toMatch('/role="group" aria-label="Custom range"\s+x-data="\{/')
+        ->toContain('most: 93')
+        ->toContain('inline: true')
+        ->toMatch('/<div\s+class="rg-admin-date-range__body"\s+wire:ignore\s*>/')
+        ->toContain('<span class="rg-admin-date-range__limit">Up to 93 days at a time</span>')
+        // Nothing to open, nothing to close: a start without an end is dropped by Escape or a click outside.
+        ->toContain('x-on:click.outside="reset()"')
+        ->toContain('x-on:keydown.escape="reset()"')
+        ->not->toContain('rg-admin-date-time__trigger')
+        ->not->toContain('role="dialog"')
+        ->not->toContain('rg-admin-label')
+        ->and($html)->not->toMatch('/>\s*(Cancel|Apply|Clear|No end)\s*<\/button>/');
 });
 
 it('pages a list with links: the range, the pages around the current one with gaps, and arrows disabled at the ends', function () {

@@ -171,6 +171,13 @@ select:disabled {
         padding-bottom: 16px;
     }
 
+    /* A round on a wide screen takes the screen's width, so its pictures can grow as far as its height allows. */
+    @media (min-width: 1024px) {
+        .rg-game--fit {
+            max-width: 1680px;
+        }
+    }
+
     .rg-game--fit > .rg-game__frame {
         flex: 1 1 0;
         align-items: stretch;
@@ -244,6 +251,13 @@ select:disabled {
         height: 100%;
     }
 
+    /* On a wide screen the round takes the whole column, and its pair grows into it. */
+    @media (min-width: 1024px) {
+        .rg-game--fit .rg-game__round {
+            max-width: none;
+        }
+    }
+
     .rg-game__round > .rg-game__progress {
         margin-bottom: clamp(8px, 1.6vh, 14px);
     }
@@ -297,11 +311,28 @@ select:disabled {
         container-type: inline-size;
     }
 
-    .rg-game__title--line {
-        --rg-game-line-max: clamp(30px, 8vw, 46px);
-        font-size: max(18px, min(var(--rg-game-line-max), calc(100cqi / (var(--rg-game-line-chars, 20) * 0.5))));
-        overflow-x: clip;
+    /*
+     * A game's headline (x-games.headline), the same rule on every screen: up to 80 characters on one line, more on
+     * two, as large as fills the column's width — no larger than its size's ceiling, --rg-game-line-cap, and no
+     * smaller than 18px.
+     */
+    .rg-game__title {
+        --rg-game-line-cap: 72px;
     }
+
+    .rg-game__title--sm {
+        --rg-game-line-cap: 60px;
+    }
+
+    /* The question shares the screen with the pair: a lower ceiling leaves the pictures their height. */
+    .rg-game__question {
+        --rg-game-line-cap: 56px;
+    }
+
+    .rg-game__result-headline {
+        --rg-game-line-cap: 64px;
+    }
+
 
     .rg-game__question {
         font-size: clamp(24px, 6.4vw, 44px);
@@ -315,6 +346,7 @@ select:disabled {
             font-size: clamp(28px, 4.4vw, 48px);
         }
     }
+
 
     .rg-game__subtitle {
         margin: 0;
@@ -347,8 +379,7 @@ select:disabled {
         color: var(--rg-danger-text);
     }
 
-    .rg-game__actions,
-    .rg-game__share-row {
+    .rg-game__actions {
         display: flex;
         flex-wrap: wrap;
         justify-content: center;
@@ -416,6 +447,118 @@ select:disabled {
         inset: 0 auto 0 0;
         width: 0;
         background: rgba(255, 255, 255, 0.22);
+    }
+
+    /* What a game asked the visitor to do on a post: vote, answer a rating group. */
+    .rg-post-ask {
+        border-radius: 16px;
+        outline: 2px solid var(--rg-accent-2);
+        outline-offset: 6px;
+    }
+
+    /* The way on into the site: a prompt, the post it leads to, the button. */
+    .rg-game__onward {
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+    }
+
+    .rg-game__text {
+        margin: 0;
+        font-size: 16px;
+        line-height: 1.45;
+        color: var(--rg-text-2);
+    }
+
+    /*
+     * The post the way on leads to, as the reference draws it: its picture on the left, about half the card, its
+     * title and what the step shows of it on the right — small enough that the result, the post and the button
+     * fit on one screen.
+     */
+    .rg-game__onward-post {
+        display: grid;
+        grid-template-columns: minmax(0, 0.9fr) minmax(0, 1fr);
+        align-items: stretch;
+        margin: 0;
+        overflow: hidden;
+        border: 1px solid var(--rg-border);
+        border-radius: 18px;
+        background: var(--rg-card);
+    }
+
+    .rg-game__onward-image {
+        display: block;
+        width: 100%;
+        height: 100%;
+        min-height: 0;
+        aspect-ratio: 1 / 1;
+        object-fit: cover;
+        background: var(--rg-card-2);
+    }
+
+    .rg-game__onward-image--missing {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: var(--rg-muted);
+    }
+
+    .rg-game__onward-caption {
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        gap: 8px;
+        min-width: 0;
+        padding: 12px 14px;
+    }
+
+    .rg-game__onward-title {
+        display: -webkit-box;
+        overflow: hidden;
+        font-size: 16px;
+        font-weight: 700;
+        line-height: 1.28;
+        color: var(--rg-text);
+        -webkit-box-orient: vertical;
+        -webkit-line-clamp: 3;
+    }
+
+    .rg-game__onward-meta {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 4px;
+        font-size: 13px;
+        color: var(--rg-text-2);
+    }
+
+    .rg-game__onward-author {
+        max-width: 100%;
+        overflow: hidden;
+        font-weight: 600;
+        color: var(--rg-text);
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .rg-game__onward-stats {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 2px 12px;
+    }
+
+    .rg-game__onward-stat {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        font-variant-numeric: tabular-nums;
+    }
+
+    .rg-game__hint {
+        margin: 0;
+        font-size: 13px;
+        text-align: center;
+        color: var(--rg-text-2);
     }
 
     .rg-game__link {
@@ -516,14 +659,21 @@ select:disabled {
 
         container: rg-game-pair / size;
         flex: 0 1 var(--rg-game-pair-h);
+        /* The frames side by side, kept together in the middle when the height stops them short of the width. */
+        grid-template-columns: repeat(2, max-content);
         grid-template-rows: minmax(0, 1fr);
+        justify-content: center;
         min-height: 0;
     }
 
+    /*
+     * Both frames one size, as large as the round allows — and no larger than the smaller picture's own pixels
+     * (--rg-game-widest, worked out with the pair), so neither is drawn past them while the other is not.
+     */
     .rg-game--fit .rg-game__pair > .rg-game__option {
         align-self: center;
         justify-self: center;
-        width: min((100cqw - var(--rg-game-gap)) / 2, 100cqh * var(--rg-game-ratio));
+        width: min((100cqw - var(--rg-game-gap)) / 2, 100cqh * var(--rg-game-ratio), var(--rg-game-widest, 100vw));
     }
 
     /* A wide pair on a phone: one above the other. */
@@ -535,11 +685,12 @@ select:disabled {
         .rg-game--fit .rg-game__pair--landscape {
             --rg-game-pair-h: calc(100cqw / var(--rg-game-ratio) * 2 + var(--rg-game-gap));
 
+            grid-template-columns: max-content;
             grid-template-rows: repeat(2, minmax(0, 1fr));
         }
 
         .rg-game--fit .rg-game__pair--landscape > .rg-game__option {
-            width: min(100cqw, (100cqh - var(--rg-game-gap)) / 2 * var(--rg-game-ratio));
+            width: min(100cqw, (100cqh - var(--rg-game-gap)) / 2 * var(--rg-game-ratio), var(--rg-game-widest, 100vw));
         }
     }
 
@@ -844,12 +995,30 @@ select:disabled {
         cursor: pointer;
     }
 
+    /* Just the box, in the accent when ticked: no frame of its own, no ring when clicked or tapped, the accent's ring when reached by keyboard. */
     .rg-game__check > input {
         flex: none;
         width: 20px;
         height: 20px;
         margin: 0;
+        appearance: auto;
+        border: 0;
+        border-radius: 4px;
+        background: none;
+        box-shadow: none;
+        outline: none;
         accent-color: var(--rg-accent);
+    }
+
+    .rg-game__check > input:focus:not(:focus-visible) {
+        box-shadow: none;
+        outline: none;
+    }
+
+    .rg-game__check > input:focus-visible {
+        outline: 2px solid var(--rg-accent);
+        outline-offset: 2px;
+        box-shadow: none;
     }
 
     /* Sign-up on the result: the second ground, radius 18. */
@@ -944,20 +1113,101 @@ select:disabled {
         color: var(--rg-text);
     }
 
-    /* Sharing: the device's own sheet first where there is one, then the link and the places, four abreast. */
+    /*
+     * Sharing, as a phone's share sheet draws it: one line across the whole width, each way a round chip in its own
+     * colour with its name below — the device's own sheet first where there is one.
+     */
+    .rg-game__share {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+    }
+
     .rg-game__share-row {
         display: grid;
-        grid-template-columns: repeat(4, minmax(0, 1fr));
+        grid-auto-columns: minmax(0, 1fr);
+        grid-auto-flow: column;
+        gap: 4px;
+    }
+
+    .rg-game__share-way {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
         gap: 6px;
+        min-width: 0;
+        padding: 4px 0;
+        border: 0;
+        border-radius: 12px;
+        background: transparent;
+        color: var(--rg-text-2);
+        font: inherit;
+        text-decoration: none;
+        cursor: pointer;
     }
 
-    .rg-game__share-row > .rg-game__button--primary {
-        grid-column: 1 / -1;
+    .rg-game__share-way:focus-visible {
+        outline: 2px solid var(--rg-accent);
+        outline-offset: 2px;
     }
 
-    /* The link to copy by hand when the clipboard refused it, across the whole row. */
+    .rg-game__share-chip {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 44px;
+        height: 44px;
+        border-radius: 999px;
+        color: #fff;
+        transition: transform 150ms;
+    }
+
+    .rg-game__share-way:hover .rg-game__share-chip {
+        transform: scale(1.06);
+    }
+
+    .rg-game__share-chip--native,
+    .rg-game__share-chip--copy {
+        border: 1px solid var(--rg-border);
+        background: var(--rg-card-2);
+        color: var(--rg-text);
+    }
+
+    .rg-game__share-name {
+        max-width: 100%;
+        overflow: hidden;
+        font-size: 11px;
+        font-weight: 500;
+        line-height: 1.3;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    /* Seven ways on a phone: the chips a little smaller and the names tighter, so each name is whole. */
+    @media (max-width: 439.98px) {
+        .rg-game__share-row {
+            gap: 0;
+        }
+
+        .rg-game__share-chip {
+            width: 40px;
+            height: 40px;
+        }
+
+        .rg-game__share-name {
+            font-size: 10px;
+            letter-spacing: -0.02em;
+        }
+    }
+
+    @media (max-width: 374.98px) {
+        .rg-game__share-name {
+            font-size: 9.5px;
+        }
+    }
+
+    /* The link to copy by hand when the clipboard refused it, under the row. */
     .rg-game__share-fallback {
-        grid-column: 1 / -1;
         display: flex;
         flex-direction: column;
         gap: 6px;
@@ -1014,10 +1264,25 @@ select:disabled {
         text-wrap: balance;
     }
 
+
     .rg-game__result-headline--long {
         font-size: clamp(20px, 5vw, 26px);
         line-height: 1.2;
         letter-spacing: -0.02em;
+    }
+
+    /* After every size's own font: the fitted headline's size wins over it. */
+    .rg-game__fit {
+        font-size: max(18px, min(var(--rg-game-line-cap), calc(100cqi / (var(--rg-game-line-chars, 20) * 0.52))));
+        white-space: nowrap;
+        overflow-x: clip;
+        text-wrap: nowrap;
+    }
+
+    .rg-game__fit--two {
+        font-size: max(18px, min(var(--rg-game-line-cap), calc(100cqi * 1.8 / (var(--rg-game-line-chars, 20) * 0.52))));
+        white-space: normal;
+        text-wrap: balance;
     }
 
     .rg-game__share-card {
