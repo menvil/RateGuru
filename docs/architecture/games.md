@@ -179,6 +179,19 @@ vote on that post), `post_rated` (an answer to a group the step asked for),
 `feed_voted` (three votes after leaving for the feed), each once. A failure is
 reported and never spoils the vote.
 
+A sign-in or sign-up form shown — the site's dialog, or the sign-in and
+sign-up pages — sends the traffic signal `signup_form` (`POST /visit/signal`,
+`RecordVisitSignalAction`), which also calls
+`CreditGameSiteActivityAction::signInFormShown()` with the browser's hash from
+the games' own visitor cookie, so it works whether or not Record visits is on.
+The dialog opened on a post's page names that post (`post`, read from the
+page's `data-rg-post`); any other page names none. The form is credited as
+`post_sign_in_form`, once, to the latest guest attempt of that browser whose
+`onward_kind` is `post`, whose `onward_post_id` is the post named and whose
+`onward_at` is within the last 30 minutes — so a form on the feed, on another
+post or on the sign-in and sign-up pages is credited to none. It reaches no
+milestone, and a failure is reported while the signal still answers 204.
+
 ## Traffic
 
 Each audience — anonymous visitors and logged-in players — has its own shares
@@ -312,7 +325,7 @@ transaction as the change it records: `view`, `assigned`, `step_viewed`,
 `started`, `round_answered`, `halfway`, `completed`, `result_viewed`,
 `email_captured`, `registration_cta_clicked`, `account_attributed`,
 `share_clicked`, `replay`, `exit`, `post_opened`, `post_voted`, `post_rated`,
-`feed_voted`, `goal_reached` and `account_confirmed`. Each row carries the game, version, attempt, assignment, audience
+`feed_voted`, `goal_reached`, `account_confirmed` and `post_sign_in_form`. Each row carries the game, version, attempt, assignment, audience
 and the user or the visitor's hash — ids and codes, never anything typed.
 `step_viewed` (`result_viewed` for Full Result) names each step after the game
 an attempt enters, the one its last pick moves it on to included.
@@ -338,6 +351,7 @@ visitor was actually sent.
 | Shared | attempts in the window whose result was shared; in the funnel, the people who shared |
 | Played again | people with more than one attempt in the window |
 | Ways on | people one of those attempts sent on to a post (`post_opened`), the feed, a page or the next game (an `exit` whose `step_type` is the attempt's own `onward_kind`, so the link to the feed every screen has counts for nothing), and the people credited with `post_voted`, `post_rated` or `feed_voted` |
+| From the post to an account | of the attempts sent to a post: people who saw the sign-in form within 30 minutes of `onward_at` — a `post_sign_in_form`, or `signup_form_at` on the attempt's own recorded visit (`traffic_visit_id`) between `onward_at` and 30 minutes on, which paid visits had before the event existed, or a sign-up there, which takes the form; people with an account credited to the attempt (`account_attributions.credited_attempt_id`) whose `signup_place` is `post` and `signed_up_at` within those 30 minutes; and of those, the people whose account is confirmed |
 
 Narrowed to a device or country (a `VisitFilter` in the scope), or split by
 them, the figures read the recorded visits, since the game's tables keep no
@@ -369,6 +383,11 @@ people sent to the post, and Voted in the feed of those sent to the feed. While
 another version in view sends to a post without asking, Rated the post is of
 the people asked to rate instead: those the versions that ask sent to a post,
 each person once however many of them sent them (`GameMetricsQuery::sentToPost()`).
+For anonymous visitors only, Saw the sign-in form there, Signed up there and
+Confirmed that account come between Went on to the post and Voted on the post,
+each a share of the row above it. Adding 30 minutes to `onward_at` is the one
+expression each engine writes its own way (`GameMetricsQuery::minutesAfter()`);
+the rest of the query is the same on all three.
 
 Goal reached counts the attempts of the window that reached their flow's goal,
 however late — an account confirmed within 7 days on any page of the site

@@ -14869,6 +14869,19 @@ function browserHashOf(string $token): string
     return hash('sha256', $token);
 }
 
+/**
+ * The sign-in or sign-up dialog opened in the browser holding the token, as
+ * its script tells the traffic tracker, which answers 204: on the page of the
+ * post given, or, with none, on a page that is no post's — the feed, the
+ * sign-in and sign-up pages.
+ */
+function signInFormOpened(string $token, ?int $postId = null): void
+{
+    test()->withCookie((string) config('games.visitor_cookie.name'), $token)
+        ->post(route('traffic.signal'), ['signal' => 'signup_form', ...($postId === null ? [] : ['post' => $postId])])
+        ->assertNoContent();
+}
+
 /** The visitor token of the browser a game page is opened in, unless a test names another. */
 const OPEN_TOKEN = 'openTokenopenTokenopenTokenopenTokenopen';
 

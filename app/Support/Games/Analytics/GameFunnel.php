@@ -7,7 +7,8 @@ namespace App\Support\Games\Analytics;
  * opened it, the attempts they started and completed, the emails and accounts
  * those attempts led to, the attempts whose result was shared, the people who
  * started more than once, and where the flow sent them on from the game — a
- * post, the feed, a page or the next game — and what they did there.
+ * post, the feed, a page or the next game — and what they did there: on a
+ * post, the way from its sign-in form to a confirmed account as well.
  *
  * Visitors and players are people, counted once each; started and completed
  * are attempts — plays, a replay one more — counted from the attempts started
@@ -49,6 +50,12 @@ final readonly class GameFunnel
         public int $goalPeople = 0,
         /** People the flow's way on sent to a post: Full Result going on to one, or Go to Post. */
         public int $wentToPost = 0,
+        /** People shown the sign-in or sign-up form within 30 minutes of a way on sending them to a post, or who signed up there. */
+        public int $sawSignInOnPost = 0,
+        /** People whose new account was made on that post within 30 minutes, confirmed or not yet. */
+        public int $signedUpOnPost = 0,
+        /** Of those, the people whose account was confirmed. */
+        public int $confirmedOnPost = 0,
         /** People who voted on the post a way on sent them to, within 30 minutes. */
         public int $votedOnPost = 0,
         /** People who answered a rating group the step asked for on that post, within 30 minutes. */

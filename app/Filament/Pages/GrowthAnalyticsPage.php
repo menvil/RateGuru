@@ -24,6 +24,7 @@ use App\Filament\Support\AdminNavigationGroup;
 use App\Filament\Support\ReportPeriodMemory;
 use App\Models\TrafficSegment;
 use App\Models\User;
+use App\Queries\Analytics\AnalyticsVisitsQuery;
 use App\Queries\Analytics\JourneyQuery;
 use App\Queries\Games\ComparisonPeriodsQuery;
 use App\Support\Analytics\AnalyticsFilter;
@@ -716,11 +717,12 @@ final class GrowthAnalyticsPage extends Page
 
     /**
      * A period as the address names it, read for today: the longest range
-     * read at a time is Analytics', the oldest day the visits'.
+     * read at a time is Analytics', the oldest day the visits', and all time
+     * starts on the first visit's day — looked up only for all time.
      */
     public static function readPeriod(mixed $preset, mixed $from, mixed $to): AnalyticsPeriod
     {
-        return AnalyticsPeriod::read($preset, $from, $to, CarbonImmutable::now('UTC'), (int) config('traffic.retention_days.visits'), (int) config('analytics.max_range_days'));
+        return AnalyticsPeriod::read($preset, $from, $to, CarbonImmutable::now('UTC'), (int) config('traffic.retention_days.visits'), (int) config('analytics.max_range_days'), fn (): ?string => app(AnalyticsVisitsQuery::class)->firstDay());
     }
 
     /**

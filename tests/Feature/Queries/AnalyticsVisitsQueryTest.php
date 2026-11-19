@@ -580,6 +580,21 @@ it('tells whether a filter admits anyone, and when the first visit of all was re
         ->and(analyticsQuery()->has(analyticsFilter('yesterday')))->toBeFalse();
 });
 
+it('tells the first network day of all a visit came on: the earliest among the first visit’s hours, whatever arrived first', function () {
+    expect(analyticsQuery()->firstDay())->toBeNull();
+
+    // The first arrival of all, on a UTC day's morning.
+    TrafficVisit::factory()->create(['arrived_at' => '2026-11-02 08:30:00', 'network_day' => '2026-11-02']);
+    expect(analyticsQuery()->firstDay())->toBe('2026-11-02');
+
+    // An hour later, a network a dozen hours behind UTC: its day was still the one before.
+    TrafficVisit::factory()->create(['arrived_at' => '2026-11-02 09:30:00', 'network_day' => '2026-11-01']);
+    // A day later than any network's day could reach back from: never read.
+    TrafficVisit::factory()->create(['arrived_at' => '2026-11-03 11:00:00', 'network_day' => '2026-10-01']);
+
+    expect(analyticsQuery()->firstDay())->toBe('2026-11-01');
+});
+
 it('counts the people of each set of tags the sessions of the campaigns asked for came by, a tag none of them carried as none', function () {
     $tags = fn (string $campaign, ?string $content, string $source = 'reddit'): array => ['utm_campaign' => $campaign, 'utm_source' => $source, 'utm_medium' => 'organic_social', 'utm_content' => $content, 'utm_term' => null, 'campaign_key' => 'tag:'.$campaign];
 

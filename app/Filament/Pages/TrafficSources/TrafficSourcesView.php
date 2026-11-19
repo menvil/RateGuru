@@ -19,6 +19,7 @@ use App\Enums\TrafficSourceStatus;
 use App\Enums\TrafficSourceType;
 use App\Enums\TrafficSpendMode;
 use App\Enums\TrafficSpendOrigin;
+use App\Filament\Pages\GrowthAnalyticsPage;
 use App\Filament\Pages\TrafficSourcesPage;
 use App\Models\Game;
 use App\Models\GameVersion;
@@ -49,6 +50,7 @@ use App\Services\Geo\GeoAttribution;
 use App\Services\Traffic\Connectors\ConnectorRegistry;
 use App\Services\Traffic\Connectors\EditsBlockLists;
 use App\Services\Traffic\TrafficPresetCatalog;
+use App\Support\Analytics\JourneyTimeline;
 use App\Support\Geo\Countries;
 use App\Support\Traffic\Blocking\BlockJudge;
 use App\Support\Traffic\Blocking\BlockRule;
@@ -1367,6 +1369,8 @@ final class TrafficSourcesView
      * account came where it did, the click, the exact request and the
      * network's answer — milestones, clicks and blocking, newest first, fifty
      * to a page, with how many postbacks are failing, and each source by name.
+     * A click, a milestone and a postback name their visitor by its journey
+     * ID (journey()), by the row's id — a postback's in its own row.
      *
      * @return array<string, mixed>
      */
@@ -1380,14 +1384,41 @@ final class TrafficSourcesView
             default => $this->logs->postbacks($source, $page->logFilter === 'failed' ? TrafficPostbackStatus::Failed->value : null, $page->pageNumber),
         };
         $failing = TrafficPostback::query()->where('status', TrafficPostbackStatus::Failed)->where('created_at', '>=', now()->subDays(7))->when($source !== null, fn ($query) => $query->where('source_id', $source))->count();
+        $linked = GrowthAnalyticsPage::canAccess();
 
         return [
             'labels' => ['source_id' => self::named($sources->pluck('name', 'id'))],
             'logPage' => $logPage,
-            'logRows' => $page->log === 'postbacks' ? $this->postbackRows($logPage->items()) : [],
+            'logRows' => $page->log === 'postbacks' ? $this->postbackRows($logPage->items(), $linked) : [],
+            'visitors' => match ($page->log) {
+                'clicks' => collect($logPage->items())->mapWithKeys(fn (TrafficVisit $visit): array => [$visit->id => self::journey($visit->visitor_hash, $linked)])->all(),
+                'milestones' => collect($logPage->items())->mapWithKeys(fn (TrafficConversion $conversion): array => [$conversion->id => self::journey($conversion->visit?->visitor_hash, $linked)])->all(),
+                default => [],
+            },
             'failing' => $failing,
             'tries' => count(PostbackSchedule::RETRY_AFTER) + 1,
         ];
+    }
+
+    /**
+     * A log row's visitor as Growth → Analytics → Journeys names it, with the
+     * address that looks it up there for an administrator who may open
+     * Analytics — the ID alone for anyone else. None for a row whose visit
+     * is gone. The address names the browser by as many digits as Journeys
+     * tells apart browsers sharing an ID's, so it opens this visitor's
+     * journey rather than a list to choose from.
+     *
+     * @return array{id: string, url: string|null}|null
+     */
+    private static function journey(?string $hash, bool $linked): ?array
+    {
+        if ($hash === null || $hash === '') {
+            return null;
+        }
+
+        $who = JourneyTimeline::visitorId($hash, JourneyTimeline::LONG_DIGITS);
+
+        return ['id' => JourneyTimeline::visitorId($hash), 'url' => $linked ? GrowthAnalyticsPage::getUrl(['tab' => 'journeys', 'who' => $who]) : null];
     }
 
     /**
@@ -1396,13 +1427,13 @@ final class TrafficSourcesView
      * @param  list<TrafficPostback>  $postbacks
      * @return list<array<string, mixed>>
      */
-    private function postbackRows(array $postbacks): array
+    private function postbackRows(array $postbacks, bool $linked): array
     {
         $conversions = TrafficConversion::query()->whereKey(array_map(fn (TrafficPostback $postback): int => (int) $postback->conversion_id, $postbacks))->with('visit.detail')->get()->keyBy('id');
         $places = ['game' => 'in the game', 'post' => 'on a post', 'feed' => 'in the feed', 'other' => 'elsewhere on the site'];
         $tries = count(PostbackSchedule::RETRY_AFTER) + 1;
 
-        return array_map(function (TrafficPostback $postback) use ($conversions, $places, $tries): array {
+        return array_map(function (TrafficPostback $postback) use ($conversions, $places, $tries, $linked): array {
             $conversion = $conversions->get($postback->conversion_id);
             $visit = $conversion?->visit;
             $clickId = (string) ($visit?->detail->click_id ?? '');
@@ -1418,6 +1449,7 @@ final class TrafficSourcesView
                 'path' => $visit === null ? [] : collect([
                     'arrived_at' => 'Clicked', 'opened_at' => 'Opened the page', 'started_at' => 'Started the game', 'completed_at' => 'Finished it', 'signup_form_at' => 'Saw a sign-up form', 'signup_at' => 'Signed up', 'account_at' => 'Confirmed the account',
                 ])->filter(fn (string $label, string $column): bool => $visit->{$column} !== null)->map(fn (string $label, string $column): array => ['label' => $label, 'at' => $visit->{$column}])->values()->all(),
+                'visitor' => self::journey($visit?->visitor_hash, $linked),
                 'clickId' => $clickId,
                 'request' => 'GET '.($clickId !== '' ? PostbackUrl::withClickId($postback->url, $clickId) : $postback->url),
                 'status' => $postback->status,

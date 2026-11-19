@@ -2,7 +2,10 @@
     Logs, as the reference draws them: postbacks — when, which source, the
     milestone and how the account came where it did with its whole path,
     the click, the exact request and the network's answer, with Resend —
-    milestones, clicks and blocking, newest first, fifty to a page.
+    milestones, clicks and blocking, newest first, fifty to a page. A click,
+    a milestone and a postback name their visitor by its journey ID, a link
+    to its journey in Growth → Analytics (journey-link), and a postback's
+    path ends with it too.
 --}}
 @php
     $logs = ['postbacks' => 'Postbacks'.($failing > 0 ? ' · '.$failing.' failing' : ''), 'milestones' => 'Milestones', 'clicks' => 'Clicks', 'blocks' => 'Blocks'];
@@ -42,17 +45,18 @@
         <x-admin.ui.empty-state icon="list" title="Nothing in this log yet">{{ $log === 'postbacks' ? 'Postbacks show here once a source has a rule and its clicks reach a milestone.' : 'Entries show here as they happen.' }}</x-admin.ui.empty-state>
     @else
         <div class="rg-admin-traffic__perf rg-admin-table__scroll">
-            <div class="rg-admin-traffic__perf-grid rg-admin-traffic__perf-grid--log" role="table" aria-label="{{ $logs[$log] }}">
+            <div @class(['rg-admin-traffic__perf-grid rg-admin-traffic__perf-grid--log', 'rg-admin-traffic__perf-grid--wide-log' => in_array($log, ['postbacks', 'clicks'], true)]) role="table" aria-label="{{ $logs[$log] }}">
                 @switch ($log)
                     @case('postbacks')
                         <div class="rg-admin-traffic__log-line rg-admin-traffic__log-line--postbacks rg-admin-traffic__perf-row--head" role="row">
-                            @foreach (['Time', 'Source', 'Milestone', 'Click ID', 'Request', 'Result', ''] as $heading)<span role="columnheader">{{ $heading }}</span>@endforeach
+                            @foreach (['Time', 'Source', 'Visitor', 'Milestone', 'Click ID', 'Request', 'Result', ''] as $heading)<span role="columnheader">{{ $heading }}</span>@endforeach
                         </div>
                         @foreach ($logRows as $row)
                             @php([$time, $day] = $when($row['at']))
                             <div @class(['rg-admin-traffic__log-line rg-admin-traffic__log-line--postbacks', 'rg-admin-traffic__log-line--failed' => $row['status']->value === 'failed']) role="row" wire:key="postback-{{ $row['id'] }}" x-data="{ path: false }">
                                 <span role="cell" class="rg-admin-traffic__perf-label"><strong>{{ $time }}</strong><span class="rg-admin-traffic__note">{{ $day }}</span></span>
                                 <span role="cell">{{ $labels['source_id'][(string) $row['source']] ?? '' }}</span>
+                                <span role="cell">@if ($row['visitor'] !== null)@include('filament.pages.traffic-sources.journey-link', ['journey' => $row['visitor']])@else—@endif</span>
                                 <span role="cell" class="rg-admin-traffic__perf-label">
                                     <span>{{ $row['milestone'] }}</span>
                                     @if ($row['how'] !== null)<span class="rg-admin-traffic__note">{{ $row['how'] }}</span>@endif
@@ -62,6 +66,9 @@
                                             @foreach ($row['path'] as $mark)
                                                 <li><span>{{ $mark['label'] }}</span><span class="rg-admin-traffic__note">{{ $mark['at']->format('j M H:i') }}</span></li>
                                             @endforeach
+                                            @if ($row['visitor'] !== null)
+                                                <li><span>Journey</span>@include('filament.pages.traffic-sources.journey-link', ['journey' => $row['visitor']])</li>
+                                            @endif
                                         </ol>
                                     @endif
                                 </span>
@@ -77,13 +84,14 @@
                         @break
                     @case('milestones')
                         <div class="rg-admin-traffic__log-line rg-admin-traffic__log-line--milestones rg-admin-traffic__perf-row--head" role="row">
-                            @foreach (['Time', 'Source', 'Milestone', 'Worth', 'Postback'] as $heading)<span role="columnheader">{{ $heading }}</span>@endforeach
+                            @foreach (['Time', 'Source', 'Visitor', 'Milestone', 'Worth', 'Postback'] as $heading)<span role="columnheader">{{ $heading }}</span>@endforeach
                         </div>
                         @foreach ($logPage->items() as $row)
                             @php([$time, $day] = $when($row->occurred_at))
                             <div class="rg-admin-traffic__log-line rg-admin-traffic__log-line--milestones" role="row" wire:key="milestone-{{ $row->id }}">
                                 <span role="cell" class="rg-admin-traffic__perf-label"><strong>{{ $time }}</strong><span class="rg-admin-traffic__note">{{ $day }}</span></span>
                                 <span role="cell">{{ $labels['source_id'][(string) $row->source_id] ?? '' }}</span>
+                                <span role="cell">@if (($visitors[$row->id] ?? null) !== null)@include('filament.pages.traffic-sources.journey-link', ['journey' => $visitors[$row->id]])@else—@endif</span>
                                 <span role="cell">{{ $row->event === \App\Enums\TrafficEvent::Goal ? 'Flow goal reached'.($row->goal !== null ? ' · '.str_replace('_', ' ', is_string($row->goal) ? $row->goal : $row->goal->value) : '') : $row->event->label() }}</span>
                                 <span role="cell" class="rg-admin-traffic__perf-label"><span>{{ \App\Support\Traffic\Money\TrafficMoney::fine($row->value) }}</span><span class="rg-admin-traffic__note">{{ $row->value_basis->label() }}</span></span>
                                 <span role="cell" class="rg-admin-traffic__note">{{ $row->postback_skip?->label() ?? 'Sent to the network' }}</span>
@@ -107,13 +115,14 @@
                         @break
                     @default
                         <div class="rg-admin-traffic__log-line rg-admin-traffic__log-line--clicks rg-admin-traffic__perf-row--head" role="row">
-                            @foreach (['Time', 'Source', 'Site · zone', 'Device · place', 'Landing', 'What happened', 'Spend'] as $heading)<span role="columnheader">{{ $heading }}</span>@endforeach
+                            @foreach (['Time', 'Source', 'Visitor', 'Site · zone', 'Device · place', 'Landing', 'What happened', 'Spend'] as $heading)<span role="columnheader">{{ $heading }}</span>@endforeach
                         </div>
                         @foreach ($logPage->items() as $row)
                             @php([$time, $day] = $when($row->arrived_at))
                             <div class="rg-admin-traffic__log-line rg-admin-traffic__log-line--clicks" role="row" wire:key="click-{{ $row->id }}">
                                 <span role="cell" class="rg-admin-traffic__perf-label"><strong>{{ $time }}</strong><span class="rg-admin-traffic__note">{{ $day }}</span></span>
                                 <span role="cell">{{ $row->source_id === null ? ucfirst($row->channel->value) : ($labels['source_id'][(string) $row->source_id] ?? '') }}</span>
+                                <span role="cell">@if (($visitors[$row->id] ?? null) !== null)@include('filament.pages.traffic-sources.journey-link', ['journey' => $visitors[$row->id]])@else—@endif</span>
                                 <span role="cell" class="rg-admin-traffic__mono">{{ implode(' · ', array_filter([$row->site_ref, $row->zone_ref])) ?: '—' }}</span>
                                 <span role="cell">{{ ucfirst($row->device->value) }} · {{ $row->country ?? '—' }}{{ $row->city !== null ? ', '.$row->city : '' }}</span>
                                 <span role="cell" class="rg-admin-traffic__mono rg-admin-traffic__log-request">{{ $row->detail?->landing_path ?? '—' }}</span>

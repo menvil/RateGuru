@@ -17,6 +17,7 @@ use App\Models\TrafficVisit;
 use App\Models\User;
 use App\Support\Analytics\AnalyticsSource;
 use App\Support\Traffic\Capture\BotSignals;
+use App\Support\Traffic\Reports\ReportPeriod;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -168,6 +169,55 @@ it('offers Today first among the presets: today’s visits alone, hour by hour, 
             '18 Nov 2026 · 23:00–24:00 UTC · still to come',
         ])
         ->and(GrowthAnalyticsPage::topbar(Request::create('/admin/analytics', 'GET', ['period' => 'today'])))->toContain('18 Nov 2026');
+});
+
+it('offers every report page’s presets: yesterday against the day before, this month against the same days of last month, last month against the month before, all time against nothing', function () {
+    recordAnalyticsVisits();
+    // The first visit of all arrived early on 20 Sep, UTC, from a network whose day was still 19 Sep.
+    $days = [
+        'ann' => ['2026-09-19', '2026-09-20 03:00:00'],
+        'bob' => ['2026-09-25', null],
+        'cat' => ['2026-10-05', null],
+        'dan' => ['2026-10-25', null],
+        'eve' => ['2026-11-05', null],
+        'fay' => ['2026-11-16', null],
+        'gus' => ['2026-11-17', null],
+        'hal' => ['2026-11-17', null],
+    ];
+    foreach ($days as $browser => [$day, $at]) {
+        analyticsVisit($browser, ['network_day' => $day, 'arrived_at' => $at ?? $day.' 10:00:00']);
+    }
+    $open = fn (string $preset) => Livewire::withQueryParams(['period' => $preset])->test(GrowthAnalyticsPage::class)->call('load');
+    $cases = [
+        'yesterday' => ['Yesterday', '17 Nov 2026', ['2026-11-17', '2026-11-17'], '2', '+100% vs the day before'],
+        // 1–18 November: eve, fay, gus, hal; 1–18 October: cat.
+        'this-month' => ['This month', '01 Nov — 18 Nov 2026', ['2026-11-01', '2026-11-18'], '4', '+300% vs the same days of last month'],
+        // October: cat, dan; September: ann, bob.
+        'last-month' => ['Last month', '01 Oct — 31 Oct 2026', ['2026-10-01', '2026-10-31'], '2', 'Same as the month before'],
+        // Since the first visit's network day; nothing earlier to compare with.
+        'all' => ['All time', '19 Sep — 18 Nov 2026', ['2026-09-19', '2026-11-18'], '8', null],
+    ];
+
+    foreach ($cases as $preset => [$label, $dates, $read, $value, $change]) {
+        $page = $open($preset)
+            ->assertSet('period', $preset)
+            ->assertSet('from', '')
+            ->assertViewHas('periodPicker', fn (array $picker): bool => $picker['presets'] === ReportPeriod::PRESETS && $picker['value'] === $preset && $picker['label'] === $label && $picker['dates'] === $dates && [$picker['from'], $picker['to']] === $read)
+            ->assertViewHas('range', $dates)
+            ->assertDispatched('rg-admin-analytics-range', text: $dates);
+        $visitors = collect($page->viewData('data')['kpis'])->firstWhere('label', 'Visitors');
+
+        expect([$visitors['value'], $visitors['change']])->toBe([$value, $change], $preset)
+            ->and(GrowthAnalyticsPage::topbar(Request::create('/admin/analytics', 'GET', ['period' => $preset])))->toContain($dates);
+    }
+
+    // Visits from further back than Analytics reads at a time: all time is its last 93 days, and the picker and the top bar say so.
+    analyticsVisit('ivy', ['network_day' => '2026-05-01']);
+    $open('all')->assertViewHas('periodPicker', fn (array $picker): bool => $picker['label'] === 'All time' && $picker['dates'] === '18 Aug — 18 Nov 2026' && [$picker['from'], $picker['to']] === ['2026-08-18', '2026-11-18']);
+
+    // The picker's own call reads it the same way, and keeps it as the last choice.
+    Livewire::test(GrowthAnalyticsPage::class)->call('choosePeriod', 'all')->assertSet('period', 'all')->assertDispatched('rg-admin-analytics-range', text: '18 Aug — 18 Nov 2026');
+    Livewire::withQueryParams([])->test(GrowthAnalyticsPage::class)->assertSet('period', 'all');
 });
 
 it('opens on the period the administrator last chose when the address names none, an address naming one winning and kept in turn', function () {

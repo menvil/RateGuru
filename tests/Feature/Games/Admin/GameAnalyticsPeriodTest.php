@@ -8,15 +8,19 @@ use App\Filament\Support\ReportPeriodMemory;
 use App\Models\GameAttempt;
 use App\Models\ProjectSettings;
 use App\Models\TrafficVisit;
+use App\Support\Traffic\Reports\ReportPeriod;
 use Livewire\Livewire;
 
 /*
- * A game's Analytics tab and its period picker: Today first among the
- * presets — today's figures alone, against the day before up to the same
- * time, the way to Traffic sources opening its own Today — and the period the
- * administrator last chose, which every game's Analytics opens on while its
- * address names none: an address naming one wins and is kept in turn, a
- * period that can no longer be read is the default.
+ * A game's Analytics tab and its period picker, with every report page's
+ * presets: Today first — today's figures alone, against the day before up to
+ * the same time, the way to Traffic sources opening its own Today —
+ * Yesterday against the day before, This month against as far into last
+ * month, Last month against the whole month before, each leading to Traffic
+ * sources on the same preset; and the period the administrator last chose,
+ * which every game's Analytics opens on while its address names none: an
+ * address naming one wins and is kept in turn, a period that can no longer
+ * be read is the default.
  */
 
 beforeEach(function () {
@@ -45,9 +49,43 @@ it('offers Today first: today’s figures alone, compared with the day before up
         ->and($started['change']['text'])->toBe('▲ 100% vs previous period')
         ->and($today->viewData('sources')['reportUrl'])->toContain('period=today');
 
-    // The way to Traffic sources names its period even when it is that page's default: an address naming none opens on the period last chosen there.
+    // The way to Traffic sources names its period even when it is that page's default: an address naming none opens on the period last chosen there. All time is that page's all time.
     expect($open(['period' => '30d'])->viewData('sources')['reportUrl'])->toContain('period=30d')
-        ->and($open(['period' => 'all'])->viewData('sources')['reportUrl'])->toContain('period=30d');
+        ->and($open(['period' => 'all'])->viewData('sources')['reportUrl'])->toContain('period=all');
+});
+
+it('offers every report page’s presets: Yesterday against the day before, This month against as far into last month, Last month against the whole month before', function () {
+    $version = liveGame($this->draft);
+    // Yesterday and the day before; this month; early and late last month — the late one past how far this month has gone; the month before.
+    foreach (['2026-11-17 09:00:00', '2026-11-16 09:00:00', '2026-11-05 10:00:00', '2026-10-05 10:00:00', '2026-10-25 10:00:00', '2026-09-10 10:00:00'] as $at) {
+        GameAttempt::factory()->create(['version_id' => $version->id, 'started_at' => $at, 'last_activity_at' => $at]);
+    }
+    // A recorded visit yesterday and one last month, so the sources card leads to Traffic sources for each.
+    foreach (['2026-11-17 09:00:00', '2026-10-25 10:00:00'] as $at) {
+        TrafficVisit::factory()->unpaid(TrafficChannel::Search)->create(['game_id' => $this->draft['game']->id, 'version_id' => $version->id, 'opened_at' => $at, 'arrived_at' => $at, 'network_day' => substr($at, 0, 10)]);
+    }
+    $open = fn (array $query) => Livewire::withQueryParams($query)->test(GameAnalytics::class, ['record' => $this->draft['game']->id]);
+    $cases = [
+        'yesterday' => ['17 Nov 2026', ['2026-11-17', '2026-11-17'], '17 Nov 2026 · compared with 16 Nov 2026', '1', 'Same as previous period'],
+        'this-month' => ['01 Nov — 18 Nov 2026', ['2026-11-01', '2026-11-18'], '01 Nov — 18 Nov 2026 · compared with 01 Oct — 18 Oct 2026 up to the same time', '3', '▲ 200% vs previous period'],
+        'last-month' => ['01 Oct — 31 Oct 2026', ['2026-10-01', '2026-10-31'], '01 Oct — 31 Oct 2026 · compared with 01 Sep — 30 Sep 2026', '2', '▲ 100% vs previous period'],
+    ];
+
+    foreach ($cases as $preset => [$dates, $days, $text, $value, $change]) {
+        $page = $open(['period' => $preset])
+            ->assertSet('period', $preset)
+            ->assertViewHas('datesText', $text)
+            ->assertViewHas('periodPicker', fn (array $picker): bool => $picker['presets'] === ReportPeriod::PRESETS && $picker['value'] === $preset && $picker['label'] === ReportPeriod::PRESETS[$preset] && $picker['dates'] === $dates && [$picker['from'], $picker['to']] === $days);
+        $started = collect($page->viewData('kpis'))->firstWhere('label', 'Game started');
+
+        expect([$started['value'], $started['change']['text']])->toBe([$value, $change], $preset)
+            ->and($page->viewData('window'))->toBe(strtolower(ReportPeriod::PRESETS[$preset]))
+            ->and($page->viewData('sources')['reportUrl'])->toContain('period='.$preset);
+    }
+
+    // All time: every attempt, with nothing to compare.
+    $all = collect($open(['period' => 'all'])->viewData('kpis'))->firstWhere('label', 'Game started');
+    expect($all['value'])->toBe('6');
 });
 
 it('opens every game’s Analytics on the period last chosen while the address names none, an address naming one winning and kept in turn', function () {
@@ -76,6 +114,12 @@ it('opens every game’s Analytics on the period last chosen while the address n
     // A range now older than the figures are kept, or a preset the page doesn't offer: the default, silently.
     $this->travel(GameAnalytics::retentionDays())->days();
     $open()->assertSet('period', '30d')->assertSet('from', '')->assertSet('to', '');
-    ReportPeriodMemory::remember(GameAnalytics::PERIOD_MEMORY, 'yesterday', '', '');
+    ReportPeriodMemory::remember(GameAnalytics::PERIOD_MEMORY, '365d', '', '');
     $open()->assertSet('period', '30d');
+
+    // Every preset the picker offers is kept and opened on again.
+    foreach (['yesterday', 'this-month', 'last-month'] as $preset) {
+        $open()->call('choosePeriod', $preset);
+        $open()->assertSet('period', $preset)->assertSet('from', '')->assertSet('to', '');
+    }
 });

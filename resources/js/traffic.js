@@ -4,7 +4,8 @@
 // (a profile, a category, a tag), whose head carries its own token. Each
 // token goes back once, however often its page is shown. A game page sends
 // it through its own first call instead. A sign-up dialog calls
-// rgTrafficSignal('signup_form') when it opens, and a page that shows a
+// rgTrafficSignal('signup_form') when it opens — with { post: id } on a
+// post's page (resources/js/auth-modal.js) — and a page that shows a
 // sign-in or sign-up form names that signal on an element of its own
 // (data-rg-traffic-signal), sent once as the page is in; a post's share buttons call
 // rgTrafficSignal('post_shared', { post: id }) for a share that never passes

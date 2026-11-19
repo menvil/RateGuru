@@ -3,6 +3,7 @@
 namespace App\Support\Traffic\Reports;
 
 use Carbon\CarbonImmutable;
+use Closure;
 
 /**
  * The period a report page reads, as its address names it: one of the page's
@@ -12,11 +13,30 @@ use Carbon\CarbonImmutable;
  * kept — so never longer than the data is kept. Anything else, the address's
  * or a forged update's, is the page's default preset instead, never an
  * error. Today is given, never read from the clock.
+ *
+ * Every report page's picker offers the same presets (PRESETS), and a
+ * preset's days are the same on each (presetDays()): what differs is the
+ * page's day — UTC, or each network's own — and how far back it may read.
  */
 final readonly class ReportPeriod
 {
     /** What a range of days typed in is called where a preset would be named. */
     public const string CUSTOM = 'custom';
+
+    /** The preset of every day there is data for. */
+    public const string ALL = 'all';
+
+    /** @var array<string, string> the presets every report page's picker offers, in order, by the key the address names them by */
+    public const array PRESETS = [
+        'today' => 'Today',
+        'yesterday' => 'Yesterday',
+        '7d' => 'Last 7 days',
+        '30d' => 'Last 30 days',
+        '90d' => 'Last 90 days',
+        'this-month' => 'This month',
+        'last-month' => 'Last month',
+        self::ALL => 'All time',
+    ];
 
     private function __construct(
         public string $preset,
@@ -59,6 +79,33 @@ final readonly class ReportPeriod
     }
 
     /**
+     * A preset's first and last day: today or yesterday alone; the last 7,
+     * 30 or 90 days up to today; this month up to today; the whole of last
+     * month; or all time — from the first day there is data for up to today,
+     * never more days than the page reads, and those last ones when there is
+     * no data yet. Any other preset is the last 30 days.
+     *
+     * @param  int  $mostDays  the most days, today included, all time may cover
+     * @param  (Closure(): ?string)|null  $firstDay  the first day there is data for, Y-m-d, or null for none yet: asked for all time alone
+     * @return array{0: CarbonImmutable, 1: CarbonImmutable}
+     */
+    public static function presetDays(string $preset, CarbonImmutable $today, int $mostDays, ?Closure $firstDay = null): array
+    {
+        $today = $today->startOfDay();
+
+        return match ($preset) {
+            'today' => [$today, $today],
+            'yesterday' => [$today->subDay(), $today->subDay()],
+            '7d' => [$today->subDays(6), $today],
+            '90d' => [$today->subDays(89), $today],
+            'this-month' => [$today->startOfMonth(), $today],
+            'last-month' => [$today->startOfMonth()->subMonthNoOverflow(), $today->startOfMonth()->subDay()],
+            self::ALL => [self::allTimeFrom($today, $mostDays, $firstDay === null ? null : $firstDay()), $today],
+            default => [$today->subDays(29), $today],
+        };
+    }
+
+    /**
      * Two days as the period picker and the figures name them: “10 Sep — 09
      * Oct 2026”, each with its year where the years differ, one day alone
      * when they are the same.
@@ -70,6 +117,19 @@ final readonly class ReportPeriod
         }
 
         return $first->format($first->year === $last->year ? 'd M' : 'd M Y').' — '.$last->format('d M Y');
+    }
+
+    /** All time's first day: the first day there is data for, but no earlier than the most days allow, and no later than today. */
+    private static function allTimeFrom(CarbonImmutable $today, int $mostDays, ?string $firstDay): CarbonImmutable
+    {
+        $earliest = $today->subDays(max(1, $mostDays) - 1);
+        $first = self::day($firstDay);
+
+        return match (true) {
+            $first === null, $first->lessThan($earliest) => $earliest,
+            $first->greaterThan($today) => $today,
+            default => $first,
+        };
     }
 
     /** A day typed as Y-m-d that is a real date, or null. */

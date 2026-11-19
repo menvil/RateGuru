@@ -1,6 +1,7 @@
 <?php
 
 use App\Actions\Games\PublishGameVersionAction;
+use App\Enums\AccountSignupPlace;
 use App\Enums\GameAccountOutcome;
 use App\Enums\GameAttemptStatus;
 use App\Enums\GameAudience;
@@ -301,6 +302,62 @@ it('splits the ways on by version and by the device of the play’s visit, a per
         ->and($ways(metricsQuery()->funnels(metricsScope($first, versionId: $second->id))[0]))->toBe([1, 0, 1])
         ->and(array_map($ways, metricsQuery()->funnels(metricsScope($first), 'device')))->toBe(['mobile' => [1, 1, 0]])
         ->and($ways(metricsQuery()->funnels(metricsScope($first, visits: new VisitFilter(TrafficDevice::Desktop)))[0]))->toBe([0, 0, 0]);
+});
+
+it('follows the people sent to a post to its sign-in form, an account made there and confirmed, within 30 minutes, each person once, split like the rest', function () {
+    $draft = publishableGameDraft(rounds: 2);
+    $first = liveGame($draft);
+    $second = metricsSecondVersion($draft);
+    $player = User::factory()->create();
+    // Every play below goes on to the post at 12:06.
+    $form = fn (GameAttempt $attempt, string $guest, string $at = '2026-11-05 12:10:00') => metricsView($first, $guest, $at, GameEventType::PostSignInForm, $attempt);
+    $markedVisit = function (GameAttempt $attempt, string $guest, ?string $formAt, TrafficDevice $device = TrafficDevice::Mobile) use ($first): void {
+        $attempt->forceFill(['traffic_visit_id' => metricsVisit($first, $guest, $device, attributes: ['signup_form_at' => $formAt])->id])->save();
+    };
+    $account = fn (GameAttempt $attempt, string $at, AccountSignupPlace $place = AccountSignupPlace::Post, bool $confirmed = false) => AccountAttribution::factory()->create([
+        'credited_attempt_id' => $attempt->id,
+        'signup_place' => $place,
+        'signed_up_at' => $at,
+        'confirmed_at' => $confirmed ? '2026-11-05 13:00:00' : null,
+    ]);
+
+    // V1. guest-a saw the form on both of their plays: one person. guest-b's recorded visit was marked 14 minutes
+    // after going on, as visits were before the event; guest-c's 31 minutes after, and guest-d's before going on:
+    // neither saw it there. guest-h signed up on the post 34 minutes after: too late for anything.
+    $form(metricsWentOn($first, 'guest-a', GameOnwardKind::Post), 'guest-a');
+    $form(metricsWentOn($first, 'guest-a', GameOnwardKind::Post), 'guest-a');
+    $markedVisit(metricsWentOn($first, 'guest-b', GameOnwardKind::Post), 'guest-b', '2026-11-05 12:20:00');
+    $markedVisit(metricsWentOn($first, 'guest-c', GameOnwardKind::Post), 'guest-c', '2026-11-05 12:37:00');
+    $markedVisit(metricsWentOn($first, 'guest-d', GameOnwardKind::Post), 'guest-d', '2026-11-05 12:05:00', TrafficDevice::Desktop);
+    $account(metricsWentOn($first, 'guest-h', GameOnwardKind::Post), '2026-11-05 12:40:00', confirmed: true);
+
+    // V2. guest-e signed up on the post and confirmed — no form event, but signing up there took the form; guest-f saw it
+    // and signed up on the post 24 minutes after going on, not confirmed yet; guest-g saw it and signed up in the game.
+    $account(metricsWentOn($second, 'guest-e', GameOnwardKind::Post), '2026-11-05 12:15:00', confirmed: true);
+    $toPost = metricsWentOn($second, 'guest-f', GameOnwardKind::Post);
+    $form($toPost, 'guest-f');
+    $account($toPost, '2026-11-05 12:30:00');
+    $toPost = metricsWentOn($second, 'guest-g', GameOnwardKind::Post);
+    $form($toPost, 'guest-g');
+    $account($toPost, '2026-11-05 12:10:00', AccountSignupPlace::Game, confirmed: true);
+
+    // Sent to the feed, a play before the window, and a logged-in player's: none of them anonymous visitors of a post in the window.
+    $toFeed = metricsWentOn($first, 'guest-i', GameOnwardKind::Feed);
+    $markedVisit($toFeed, 'guest-i', '2026-11-05 12:10:00');
+    $account($toFeed, '2026-11-05 12:10:00', confirmed: true);
+    $form(metricsWentOn($first, 'early', GameOnwardKind::Post, '2026-10-30 12:00:00'), 'early', '2026-10-30 12:10:00');
+    metricsView($first, $player, '2026-11-05 12:10:00', GameEventType::PostSignInForm, metricsWentOn($first, $player, GameOnwardKind::Post));
+
+    $onPost = fn (GameFunnel $f): array => [$f->wentToPost, $f->sawSignInOnPost, $f->signedUpOnPost, $f->confirmedOnPost];
+    $byVersion = metricsQuery()->funnels(metricsScope($first), 'version');
+
+    expect($onPost(metricsQuery()->funnels(metricsScope($first))[0]))->toBe([8, 5, 2, 1])
+        ->and($onPost($byVersion[$first->id]))->toBe([5, 2, 0, 0])
+        ->and($onPost($byVersion[$second->id]))->toBe([3, 3, 2, 1])
+        ->and($onPost(metricsQuery()->funnels(metricsScope($first, versionId: $second->id))[0]))->toBe([3, 3, 2, 1])
+        // Only the plays that came on a recorded visit, by its device.
+        ->and(array_map($onPost, metricsQuery()->funnels(metricsScope($first), 'device')))->toBe(['desktop' => [1, 0, 0, 0], 'mobile' => [2, 1, 0, 0]])
+        ->and($onPost(metricsQuery()->funnels(metricsScope($first, GameAudience::Authenticated))[0]))->toBe([1, 1, 0, 0]);
 });
 
 it('splits the figures by version, flow and content set, a person once in each', function () {

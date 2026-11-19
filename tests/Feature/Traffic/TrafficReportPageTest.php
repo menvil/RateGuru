@@ -4,6 +4,8 @@ use App\Actions\Traffic\EnterSpendAction;
 use App\Enums\TrafficBlockLevel;
 use App\Enums\TrafficChannel;
 use App\Enums\TrafficKnownReason;
+use App\Filament\Pages\GrowthAnalyticsPage;
+use App\Filament\Pages\TrafficSources\TrafficSourcesView;
 use App\Filament\Pages\TrafficSourcesPage;
 use App\Models\Game;
 use App\Models\TrafficBlock;
@@ -20,8 +22,11 @@ use App\Models\TrafficStepChance;
 use App\Models\TrafficVisit;
 use App\Models\TrafficVisitDetail;
 use App\Models\User;
+use App\Support\Analytics\JourneyTimeline;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use Livewire\Livewire;
 
@@ -529,6 +534,113 @@ it('leads an empty later page of a log back to the newest entries, as an address
         ->call('goToPage', 1)
         ->assertDontSee('Nothing on this page')
         ->assertSeeHtml('wire:key="milestone-'.$milestone->id.'"');
+});
+
+/** A paid click by the browser given (a name, hashed) that reached a confirmed account, its milestone and the postback sent for it. */
+function loggedVisitor(TrafficSource $source, string $browser = 'log-visitor'): TrafficVisit
+{
+    $visit = TrafficVisit::factory()->create(['source_id' => $source->id, 'visitor_hash' => hash('sha256', $browser), 'arrived_at' => now()->subHour(), 'opened_at' => now()->subHour(), 'account_at' => now()->subMinutes(50)]);
+    TrafficVisitDetail::query()->forceCreate(['visit_id' => $visit->id, 'click_id' => 'tag-'.$visit->id, 'landing_path' => '/games/x', 'created_at' => now()]);
+    $conversion = TrafficConversion::factory()->create(['visit_id' => $visit->id, 'event' => 'account', 'source_id' => $source->id]);
+    TrafficPostback::factory()->create(['conversion_id' => $conversion->id, 'source_id' => $source->id, 'event' => 'account']);
+
+    return $visit;
+}
+
+it('names the visitor of each click, milestone and postback by its journey ID, a link to its journey in Analytics', function () {
+    $hash = loggedVisitor($this->source)->visitor_hash;
+    $id = JourneyTimeline::visitorId($hash);
+    $link = 'href="'.e(GrowthAnalyticsPage::getUrl(['tab' => 'journeys', 'who' => JourneyTimeline::visitorId($hash, JourneyTimeline::LONG_DIGITS)])).'"';
+
+    // A postback's visitor in its row, and again where its path ends.
+    $page = Livewire::withQueryParams(['tab' => 'logs'])->test(TrafficSourcesPage::class)->call('load')
+        ->assertSeeInOrder(['Source', 'Visitor', 'Milestone', 'PopAds main', $id, 'Show the path', 'Journey', $id])
+        ->assertSeeHtml($link);
+
+    expect(substr_count($page->html(), $link))->toBe(2);
+
+    foreach (['milestones' => 'Milestone', 'clicks' => 'Landing'] as $log => $next) {
+        $page->set('log', $log)->assertSeeInOrder(['Source', 'Visitor', $next, 'PopAds main', $id]);
+
+        expect(substr_count($page->html(), $link))->toBe(1, $log);
+    }
+
+    // Blocking has no visitor.
+    $page->set('log', 'blocks')->assertDontSee('Visitor');
+});
+
+it('reads the visitors of a log’s page at once, never one row at a time', function () {
+    $queries = function (string $log): int {
+        $page = Livewire::withQueryParams(['tab' => 'logs', 'log' => $log])->test(TrafficSourcesPage::class);
+
+        DB::flushQueryLog();
+        DB::enableQueryLog();
+        $page->call('load');
+        $count = count(DB::getQueryLog());
+        DB::disableQueryLog();
+
+        return $count;
+    };
+    $logs = ['postbacks', 'milestones', 'clicks'];
+
+    loggedVisitor($this->source, 'first');
+    $few = array_map($queries, $logs);
+
+    foreach (range(1, 5) as $n) {
+        loggedVisitor($this->source, 'more-'.$n);
+    }
+
+    expect(array_map($queries, $logs))->toBe($few);
+});
+
+it('shows the visitor’s ID without the link to an administrator who may not open Analytics', function () {
+    $id = JourneyTimeline::visitorId(loggedVisitor($this->source)->visitor_hash);
+    // Traffic sources and Analytics share their gate, so nobody sees the logs without Analytics; the link asks Analytics' own all the same.
+    $this->actingAs(User::factory()->admin()->limited()->create());
+
+    expect(GrowthAnalyticsPage::canAccess())->toBeFalse();
+
+    foreach (['postbacks', 'milestones', 'clicks'] as $log) {
+        $page = new TrafficSourcesPage;
+        [$page->tab, $page->log, $page->ready] = ['logs', $log, true];
+
+        $this->view('filament.pages.traffic-sources.logs', [...app(TrafficSourcesView::class)->data($page, $page->filter()), 'log' => $log, 'logFilter' => 'all', 'pageNumber' => 1])
+            ->assertSee($id)
+            ->assertDontSee('who=', false)
+            ->assertDontSee('traffic-log-journey', false);
+    }
+});
+
+it('opens the visitor’s own journey from the log’s link, even where another browser shares its ID, the lookup written down as one from an address', function () {
+    // Another browser whose ID — the first 8 digits — is the visitor's own, recorded first so the visitor's row leads the log.
+    $hash = hash('sha256', 'log-visitor');
+    TrafficVisit::factory()->create(['source_id' => $this->source->id, 'visitor_hash' => substr($hash, 0, JourneyTimeline::VISITOR_DIGITS).str_repeat('0', 64 - JourneyTimeline::VISITOR_DIGITS)]);
+    loggedVisitor($this->source);
+    [$id, $who] = [JourneyTimeline::visitorId($hash), JourneyTimeline::visitorId($hash, JourneyTimeline::LONG_DIGITS)];
+    $html = Livewire::withQueryParams(['tab' => 'logs', 'log' => 'clicks'])->test(TrafficSourcesPage::class)->call('load')->html();
+
+    expect(preg_match('/<a href="([^"]+)"[^>]*data-testid="traffic-log-journey"[^>]*>\s*'.$id.'\s*</', $html, $match))->toBe(1);
+
+    $url = html_entity_decode($match[1]);
+    parse_str((string) parse_url($url, PHP_URL_QUERY), $query);
+
+    expect(parse_url($url, PHP_URL_PATH))->toBe(parse_url(GrowthAnalyticsPage::getUrl(), PHP_URL_PATH))
+        ->and($query)->toBe(['tab' => 'journeys', 'who' => $who]);
+
+    // The ID the row shows names both browsers, so it alone would ask which one.
+    Livewire::withQueryParams(['tab' => 'journeys', 'who' => $id])->test(GrowthAnalyticsPage::class)->call('load')
+        ->assertViewHas('data', fn (array $data): bool => $data['state'] === 'matches');
+
+    Log::spy();
+    $this->get($url)->assertOk();
+
+    // The journey as the page reads it once it is in a browser: the visitor itself, not the first example or a list to choose from.
+    Livewire::withQueryParams($query)->test(GrowthAnalyticsPage::class)->call('load')
+        ->assertSet('tab', 'journeys')
+        ->assertSet('who', $who)
+        ->assertViewHas('data', fn (array $data): bool => $data['state'] === 'journey' && $data['journey']['label'] === $id.' · not registered');
+
+    Log::shouldHaveReceived('info')->withArgs(fn (string $event, array $context): bool => $event === 'analytics.journey.lookup' && $context['journey'] === $who && $context['via'] === 'address')->once();
 });
 
 it('shows sign-ups and confirmation by the dimension chosen, ten rows and the rest in one, with the paid part How accounts come counts', function () {

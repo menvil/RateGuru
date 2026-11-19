@@ -4,6 +4,7 @@ use App\Actions\Games\ApplyGameTrafficAction;
 use App\Actions\Games\ChangeGameFlowAction;
 use App\Actions\Games\ClaimGuestGameAttemptsAction;
 use App\Actions\Games\PublishGameVersionAction;
+use App\Enums\AccountSignupPlace;
 use App\Enums\GameAccountOutcome;
 use App\Enums\GameAttemptStatus;
 use App\Enums\GameAudience;
@@ -292,9 +293,19 @@ it('follows the guests the result sends on to a post: who went, voted on it and 
 
     guestAtResult($this->draft, str_repeat('d', 40));
     session()->flush();
-    // Signed up, a votes on the post and rates it, b only votes. Signed in from here on: no guest plays after it.
     $post = Post::query()->findOrFail(GameRoundOption::query()->where('position', 0)->sole()->post_id);
+    // On the post, the sign-in dialog opens for a and b; a signs up there and confirms.
+    foreach (['a', 'b'] as $guest) {
+        signInFormOpened(str_repeat($guest, 40), $post->id);
+    }
+
     [$memberA, $memberB] = User::factory()->count(2)->create()->all();
+    AccountAttribution::factory()->confirmed()->create([
+        'user_id' => $memberA->id,
+        'credited_attempt_id' => GameAttempt::query()->where('visitor_hash', hash('sha256', str_repeat('a', 40)))->sole()->id,
+        'signup_place' => AccountSignupPlace::Post,
+    ]);
+    // Signed up, a votes on the post and rates it, b only votes. Signed in from here on: no guest plays after it.
     Livewire::withCookie($cookie, str_repeat('a', 40))->actingAs($memberA)->test(PostVoting::class, ['postId' => $post->id])->call('vote', 'up');
     Livewire::withCookie($cookie, str_repeat('a', 40))->actingAs($memberA)->test(RatingVoting::class, ['post' => $post, 'groupKey' => 'cuteness'])->call('vote', $option->id);
     Livewire::withCookie($cookie, str_repeat('b', 40))->actingAs($memberB)->test(PostVoting::class, ['postId' => $post->id])->call('vote', 'up');
@@ -302,14 +313,19 @@ it('follows the guests the result sends on to a post: who went, voted on it and 
 
     $funnel = collect(Livewire::test(GameAnalytics::class, ['record' => $this->draft['game']->id])->viewData('funnel'))->keyBy('label');
 
-    expect($funnel->keys()->all())->toBe(['Visitors', 'Game started', 'Completed', 'Went on to the post', 'Voted on the post', 'Rated the post', 'Sign-up begun', 'Goal reached', 'Account confirmed'])
+    expect($funnel->keys()->all())->toBe(['Visitors', 'Game started', 'Completed', 'Went on to the post', 'Saw the sign-in form there', 'Signed up there', 'Confirmed that account', 'Voted on the post', 'Rated the post', 'Sign-up begun', 'Goal reached', 'Account confirmed'])
         ->and($funnel['Completed']['count'])->toBe('4')
         // Going on is of the people who finished; what came of it, of the people it sent there.
         ->and($funnel['Went on to the post'])->toMatchArray(['count' => '3', 'rate' => '75.0%', 'rateOf' => 'of Completed', 'hint' => 'Followed the result’s way on, or a Go to Post step, to the post'])
+        // The way to an account there, each step of the one before it.
+        ->and($funnel['Saw the sign-in form there'])->toMatchArray(['count' => '2', 'rate' => '66.7%', 'rateOf' => 'of Went on to the post', 'hint' => 'The sign-in or sign-up dialog opened on that post within 30 minutes, usually on trying to vote'])
+        ->and($funnel['Signed up there'])->toMatchArray(['count' => '1', 'rate' => '50.0%', 'rateOf' => 'of Saw the sign-in form there', 'hint' => 'Made a new account starting from that post within 30 minutes'])
+        ->and($funnel['Confirmed that account'])->toMatchArray(['count' => '1', 'rate' => '100.0%', 'rateOf' => 'of Signed up there', 'hint' => 'Confirmed the email, or signed up with Google or Facebook, within 7 days'])
         ->and($funnel['Voted on the post'])->toMatchArray(['count' => '2', 'rate' => '66.7%', 'rateOf' => 'of Went on to the post', 'hint' => 'Voted up or down on that post within 30 minutes; a vote needs an account'])
         ->and($funnel['Rated the post'])->toMatchArray(['count' => '1', 'rate' => '33.3%', 'rateOf' => 'of Went on to the post', 'hint' => 'Answered the rating the step asked for, within 30 minutes'])
-        // Three went on, against the one of the 30 days before.
-        ->and($funnel['Went on to the post']['change'])->toBe(['text' => '▲ 200% vs previous period', 'tone' => 'good']);
+        // Three went on, against the one of the 30 days before, who saw no form.
+        ->and($funnel['Went on to the post']['change'])->toBe(['text' => '▲ 200% vs previous period', 'tone' => 'good'])
+        ->and($funnel['Saw the sign-in form there']['change'])->toBe(['text' => 'No earlier data', 'tone' => null]);
 });
 
 it('shows a row only for the ways on the versions in view offer the audience', function () {
@@ -340,7 +356,7 @@ it('shows a row only for the ways on the versions in view offer the audience', f
     $funnel = fn ($page) => collect($page->viewData('funnel'))->keyBy('label');
 
     $page = Livewire::test(GameAnalytics::class, ['record' => $this->draft['game']->id]);
-    expect($funnel($page)->keys()->all())->toBe(['Visitors', 'Game started', 'Completed', 'Went on to the post', 'Voted on the post', 'Went on to the feed', 'Voted in the feed', 'Sign-up begun', 'Goal reached', 'Account confirmed'])
+    expect($funnel($page)->keys()->all())->toBe(['Visitors', 'Game started', 'Completed', 'Went on to the post', 'Saw the sign-in form there', 'Signed up there', 'Confirmed that account', 'Voted on the post', 'Went on to the feed', 'Voted in the feed', 'Sign-up begun', 'Goal reached', 'Account confirmed'])
         ->and($funnel($page)['Completed']['count'])->toBe('2')
         // Nobody went on to the post; both went on to the feed, and one voted three times there.
         ->and($funnel($page)['Went on to the post'])->toMatchArray(['count' => '0', 'rate' => '0.0%', 'rateOf' => 'of Completed', 'hint' => 'Followed the result’s way on, or a Go to Post step, to the post'])
@@ -378,7 +394,7 @@ it('keeps a guest who signed in on the way with the guests, so a way on offered 
     $funnel = fn ($page) => collect($page->viewData('funnel'))->keyBy('label');
 
     $page = Livewire::test(GameAnalytics::class, ['record' => $this->draft['game']->id]);
-    expect($funnel($page)->keys()->all())->toBe(['Visitors', 'Game started', 'Completed', 'Went on to the post', 'Voted on the post', 'Rated the post', 'Sign-up begun', 'Goal reached', 'Account confirmed'])
+    expect($funnel($page)->keys()->all())->toBe(['Visitors', 'Game started', 'Completed', 'Went on to the post', 'Saw the sign-in form there', 'Signed up there', 'Confirmed that account', 'Voted on the post', 'Rated the post', 'Sign-up begun', 'Goal reached', 'Account confirmed'])
         ->and($funnel($page)['Went on to the post'])->toMatchArray(['count' => '1', 'rate' => '100.0%', 'rateOf' => 'of Completed']);
 
     // The players' own funnel offers the step too, though no player of theirs went yet.

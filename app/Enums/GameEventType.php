@@ -25,4 +25,5 @@ enum GameEventType: string
     case PostRated = 'post_rated';
     case FeedVoted = 'feed_voted';
     case AccountConfirmed = 'account_confirmed';
+    case PostSignInForm = 'post_sign_in_form';
 }

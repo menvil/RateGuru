@@ -13,8 +13,9 @@ use function Pest\Laravel\actingAs;
  * along; a custom range picked with two clicks in the period picker's own
  * calendar, never longer than Analytics reads at a time; a device, a source
  * from its menu with its chip and the chip's ×, a source row filtering the
- * page and a second click clearing it; the sources sorted by a rate; and the
- * period last chosen, which an address naming none opens on.
+ * page and a second click clearing it; the sources sorted by a rate; the
+ * period last chosen, which an address naming none opens on; and every
+ * report page's presets, All time covering the days since the first visit.
  */
 beforeEach(function () {
     ProjectSettings::factory()->create();
@@ -127,12 +128,24 @@ it('changes the period, the device and the source, with the chip and a source ro
     waitForScript($page, "[...document.querySelectorAll('.rg-admin-analytics__source-row .rg-admin-analytics__source-name')].map((name) => name.textContent.trim()).join()", 'Google,Reddit', 10.0);
     expect(analyticsScreen($page)['search'])->toBe('?period=7d&sort=start');
 
-    // Opened again from an address naming no period: the period last chosen, put back in the address, Today first among the presets.
+    // Opened again from an address naming no period: the period last chosen, put back in the address, every report page's presets offered, Today first.
     $page = $page->navigate($page->script('location.origin').'/admin/analytics');
     waitForScript($page, "document.querySelector('.rg-admin-analytics__kpi-value')?.textContent.trim()", '61', 10.0);
     waitForScript($page, 'location.search', '?period=7d');
     expect(analyticsScreen($page))->toMatchArray(['range' => $last7])
-        ->and($page->script("document.querySelector('#rg-admin-analytics-period-panel .rg-admin-period__preset').textContent.trim()"))->toBe('Today');
+        ->and($page->script("[...document.querySelectorAll('#rg-admin-analytics-period-panel .rg-admin-period__preset')].map((preset) => preset.textContent.trim())"))
+        ->toBe(['Today', 'Yesterday', 'Last 7 days', 'Last 30 days', 'Last 90 days', 'This month', 'Last month', 'All time']);
+
+    // All time: every visitor since the first visit, twenty days ago — the days beside the period's name and in the top bar saying so — in the address as any preset.
+    $since = now()->subDays(20);
+    $allTime = $since->format($since->year === now()->year ? 'd M' : 'd M Y').' — '.now()->format('d M Y');
+    $page->click('#rg-admin-analytics-period');
+    $page->click('#rg-admin-analytics-period-panel .rg-admin-period__preset:has-text("All time")');
+    waitForScript($page, 'location.search', '?period=all', 10.0);
+    waitForScript($page, "document.querySelector('.rg-admin-analytics__kpi-value')?.textContent.trim()", '62', 10.0);
+    expect(analyticsScreen($page))->toMatchArray(['range' => $allTime])
+        ->and($page->script("document.querySelector('#rg-admin-analytics-period .rg-admin-period__name').textContent.trim()"))->toBe('All time')
+        ->and($page->script("document.querySelector('#rg-admin-analytics-period .rg-admin-period__dates').textContent.trim()"))->toBe($allTime);
 
     $page->assertNoJavaScriptErrors();
 });

@@ -177,13 +177,20 @@ from `VisitorFigures`, so a step of a funnel and the tile beside it agree.
 ### Periods
 
 `AnalyticsPeriod` reads the days asked for — Today, Yesterday, Last 7, 30 or
-90 days, This month, Last month, or a range of whole days — as every report
-reads its period: network days (a paid visit's day in its source's time zone,
-UTC for every unpaid one), today included. A range is at most
-`analytics.max_range_days` (93) days inside the 400 days visits are kept; one
-longer, backwards or out of reach reads as the default, Last 30 days. Each
-period is compared with the window of the same length right before it — none
-once that would start before the oldest day kept. Today alone is compared with
+90 days, This month, Last month, All time, or a range of whole days — as every
+report reads its period: network days (a paid visit's day in its source's time
+zone, UTC for every unpaid one), today included. The presets and their days
+are every report page's (`ReportPeriod::PRESETS`, `ReportPeriod::presetDays()`),
+so Traffic sources and a game's Analytics offer the same ones. All time starts
+on the first visit's network day (`AnalyticsVisitsQuery::firstDay()`, looked
+up only for All time), never more than `analytics.max_range_days` back: past
+that it is the last 93 days, and the days the picker shows say so. A range is
+at most `analytics.max_range_days` (93) days inside the 400 days visits are
+kept; one longer, backwards or out of reach reads as the default, Last 30
+days. Each period is compared with the window of the same length right before
+it — This month with the same days of last month, as many as it has, and Last
+month with the whole month before; All time with nothing — none once that
+would start before the oldest day kept. Today alone is compared with
 the day before only as far into it as today has gone: that window carries a
 moment (`arrivedBefore`) that `AnalyticsFilter::arrivedBefore()` stops every
 read's arrivals at, so no query needs to know. A chart splits a period into

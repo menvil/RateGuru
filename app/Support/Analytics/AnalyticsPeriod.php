@@ -4,6 +4,7 @@ namespace App\Support\Analytics;
 
 use App\Support\Traffic\Reports\ReportPeriod;
 use Carbon\CarbonImmutable;
+use Closure;
 
 /**
  * The days Growth → Analytics reads, today included: one of its presets, or
@@ -11,31 +12,27 @@ use Carbon\CarbonImmutable;
  * (ReportPeriod) — and, since Analytics reads the visits themselves with no
  * totals kept aside, never longer than the days it may read at a time. A
  * range that is longer is read like any range that cannot be: the preset
- * named instead, else the default. Days are network days: a visit's day in
- * its source's time zone, UTC for every unpaid visit.
+ * named instead, else the default. All time is every day since the first
+ * visit, up to those most days: the last of them once visits go back
+ * further. Days are network days: a visit's day in its source's time zone,
+ * UTC for every unpaid visit.
  *
- * It also gives the window just before it, of the same length, to compare
- * with — none once that would start before the oldest day still kept; today
- * alone, not over yet, against the day before only as far into it as today
- * has gone — how the comparison and the days read, and the buckets a chart
- * splits it into: hours of a single day, those of today still to come said
- * so, days up to 31, else blocks of seven days from the first, the last
- * block as long as the days left. Now is given, never read from the clock.
+ * It also gives the window before it to compare with — of the same length,
+ * just before; this month's days with the same days of last month, and last
+ * month with the whole month before; none for all time, nor once that would
+ * start before the oldest day still kept; today alone, not over yet, against
+ * the day before only as far into it as today has gone — how the comparison
+ * and the days read, and the buckets a chart splits it into: hours of a
+ * single day, those of today still to come said so, days up to 31, else
+ * blocks of seven days from the first, the last block as long as the days
+ * left. Now is given, never read from the clock.
  */
 final readonly class AnalyticsPeriod
 {
     public const string DEFAULT = '30d';
 
-    /** @var array<string, string> the presets, by the key the address names them by */
-    public const array PRESETS = [
-        'today' => 'Today',
-        'yesterday' => 'Yesterday',
-        '7d' => 'Last 7 days',
-        '30d' => 'Last 30 days',
-        '90d' => 'Last 90 days',
-        'this-month' => 'This month',
-        'last-month' => 'Last month',
-    ];
+    /** @var array<string, string> the presets, by the key the address names them by: every report page's */
+    public const array PRESETS = ReportPeriod::PRESETS;
 
     public const string HOUR = 'hour';
 
@@ -66,8 +63,9 @@ final readonly class AnalyticsPeriod
      * @param  CarbonImmutable  $now  the moment it is read at: its day is today
      * @param  int  $keptDays  how many days back, today included, the visits are kept
      * @param  int  $maxDays  the most days read at a time
+     * @param  (Closure(): ?string)|null  $firstDay  the network day of the first visit, Y-m-d, or null for none yet: asked for all time alone
      */
-    public static function read(mixed $preset, mixed $from, mixed $to, CarbonImmutable $now, int $keptDays, int $maxDays): self
+    public static function read(mixed $preset, mixed $from, mixed $to, CarbonImmutable $now, int $keptDays, int $maxDays, ?Closure $firstDay = null): self
     {
         $now = $now->utc();
         $today = $now->startOfDay();
@@ -81,7 +79,7 @@ final readonly class AnalyticsPeriod
             return new self(ReportPeriod::CUSTOM, (string) $period->fromDay, (string) $period->toDay, $today, $keptDays, $now);
         }
 
-        [$first, $last] = self::presetDays($period->preset, $today);
+        [$first, $last] = ReportPeriod::presetDays($period->preset, $today, min($maxDays, $keptDays), $firstDay);
 
         return new self($period->preset, $first->toDateString(), $last->toDateString(), $today, $keptDays, $now);
     }
@@ -128,30 +126,45 @@ final readonly class AnalyticsPeriod
     }
 
     /**
-     * The window of the same length just before it: what its figures are
-     * compared with — today alone with the day before as far into it as
-     * today has gone, so the hours still to come today don't count against
-     * it. None when it would start before the oldest day kept.
+     * The window before it, what its figures are compared with: the days of
+     * the same length just before it; this month's days with the same days
+     * of last month, as many as last month has; last month with the whole
+     * month before. Today alone — this month on its first day too — is
+     * compared with the day before as far into it as today has gone, so the
+     * hours still to come today don't count against it. None for all time,
+     * which has nothing earlier, nor when it would start before the oldest
+     * day kept.
      */
     public function previous(): ?self
     {
-        $days = $this->days();
-        $first = self::day($this->fromDay)->subDays($days);
+        if ($this->preset === ReportPeriod::ALL) {
+            return null;
+        }
+
+        $start = self::day($this->fromDay);
+        [$first, $last] = match (true) {
+            $this->isToday() => [$start->subDay(), $start->subDay()],
+            $this->preset === 'this-month' => [$start->subMonthNoOverflow(), self::earlier($start->subMonthNoOverflow()->addDays($this->days() - 1), $start->subDay())],
+            $this->preset === 'last-month' => [$start->subMonthNoOverflow(), $start->subDay()],
+            default => [$start->subDays($this->days()), $start->subDay()],
+        };
 
         if ($first->lessThan($this->today->subDays($this->keptDays - 1))) {
             return null;
         }
 
-        return new self(ReportPeriod::CUSTOM, $first->toDateString(), self::day($this->fromDay)->subDay()->toDateString(), $this->today, $this->keptDays, $this->now, $this->isToday() ? $this->now->subDay() : null);
+        return new self(ReportPeriod::CUSTOM, $first->toDateString(), $last->toDateString(), $this->today, $this->keptDays, $this->now, $this->isToday() ? $this->now->subDay() : null);
     }
 
-    /** What a figure is compared with, as a change reads it: “yesterday by this time”, “the day before”, “the previous 30 days”. */
+    /** What a figure is compared with, as a change reads it: “yesterday by this time”, “the day before”, “the previous 30 days”, “the same days of last month”, “the month before”. */
     public function comparison(): string
     {
         $days = $this->days();
 
         return match (true) {
             $this->isToday() => 'yesterday by this time',
+            $this->preset === 'this-month' => 'the same days of last month',
+            $this->preset === 'last-month' => 'the month before',
             $days === 1 => 'the day before',
             default => 'the previous '.$days.' days',
         };
@@ -225,24 +238,9 @@ final readonly class AnalyticsPeriod
         ];
     }
 
-    /**
-     * A preset's first and last day: today or yesterday alone; the last 7,
-     * 30 or 90 days up to today; this month up to today; or the whole of
-     * last month.
-     *
-     * @return array{0: CarbonImmutable, 1: CarbonImmutable}
-     */
-    private static function presetDays(string $preset, CarbonImmutable $today): array
+    private static function earlier(CarbonImmutable $one, CarbonImmutable $other): CarbonImmutable
     {
-        return match ($preset) {
-            'today' => [$today, $today],
-            'yesterday' => [$today->subDay(), $today->subDay()],
-            '7d' => [$today->subDays(6), $today],
-            '90d' => [$today->subDays(89), $today],
-            'this-month' => [$today->startOfMonth(), $today],
-            'last-month' => [$today->startOfMonth()->subMonthNoOverflow(), $today->startOfMonth()->subDay()],
-            default => [$today->subDays(29), $today],
-        };
+        return $one->lessThan($other) ? $one : $other;
     }
 
     private static function length(string $fromDay, string $toDay): int

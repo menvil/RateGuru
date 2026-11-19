@@ -130,10 +130,13 @@ shows with no figures.
 ## Period
 
 The period picker in the header — the same as a game's Analytics tab and
-Growth → Analytics have — offers Today, Yesterday and the last 7, 30 or 90
-days beside a calendar: click the first day of a range, then the last, and the
-period is taken at once, with no Apply. Days before the oldest day visits are
-kept (400 days) can't be picked. Days are each network's own. The period is
+Growth → Analytics have — offers Today, Yesterday, the last 7, 30 or 90 days,
+This month (from the 1st up to today), Last month (the whole of it) and All
+time beside a calendar: click the first day of a range, then the last, and the
+period is taken at once, with no Apply. All time starts on the day of the
+first recorded visit, and goes back no further than visits are kept; the days
+beside the period's name say what it covers. Days before the oldest day visits
+are kept (400 days) can't be picked. Days are each network's own. The period is
 always kept in the page's address (`period`, Last 30 days too, or `from` and
 `to` for a range); a range in an address that ends after today, runs backwards
 or starts before the oldest kept day opens the last 30 days instead. An
@@ -156,6 +159,15 @@ confirmed ones confirmed. Its **Of it paid traffic** row is How accounts
 come's figures. Many email sign-ups with few confirmations from one zone or
 country usually means bots: **Find in Sites & zones** opens a network's zone
 in the list where it is blocked.
+
+## Logs
+
+Logs → Clicks, Milestones and Postbacks (in a postback's path too) name each
+row's visitor by its journey ID, `visitor_` and the first 8 characters of its
+visitor ID, a link that opens every step of that visitor in Growth → Analytics
+→ Journeys for an administrator who may open Analytics (the lookup is logged,
+as every lookup is). The link names the visitor by the first 16 characters, so
+it opens that visitor's journey even when another browser's ID starts the same.
 
 ## Privacy page
 

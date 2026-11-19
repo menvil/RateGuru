@@ -4,7 +4,6 @@ namespace App\Filament\Resources\Games\Pages;
 
 use App\Enums\TrafficDevice;
 use App\Filament\Concerns\ChoosesReportPeriod;
-use App\Filament\Pages\TrafficSourcesPage;
 use App\Filament\Resources\Games\Analytics\GameAnalyticsView;
 use App\Filament\Resources\Games\Analytics\GameAnalyticsWindow;
 use App\Filament\Resources\Games\Analytics\ReadsGameAnalytics;
@@ -38,14 +37,11 @@ final class GameAnalytics extends Page
     use InteractsWithGameEditor;
     use ReadsGameAnalytics;
 
-    /** The windows a game's figures are read over, by days up to now; all time has none. */
-    public const PERIODS = ['today' => 'Today', '7d' => 'Last 7 days', '30d' => 'Last 30 days', '90d' => 'Last 90 days', 'all' => 'All time'];
+    /** The windows a game's figures are read over — every report page's presets, by whole days up to now; all time has none. */
+    public const PERIODS = ReportPeriod::PRESETS;
 
     /** The name the administrator's last choice of period is kept under (ReportPeriodMemory): one for every game's Analytics. */
     public const string PERIOD_MEMORY = 'game-analytics';
-
-    /** How many days each window but all time reaches back. */
-    private const array PERIOD_DAYS = ['today' => 1, '7d' => 7, '30d' => 30, '90d' => 90];
 
     protected static string $resource = GameResource::class;
 
@@ -130,27 +126,33 @@ final class GameAnalytics extends Page
      * The window a period reads, from its first moment up to the one after
      * its last: a preset's days up to now — whole UTC days, today's included,
      * the days the trigger names, as a custom range and Traffic sources count
-     * them — a range's whole days, up to now where it ends today, or all time.
+     * them — compared as the preset is (GameAnalyticsWindow::comparisonOf());
+     * a range's whole days, up to now where it ends today; or all time.
      */
     private static function window(ReportPeriod $period, CarbonImmutable $now, int $keptDays): GameAnalyticsWindow
     {
         $links = self::reportPeriodParameters($period);
 
-        if ($period->preset === 'all') {
+        if ($period->preset === ReportPeriod::ALL) {
             return GameAnalyticsWindow::allTime($now, $links);
         }
 
-        $start = $period->start() ?? $now->subSecond()->startOfDay()->subDays((self::PERIOD_DAYS[$period->preset] ?? 30) - 1);
-        $end = $period->end() ?? $now;
+        [$start, $end] = [$period->start(), $period->end()];
 
-        return GameAnalyticsWindow::days($start, $end, $now, $keptDays, $period->isCustom() ? null : strtolower(self::PERIODS[$period->preset]), $links);
+        if ($start !== null && $end !== null) {
+            return GameAnalyticsWindow::days($start, $end, $now, $keptDays, null, $links);
+        }
+
+        [$first, $last] = ReportPeriod::presetDays($period->preset, $now->subSecond(), $keptDays);
+
+        return GameAnalyticsWindow::days($first, $last->addDay(), $now, $keptDays, strtolower(self::PERIODS[$period->preset]), $links, GameAnalyticsWindow::comparisonOf($period->preset));
     }
 
     /**
-     * The period of the links to Traffic sources: the same preset where it
-     * has one, the same days for a range, its own default for all time —
-     * always named, since an address that names none opens on the period
-     * last chosen there.
+     * The period of the links to Traffic sources, whose picker offers the
+     * same presets: the same preset, or the same days for a range — always
+     * named, since an address that names none opens on the period last
+     * chosen there.
      *
      * @return array<string, string|null>
      */
@@ -160,6 +162,6 @@ final class GameAnalytics extends Page
             return ['from' => $period->fromDay, 'to' => $period->toDay];
         }
 
-        return ['period' => array_key_exists($period->preset, TrafficSourcesPage::PERIODS) ? $period->preset : '30d'];
+        return ['period' => $period->preset];
     }
 }

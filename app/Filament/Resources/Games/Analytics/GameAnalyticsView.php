@@ -609,7 +609,10 @@ final class GameAnalyticsView
      * of it — a vote on the post, a rating it asked for (only where a version
      * asks for one), three votes in the feed — a share of the people the way
      * on sent there; a rating, while another version sends to a post without
-     * asking, of the people the versions that ask sent there.
+     * asking, of the people the versions that ask sent there. For anonymous
+     * visitors the post's way to an account comes first, each step a share of
+     * the one before it: the sign-in form seen there, an account made there,
+     * that account confirmed.
      *
      * @param  list<GameOnwardKind>  $ways
      * @param  int|null  $askedToRate  as anonymousFunnel() takes it
@@ -623,6 +626,12 @@ final class GameAnalyticsView
             array_push($steps, ...match ($way) {
                 GameOnwardKind::Post => [
                     ['Went on to the post', $total->wentToPost, $total->finishers, 'Completed', 'Followed the result’s way on, or a Go to Post step, to the post'],
+                    // A guest's way to an account on the post: a vote asks for one first.
+                    ...($anonymous ? [
+                        ['Saw the sign-in form there', $total->sawSignInOnPost, $total->wentToPost, 'Went on to the post', 'The sign-in or sign-up dialog opened on that post within 30 minutes, usually on trying to vote'],
+                        ['Signed up there', $total->signedUpOnPost, $total->sawSignInOnPost, 'Saw the sign-in form there', 'Made a new account starting from that post within 30 minutes'],
+                        ['Confirmed that account', $total->confirmedOnPost, $total->signedUpOnPost, 'Signed up there', 'Confirmed the email, or signed up with Google or Facebook, within 7 days'],
+                    ] : []),
                     ['Voted on the post', $total->votedOnPost, $total->wentToPost, 'Went on to the post', 'Voted up or down on that post within 30 minutes'.($anonymous ? '; a vote needs an account' : '')],
                     ...($asksForRatings ? [[
                         'Rated the post',

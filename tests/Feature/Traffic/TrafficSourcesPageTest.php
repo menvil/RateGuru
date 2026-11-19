@@ -36,6 +36,7 @@ use App\Models\User;
 use App\Support\Traffic\Blocking\BlockRule;
 use App\Support\Traffic\Money\TrafficMoney;
 use App\Support\Traffic\Postbacks\PostbackSchedule;
+use App\Support\Traffic\Reports\ReportPeriod;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Facades\Http;
@@ -656,10 +657,10 @@ it('reads its period from the address — a preset or a range of network days �
     $open = fn (array $query) => Livewire::withQueryParams($query)->test(TrafficSourcesPage::class);
     $days = fn ($page): array => [$page->instance()->filter()->fromDay, $page->instance()->filter()->toDay];
 
-    // The period picker the game Analytics shares, in the header band.
+    // The period picker the game Analytics shares, in the header band, with every report page's presets.
     $page = $open([])
-        ->assertSeeInOrder(['Traffic sources', 'Last 30 days', '19 Oct — 17 Nov 2026', 'Today', 'Yesterday', 'Last 7 days', 'Last 30 days', 'Last 90 days', 'Custom range'])
-        ->assertDontSee('All time');
+        ->assertSeeInOrder(['Traffic sources', 'Last 30 days', '19 Oct — 17 Nov 2026', 'Today', 'Yesterday', 'Last 7 days', 'Last 30 days', 'Last 90 days', 'This month', 'Last month', 'All time', 'Custom range'])
+        ->assertViewHas('periodPicker', fn (array $picker): bool => $picker['presets'] === ReportPeriod::PRESETS);
     expect($days($page))->toBe(['2026-10-19', '2026-11-17']);
 
     $page = $open(['from' => '2026-11-01', 'to' => '2026-11-05', 'tab' => 'value'])
@@ -681,7 +682,8 @@ it('reads its period from the address — a preset or a range of network days �
         expect($days($fallen))->toBe(['2026-11-11', '2026-11-17']);
     }
 
-    $open(['period' => 'all'])->assertSet('period', '30d');
+    // A preset it doesn't offer: the default.
+    $open(['period' => '365d'])->assertSet('period', '30d');
 
     // A new period starts the list over and unticks what was ticked; a forged one is read the same way.
     $page->set('pageNumber', 3)->set('selected', ['1:site:40123'])
@@ -695,6 +697,38 @@ it('reads its period from the address — a preset or a range of network days �
         ->set('from', '2026-11-01')
         ->assertSet('from', '')
         ->assertSet('period', 'yesterday');
+});
+
+it('reads this month, last month and all time as network days — all time from the first visit’s, no further back than visits are kept — and counts the visits of those days', function () {
+    $source = TrafficSource::factory()->create(['name' => 'PopAds main']);
+    // The first visit of all arrived early on 20 Sep, UTC, from a network whose day was still 19 Sep; then one in October and one in November.
+    foreach ([['2026-09-20 03:00:00', '2026-09-19'], ['2026-10-15 10:00:00', '2026-10-15'], ['2026-11-03 10:00:00', '2026-11-03']] as [$arrived, $day]) {
+        TrafficVisit::factory()->create(['source_id' => $source->id, 'arrived_at' => $arrived, 'network_day' => $day, 'opened_at' => $arrived]);
+    }
+    $open = fn (array $query) => Livewire::withQueryParams($query)->test(TrafficSourcesPage::class);
+    $days = fn ($page): array => [$page->instance()->filter()->fromDay, $page->instance()->filter()->toDay];
+    $visits = fn ($page): int => $page->call('load')->viewData('total')->visits;
+
+    $cases = [
+        'this-month' => [['2026-11-01', '2026-11-17'], 'This month', '01 Nov — 17 Nov 2026', 1],
+        'last-month' => [['2026-10-01', '2026-10-31'], 'Last month', '01 Oct — 31 Oct 2026', 1],
+        'all' => [['2026-09-19', '2026-11-17'], 'All time', '19 Sep — 17 Nov 2026', 3],
+    ];
+
+    foreach ($cases as $preset => [$read, $label, $dates, $count]) {
+        $page = $open(['period' => $preset])->assertSet('period', $preset)->assertSet('from', '')
+            ->assertViewHas('periodPicker', fn (array $picker): bool => $picker['value'] === $preset && $picker['label'] === $label && $picker['dates'] === $dates && [$picker['from'], $picker['to']] === $read);
+        expect($days($page))->toBe($read, $preset)
+            ->and($visits($page))->toBe($count, $preset);
+    }
+
+    // The picker's own calls read them the same way.
+    expect($days($open([])->call('choosePeriod', 'last-month')->assertSet('period', 'last-month')))->toBe(['2026-10-01', '2026-10-31'])
+        ->and($days($open([])->call('choosePeriod', 'all')->assertSet('period', 'all')))->toBe(['2026-09-19', '2026-11-17']);
+
+    // A visit older than visits are kept, not yet cleared away: all time stops at the oldest day kept.
+    TrafficVisit::factory()->create(['source_id' => $source->id, 'arrived_at' => '2025-01-01 10:00:00', 'network_day' => '2025-01-01', 'opened_at' => '2025-01-01 10:00:00']);
+    expect($days($open(['period' => 'all'])))->toBe(['2025-10-14', '2026-11-17']);
 });
 
 it('opens on the period last chosen in its picker when the address names none, an address naming one winning and kept in turn', function () {
@@ -721,8 +755,14 @@ it('opens on the period last chosen in its picker when the address names none, a
     $open(['from' => '2026-11-02', 'to' => '2026-11-04']);
     $this->travelTo(CarbonImmutable::parse('2027-12-31 12:00:00'));
     $open()->assertSet('period', '30d')->assertSet('from', '')->assertSet('to', '');
-    ReportPeriodMemory::remember(TrafficSourcesPage::PERIOD_MEMORY, 'this-month', '', '');
+    ReportPeriodMemory::remember(TrafficSourcesPage::PERIOD_MEMORY, '365d', '', '');
     $open()->assertSet('period', '30d');
+
+    // Every preset the picker offers is kept and opened on again, all time and the months too.
+    foreach (['this-month', 'last-month', 'all'] as $preset) {
+        $open()->call('choosePeriod', $preset);
+        $open()->assertSet('period', $preset)->assertSet('from', '')->assertSet('to', '');
+    }
 });
 
 it('shows on Blocking what a source blocked, where its blocks stand with the network and the rule’s day, with the ways to them', function () {

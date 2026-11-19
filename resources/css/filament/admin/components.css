@@ -17107,9 +17107,13 @@
         }
     }
 
-    /* Traffic sources → Logs: a line of each log. */
+    /* Traffic sources → Logs: a line of each log, the table as wide as its columns, scrolled inside its panel. */
     .rg-admin-traffic__perf-grid--log {
-        min-width: 1000px;
+        min-width: 1010px;
+    }
+
+    .rg-admin-traffic__perf-grid--wide-log {
+        min-width: 1270px;
     }
 
     .rg-admin-traffic__log-line {
@@ -17133,13 +17137,14 @@
         line-height: var(--rg-admin-leading-body);
     }
 
+    /* Visitor is as wide as a journey ID, "visitor_" and eight hex digits in the monospaced caption. */
     .rg-admin-traffic__log-line--postbacks {
-        grid-template-columns: 70px 110px minmax(220px, 1.4fr) 120px minmax(260px, 2fr) 150px 96px;
+        grid-template-columns: 70px 110px 136px minmax(220px, 1.4fr) 120px minmax(260px, 2fr) 150px 96px;
     }
 
     /* Worth is wide enough for the longest way it was arrived at, "Leaning on the level above". */
     .rg-admin-traffic__log-line--milestones {
-        grid-template-columns: 70px 140px minmax(220px, 1.5fr) 180px minmax(180px, 1fr);
+        grid-template-columns: 70px 140px 136px minmax(220px, 1.5fr) 180px minmax(180px, 1fr);
     }
 
     .rg-admin-traffic__log-line--blocks {
@@ -17147,7 +17152,7 @@
     }
 
     .rg-admin-traffic__log-line--clicks {
-        grid-template-columns: 70px 140px 140px 180px minmax(180px, 1.2fr) minmax(180px, 1.2fr) 80px;
+        grid-template-columns: 70px 140px 136px 140px 180px minmax(180px, 1.2fr) minmax(180px, 1.2fr) 80px;
     }
 
     .rg-admin-traffic__log-line--failed {
@@ -17176,6 +17181,12 @@
         display: flex;
         justify-content: space-between;
         gap: 12px;
+    }
+
+    /* A journey ID is read whole: never broken across lines, beside a path's label or in its column. */
+    .rg-admin-traffic__journey {
+        flex: none;
+        white-space: nowrap;
     }
 
     /* Traffic sources → a source's editor: its panes, the preset card, the parameters, the window. */

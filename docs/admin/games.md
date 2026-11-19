@@ -116,16 +116,19 @@ content. Players see a translation once a version is published after it.
 
 ## Analytics
 
-The Analytics tab shows, per audience and over today, the last 7, 30 or 90
-days, all time or a range of days picked on the period picker's calendar
-(click the first day, then the last): visitors, starts,
+The Analytics tab shows, per audience and over today, yesterday, the last 7,
+30 or 90 days, this month, last month, all time or a range of days picked on
+the period picker's calendar (click the first day, then the last) — the same
+presets as Traffic sources and Growth → Analytics: visitors, starts,
 completion, emails, new accounts and sign-ins (or, for logged-in players,
 shares and repeat players), the funnel, how many attempts reached each round,
 which results players got, the figures broken down by version, flow, content
 set, device, country or country group, and the traffic periods. Each figure is
-compared with as many days right before the period — today with the day before
-up to the same time, since the rest of today hasn't come yet; all time has
-nothing to compare with. The period, the version, the audience, the device and the
+compared with as many days right before the period — yesterday with the day
+before, this month with last month as far into it as this month has gone,
+last month with the whole month before, and today with the day before up to
+the same time, since the rest of today hasn't come yet; all time has nothing
+to compare with. The period, the version, the audience, the device and the
 country are kept in the page's address, so a link opens the same view; a range
 that ends after today, runs backwards or reaches further back than the 400
 days visits are kept opens the last 30 days instead. An address that names no
@@ -188,6 +191,28 @@ account. Only the flow's own way on counts, never the link to the feed at the
 top of every screen. A guest who signs in on the way still counts with the
 guests, so a way on shown only to logged-in players also gets a row for
 anonymous visitors.
+
+For anonymous visitors sent to a post, three rows between **Went on to the
+post** and **Voted on the post** follow the way from the post to an account,
+each a share of the row above it:
+
+* **Saw the sign-in form there** — the sign-in or sign-up dialog opened on
+  that post within 30 minutes of going on to it, usually on trying to vote. It
+  counts for the latest play of that browser that went on to that post within
+  those 30 minutes; a dialog opened on the feed or on another post, and the
+  sign-in and sign-up pages, count for none. It's counted whether or not
+  **Record visits** is on. Plays from before this row existed count by their
+  recorded visit, if it was marked as having seen a sign-up form within 30
+  minutes of going on — wherever on the site, since the visit doesn't keep
+  where — so paid traffic already shows it. Someone who signed up on the post
+  counts as well, since signing up takes the form.
+* **Signed up there** — made a new account starting from that post within 30
+  minutes, credited to the play.
+* **Confirmed that account** — confirmed the email, or signed up with Google
+  or Facebook, within 7 days. An account never confirmed is removed after 7
+  days, so it drops out of **Signed up there** as well.
+
+The logged-in funnel has none of these rows: players already have an account.
 
 Under the funnel, **Sign-ups** shows for anonymous visitors how many signed up,
 how many confirmed, how many never confirmed and how many are still inside the
