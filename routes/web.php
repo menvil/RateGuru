@@ -2,6 +2,7 @@
 
 use App\Enums\SocialProvider;
 use App\Http\Controllers\Games\GameResultController;
+use App\Http\Controllers\Games\PlayGamePageController;
 use App\Http\Controllers\Games\ShareGameResultController;
 use App\Http\Controllers\Locale\ChangeLocaleController;
 use App\Http\Controllers\Profile\ConnectedAccountController;
@@ -10,11 +11,11 @@ use App\Http\Controllers\Sharing\SharePostController;
 use App\Http\Controllers\SiteManifestController;
 use App\Http\Controllers\StaticPageController;
 use App\Http\Controllers\SubmitContactMessageController;
+use App\Http\Controllers\Traffic\VisitSignalController;
 use App\Http\Middleware\EnsureDevEnvironment;
 use App\Http\Middleware\EnsureGamesAreEnabled;
 use App\Http\Middleware\RequireSignInWhileGuestViewingIsOff;
 use App\Livewire\Feed\FeedPage;
-use App\Livewire\Games\PlayGame;
 use App\Livewire\Games\PreviewGame;
 use App\Livewire\Posts\PostShow;
 use App\Livewire\Posts\RecentlyDeletedPostsPage;
@@ -27,6 +28,12 @@ use App\Models\User;
 use Illuminate\Support\Facades\Route;
 
 Route::post('/locale', ChangeLocaleController::class)->name('locale.change')->middleware('throttle:10,1');
+
+// What a page's script tells the traffic tracker: the page ran, or a sign-up
+// form was shown (docs/architecture/traffic.md). Outside the guest-viewing
+// check, like the locale: it answers 204 whatever it is sent. Limited per
+// browser, by the limiter of the same name (AppServiceProvider).
+Route::post('/visit/signal', VisitSignalController::class)->name('traffic.signal')->middleware('throttle:traffic-signal');
 
 // Named from the project's settings, so not a static file in public/.
 Route::get('/site.webmanifest', SiteManifestController::class)->name('site-manifest');
@@ -43,7 +50,8 @@ Route::middleware(RequireSignInWhileGuestViewingIsOff::class)->group(function ()
     // player's own — and a share on its way to a provider. None of them
     // exists while Project settings has games off.
     Route::middleware(EnsureGamesAreEnabled::class)->group(function () {
-        Route::get('/games/{slug}', PlayGame::class)->where('slug', '[a-z0-9-]+')->name('games.play');
+        // The game played, or — for a valid test link to one of its versions — that version, recording nothing.
+        Route::get('/games/{slug}', PlayGamePageController::class)->where('slug', '[a-z0-9-]+')->name('games.play');
         Route::get('/games/{slug}/v{version}/{profile}', GameResultController::class)
             ->where(['slug' => '[a-z0-9-]+', 'version' => '[0-9]+', 'profile' => '[a-z0-9-]+'])
             ->name('games.result');
