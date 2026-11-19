@@ -1,0 +1,158 @@
+app/Actions/Traffic/SendTestPostbackAction.php
+  s_4b9dc6ab6b25d3::t_7d48c310f80fa5 39-40
+app/Actions/Traffic/RecordBlockedHitAction.php
+  s_4b9dc6ab6b25d3::t_0c8d6e3e8bc695 36,38-39
+  s_4b9dc6ab6b25d3::t_a50c0fb5de909a 12-16,28
+tests/Feature/Traffic/TrafficWorthTest.php
+  s_4b9dc6ab6b25d3::t_73d6de0a2ba0dd 230-251
+  s_4b9dc6ab6b25d3::t_fc35a4da706d2a 170-181
+  s_4b9dc6ab6b25d3::t_56cd1297e97a93 15
+  s_4b9dc6ab6b25d3::t_ddf1f2b6fc0be4 27
+  s_4b9dc6ab6b25d3::t_d29d692f54e982 198-229
+  s_4b9dc6ab6b25d3::t_4b52e95720c94a 278-310
+  s_4b9dc6ab6b25d3::t_18df029d448a2e 324-334
+app/Queries/Traffic/GameWorthQuery.php
+  s_4b9dc6ab6b25d3::t_c0eb112427248a 58-59,61-62
+tests/Feature/Traffic/TrafficReportsTest.php
+  s_4b9dc6ab6b25d3::t_d0de3523e356c4 78-90,192-206
+app/Console/Commands/TrafficPurgeExpiredCommand.php
+  s_4b9dc6ab6b25d3::t_6b0fef2ab2de1c 83-85
+app/Actions/Traffic/BlockTrafficRefsAction.php
+  s_4b9dc6ab6b25d3::t_752e07ace8d454 59
+  s_4b9dc6ab6b25d3::t_9cb14e7ca15bf0 12,29-31,57,60-64,69,78,94,151-155
+tests/Feature/Traffic/TrafficSourcesPageTest.php
+  s_4b9dc6ab6b25d3::t_daa649123c9eef 34
+  s_4b9dc6ab6b25d3::t_c10889b5cc0907 165-173
+app/Actions/Traffic/SaveTrafficSettingsAction.php
+  s_4b9dc6ab6b25d3::t_27704dc0b84c52 42
+app/Services/Traffic/TrafficVisitWorth.php
+  s_4b9dc6ab6b25d3::t_5282a142f3baef 132-136,139
+  s_4b9dc6ab6b25d3::t_7fbc4de8355a27 170-173
+tests/Feature/Traffic/CaptureTrafficArrivalTest.php
+  s_4b9dc6ab6b25d3::t_12d778ee17f27e 481-484
+  s_4b9dc6ab6b25d3::t_b3de8892923978 6,9-10
+  s_4b9dc6ab6b25d3::t_1475521c8d62d4 164-184
+app/Console/Commands/TrafficArchiveQuietCampaignsCommand.php
+  s_4b9dc6ab6b25d3::t_5ab6a1c34e9ea1 38-39
+app/Actions/Traffic/RecordAccountBonusAction.php
+  s_4b9dc6ab6b25d3::t_9a4a3e593ddeef 78,81-82,84-87
+app/Queries/Traffic/VisitorVisitQuery.php
+  s_4b9dc6ab6b25d3::t_6fd2836f6eeae3 41-44,51-52
+  s_4b9dc6ab6b25d3::t_8deae405163c89 45
+app/Actions/Traffic/SetTrafficStepValueAction.php
+  s_4b9dc6ab6b25d3::t_841cffba61af56 11
+  s_4b9dc6ab6b25d3::t_0ed58390c2ed09 31-32,37
+  s_4b9dc6ab6b25d3::t_6ca4ae78b7d436 36
+app/Actions/Traffic/ApplyTrafficBlocksAction.php
+  s_4b9dc6ab6b25d3::t_e5a55e06914367 20,80-81,83-93,96-111
+app/Actions/Traffic/RecordPaidClickAction.php
+  s_4b9dc6ab6b25d3::t_92b5aa8d64273c 236-243
+  s_4b9dc6ab6b25d3::t_0e34f9b0051134 201-202
+tests/Feature/Traffic/TrafficSpendTest.php
+  s_4b9dc6ab6b25d3::t_41896deb72a73d 19,22-23,84-121
+  s_4b9dc6ab6b25d3::t_8e1322e32a835e 151-161
+app/Enums/TrafficSpendBasis.php
+  s_4b9dc6ab6b25d3::t_32c079c985176a 17-24
+tests/Feature/Games/Admin/GameValuePageTest.php
+  s_4b9dc6ab6b25d3::t_70416c7e41d0d6 52-77
+  s_4b9dc6ab6b25d3::t_b4871d84536886 14
+app/Actions/Traffic/ChangeTrafficCampaignStageAction.php
+  s_4b9dc6ab6b25d3::t_d1f8c7a1df43c6 43-46,52
+app/Actions/Traffic/OpenTrafficVisitAction.php
+  s_4b9dc6ab6b25d3::t_7d5e8d76b41d18 356-360,363,366,369-370
+  s_4b9dc6ab6b25d3::t_c5a7bf71fbde67 296
+tests/Feature/Traffic/TrafficSourceActionsTest.php
+  s_4b9dc6ab6b25d3::t_831daa74c140ed 7,259-288,304-323
+  s_4b9dc6ab6b25d3::t_5d698b812dc8f1 157-217
+  s_4b9dc6ab6b25d3::t_aea9275fac1fee 12
+tests/Feature/Traffic/TrafficPostbacksTest.php
+  s_4b9dc6ab6b25d3::t_19246b88244814 281-298
+  s_4b9dc6ab6b25d3::t_330c883b5cd2fa 227-235
+  s_4b9dc6ab6b25d3::t_17fda4320e80ce 367
+  s_4b9dc6ab6b25d3::t_00f9ebb7098973 319
+  s_4b9dc6ab6b25d3::t_c0e8d7fcce5d4b 388
+  s_4b9dc6ab6b25d3::t_851de87657935d 85,87-90,92-93
+  s_4b9dc6ab6b25d3::t_bc0997f9e5a33b 189-215
+  s_4b9dc6ab6b25d3::t_e3414e29dfecfb 348
+  s_4b9dc6ab6b25d3::t_d9eaff3da8b03f 12
+tests/Feature/Traffic/AccountAttributionTest.php
+  s_4b9dc6ab6b25d3::t_7d2809e20c2d41 202
+  s_4b9dc6ab6b25d3::t_6cf659a1cff8ea 219
+  s_4b9dc6ab6b25d3::t_5746ccd043ae8c 218,220-228
+  s_4b9dc6ab6b25d3::t_a3f50aca732ce3 24-25
+  s_4b9dc6ab6b25d3::t_1a7e6b35c8fc6d 261-279
+app/Services/Traffic/Connectors/PopAdsConnector.php
+  s_4b9dc6ab6b25d3::t_443ba9467e2bce 140-149
+app/Actions/Traffic/AllocateSpendDayAction.php
+  s_4b9dc6ab6b25d3::t_c1a64ea5153e3c 28-33,47-48,60-62,74-75,97-100,102-105,107-108,110-113,116-119,127-131,134,138,143,145-149,166,168,170,175-179,181,191-192,194-197,199-200
+  s_4b9dc6ab6b25d3::t_14f60bdea4625c 43
+  s_4b9dc6ab6b25d3::t_16ad70cd648f30 120-122,132
+  s_4b9dc6ab6b25d3::t_d8922153dcc54b 123-126,180,184-185,187-189
+tests/Feature/Traffic/OpenTrafficVisitTest.php
+  s_4b9dc6ab6b25d3::t_ec0c9cb7cf296a 5
+  s_4b9dc6ab6b25d3::t_df83e2b68b856c 140,149-161
+  s_4b9dc6ab6b25d3::t_5acdca10e51ae5 180-200
+  s_4b9dc6ab6b25d3::t_e8e5433cf1093a 304-327
+  s_4b9dc6ab6b25d3::t_faa5296b1e66e1 21-22,26-27
+app/Actions/Traffic/SaveTrafficSourceAction.php
+  s_4b9dc6ab6b25d3::t_719f0d8c928880 219-220
+  s_4b9dc6ab6b25d3::t_d3db693629b619 203-204
+  s_4b9dc6ab6b25d3::t_b25fb5264866da 138-139,141
+  s_4b9dc6ab6b25d3::t_714d112c28e80e 154
+  s_4b9dc6ab6b25d3::t_eb49fb8098c523 277-278
+app/Actions/Traffic/SaveTrafficPricesAction.php
+  s_4b9dc6ab6b25d3::t_cc97bea1d137eb 184
+  s_4b9dc6ab6b25d3::t_1a592ae40d7705 185-186
+  s_4b9dc6ab6b25d3::t_fcf92495e16f28 175
+app/Actions/Traffic/SaveTrafficCampaignAction.php
+  s_4b9dc6ab6b25d3::t_7d4323c3849306 45-46,69-73,86,97,104-110,112-114,169-170
+  s_4b9dc6ab6b25d3::t_603216cee91cff 74,88-89
+app/Queries/Traffic/TrafficReportQuery.php
+  s_4b9dc6ab6b25d3::t_db2eb55bdc4026 390-404
+  s_4b9dc6ab6b25d3::t_2c81f615a534bf 102,127
+tests/Feature/Console/TrafficPurgeExpiredCommandTest.php
+  s_4b9dc6ab6b25d3::t_3b77ad8ee74711 6
+  s_4b9dc6ab6b25d3::t_e138fab2602b29 3,14-15,109-114,116,120-126
+app/Actions/Traffic/EnterSpendAction.php
+  s_4b9dc6ab6b25d3::t_9751f7f1079b33 78-79
+app/Console/Commands/TrafficSendPostbacksCommand.php
+  s_4b9dc6ab6b25d3::t_1cdd44244319a6 39-40
+app/Services/Traffic/Connectors/ExoClickConnector.php
+  s_4b9dc6ab6b25d3::t_443ba9467e2bce 35-40,157-163,173-187
+tests/Feature/Traffic/TrafficConnectorsTest.php
+  s_4b9dc6ab6b25d3::t_3850139b03bb90 193-230
+  s_4b9dc6ab6b25d3::t_d6abbcee5d9d1e 146-159
+  s_4b9dc6ab6b25d3::t_9a30f46ad7ab2d 23
+  s_4b9dc6ab6b25d3::t_4ca79eba77a62d 76-86,266-306,457-487
+  s_4b9dc6ab6b25d3::t_b903e060cbfd21 387-419
+  s_4b9dc6ab6b25d3::t_f1df9cdab8428a 309-358
+app/Actions/Traffic/RevalueOpenVisitsAction.php
+  s_4b9dc6ab6b25d3::t_efcd0013f71a33 87-95
+  s_4b9dc6ab6b25d3::t_3fe2569f02bbe4 27-33,40-43,51-52
+routes/console.php
+  s_4b9dc6ab6b25d3::t_6021803fc94e4d 70-75
+app/Actions/Traffic/SyncTrafficNetworkAction.php
+  s_4b9dc6ab6b25d3::t_cfcac9d56a6084 127
+  s_4b9dc6ab6b25d3::t_752e07ace8d454 39-41
+  s_4b9dc6ab6b25d3::t_8694b39af699b6 31-33
+  s_4b9dc6ab6b25d3::t_103b67a02495b8 67-69,73,93,100,106,110,205,207-237
+app/Actions/Traffic/ResendTrafficPostbackAction.php
+  s_4b9dc6ab6b25d3::t_e34939079f3484 11
+  s_4b9dc6ab6b25d3::t_778f8b96f69b67 44-49
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "92366dcf2da2a88311641ca280ee82dfbda115d0",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
