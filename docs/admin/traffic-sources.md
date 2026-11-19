@@ -144,8 +144,10 @@ always kept in the page's address (`period`, Last 30 days too, or `from` and
 `to` for a range); a range in an address that ends after today, runs backwards
 or starts before the oldest kept day opens the last 30 days instead. An
 address that names no period opens the period you last chose on this page, and
-the last 30 days once that is a range older than visits are kept. A game's
-Analytics links here with its own period and device.
+the last 30 days once that is a range older than visits are kept. Each tab's
+link names the period on screen, so a tab opened in a new browser tab shows
+that period even if another browser tab has chosen a different one since. A
+game's Analytics links here with its own period and device.
 
 ## Impressions that never arrive
 
@@ -198,6 +200,26 @@ better than the network's bill, and the hint is where that shows. Where its
 spend was shared out from the network's own figure — through the API, a file
 or a typed total — it already pays for the impressions that never arrived, so
 a profitable site stays **Profitable**.
+
+A site the network billed on closed days that sent no visit at all — 0 %
+reached, the worst reach there is — is a row of Sites & zones too once those
+days carry at least as many paid impressions as Low reach asks (500): no
+visits, **Paid impr.** and **Reached** at 0 %, and always **Low reach**, never
+**Profitable** on the nothing it spent through a visit, counted in Worth
+blocking and in a campaign's "to block" when the network billed it through
+that campaign alone. It is ticked, copied and blocked like any other site. A
+zone like that is a row only in the list by zone, under its site; a site whose
+clicks came with zone IDs has visits, as its zones, so it is no such row. One
+with fewer impressions stays out of the list, its impressions in On the way
+here's totals all the same — and so does every such site of a source none of
+whose impressions reached RateGuru on those days, as when its tracking link
+lacks the site macro: with nothing reached to compare with, Low reach says
+nothing there. **Hide under** never hides a Low
+reach row, a row without a single click included: its paid impressions judge
+it, not its clicks. Sorted by **Reached**, those that reached nothing come
+first upwards and last downwards, before the rows the network reported no
+impressions for; by spend they come last, having spent nothing through a
+visit.
 
 **Spend → Day by day** shows each day's **Impressions** and how many
 **Reached** RateGuru, with their share, for the source chosen.

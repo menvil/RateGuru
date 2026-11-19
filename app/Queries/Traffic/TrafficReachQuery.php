@@ -26,12 +26,13 @@ use Iterator;
  * impressions and no clicks, none reported or none counted, where an
  * impression is the visit the network sells — from one origin a source's
  * day, a file before the API as a day's spend is counted; and the visits of
- * the same slices, matched as spend is shared out, the narrowest figure
- * first, each visit once. Visits of a slice the network did not report
- * count on neither side. Two grouped reads with every value bound, streamed
- * in order of source and day and matched one source's day at a time, so a
- * long period is never held whole: what the report shows is folded as it
- * goes (ReachTally).
+ * the same slices, matched much as spend is shared out, the narrowest figure
+ * first, each visit once — though of figures equally narrow the one naming
+ * its campaign, then its site, goes first, where spend goes by figure id.
+ * Visits of a slice the network did not report count on neither side. Two
+ * grouped reads with every value bound, streamed in order of source and day
+ * and matched one source's day at a time, so a long period is never held
+ * whole: what the report shows is folded as it goes (ReachTally).
  */
 final class TrafficReachQuery implements RawSqlPersistenceBoundary
 {
@@ -102,10 +103,11 @@ final class TrafficReachQuery implements RawSqlPersistenceBoundary
     /**
      * One source's day: its figures from the first origin that has them;
      * the visits of the day, read on up to it; and each figure, the
-     * narrowest first and then in one order, so each visit goes to the same
-     * figure on every reading, with the visits of its slice no narrower one
-     * took. A visit group is looked up only under the slices the day's
-     * figures name.
+     * narrowest first — of figures equally narrow, one naming its campaign,
+     * then its site, before one for any — and then in one order, so each
+     * visit goes to the same figure on every reading, with the visits of its
+     * slice no narrower or more specific one took. A visit group is looked up
+     * only under the slices the day's figures name.
      *
      * @param  array{0: int, 1: string}  $day
      * @param  list<object>  $rows
@@ -163,8 +165,10 @@ final class TrafficReachQuery implements RawSqlPersistenceBoundary
         }
 
         $facts = array_values($facts);
-        usort($facts, fn (array $a, array $b): int => [self::breadth($a), $a['campaign_id'] ?? 0, $a['site_ref'], $a['zone_ref']]
-            <=> [self::breadth($b), $b['campaign_id'] ?? 0, $b['site_ref'], $b['zone_ref']]);
+        // Of equal breadth, a figure naming its campaign, then its site, goes before one for any: a zone's figure of
+        // campaign 7 takes campaign 7's visits of the zone before the zone's figure of every campaign does.
+        usort($facts, fn (array $a, array $b): int => [self::breadth($a), ...self::wildcards($a), $a['campaign_id'] ?? 0, $a['site_ref'], $a['zone_ref']]
+            <=> [self::breadth($b), ...self::wildcards($b), $b['campaign_id'] ?? 0, $b['site_ref'], $b['zone_ref']]);
         $taken = [];
         $slices = [];
 
@@ -307,5 +311,17 @@ final class TrafficReachQuery implements RawSqlPersistenceBoundary
             $fact['campaign_id'] !== null => 2,
             default => 3,
         };
+    }
+
+    /**
+     * Whether a figure is for any campaign, and for any site: 1 where it is,
+     * so of figures equally broad the ones naming theirs go first.
+     *
+     * @param  array{campaign_id: int|null, site_ref: string}  $fact
+     * @return array{0: int, 1: int}
+     */
+    private static function wildcards(array $fact): array
+    {
+        return [$fact['campaign_id'] === null ? 1 : 0, $fact['site_ref'] === '' ? 1 : 0];
     }
 }

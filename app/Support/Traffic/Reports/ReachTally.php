@@ -12,7 +12,8 @@ use Brick\Math\BigDecimal;
  * list of every slice. By source and campaign: the sum, the days not closed
  * yet, and each site or zone — a zone where the network reported one, else
  * its site — over its closed days and over the others, with whether a closed
- * figure of it is the one its visits' spend was shared out from. By source,
+ * figure of it is the one its visits' spend was shared out from, and what
+ * names it: its campaigns, and a zone's site. By source,
  * of every campaign: each day, and the closed days together. Asked of every
  * source or one, every campaign or one; amounts added up exactly, in
  * hundred-millionths of a dollar.
@@ -40,6 +41,9 @@ final class ReachTally
     /** @var array<int, list<int>> per source: its closed days, of every campaign */
     private array $closedSources = [];
 
+    /** @var array<string, string> each zone, keyed as its block, by the site the network first named with it */
+    private array $zoneSites = [];
+
     /** @param  array{source_id: int, day: string, campaign_id: int|null, site_ref: string, zone_ref: string, closed: bool, counted: bool, figures: ReachFigures}  $slice */
     public function add(array $slice): void
     {
@@ -56,6 +60,10 @@ final class ReachTally
 
         $this->totals[$source][$campaign] = self::plus($this->totals[$source][$campaign] ?? null, $add);
         $this->days[$source][$day] = self::plus($this->days[$source][$day] ?? null, $add);
+
+        if ($slice['zone_ref'] !== '' && $slice['site_ref'] !== '') {
+            $this->zoneSites[(string) $place] ??= $slice['site_ref'];
+        }
 
         if ($slice['closed']) {
             $this->closedSources[$source] = self::plus($this->closedSources[$source] ?? null, $add);
@@ -134,6 +142,44 @@ final class ReachTally
         }
 
         return array_map(self::figures(...), $places);
+    }
+
+    /**
+     * Each site or zone of the sources and campaigns asked, keyed as its
+     * block, with the campaigns the network reported it under over every day
+     * — in order, none for a figure of no campaign — and, for a zone, the
+     * site the network named with it, when it did: what a place the visits
+     * never came from is named by.
+     *
+     * @return array<string, array{campaigns: list<int>, site: string|null}>
+     */
+    public function placeNames(?int $sourceId = null, ?int $campaignId = null): array
+    {
+        $campaigns = [];
+
+        foreach ([$this->closedPlaces, $this->openPlaces] as $bySource) {
+            foreach ($sourceId === null ? $bySource : array_intersect_key($bySource, [$sourceId => true]) as $byCampaign) {
+                foreach ($campaignId === null ? $byCampaign : array_intersect_key($byCampaign, [$campaignId => true]) as $campaign => $byPlace) {
+                    foreach (array_keys($byPlace) as $place) {
+                        $campaigns[$place] ??= [];
+
+                        if ($campaign !== '') {
+                            $campaigns[$place][(int) $campaign] = true;
+                        }
+                    }
+                }
+            }
+        }
+
+        $names = [];
+
+        foreach ($campaigns as $place => $named) {
+            $ids = array_keys($named);
+            sort($ids);
+            $names[$place] = ['campaigns' => $ids, 'site' => $this->zoneSites[$place] ?? null];
+        }
+
+        return $names;
     }
 
     /**

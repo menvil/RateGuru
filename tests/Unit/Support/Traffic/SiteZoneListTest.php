@@ -34,7 +34,18 @@ it('puts each site in its segment and counts the segments over what is visible',
 
     expect($list['counts'])->toBe(['all' => 8, 'block' => 4, 'profit' => 1, 'watch' => 1, 'early' => 1, 'blocked' => 1])
         ->and(SiteZoneList::of($rows, 'block', '', 0, 'spend', 'desc', 1)['matching'])->toBe(['1:site:2', '1:site:1', '1:site:3', '1:site:8'])
-        ->and(SiteZoneList::of($rows, 'all', '', 100, 'spend', 'desc', 1))->counts->toMatchArray(['all' => 3])->hidden->toBe(5);
+        // Under 100 clicks: hidden, but for Low reach, which its paid impressions judge.
+        ->and(SiteZoneList::of($rows, 'all', '', 100, 'spend', 'desc', 1))->counts->toMatchArray(['all' => 4, 'block' => 2])->hidden->toBe(4);
+});
+
+it('keeps Low reach past the clicks threshold, a place with no click at all too, until it is blocked', function () {
+    $rows = [siteRow('1', 'low_reach', 0, '0'), siteRow('2', 'low_reach', 0, '0', blocked: true), siteRow('3', 'early', 0, '0'), siteRow('4', 'bots', 40, '1')];
+
+    expect(SiteZoneList::of($rows, 'all', '', 50, 'spend', 'desc', 1)['matching'])->toBe(['1:site:1'])
+        ->and(SiteZoneList::of($rows, 'all', '', 0, 'spend', 'desc', 1)['matching'])->toHaveCount(4)
+        ->and(SiteZoneList::clears($rows[0], 1000))->toBeTrue()
+        ->and(SiteZoneList::clears($rows[1], 1))->toBeFalse()
+        ->and(SiteZoneList::clears($rows[3], 40))->toBeTrue();
 });
 
 it('finds a site by its ID, its network or its campaign', function () {

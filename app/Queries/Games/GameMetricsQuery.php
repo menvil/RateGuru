@@ -89,6 +89,9 @@ final class GameMetricsQuery implements RawSqlPersistenceBoundary
     /** How long after a way on sent a visitor to a post what they do there is still the play's, as CreditGameSiteActivityAction credits it. */
     private const int ON_SITE_MINUTES = 30;
 
+    /** @var array<int, CarbonImmutable|null> each game's first `post_sign_in_form`, null for none yet, by game: read once (beforeFirstSignInForm()) */
+    private array $firstSignInForms = [];
+
     /** The events of an attempt funnels() counts people by: shares, sign-ups begun, and the ways on and what came of them. */
     private const FUNNEL_EVENTS = [
         GameEventType::ShareClicked,
@@ -111,8 +114,10 @@ final class GameMetricsQuery implements RawSqlPersistenceBoundary
      * post, the feed, a page or the next game (LeaveGameAction), and those
      * the votes after it were credited to (CreditGameSiteActivityAction).
      * Sent to a post, a person saw its sign-in form when one opened within
-     * 30 minutes — `post_sign_in_form` on the play, or `signup_form_at` on
-     * the recorded visit it came on, which paid visits had before the event
+     * 30 minutes — `post_sign_in_form` on the play, or, on a play sent on
+     * before the game's first such event, `signup_form_at` on the recorded
+     * visit it came on, which paid visits had before the event and which any
+     * sign-up dialog sets, the feed's too (beforeFirstSignInForm())
      * — or when they signed up on a post within those 30 minutes, which takes
      * the form; signed up there, by an account credited to the play
      * (`signup_place` post); and confirmed, once that account is.
@@ -181,18 +186,20 @@ final class GameMetricsQuery implements RawSqlPersistenceBoundary
             ),
         );
         // From the post to an account, on the plays sent to one: the sign-in form shown within the window —
-        // credited as it opens, or marked on the play's own recorded visit — or an account made on a post
-        // within it, which took the form; then those accounts, and the confirmed among them.
+        // credited as it opens, or, for a play sent on before the game first recorded that, marked on the
+        // play's own recorded visit — or an account made on a post within it, which took the form; then
+        // those accounts, and the confirmed among them.
         [$windowEnd, $windowBindings] = self::minutesAfter('game_attempts.onward_at', self::ON_SITE_MINUTES);
+        [$markedBefore, $markedBindings] = $this->beforeFirstSignInForm($scope->gameId);
         $signedUp = "post_sign_ups.signed_up_at >= game_attempts.onward_at AND post_sign_ups.signed_up_at <= {$windowEnd}";
         $onPost = $this->counts(
             $split($this->postSignIns($scope), 'game_attempts.version_id')->selectRaw(
                 "COUNT(DISTINCT CASE WHEN sign_in_forms.id IS NOT NULL
-                    OR (form_visits.signup_form_at >= game_attempts.onward_at AND form_visits.signup_form_at <= {$windowEnd})
+                    OR (form_visits.signup_form_at >= game_attempts.onward_at AND form_visits.signup_form_at <= {$windowEnd}{$markedBefore})
                     OR ({$signedUp}) THEN {$person} END) AS saw_sign_in,
                 COUNT(DISTINCT CASE WHEN {$signedUp} THEN {$person} END) AS signed_up,
                 COUNT(DISTINCT CASE WHEN {$signedUp} AND post_sign_ups.confirmed_at IS NOT NULL THEN {$person} END) AS confirmed",
-                [...$windowBindings, ...$windowBindings, ...$windowBindings, ...$windowBindings],
+                [...$windowBindings, ...$markedBindings, ...$windowBindings, ...$windowBindings, ...$windowBindings],
             ),
         );
         $replayers = $this->replayers($this->grouped($this->attempts($scope), 'game_attempts.version_id', $by, $scope, $countryGroups, false), $scope, $by !== null);
@@ -695,6 +702,31 @@ final class GameMetricsQuery implements RawSqlPersistenceBoundary
             ->leftJoin('account_attributions as post_sign_ups', fn (JoinClause $join): JoinClause => $join
                 ->on('post_sign_ups.credited_attempt_id', '=', 'game_attempts.id')
                 ->where('post_sign_ups.signup_place', '=', AccountSignupPlace::Post->value));
+    }
+
+    /**
+     * The condition, as SQL with its binding, that keeps the recorded visit's
+     * `signup_form_at` standing in for the sign-in form only on plays sent on
+     * before the game's first `post_sign_in_form`: that mark is set by a
+     * sign-up dialog opened anywhere — the feed, another page — not on the
+     * post alone, so once the game records the form itself, only the event
+     * counts. No condition while the game has recorded none: every play is
+     * from before. The game's first such event is one bound read, made once
+     * per game for every funnel this instance reads — a page's, which reads
+     * the window, the window before and the splits.
+     *
+     * @return array{0: string, 1: list<mixed>}
+     */
+    private function beforeFirstSignInForm(int $gameId): array
+    {
+        if (! array_key_exists($gameId, $this->firstSignInForms)) {
+            $first = GameEvent::query()->where('game_id', $gameId)->where('type', GameEventType::PostSignInForm->value)->min('occurred_at');
+            $this->firstSignInForms[$gameId] = $first === null ? null : CarbonImmutable::parse((string) $first);
+        }
+
+        $first = $this->firstSignInForms[$gameId];
+
+        return $first === null ? ['', []] : [' AND game_attempts.onward_at < ?', [$first]];
     }
 
     /**

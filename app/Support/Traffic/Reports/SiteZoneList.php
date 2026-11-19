@@ -10,7 +10,8 @@ use App\Support\Traffic\Money\TrafficMoney;
  * a weak start, paid impressions that mostly never reach RateGuru),
  * profitable, below the line, too early, blocked — counted per segment;
  * searched by its ID, its network or its campaign; those under so many
- * clicks left out; sorted by a column, its key last so two equal rows never
+ * clicks left out, but for Low reach, which the paid impressions judge
+ * (clears()); sorted by a column, its key last so two equal rows never
  * trade places — a row the network reported no impressions for after every
  * one it did, by those columns; and cut into pages, with the total of every
  * page, its impressions those of the rows that have them.
@@ -44,7 +45,7 @@ final class SiteZoneList
     public static function of(array $rows, string $segment, string $search, int $minVisits, string $sort, string $direction, int $page): array
     {
         $search = mb_strtolower(trim($search));
-        $visible = array_values(array_filter($rows, fn (array $row): bool => $row['figures']->visits >= $minVisits
+        $visible = array_values(array_filter($rows, fn (array $row): bool => self::clears($row, $minVisits)
             && ($search === '' || str_contains(mb_strtolower($row['ref'].' '.$row['source'].' '.(string) $row['campaign']), $search))));
         $hidden = count($rows) - count($visible);
         $counts = array_fill_keys(array_keys(self::SEGMENTS), 0);
@@ -79,6 +80,19 @@ final class SiteZoneList
             'page' => $page,
             'hidden' => $hidden,
         ];
+    }
+
+    /**
+     * Whether a row stays in the list past the clicks threshold: so many
+     * clicks, or Low reach not blocked yet — judged by the paid impressions
+     * of closed days, not by its clicks, it shows however few it has, none
+     * at all for a place the network billed that never sent a visit.
+     *
+     * @param  array{state: string, blocked: bool, figures: ReportFigures}  $row
+     */
+    public static function clears(array $row, int $minVisits): bool
+    {
+        return $row['figures']->visits >= $minVisits || ($row['state'] === 'low_reach' && ! $row['blocked']);
     }
 
     /**

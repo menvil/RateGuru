@@ -163,6 +163,18 @@ final class TrafficSourcesView
         ];
     }
 
+    /**
+     * The period on screen as an address names it, read as the page settled
+     * it: the preset — named even when it is the default, since an address
+     * naming none opens on the period last chosen — and a range's days.
+     *
+     * @return array<string, string>
+     */
+    private static function periodQuery(TrafficSourcesPage $page): array
+    {
+        return array_filter(['period' => (string) $page->period, 'from' => (string) $page->from, 'to' => (string) $page->to], fn (string $value): bool => $value !== '');
+    }
+
     /** @return array<string, mixed> */
     public function data(TrafficSourcesPage $page, TrafficReportFilter $filter): array
     {
@@ -173,7 +185,8 @@ final class TrafficSourcesView
             'tabs' => collect(TrafficSourcesPage::TABS)->map(fn (string $label, string $id): array => [
                 'id' => $id,
                 'label' => $label,
-                'href' => TrafficSourcesPage::getUrl($id === 'report' ? [] : ['tab' => $id]),
+                // Opened in a new browser tab, a tab shows the period on screen, not the one last chosen — maybe in another tab since.
+                'href' => TrafficSourcesPage::getUrl([...($id === 'report' ? [] : ['tab' => $id]), ...self::periodQuery($page)]),
                 'attributes' => ['x-on:click' => "if (! (\$event.metaKey || \$event.ctrlKey || \$event.shiftKey || \$event.altKey)) { \$event.preventDefault(); \$wire.showTab('{$id}') }"],
                 'count' => match ($id) {
                     'campaigns' => ($new = TrafficCampaign::query()->where('status', TrafficCampaignStatus::New)->count()) > 0 ? $new.' new' : null,
@@ -473,10 +486,11 @@ final class TrafficSourcesView
      * may take the place of Profitable: over the period's closed days, at
      * least so many impressions, and reached below a share of what its
      * source's reached over the same days — of every campaign, whichever one
-     * the filters name. Profitable gives way only where no closed figure of
-     * it is one its visits' spend was shared out from: its spend then counts
-     * the visits that came, never what the network billed for those that
-     * did not. A hint, never blocked by itself.
+     * the filters name. Profitable gives way where no closed figure of it is
+     * one its visits' spend was shared out from: its spend then counts the
+     * visits that came, never what the network billed for those that did
+     * not — and, judgeRow() adds, wherever no visit came at all. A hint,
+     * never blocked by itself.
      *
      * @return array<string, array{tip: string, replacesProfit: bool}>
      */
@@ -721,9 +735,9 @@ final class TrafficSourcesView
      * from its first click in the rule's 30 days (the period's only for one
      * the rule's days never saw) — or, where the rule calls it too early or
      * below the line, or profitable on a spend that leaves out what the
-     * impressions that never arrived cost, hinted at for paid impressions
-     * that mostly never reach RateGuru; and, when asked, why, in the words
-     * its badge's tip says it.
+     * impressions that never arrived cost or on no visit at all, hinted at
+     * for paid impressions that mostly never reach RateGuru; and, when
+     * asked, why, in the words its badge's tip says it.
      *
      * @param  array{general: array<string, int|string>, rules: array<int, array<string, int|string>>, startRates: array<int, float|null>, openRates: array<int, float|null>, campaignTargets: array<int, string>, sourceTargets: array<int, string|null>, worthKnown: bool, blocks: Collection<string, TrafficBlock>, firstClicks: array<string, CarbonImmutable>, windowFrom: CarbonImmutable, now: CarbonImmutable, reachHints: array<string, array{tip: string, replacesProfit: bool}>}  $judge
      * @return array{verdict: TrafficBlockVerdict|null, state: string, tip: string|null, from: CarbonImmutable|null}
@@ -738,8 +752,9 @@ final class TrafficSourcesView
         $from = BlockJudge::judgedFrom($rule, $firstAt, $judge['windowFrom']);
         $hint = $judge['reachHints'][$key] ?? null;
 
-        // The hint stands in for too early and below the line, and for Profitable where the spend leaves out what the lost impressions cost: never for a verdict, nor for a losing site's wait.
-        if ($hint !== null && (in_array($judged['state'], ['early', 'watch'], true) || ($judged['state'] === 'profit' && $hint['replacesProfit']))) {
+        // The hint stands in for too early and below the line, and for Profitable where the spend leaves out what the lost impressions cost
+        // or no visit took any — a place with none is profitable on nothing, once the money's gate is 0: never for a verdict, nor for a losing site's wait.
+        if ($hint !== null && (in_array($judged['state'], ['early', 'watch'], true) || ($judged['state'] === 'profit' && ($hint['replacesProfit'] || $figures->visits === 0)))) {
             return ['verdict' => null, 'state' => 'low_reach', 'tip' => $explain ? $hint['tip'] : null, 'from' => $from];
         }
 
@@ -832,7 +847,7 @@ final class TrafficSourcesView
     {
         $rows ??= $this->siteRows($page, $filter, $sources);
         $list = SiteZoneList::of($rows, (string) $page->segment, (string) $page->q, (int) $page->minClicks, (string) $page->sort, (string) $page->dir, (int) $page->pageNumber);
-        $all = collect($rows)->filter(fn (array $row): bool => $row['figures']->visits >= (int) $page->minClicks);
+        $all = collect($rows)->filter(fn (array $row): bool => SiteZoneList::clears($row, (int) $page->minClicks));
         $spend = $all->sum(fn (array $row): float => (float) $row['figures']->spend);
         $running = 0.0;
         $biggest = 0;
@@ -873,9 +888,10 @@ final class TrafficSourcesView
 
     /**
      * The networks' sites or zones on the filters, judged: a zone where the
-     * network names zones, else its site; each with the impressions its
-     * network reported for it and how many reached RateGuru, where the
-     * network reports them at its level.
+     * network names zones, else its site — those the visits came from, and
+     * those the network billed enough impressions for that sent none
+     * (places()); each with the impressions its network reported for it and
+     * how many reached RateGuru, where the network reports them at its level.
      *
      * @return list<array{key: string, ref: string, level: string, source: string, source_id: int, campaign: string|null, state: string, early: string|null, blocked: bool, flag: array<string, string>|null, figures: ReportFigures, reach: ReachFigures|null}>
      */
@@ -884,28 +900,20 @@ final class TrafficSourcesView
         $byZone = $page->listBy !== 'site';
         $judge = $this->judgeContext($filter);
         $reach = $this->reachByPlace($filter);
-        $rows = $this->reports->zones($filter, $byZone);
+        $rows = $this->places($filter, $byZone);
         $campaigns = TrafficCampaign::query()->whereKey(collect($rows)->pluck('campaign_id')->filter()->unique()->all())->get(['id', 'name', 'external_id'])->keyBy('id');
         $out = [];
 
         foreach ($rows as $row) {
-            $zone = $byZone && $row['zone_ref'] !== null && $row['zone_ref'] !== '';
-            $ref = (string) ($zone ? $row['zone_ref'] : $row['site_ref']);
-
-            if ($ref === '') {
-                continue;
-            }
-
-            $level = $zone ? 'zone' : 'site';
-            $block = $judge['blocks']->get($row['source_id'].':'.$level.':'.$ref);
-            $judged = $this->judgeRow($judge, $row['source_id'].':'.$level.':'.$ref, $row['source_id'], $row['figures'], $row['campaign_id'], $row['first_at'], $block === null);
+            $block = $judge['blocks']->get($row['key']);
+            $judged = $this->judgeRow($judge, $row['key'], $row['source_id'], $row['figures'], $row['campaign_id'], $row['first_at'], $block === null);
             $state = $judged['state'];
             $campaign = $row['campaign_id'] !== null ? $campaigns->get($row['campaign_id']) : null;
             $out[] = [
-                'key' => $row['source_id'].':'.$level.':'.$ref,
-                'ref' => $ref,
-                'level' => $level,
-                'site' => $zone ? (string) $row['site_ref'] : null,
+                'key' => $row['key'],
+                'ref' => $row['ref'],
+                'level' => $row['level'],
+                'site' => $row['site'],
                 'source' => (string) ($sources->firstWhere('id', $row['source_id'])->name ?? 'Source #'.$row['source_id']),
                 'source_id' => $row['source_id'],
                 'campaign' => $campaign !== null ? ($campaign->name ?? 'Campaign '.$campaign->external_id) : ($row['campaigns'] > 1 ? 'In '.$row['campaigns'].' campaigns' : null),
@@ -914,7 +922,7 @@ final class TrafficSourcesView
                 'blocked' => $block !== null,
                 'flag' => $this->flag($judged, $block),
                 'figures' => $row['figures'],
-                'reach' => $reach[$row['source_id'].':'.$level.':'.$ref] ?? null,
+                'reach' => $reach[$row['key']] ?? null,
             ];
         }
 
@@ -975,19 +983,85 @@ final class TrafficSourcesView
         };
     }
 
+    /**
+     * The networks' sites or zones on the filters, keyed as their blocks —
+     * "source:site:ref", "source:zone:ref" — as the block rule judges them:
+     * each the visits came from, a zone where the network names zones and
+     * the list is by zone, else its site; and each Low reach picks out that
+     * sent no visit at all — at least traffic.reach.min_impressions
+     * impressions over the period's closed days, none of them reached, the
+     * worst reach there is, which the visits alone never show — with no
+     * figures and the campaigns of the network's figures, so it is judged
+     * (low_reach, judgeRow()), counted and blocked like any other. Such a
+     * zone only by zone, and such a site only where none of its zones sent a
+     * visit either; none on filters the impressions are never split by, nor
+     * of a source whose closed days reached nothing at all, which leaves no
+     * share to fall short of. The rest stay in the totals of On the way here
+     * alone.
+     *
+     * @return list<array{key: string, level: string, ref: string, site: string|null, source_id: int, campaign_id: int|null, campaigns: int, first_at: CarbonImmutable|null, figures: ReportFigures}>
+     */
+    private function places(TrafficReportFilter $filter, bool $byZone): array
+    {
+        $places = [];
+        $listed = [];
+
+        foreach ($this->reports->zones($filter, $byZone) as $row) {
+            $zone = $byZone && $row['zone_ref'] !== null && $row['zone_ref'] !== '';
+            $ref = (string) ($zone ? $row['zone_ref'] : $row['site_ref']);
+
+            // A site whose clicks show as its zones has visits all the same.
+            if ((string) $row['site_ref'] !== '') {
+                $listed[$row['source_id'].':site:'.$row['site_ref']] = true;
+            }
+
+            if ($ref === '') {
+                continue;
+            }
+
+            $level = $zone ? 'zone' : 'site';
+            $key = $row['source_id'].':'.$level.':'.$ref;
+            $listed[$key] = true;
+            $places[] = ['key' => $key, 'level' => $level, 'ref' => $ref, 'site' => $zone ? (string) $row['site_ref'] : null, 'source_id' => $row['source_id'],
+                'campaign_id' => $row['campaign_id'], 'campaigns' => $row['campaigns'], 'first_at' => $row['first_at'], 'figures' => $row['figures']];
+        }
+
+        // Only where Low reach applies: a source none of whose impressions reached RateGuru — a link without the site macro — has no share to fall short of.
+        $hints = $this->judgeContext($filter)['reachHints'];
+        $tally = $hints === [] ? null : $this->reachTally($filter);
+
+        if ($tally === null) {
+            return $places;
+        }
+
+        [$sourceId, $campaignId] = self::reachScope($filter);
+        $names = $tally->placeNames($sourceId, $campaignId);
+
+        foreach (array_keys($hints) as $key) {
+            [$source, $level, $ref] = explode(':', $key, 3);
+
+            if (isset($listed[$key]) || ($level === 'zone' && ! $byZone)) {
+                continue;
+            }
+
+            $campaigns = $names[$key]['campaigns'] ?? [];
+            $places[] = ['key' => $key, 'level' => $level, 'ref' => $ref, 'site' => $level === 'zone' ? ($names[$key]['site'] ?? null) : null, 'source_id' => (int) $source,
+                'campaign_id' => count($campaigns) === 1 ? $campaigns[0] : null, 'campaigns' => count($campaigns), 'first_at' => null, 'figures' => new ReportFigures];
+        }
+
+        return $places;
+    }
+
     /** How many sites and zones the block rule picks out on the filters, not blocked yet. */
     private function worthBlocking(TrafficReportFilter $filter, $sources): int
     {
         $count = 0;
         $judge = $this->judgeContext($filter);
 
-        foreach ($this->reports->zones($filter, true) as $row) {
-            $zone = $row['zone_ref'] !== null && $row['zone_ref'] !== '';
-            $ref = (string) ($zone ? $row['zone_ref'] : $row['site_ref']);
-            $key = $row['source_id'].':'.($zone ? 'zone' : 'site').':'.$ref;
-            $state = $this->judgeRow($judge, $key, $row['source_id'], $row['figures'], $row['campaign_id'], $row['first_at'])['state'];
+        foreach ($this->places($filter, true) as $row) {
+            $state = $this->judgeRow($judge, $row['key'], $row['source_id'], $row['figures'], $row['campaign_id'], $row['first_at'])['state'];
 
-            if ($ref !== '' && in_array($state, SiteZoneList::WORTH_BLOCKING, true) && ! $judge['blocks']->has($key)) {
+            if (in_array($state, SiteZoneList::WORTH_BLOCKING, true) && ! $judge['blocks']->has($row['key'])) {
                 $count++;
             }
         }
@@ -1218,7 +1292,8 @@ final class TrafficSourcesView
 
     /**
      * How many sites and zones the block rule picks out in each campaign, on
-     * the filters, where a site came through one campaign only.
+     * the filters, where a site came through one campaign only — by its
+     * visits, or by the network's figures for one that sent none (places()).
      *
      * @return array<int, int> by campaign
      */
@@ -1227,17 +1302,14 @@ final class TrafficSourcesView
         $judge = $this->judgeContext($filter);
         $counts = [];
 
-        foreach ($this->reports->zones($filter, true) as $row) {
+        foreach ($this->places($filter, true) as $row) {
             if ($row['campaign_id'] === null) {
                 continue;
             }
 
-            $zone = $row['zone_ref'] !== null && $row['zone_ref'] !== '';
-            $ref = (string) ($zone ? $row['zone_ref'] : $row['site_ref']);
-            $key = $row['source_id'].':'.($zone ? 'zone' : 'site').':'.$ref;
-            $state = $this->judgeRow($judge, $key, $row['source_id'], $row['figures'], $row['campaign_id'], $row['first_at'])['state'];
+            $state = $this->judgeRow($judge, $row['key'], $row['source_id'], $row['figures'], $row['campaign_id'], $row['first_at'])['state'];
 
-            if ($ref !== '' && in_array($state, SiteZoneList::WORTH_BLOCKING, true) && ! $judge['blocks']->has($key)) {
+            if (in_array($state, SiteZoneList::WORTH_BLOCKING, true) && ! $judge['blocks']->has($row['key'])) {
                 $counts[$row['campaign_id']] = ($counts[$row['campaign_id']] ?? 0) + 1;
             }
         }
@@ -1716,7 +1788,7 @@ final class TrafficSourcesView
                 'own' => $set->worth()->hasOwnAccountPrice((int) $source->id),
                 'site' => (string) $set->account_price,
                 // The same period, at the card where it is set.
-                'url' => TrafficSourcesPage::getUrl(array_filter(['tab' => 'value', 'period' => $page->period, 'from' => $page->from, 'to' => $page->to])).'#traffic-value-sources',
+                'url' => TrafficSourcesPage::getUrl(['tab' => 'value', ...self::periodQuery($page)]).'#traffic-value-sources',
             ],
             'preset' => $preset,
             'connector' => $connector === null ? null : [...($this->presets->connector($connector->value) ?? []), 'verified' => $this->connectors->verified($connector)],

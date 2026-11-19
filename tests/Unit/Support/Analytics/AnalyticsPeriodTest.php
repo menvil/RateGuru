@@ -161,14 +161,14 @@ it('compares today alone with the day before only as far into it as today has go
 
 it('names the comparison and the days', function () {
     expect(analyticsPeriod('yesterday')->comparison())->toBe('the day before')
-        ->and(analyticsPeriod('today')->comparison())->toBe('yesterday by this time')
+        ->and(analyticsPeriod('today')->comparison())->toBe('people who arrived yesterday by this time')
         ->and(analyticsPeriod('today')->range())->toBe('18 Nov 2026')
         ->and(analyticsPeriod('today')->end()->toDateTimeString())->toBe('2026-11-19 00:00:00')
         ->and(analyticsPeriod('30d')->comparison())->toBe('the previous 30 days')
         ->and(analyticsPeriod('this-month')->comparison())->toBe('the same days of last month')
         ->and(analyticsPeriod('last-month')->comparison())->toBe('the month before')
         // This month on its first day is today alone.
-        ->and(analyticsPeriod('this-month', today: '2026-12-01 00:10:00')->comparison())->toBe('yesterday by this time')
+        ->and(analyticsPeriod('this-month', today: '2026-12-01 00:10:00')->comparison())->toBe('people who arrived yesterday by this time')
         ->and(analyticsPeriod('30d')->range())->toBe('20 Oct — 18 Nov 2026')
         ->and(analyticsPeriod('yesterday')->range())->toBe('17 Nov 2026')
         ->and(analyticsPeriod('last-month', today: '2027-01-05 00:00:00')->range())->toBe('01 Dec — 31 Dec 2026')

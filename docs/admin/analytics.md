@@ -40,9 +40,13 @@ choices — is kept in the page's address, so a link opens the same view.
   with as many days right before the period — Yesterday with the day before,
   This month with the same days of last month ("vs the same days of last
   month"), Last month with the whole month before ("vs the month before"),
-  and Today with yesterday by this time ("vs yesterday by this time"), since
-  the rest of today hasn't come yet. All time has nothing earlier to compare
-  with, so it shows no changes. The period is always in the address, Last 30
+  and Today with the people who arrived yesterday by this time ("vs people
+  who arrived yesterday by this time"), since the rest of today hasn't come
+  yet. The time bounds when they arrived, not what they did next: someone who
+  arrived yesterday at 9:00 and finished a game at 15:00 counts as a game
+  completer against today at noon, as every figure here counts the people who
+  arrived in a window, whenever they went on. All time has nothing earlier to
+  compare with, so it shows no changes. The period is always in the address, Last 30
   days too. Opened from an address that names no period, the page shows the
   period you last chose here, unless it is a range older than the visits are
   kept, which opens the last 30 days.

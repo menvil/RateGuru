@@ -342,10 +342,11 @@ it('follows the people sent to a post to its sign-in form, an account made there
     $account($toPost, '2026-11-05 12:10:00', AccountSignupPlace::Game, confirmed: true);
 
     // Sent to the feed, a play before the window, and a logged-in player's: none of them anonymous visitors of a post in the window.
+    // The game's first form event is at 12:10, after every play here went on, so each visit's mark still stands in for it.
     $toFeed = metricsWentOn($first, 'guest-i', GameOnwardKind::Feed);
     $markedVisit($toFeed, 'guest-i', '2026-11-05 12:10:00');
     $account($toFeed, '2026-11-05 12:10:00', confirmed: true);
-    $form(metricsWentOn($first, 'early', GameOnwardKind::Post, '2026-10-30 12:00:00'), 'early', '2026-10-30 12:10:00');
+    $markedVisit(metricsWentOn($first, 'early', GameOnwardKind::Post, '2026-10-30 12:00:00'), 'early', '2026-10-30 12:10:00');
     metricsView($first, $player, '2026-11-05 12:10:00', GameEventType::PostSignInForm, metricsWentOn($first, $player, GameOnwardKind::Post));
 
     $onPost = fn (GameFunnel $f): array => [$f->wentToPost, $f->sawSignInOnPost, $f->signedUpOnPost, $f->confirmedOnPost];
@@ -358,6 +359,29 @@ it('follows the people sent to a post to its sign-in form, an account made there
         // Only the plays that came on a recorded visit, by its device.
         ->and(array_map($onPost, metricsQuery()->funnels(metricsScope($first), 'device')))->toBe(['desktop' => [1, 0, 0, 0], 'mobile' => [2, 1, 0, 0]])
         ->and($onPost(metricsQuery()->funnels(metricsScope($first, GameAudience::Authenticated))[0]))->toBe([1, 1, 0, 0]);
+});
+
+it('takes the recorded visit’s mark for the post’s sign-in form only on plays sent on before the game first recorded the form itself', function () {
+    $version = liveGame(publishableGameDraft(rounds: 2));
+    $marked = function (GameAttempt $attempt, string $guest, string $formAt) use ($version): void {
+        $attempt->forceFill(['traffic_visit_id' => metricsVisit($version, $guest, attributes: ['signup_form_at' => $formAt])->id])->save();
+    };
+    $onPost = fn (): array => [($f = metricsQuery()->funnels(metricsScope($version))[0])->wentToPost, $f->sawSignInOnPost];
+
+    // guest-a went on to the post at 12:06 on the 5th and a sign-up dialog marked the visit at 12:20; guest-b went on at 12:06 on the
+    // 6th, then opened the dialog on the feed at 12:15 — the visit's mark can't tell where.
+    $marked(metricsWentOn($version, 'guest-a', GameOnwardKind::Post), 'guest-a', '2026-11-05 12:20:00');
+    $marked(metricsWentOn($version, 'guest-b', GameOnwardKind::Post, '2026-11-06 12:00:00'), 'guest-b', '2026-11-06 12:15:00');
+
+    // The game has recorded no form yet: every play is from before, and both marks stand in for it.
+    expect($onPost())->toBe([2, 2]);
+
+    // guest-c's form on the post that evening is the game's first: from then on only the event counts, so guest-b's
+    // mark no longer does, while guest-a's play, sent on before it, still counts by its mark.
+    $toPost = metricsWentOn($version, 'guest-c', GameOnwardKind::Post, '2026-11-05 18:00:00');
+    metricsView($version, 'guest-c', '2026-11-05 18:08:00', GameEventType::PostSignInForm, $toPost);
+
+    expect($onPost())->toBe([3, 2]);
 });
 
 it('splits the figures by version, flow and content set, a person once in each', function () {

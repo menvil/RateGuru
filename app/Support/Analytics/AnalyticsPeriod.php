@@ -21,7 +21,8 @@ use Closure;
  * just before; this month's days with the same days of last month, and last
  * month with the whole month before; none for all time, nor once that would
  * start before the oldest day still kept; today alone, not over yet, against
- * the day before only as far into it as today has gone — how the comparison
+ * the people who arrived the day before only as far into it as today has
+ * gone, whatever they did after — how the comparison
  * and the days read, and the buckets a chart splits it into: hours of a
  * single day, those of today still to come said so, days up to 31, else
  * blocks of seven days from the first, the last block as long as the days
@@ -47,7 +48,7 @@ final readonly class AnalyticsPeriod
 
     /**
      * @param  CarbonImmutable  $now  the moment it was read at
-     * @param  CarbonImmutable|null  $arrivedBefore  the moment no visit arriving at or after counts; none but for the day before today, as far into it as today has gone
+     * @param  CarbonImmutable|null  $arrivedBefore  the moment no visit arriving at or after counts — a visit arriving before it counts with all it did later; none but for the day before today, as far into it as today has gone
      */
     private function __construct(
         public string $preset,
@@ -130,8 +131,10 @@ final readonly class AnalyticsPeriod
      * the same length just before it; this month's days with the same days
      * of last month, as many as last month has; last month with the whole
      * month before. Today alone — this month on its first day too — is
-     * compared with the day before as far into it as today has gone, so the
-     * hours still to come today don't count against it. None for all time,
+     * compared with the people who arrived the day before as far into it as
+     * today has gone, so the hours still to come today don't count against
+     * it: that moment bounds the arrivals, and what each of those people did
+     * counts whenever they did it, as in every window. None for all time,
      * which has nothing earlier, nor when it would start before the oldest
      * day kept.
      */
@@ -156,13 +159,20 @@ final readonly class AnalyticsPeriod
         return new self(ReportPeriod::CUSTOM, $first->toDateString(), $last->toDateString(), $this->today, $this->keptDays, $this->now, $this->isToday() ? $this->now->subDay() : null);
     }
 
-    /** What a figure is compared with, as a change reads it: “yesterday by this time”, “the day before”, “the previous 30 days”, “the same days of last month”, “the month before”. */
+    /**
+     * What a figure is compared with, as a change reads it: “people who
+     * arrived yesterday by this time”, “the day before”, “the previous 30
+     * days”, “the same days of last month”, “the month before”. Today's
+     * window before stops the arrivals at this time of day, not what those
+     * people did after it — every figure here counts the people who arrived
+     * in a window, whenever they went on — so it names the arrivals.
+     */
     public function comparison(): string
     {
         $days = $this->days();
 
         return match (true) {
-            $this->isToday() => 'yesterday by this time',
+            $this->isToday() => 'people who arrived yesterday by this time',
             $this->preset === 'this-month' => 'the same days of last month',
             $this->preset === 'last-month' => 'the month before',
             $days === 1 => 'the day before',

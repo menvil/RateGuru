@@ -1,8 +1,9 @@
 {{--
     Sites & zones: every network site or zone on the filters as one list — a
-    row per zone, or per site where a network has no zones, or per site —
+    row per zone, or per site where a network has no zones, or per site, a
+    place the network billed that sent no visit among them —
     found by its ID, network or campaign, leaving out those under so many
-    clicks; split into the block rule's segments with their counts; what the
+    clicks but for Low reach; split into the block rule's segments with their counts; what the
     list says at a glance; the impressions its network billed for it and the
     share that reached RateGuru, where the network reports it; sorted by any
     column and paged; ticked across pages to block, unblock or copy the IDs
@@ -38,7 +39,7 @@
         <x-admin.ui.icon name="search" :size="14" />
         <input type="search" class="rg-admin-input" placeholder="Find a zone, site or campaign ID" wire:model.live.debounce.400ms="q" aria-label="Find a zone, site or campaign ID" />
     </div>
-    <label class="rg-admin-traffic__list-control">
+    <label class="rg-admin-traffic__list-control" title="Low reach rows show whatever their clicks: their paid impressions judge them">
         <span class="rg-admin-traffic__note">Hide under</span>
         <select class="rg-admin-traffic__select" wire:model.live="minClicks" aria-label="Hide those under so many clicks">
             @foreach ([0 => 'no limit', 50 => '50 clicks', 100 => '100 clicks', 200 => '200 clicks', 500 => '500 clicks', 1000 => '1,000 clicks'] as $value => $label)

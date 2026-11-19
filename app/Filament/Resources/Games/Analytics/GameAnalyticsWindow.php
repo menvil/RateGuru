@@ -12,8 +12,9 @@ use Carbon\CarbonImmutable;
  * right before it; for this month, as far into last month as this month has
  * gone, and for last month the whole month before; none for all time, nor
  * once those days are no longer kept. Today alone, not over yet, is compared
- * with the day before only as far into it as today has gone — the same hours
- * of the day, as Growth → Analytics compares it. It names itself as the
+ * with the day before only as far into it as today has gone — the visits and
+ * plays begun in the same hours of the day, with whatever came of them later,
+ * as Growth → Analytics compares the people who arrived. It names itself as the
  * notes say it (“last 30 days”, or its days) and carries the period the
  * links to Traffic sources open with. Now is given, never read from the
  * clock.
@@ -49,7 +50,7 @@ final readonly class GameAnalyticsWindow
      * Whole days, from the first one's start to the moment after the last —
      * up to now where that is later — against the time before it the
      * comparison says (SAME_LENGTH, MONTH_BEFORE or NOTHING); today alone
-     * against the day before up to the same time of day.
+     * against what began the day before up to the same time of day.
      *
      * @param  string|null  $name  what the notes call the window; its days for none
      * @param  int  $keptDays  how many days back the figures are kept: the window before is dropped once it starts earlier
@@ -103,11 +104,17 @@ final readonly class GameAnalyticsWindow
         return self::span($this->from, $this->until);
     }
 
-    /** What the filter bar says the figures are of, and what they are compared with. */
+    /**
+     * What the filter bar says the figures are of, and what they are compared
+     * with. A window before cut short at the same time — today's day before,
+     * or as far into last month as this month has gone — bounds when a visit
+     * or a play began, not what came of it later: a play begun by then counts
+     * as finished, or with its email or account, even when that came after.
+     */
     public function text(): string
     {
         return match (true) {
-            $this->before !== null && $this->beforeUntil !== null => $this->dates().' · compared with '.self::span($this->before, $this->beforeUntil).($this->beforeUntil->lessThan($this->from) ? ' up to the same time' : ''),
+            $this->before !== null && $this->beforeUntil !== null => $this->dates().' · compared with '.self::span($this->before, $this->beforeUntil).($this->beforeUntil->lessThan($this->from) ? ', visits and plays begun by the same time' : ''),
             $this->beforeGone => $this->dates().' · the days before are no longer kept, nothing to compare with',
             $this->allTime => 'All time · nothing earlier to compare with',
             default => $this->dates().' · nothing earlier to compare with',

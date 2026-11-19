@@ -8,7 +8,8 @@ use Carbon\CarbonImmutable;
  * The window a game's analytics reads and the one it is compared with, for
  * each of the report pages' presets: as long a time right before it; this
  * month as far into last month as it has gone, last month the whole month
- * before; today alone the day before up to the same time; all time — and a
+ * before; today alone the visits and plays begun the day before up to the
+ * same time; all time — and a
  * window that asks for nothing — with nothing; none once those days are no
  * longer kept. The filter bar's text says which.
  */
@@ -35,10 +36,10 @@ it('compares each preset with the time its comparison says', function (string $p
         ->and($window->text())->toBe($text)
         ->and($window->name)->toBe(strtolower(ReportPeriod::PRESETS[$preset]));
 })->with([
-    'today: the day before up to the same time' => ['today', ['2026-11-19 00:00:00', '2026-11-19 10:00:00', '2026-11-18 00:00:00', '2026-11-18 10:00:00'], '19 Nov 2026 · compared with 18 Nov 2026 up to the same time'],
+    'today: the day before, visits and plays begun by the same time' => ['today', ['2026-11-19 00:00:00', '2026-11-19 10:00:00', '2026-11-18 00:00:00', '2026-11-18 10:00:00'], '19 Nov 2026 · compared with 18 Nov 2026, visits and plays begun by the same time'],
     'yesterday: the day before' => ['yesterday', ['2026-11-18 00:00:00', '2026-11-19 00:00:00', '2026-11-17 00:00:00', '2026-11-18 00:00:00'], '18 Nov 2026 · compared with 17 Nov 2026'],
     'last 7 days: as long a time before' => ['7d', ['2026-11-13 00:00:00', '2026-11-19 10:00:00', '2026-11-06 14:00:00', '2026-11-13 00:00:00'], '13 Nov — 19 Nov 2026 · compared with 06 Nov — 12 Nov 2026'],
-    'this month: as far into last month' => ['this-month', ['2026-11-01 00:00:00', '2026-11-19 10:00:00', '2026-10-01 00:00:00', '2026-10-19 10:00:00'], '01 Nov — 19 Nov 2026 · compared with 01 Oct — 19 Oct 2026 up to the same time'],
+    'this month: as far into last month' => ['this-month', ['2026-11-01 00:00:00', '2026-11-19 10:00:00', '2026-10-01 00:00:00', '2026-10-19 10:00:00'], '01 Nov — 19 Nov 2026 · compared with 01 Oct — 19 Oct 2026, visits and plays begun by the same time'],
     'last month: the whole month before' => ['last-month', ['2026-10-01 00:00:00', '2026-11-01 00:00:00', '2026-09-01 00:00:00', '2026-10-01 00:00:00'], '01 Oct — 31 Oct 2026 · compared with 01 Sep — 30 Sep 2026'],
 ]);
 
@@ -53,8 +54,8 @@ it('compares this month with the whole of a shorter last month once it has run p
         ->and(gameWindowMoments($january))->toBe(['2026-12-01 00:00:00', '2027-01-01 00:00:00', '2026-11-01 00:00:00', '2026-12-01 00:00:00']);
 });
 
-it('compares this month on its first day as today alone: with the day before up to the same time', function () {
-    expect(gameWindow('this-month', '2026-12-01 08:00:00')->text())->toBe('01 Dec 2026 · compared with 30 Nov 2026 up to the same time');
+it('compares this month on its first day as today alone: with the day before, visits and plays begun by the same time', function () {
+    expect(gameWindow('this-month', '2026-12-01 08:00:00')->text())->toBe('01 Dec 2026 · compared with 30 Nov 2026, visits and plays begun by the same time');
 });
 
 it('compares all time, and days that ask for nothing, with nothing; and nothing once the days before are no longer kept', function () {

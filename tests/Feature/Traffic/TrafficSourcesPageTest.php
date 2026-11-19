@@ -765,6 +765,36 @@ it('opens on the period last chosen in its picker when the address names none, a
     }
 });
 
+it('names the period on screen in every tab’s link, so a tab opened in a new browser tab shows that period, not the one chosen last', function () {
+    $hrefs = fn ($page): array => collect($page->viewData('tabs'))->mapWithKeys(fn (array $tab): array => [$tab['id'] => $tab['href']])->all();
+    $page = Livewire::withQueryParams(['period' => 'yesterday', 'tab' => 'campaigns'])->test(TrafficSourcesPage::class);
+
+    expect($hrefs($page))->toBe([
+        'report' => TrafficSourcesPage::getUrl(['period' => 'yesterday']),
+        'campaigns' => TrafficSourcesPage::getUrl(['tab' => 'campaigns', 'period' => 'yesterday']),
+        'value' => TrafficSourcesPage::getUrl(['tab' => 'value', 'period' => 'yesterday']),
+        'spend' => TrafficSourcesPage::getUrl(['tab' => 'spend', 'period' => 'yesterday']),
+        'sources' => TrafficSourcesPage::getUrl(['tab' => 'sources', 'period' => 'yesterday']),
+        'logs' => TrafficSourcesPage::getUrl(['tab' => 'logs', 'period' => 'yesterday']),
+    ]);
+    $page->assertSeeHtml('href="'.e(TrafficSourcesPage::getUrl(['tab' => 'logs', 'period' => 'yesterday'])).'"');
+
+    // Another browser tab chooses a period meanwhile: the links still name this one's — a range by its days, as the page read it.
+    Livewire::withQueryParams([])->test(TrafficSourcesPage::class)->call('choosePeriod', '90d');
+    $page->call('applyRange', '2026-11-02', '2026-11-04');
+
+    expect($hrefs($page)['value'])->toBe(TrafficSourcesPage::getUrl(['tab' => 'value', 'period' => '30d', 'from' => '2026-11-02', 'to' => '2026-11-04']))
+        ->and($hrefs($page)['report'])->toBe(TrafficSourcesPage::getUrl(['period' => '30d', 'from' => '2026-11-02', 'to' => '2026-11-04']));
+
+    // Opened from such a link, the tab reads that range, whatever was chosen last.
+    Livewire::withQueryParams([])->test(TrafficSourcesPage::class)->call('choosePeriod', '90d');
+    $opened = Livewire::withQueryParams(['tab' => 'value', 'period' => '30d', 'from' => '2026-11-02', 'to' => '2026-11-04'])->test(TrafficSourcesPage::class)
+        ->assertSet('from', '2026-11-02')
+        ->assertSet('to', '2026-11-04');
+
+    expect([$opened->instance()->filter()->fromDay, $opened->instance()->filter()->toDay])->toBe(['2026-11-02', '2026-11-04']);
+});
+
 it('shows on Blocking what a source blocked, where its blocks stand with the network and the rule’s day, with the ways to them', function () {
     config(['traffic_presets.connectors.popads.verified' => true]);
     $source = TrafficSource::factory()->create(['name' => 'PopAds main', 'connector' => TrafficConnector::PopAds, 'block_level' => TrafficBlockLevel::Site, 'block_auto' => true, 'block_daily_cap' => 5]);

@@ -181,11 +181,11 @@ it('draws the very cards and figures of the game’s own Analytics for the same 
         ->and($mobile['sourcesSwitch'])->toBeFalse()
         ->and($all['datesText'])->toBe('20 Oct — 18 Nov 2026 · compared with 20 Sep — 19 Oct 2026')
         ->and(analyticsGames(['period' => 'yesterday'])->viewData('data')['datesText'])->toBe('17 Nov 2026 · compared with 16 Nov 2026')
-        // Today, as Overview compares it: with the day before up to the same time.
-        ->and(analyticsGames(['period' => 'today'])->viewData('data')['datesText'])->toBe('18 Nov 2026 · compared with 17 Nov 2026 up to the same time')
+        // Today, as Overview compares it: with what began the day before up to the same time.
+        ->and(analyticsGames(['period' => 'today'])->viewData('data')['datesText'])->toBe('18 Nov 2026 · compared with 17 Nov 2026, visits and plays begun by the same time')
         ->and(analyticsGames(['period' => 'yesterday'])->viewData('data')['noData'])->toBeTrue()
         // This month as far into last month as it has gone, last month against the whole month before.
-        ->and(analyticsGames(['period' => 'this-month'])->viewData('data')['datesText'])->toBe('01 Nov — 18 Nov 2026 · compared with 01 Oct — 18 Oct 2026 up to the same time')
+        ->and(analyticsGames(['period' => 'this-month'])->viewData('data')['datesText'])->toBe('01 Nov — 18 Nov 2026 · compared with 01 Oct — 18 Oct 2026, visits and plays begun by the same time')
         ->and(analyticsGames(['period' => 'last-month'])->viewData('data')['datesText'])->toBe('01 Oct — 31 Oct 2026 · compared with 01 Sep — 30 Sep 2026');
 
     // All time: the days the page's period covers — since the first visit, eight days ago — with nothing to compare.
@@ -288,10 +288,11 @@ it('reads no visit until the page is in a browser, and the tab in a bounded numb
     $many = $queries([]);
     $narrowed = $queries(['device' => 'mobile', 'country' => 'DE', 'by' => 'country', 'group' => 'authenticated']);
 
-    // The shell's filters, the games, the game's versions, its figures now and before, the cards and the periods: never one per row.
-    expect($few)->toBeLessThanOrEqual(48)
-        ->and($many)->toBeLessThanOrEqual(48)
-        ->and($narrowed)->toBeLessThanOrEqual(48)
+    // The shell's filters, the games, the game's versions, its figures now and before — with the game's first sign-in form on a post,
+    // read once — the cards and the periods: never one per row.
+    expect($few)->toBeLessThanOrEqual(49)
+        ->and($many)->toBeLessThanOrEqual(49)
+        ->and($narrowed)->toBeLessThanOrEqual(49)
         ->and($many - $few)->toBeLessThanOrEqual(2);
 });
 

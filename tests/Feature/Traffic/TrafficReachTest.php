@@ -24,21 +24,24 @@ beforeEach(function () {
 });
 
 /**
- * The period's slices, each as "day campaign/site/zone origin" => [impressions, reached, opened, started, closed].
+ * The period's slices, every one, each as [source, day, campaign, site, zone, origin, impressions, reached, opened,
+ * started, closed] — "*" for any campaign, site or zone — in order, so two slices alike but for their source are both
+ * there.
  *
- * @return array<string, array{0: int, 1: int, 2: int, 3: int, 4: bool}>
+ * @return list<array{0: int, 1: string, 2: int|string, 3: string, 4: string, 5: string, 6: int, 7: int, 8: int, 9: int, 10: bool}>
  */
 function reachRead(?int $sourceId = null, ?int $campaignId = null, string $from = '2026-11-10', string $to = '2026-11-17'): array
 {
     $read = [];
 
     foreach (app(TrafficReachQuery::class)->slices($from, $to, $sourceId, $campaignId) as $slice) {
-        $read[$slice['day'].' '.($slice['campaign_id'] ?? '*').'/'.($slice['site_ref'] ?: '*').'/'.($slice['zone_ref'] ?: '*').' '.$slice['origin']] = [
+        $read[] = [
+            $slice['source_id'], $slice['day'], $slice['campaign_id'] ?? '*', $slice['site_ref'] ?: '*', $slice['zone_ref'] ?: '*', $slice['origin'],
             $slice['figures']->impressions, $slice['figures']->reached, $slice['figures']->opened, $slice['figures']->started, $slice['closed'],
         ];
     }
 
-    ksort($read);
+    usort($read, fn (array $a, array $b): int => $a <=> $b);
 
     return $read;
 }
@@ -54,7 +57,7 @@ it('counts the visits of each campaign and site the network reported, and leaves
 
     $slices = iterator_to_array(app(TrafficReachQuery::class)->slices('2026-11-10', '2026-11-17'), false);
 
-    expect(reachRead())->toBe(['2026-11-15 '.$this->campaign->id.'/501/* api' => [100, 8, 5, 1, true]])
+    expect(reachRead())->toBe([[$this->source->id, '2026-11-15', $this->campaign->id, '501', '*', 'api', 100, 8, 5, 1, true]])
         ->and($slices[0]['figures']->amount)->toBe('0.20000000');
 });
 
@@ -69,8 +72,8 @@ it('counts every visit of the campaign that day for a figure with no site, after
     reachedVisits($this->source, '2026-11-15', 5, 5, 0, ['campaign_id' => $other->id, 'site_ref' => '502']);
 
     expect(reachRead())->toBe([
-        '2026-11-15 '.$this->campaign->id.'/*/* api' => [50, 5, 2, 1, true],
-        '2026-11-15 '.$this->campaign->id.'/501/* api' => [20, 6, 6, 2, true],
+        [$this->source->id, '2026-11-15', $this->campaign->id, '*', '*', 'api', 50, 5, 2, 1, true],
+        [$this->source->id, '2026-11-15', $this->campaign->id, '501', '*', 'api', 20, 6, 6, 2, true],
     ]);
 });
 
@@ -88,10 +91,10 @@ it('counts a day from one origin: a file with impressions before the API, the AP
     paidImpressions($this->source, '2026-11-12', 30, '0.06', ['campaign_id' => $this->campaign->id, 'zone_ref' => '9002', 'reported_clicks' => 0]);
 
     expect(reachRead())->toBe([
-        '2026-11-12 '.$this->campaign->id.'/*/9002 api' => [30, 0, 0, 0, true],
-        '2026-11-13 '.$this->campaign->id.'/*/* api' => [40, 0, 0, 0, true],
-        '2026-11-14 '.$this->campaign->id.'/*/* api' => [60, 0, 0, 0, true],
-        '2026-11-15 '.$this->campaign->id.'/*/* csv' => [80, 3, 0, 0, true],
+        [$this->source->id, '2026-11-12', $this->campaign->id, '*', '9002', 'api', 30, 0, 0, 0, true],
+        [$this->source->id, '2026-11-13', $this->campaign->id, '*', '*', 'api', 40, 0, 0, 0, true],
+        [$this->source->id, '2026-11-14', $this->campaign->id, '*', '*', 'api', 60, 0, 0, 0, true],
+        [$this->source->id, '2026-11-15', $this->campaign->id, '*', '*', 'csv', 80, 3, 0, 0, true],
     ]);
 });
 
@@ -140,13 +143,13 @@ it('narrows to a source and a campaign, the day’s origin chosen over all its c
 
     // The 15th is counted from the file, which has only the first campaign: the other's API figure for it never counts.
     expect(reachRead($this->source->id))->toBe([
-        '2026-11-15 '.$this->campaign->id.'/501/* csv' => [30, 2, 1, 0, true],
-        '2026-11-16 '.$other->id.'/501/* api' => [70, 6, 0, 0, true],
+        [$this->source->id, '2026-11-15', $this->campaign->id, '501', '*', 'csv', 30, 2, 1, 0, true],
+        [$this->source->id, '2026-11-16', $other->id, '501', '*', 'api', 70, 6, 0, 0, true],
     ])
-        ->and(reachRead($this->source->id, $other->id))->toBe(['2026-11-16 '.$other->id.'/501/* api' => [70, 6, 0, 0, true]])
-        ->and(reachRead(campaignId: $this->campaign->id))->toBe(['2026-11-15 '.$this->campaign->id.'/501/* csv' => [30, 2, 1, 0, true]])
-        ->and(reachRead(from: '2026-11-16', to: '2026-11-16'))->toBe(['2026-11-16 '.$other->id.'/501/* api' => [70, 6, 0, 0, true]])
-        ->and(reachRead())->toHaveKey('2026-11-15 */*/* api');
+        ->and(reachRead($this->source->id, $other->id))->toBe([[$this->source->id, '2026-11-16', $other->id, '501', '*', 'api', 70, 6, 0, 0, true]])
+        ->and(reachRead(campaignId: $this->campaign->id))->toBe([[$this->source->id, '2026-11-15', $this->campaign->id, '501', '*', 'csv', 30, 2, 1, 0, true]])
+        ->and(reachRead(from: '2026-11-16', to: '2026-11-16'))->toBe([[$this->source->id, '2026-11-16', $other->id, '501', '*', 'api', 70, 6, 0, 0, true]])
+        ->and(reachRead())->toContain([$elsewhere->id, '2026-11-15', '*', '*', '*', 'api', 500, 0, 0, 0, true]);
 });
 
 it('matches a zone the network reported before its site, and reads nothing without impressions', function () {
@@ -158,8 +161,48 @@ it('matches a zone the network reported before its site, and reads nothing witho
     reachedVisits($this->source, '2026-11-15', 4, 0, 0, ['campaign_id' => $this->campaign->id, 'site_ref' => '501', 'zone_ref' => '78']);
 
     expect(reachRead())->toBe([
-        '2026-11-15 '.$this->campaign->id.'/501/* api' => [40, 4, 0, 0, true],
-        '2026-11-15 '.$this->campaign->id.'/501/77 api' => [25, 3, 0, 0, true],
+        [$this->source->id, '2026-11-15', $this->campaign->id, '501', '*', 'api', 40, 4, 0, 0, true],
+        [$this->source->id, '2026-11-15', $this->campaign->id, '501', '77', 'api', 25, 3, 0, 0, true],
+    ]);
+});
+
+it('matches a zone’s figure of a campaign before the zone’s figure of every campaign the same day, whichever was stored first', function () {
+    $other = TrafficCampaign::factory()->create(['source_id' => $this->source->id]);
+    // The zone's figure of any campaign is stored first, and would come first by campaign: it still takes only what the campaign's own figure left.
+    paidImpressions($this->source, '2026-11-15', 30, '0.06', ['zone_ref' => '77']);
+    paidImpressions($this->source, '2026-11-15', 20, '0.04', ['campaign_id' => $this->campaign->id, 'zone_ref' => '77']);
+    reachedVisits($this->source, '2026-11-15', 5, 4, 1, ['campaign_id' => $this->campaign->id, 'zone_ref' => '77']);
+    reachedVisits($this->source, '2026-11-15', 2, 2, 0, ['campaign_id' => $other->id, 'zone_ref' => '77']);
+    // A site's figure of the campaign before the campaign's zone figure of any site, at the same breadth.
+    paidImpressions($this->source, '2026-11-16', 10, '0.02', ['campaign_id' => $this->campaign->id, 'zone_ref' => '88']);
+    paidImpressions($this->source, '2026-11-16', 10, '0.02', ['campaign_id' => $this->campaign->id, 'site_ref' => '501', 'zone_ref' => '88']);
+    reachedVisits($this->source, '2026-11-16', 3, 0, 0, ['campaign_id' => $this->campaign->id, 'site_ref' => '501', 'zone_ref' => '88']);
+    reachedVisits($this->source, '2026-11-16', 1, 0, 0, ['campaign_id' => $this->campaign->id, 'site_ref' => '502', 'zone_ref' => '88']);
+
+    $read = reachRead();
+
+    expect($read)->toBe([
+        [$this->source->id, '2026-11-15', '*', '*', '77', 'api', 30, 2, 2, 0, true],
+        [$this->source->id, '2026-11-15', $this->campaign->id, '*', '77', 'api', 20, 5, 4, 1, true],
+        [$this->source->id, '2026-11-16', $this->campaign->id, '*', '88', 'api', 10, 1, 0, 0, true],
+        [$this->source->id, '2026-11-16', $this->campaign->id, '501', '88', 'api', 10, 3, 0, 0, true],
+    ])
+        // Every reading the same.
+        ->and(reachRead())->toBe($read)
+        ->and(reachRead(campaignId: $this->campaign->id))->toBe(array_slice($read, 1));
+});
+
+it('keeps apart two sources’ slices alike in every other way', function () {
+    $second = TrafficSource::factory()->create();
+    // The same day, origin, site and no campaign: only the source tells them apart.
+    paidImpressions($this->source, '2026-11-15', 100, '0.20', ['site_ref' => '501']);
+    paidImpressions($second, '2026-11-15', 40, '0.08', ['site_ref' => '501']);
+    reachedVisits($this->source, '2026-11-15', 8, 5, 1, ['site_ref' => '501']);
+    reachedVisits($second, '2026-11-15', 3, 1, 0, ['site_ref' => '501']);
+
+    expect(reachRead())->toBe([
+        [$this->source->id, '2026-11-15', '*', '501', '*', 'api', 100, 8, 5, 1, true],
+        [$second->id, '2026-11-15', '*', '501', '*', 'api', 40, 3, 1, 0, true],
     ]);
 });
 
@@ -256,4 +299,24 @@ it('folds the slices into what the report shows: by source and campaign, each si
             '2026-11-17' => [10, '0.02000000', 9, 9, 0],
         ])
         ->and($tally->days(999999))->toBe([]);
+});
+
+it('names each site or zone by the campaigns the network reported it under and a zone by its site, of every day or of the campaign asked', function () {
+    $other = TrafficCampaign::factory()->create(['source_id' => $this->source->id]);
+    paidImpressions($this->source, '2026-11-15', 40, '0.08', ['campaign_id' => $this->campaign->id, 'site_ref' => '501', 'zone_ref' => '77']);
+    paidImpressions($this->source, '2026-11-15', 30, '0.06', ['campaign_id' => $other->id, 'site_ref' => '502']);
+    paidImpressions($this->source, '2026-11-16', 30, '0.06', ['campaign_id' => $this->campaign->id, 'site_ref' => '502']);
+    // Today, not closed, and of no campaign or site.
+    paidImpressions($this->source, '2026-11-17', 20, '0.04', ['zone_ref' => '78']);
+
+    $tally = app(TrafficReachQuery::class)->tally('2026-11-10', '2026-11-17');
+    $place = fn (string $key): string => $this->source->id.':'.$key;
+
+    expect($tally->placeNames())->toBe([
+        $place('zone:77') => ['campaigns' => [$this->campaign->id], 'site' => '501'],
+        $place('site:502') => ['campaigns' => [$this->campaign->id, $other->id], 'site' => null],
+        $place('zone:78') => ['campaigns' => [], 'site' => null],
+    ])
+        ->and($tally->placeNames($this->source->id, $other->id))->toBe([$place('site:502') => ['campaigns' => [$other->id], 'site' => null]])
+        ->and($tally->placeNames(999999))->toBe([]);
 });

@@ -139,7 +139,7 @@ it('tells the top bar the days it read the figures of, a preset that rolled over
         ->assertDispatched('rg-admin-analytics-range', text: '13 Nov — 19 Nov 2026');
 });
 
-it('offers Today first among the presets: today’s visits alone, hour by hour, against yesterday by this time', function () {
+it('offers Today first among the presets: today’s visits alone, hour by hour, against the people who arrived yesterday by this time', function () {
     analyticsVisit('ann', ['network_day' => '2026-11-18', 'arrived_at' => '2026-11-18 09:00:00']);
     analyticsVisit('bob', ['network_day' => '2026-11-17', 'arrived_at' => '2026-11-17 09:00:00']);
     analyticsVisit('cat', ['network_day' => '2026-11-17', 'arrived_at' => '2026-11-17 11:00:00']);
@@ -159,7 +159,7 @@ it('offers Today first among the presets: today’s visits alone, hour by hour, 
     $bars = array_column($data['chart']['bars'], 'title');
 
     expect($visitors['value'])->toBe('1')
-        ->and($visitors['change'])->toBe('−50% vs yesterday by this time')
+        ->and($visitors['change'])->toBe('−50% vs people who arrived yesterday by this time')
         ->and($data['chart']['title'])->toBe('Visitors per hour')
         // The hours of today not yet begun count nobody: they are still to come; the hour now running counts.
         ->and([$bars[9], $bars[12], $bars[13], $bars[23]])->toBe([
@@ -169,6 +169,22 @@ it('offers Today first among the presets: today’s visits alone, hour by hour, 
             '18 Nov 2026 · 23:00–24:00 UTC · still to come',
         ])
         ->and(GrowthAnalyticsPage::topbar(Request::create('/admin/analytics', 'GET', ['period' => 'today'])))->toContain('18 Nov 2026');
+});
+
+it('compares Today with the people who arrived yesterday by this time, counting what they did after it', function () {
+    // Today, by noon: two finished a game.
+    analyticsVisit('ann', ['network_day' => '2026-11-18', 'arrived_at' => '2026-11-18 09:00:00', 'started_at' => '2026-11-18 09:05:00', 'completed_at' => '2026-11-18 09:20:00']);
+    analyticsVisit('amy', ['network_day' => '2026-11-18', 'arrived_at' => '2026-11-18 10:00:00', 'started_at' => '2026-11-18 10:05:00', 'completed_at' => '2026-11-18 10:20:00']);
+    // Yesterday: bob arrived before noon and finished only at 15:00, after it — he counts; cat arrived after noon and does not, finished or not.
+    analyticsVisit('bob', ['network_day' => '2026-11-17', 'arrived_at' => '2026-11-17 09:00:00', 'started_at' => '2026-11-17 14:30:00', 'completed_at' => '2026-11-17 15:00:00']);
+    analyticsVisit('cat', ['network_day' => '2026-11-17', 'arrived_at' => '2026-11-17 13:00:00', 'started_at' => '2026-11-17 13:05:00', 'completed_at' => '2026-11-17 13:20:00']);
+
+    $kpis = collect(analyticsOverview(['period' => 'today'])['kpis'])->keyBy('label');
+
+    // Bounding yesterday's steps by the time too would have counted nobody; counting every arrival, two.
+    expect([$kpis['Game completers']['value'], $kpis['Game completers']['change']])->toBe(['2', '+100% vs people who arrived yesterday by this time'])
+        ->and([$kpis['Game starters']['value'], $kpis['Game starters']['change']])->toBe(['2', '+100% vs people who arrived yesterday by this time'])
+        ->and($kpis['Visitors']['change'])->toBe('+100% vs people who arrived yesterday by this time');
 });
 
 it('offers every report page’s presets: yesterday against the day before, this month against the same days of last month, last month against the month before, all time against nothing', function () {

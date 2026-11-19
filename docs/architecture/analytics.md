@@ -193,7 +193,14 @@ month with the whole month before; All time with nothing — none once that
 would start before the oldest day kept. Today alone is compared with
 the day before only as far into it as today has gone: that window carries a
 moment (`arrivedBefore`) that `AnalyticsFilter::arrivedBefore()` stops every
-read's arrivals at, so no query needs to know. A chart splits a period into
+read's arrivals at, so no query needs to know. It bounds arrivals only: every
+figure is of the visits that arrived in a window, and a visit that arrived
+before the moment counts with every step it took, before it or after — the
+change says so ("vs people who arrived yesterday by this time"). Bounding
+each step by the moment too would mean a time bound per column in every
+read. A game's Analytics (`GameAnalyticsWindow`) cuts its window before the
+same way and counts the same way: views and plays begun by then, each play
+with whatever came of it later. A chart splits a period into
 hours of a single day — today's not yet begun marked still to come — days up
 to 31, else blocks of seven days from the first, the last as long as the days
 left (`FigureChange` says the change; "No earlier data" when the window before

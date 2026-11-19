@@ -128,7 +128,12 @@ compared with as many days right before the period — yesterday with the day
 before, this month with last month as far into it as this month has gone,
 last month with the whole month before, and today with the day before up to
 the same time, since the rest of today hasn't come yet; all time has nothing
-to compare with. The period, the version, the audience, the device and the
+to compare with. Cut short at the same time — today's day before, or as far
+into last month as this month has gone — the earlier days count the visitors
+who opened the game and the plays begun by then ("compared with 17 Nov 2026,
+visits and plays begun by the same time"), with whatever came of those plays
+later: a play begun at 9:00 and finished at 15:00 counts as completed against
+today at noon. The period, the version, the audience, the device and the
 country are kept in the page's address, so a link opens the same view; a range
 that ends after today, runs backwards or reaches further back than the 400
 days visits are kept opens the last 30 days instead. An address that names no
@@ -203,9 +208,14 @@ each a share of the row above it:
   sign-in and sign-up pages, count for none. It's counted whether or not
   **Record visits** is on. Plays from before this row existed count by their
   recorded visit, if it was marked as having seen a sign-up form within 30
-  minutes of going on — wherever on the site, since the visit doesn't keep
-  where — so paid traffic already shows it. Someone who signed up on the post
-  counts as well, since signing up takes the form.
+  minutes of going on, so paid traffic already shows it. That mark is set
+  wherever on the site the dialog opened, since the visit doesn't keep where,
+  so it counts only for plays that went on before the game's first sign-in
+  form recorded on a post; from then on only the dialog on the post counts.
+  The figures of plays from before that first form may include a dialog
+  opened elsewhere — on the feed or another page — within the 30 minutes.
+  Someone who signed up on the post counts as well, since signing up takes the
+  form.
 * **Signed up there** — made a new account starting from that post within 30
   minutes, credited to the play.
 * **Confirmed that account** — confirmed the email, or signed up with Google
