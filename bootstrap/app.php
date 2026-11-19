@@ -3,8 +3,10 @@
 use App\Http\Middleware\AttachRequestId;
 use App\Http\Middleware\AttachStructuredLogContext;
 use App\Http\Middleware\AttachVisitorLogContext;
+use App\Http\Middleware\CaptureTrafficArrival;
 use App\Http\Middleware\EnsureAccountIsNotTombstoned;
 use App\Http\Middleware\EnsureSessionGenerationIsCurrent;
+use App\Http\Middleware\RecordAccountReturn;
 use App\Http\Middleware\SetLocale;
 use App\Support\Observability\ExceptionContextBuilder;
 use Illuminate\Foundation\Application;
@@ -37,6 +39,12 @@ return Application::configure(basePath: dirname(__DIR__))
             // Last, so the user and the locale it adds to the log context
             // are the ones the guards above have settled.
             AttachVisitorLogContext::class,
+            // How the visitor arrived: a paid click is recorded here, before
+            // any route's own middleware can send the visitor elsewhere
+            // (docs/architecture/traffic.md).
+            CaptureTrafficArrival::class,
+            // A new account coming back on another day is worth more for it.
+            RecordAccountReturn::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

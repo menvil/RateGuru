@@ -9,6 +9,8 @@ use App\Enums\ReportStatus;
 use App\Enums\UserRole;
 use App\Enums\UserStatus;
 use App\Enums\VoteType;
+use App\Models\AccountAttribution;
+use App\Models\AccountBrowser;
 use App\Models\Comment;
 use App\Models\CommentVote;
 use App\Models\Follow;
@@ -422,4 +424,18 @@ it('refuses to ban, shadowban or mark trusted a deleted tombstone', function () 
         ->and($admin->can('unban', $tombstone))->toBeFalse()
         ->and($admin->can('manage', $tombstone))->toBeFalse()
         ->and($admin->can('markTrusted', $tombstone))->toBeFalse();
+});
+
+it('forgets the browsers the tracker knew a deleted account by, and keeps its count without one', function () {
+    $user = User::factory()->create();
+    AccountBrowser::factory()->count(2)->create(['user_id' => $user->id]);
+    $attribution = AccountAttribution::factory()->confirmed()->create(['user_id' => $user->id]);
+    $other = AccountBrowser::factory()->create();
+
+    app(AnonymizeUserAccountAction::class)->execute($user);
+
+    expect(AccountBrowser::query()->where('user_id', $user->id)->exists())->toBeFalse()
+        ->and($other->fresh())->not->toBeNull()
+        ->and($attribution->fresh()->visitor_hash)->toBeNull()
+        ->and($attribution->fresh()->confirmed_at)->not->toBeNull();
 });

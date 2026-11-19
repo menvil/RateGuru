@@ -7,6 +7,8 @@ use App\Actions\Games\ChangeGameStatusAction;
 use App\Actions\Games\ChangeGameVersionAction;
 use App\Actions\Games\CreateContentSetAction;
 use App\Actions\Games\CreateGameAction;
+use App\Actions\Games\EndGameTrafficSplitAction;
+use App\Actions\Games\HideGameTrafficPeriodAction;
 use App\Actions\Games\PublishGameVersionAction;
 use App\Actions\Games\SaveContentSetAction;
 use App\Actions\Games\SaveGameFlowAction;
@@ -25,8 +27,10 @@ use App\Models\GameFlow;
 use App\Models\GameTrafficPeriod;
 use App\Models\GameVersion;
 use App\Models\MediaAsset;
+use App\Models\TrafficSource;
 use App\Models\User;
 use App\Support\Games\Flow\GameFlowTemplate;
+use App\Support\Games\Traffic\TrafficScope;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
 
@@ -55,6 +59,7 @@ function gameWriteState(array $draft): array
         (int) GameFlow::query()->whereKey($draft['flow']->id)->value('lock_version'),
         GameVersion::query()->count(),
         GameTrafficPeriod::query()->count(),
+        GameTrafficPeriod::query()->whereNotNull('hidden_at')->count(),
         MediaAsset::withTrashed()->count(),
         Storage::disk('public')->allFiles(),
     ];
@@ -103,7 +108,13 @@ it('refuses every game action to someone who may not manage games, and writes no
     'delete a flow' => [fn (User $user, array $d) => app(ChangeGameFlowAction::class)->delete($user, $d['flow'])],
     'publish a version' => [fn (User $user, array $d) => app(PublishGameVersionAction::class)->handle($user, $d['game'], $d['set']->id, $d['flow']->id)],
     'apply traffic' => [fn (User $user, array $d) => app(ApplyGameTrafficAction::class)->handle($user, $d['game'], GameAudience::Anonymous, [$d['version']->id => 100])],
+    'apply a split for a source' => [fn (User $user, array $d) => app(ApplyGameTrafficAction::class)->handle($user, $d['game'], GameAudience::Anonymous, [$d['version']->id => 100], null, TrafficScope::source(TrafficSource::factory()->create()->id))],
+    // Asked before the split is even looked for.
+    'end a split for a source' => [fn (User $user, array $d) => app(EndGameTrafficSplitAction::class)->handle($user, $d['game'], 0)],
     'archive a version' => [fn (User $user, array $d) => app(ChangeGameVersionAction::class)->retire($user, $d['version'])],
     'restore a version' => [fn (User $user, array $d) => app(ChangeGameVersionAction::class)->restore($user, $d['version'])],
     'change the status' => [fn (User $user, array $d) => app(ChangeGameStatusAction::class)->handle($user, $d['game'], GameStatus::Archived)],
+    // Asked before the period is even looked for.
+    'hide a traffic period' => [fn (User $user, array $d) => app(HideGameTrafficPeriodAction::class)->hide($user, (new GameTrafficPeriod)->forceFill(['id' => 0, 'game_id' => $d['game']->id]))],
+    'show a traffic period' => [fn (User $user, array $d) => app(HideGameTrafficPeriodAction::class)->show($user, (new GameTrafficPeriod)->forceFill(['id' => 0, 'game_id' => $d['game']->id]))],
 ]);

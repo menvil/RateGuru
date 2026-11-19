@@ -3,7 +3,9 @@
 namespace App\Actions\Games;
 
 use App\Actions\Games\Concerns\LocksGameDraft;
+use App\Actions\Games\Concerns\SavesOnlyChanges;
 use App\Data\Games\GameFlowDraft;
+use App\Enums\GameFlowGoal;
 use App\Enums\GameFlowStepType;
 use App\Enums\GameStepAudience;
 use App\Exceptions\Games\CannotManageGameException;
@@ -27,6 +29,7 @@ use Illuminate\Validation\ValidationException;
 final class SaveGameFlowAction
 {
     use LocksGameDraft;
+    use SavesOnlyChanges;
 
     /** The longest each text column holds. */
     public const TEXT_MAX = ['title' => 160, 'body' => 600, 'button_label' => 60, 'secondary_label' => 80, 'field_label' => 60, 'notice' => 300, 'consent_label' => 300];
@@ -59,7 +62,9 @@ final class SaveGameFlowAction
             $rules["steps.*.texts.{$column}"] = ['nullable', 'string', 'max:'.$max];
         }
 
-        Validator::make(['steps' => $draft->steps], $rules)->validate();
+        $rules['goal'] = ['nullable', Rule::enum(GameFlowGoal::class)];
+
+        Validator::make(['steps' => $draft->steps, 'goal' => $draft->goal], $rules)->validate();
 
         DB::transaction(function () use ($admin, $flow, $draft, $expectedLockVersion): void {
             $lockedAdmin = $this->lockAdministrator($admin);
@@ -67,6 +72,8 @@ final class SaveGameFlowAction
             $locked = $this->lockFlow($game, (int) $flow->id, $expectedLockVersion);
             $existing = $locked->steps()->get()->keyBy('id');
             $kept = [];
+            // Whether anything players would meet changed: a save of what is already there writes nothing.
+            $changed = false;
 
             foreach ($draft->steps as $position => $data) {
                 $type = GameFlowStepType::from((string) $data['type']);
@@ -80,22 +87,36 @@ final class SaveGameFlowAction
                     $texts[$column] = array_key_exists($column, $type->texts()) && $value !== '' ? $value : null;
                 }
 
+                $settings = GameFlowStepSettings::normalize($type, (array) ($data['settings'] ?? []));
+
+                // Stored before a setting it now has a default for, the step reads as it always did: no change.
+                if ($step->exists && $step->type === $type && GameFlowStepSettings::normalize($type, (array) $step->settings) === $settings) {
+                    $settings = $step->settings;
+                }
+
                 $step->forceFill([
                     'flow_id' => $locked->id,
                     'position' => $position,
                     'type' => $type,
                     'audience' => $type->fixedAudience() ?? GameStepAudience::from((string) $data['audience']),
-                    'settings' => GameFlowStepSettings::normalize($type, (array) ($data['settings'] ?? [])),
+                    'settings' => $settings,
                     ...$texts,
-                ])->save();
+                ]);
+                $changed = $this->keepsChanges($step) || $changed;
+                $step->save();
                 $kept[] = (int) $step->id;
             }
 
-            $existing->reject(fn (GameFlowStep $step): bool => in_array((int) $step->id, $kept, true))
-                ->each(fn (GameFlowStep $step) => $step->delete());
+            $gone = $existing->reject(fn (GameFlowStep $step): bool => in_array((int) $step->id, $kept, true));
+            $gone->each(fn (GameFlowStep $step) => $step->delete());
+            $locked->forceFill(['goal' => $draft->goal]);
+            $changed = $changed || $gone->isNotEmpty() || $locked->isDirty('goal');
 
-            $locked->forceFill(['lock_version' => $locked->lock_version + 1])->save();
-            $this->touchGame($game, $lockedAdmin);
+            if ($changed) {
+                $locked->forceFill(['lock_version' => $locked->lock_version + 1])->save();
+                $this->touchGame($game, $lockedAdmin);
+            }
+
             $flow->setRawAttributes($locked->getAttributes(), true);
         });
 

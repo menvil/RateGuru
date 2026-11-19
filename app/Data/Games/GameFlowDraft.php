@@ -2,10 +2,12 @@
 
 namespace App\Data\Games;
 
+use App\Enums\GameFlowGoal;
 use App\Enums\GameFlowStepType;
 use App\Enums\GameStepAudience;
 use App\Models\GameFlow;
 use App\Models\GameFlowStep;
+use App\Support\Games\Flow\FlowGoalRules;
 use App\Support\Games\Flow\FlowStepDraft;
 use App\Support\Games\Flow\GameFlowStepSettings;
 use App\Support\Games\Flow\GameFlowValidator;
@@ -17,12 +19,21 @@ use App\Support\Games\Flow\GameFlowValidator;
  */
 final readonly class GameFlowDraft
 {
-    /** @param  list<array<string, mixed>>  $steps */
-    public function __construct(public array $steps) {}
+    /**
+     * @param  list<array<string, mixed>>  $steps
+     * @param  string|null  $goal  the goal the flow names (GameFlowGoal), or null for the one its steps give it
+     */
+    public function __construct(public array $steps, public ?string $goal = null) {}
 
     public static function of(GameFlow $flow): self
     {
-        return new self($flow->steps->map(fn (GameFlowStep $step): array => self::stepOf($step))->values()->all());
+        return new self($flow->steps->map(fn (GameFlowStep $step): array => self::stepOf($step))->values()->all(), $flow->goal?->value);
+    }
+
+    /** The goal the flow counts: the one it names, else the one its steps give it. */
+    public function goal(): GameFlowGoal
+    {
+        return GameFlowGoal::tryFrom((string) $this->goal) ?? FlowGoalRules::defaultFor($this->drafts());
     }
 
     /** @return array<string, mixed> */

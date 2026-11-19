@@ -254,6 +254,64 @@ it('never saves a suggestion whose English changed between its early read and th
         ->and($result['saved'])->toBe($which === 'one' ? 0 : 3);
 })->with(['Save' => 'one', 'Save all generated' => 'all']);
 
+// Outdated translations ----------------------------------------------------------------
+
+/** A fresh batch with an outdated translation in it, its suggestions made; the one from setup let go. */
+function generationWithAnOutdatedTranslation(object $test): array
+{
+    discardGeneration($test->admin, $test->target, $test->batch);
+    $category = outdatedCategory($test->target, 'Willkommen', 'Welcome', 'Hello');
+    $batch = startTranslationGeneration($test->admin, $test->target)['batch'];
+    runTranslationGenerationJobs();
+
+    return [$category, "categories:{$category->id}:name", $batch];
+}
+
+it('saves a suggestion over an outdated translation, which is current from then on', function (string $which) {
+    [$category, $unit, $batch] = generationWithAnOutdatedTranslation($this);
+
+    expect(translationGenerationItem(translationGenerationOf($this->admin, $this->target), $unit))->toMatchArray(['status' => 'ready', 'text' => 'KI Hello']);
+
+    $result = saveGeneration($this->admin, $this->target, $batch, $which === 'one' ? $unit : null, readyGenerationUnits($this->admin, $this->target));
+
+    expect(collect($result['results'])->firstWhere('unit', $unit))->toBe(['unit' => $unit, 'outcome' => 'saved', 'value' => 'KI Hello', 'message' => null])
+        ->and($category->fresh()->name_translations)->toBe([$this->target => 'KI Hello'])
+        ->and(translationSourceOf($unit, $this->target)['reference'])->toBe('Hello')
+        ->and(collect(Livewire::withQueryParams(['locale' => $this->target])->test(TranslationCenterPage::class)->viewData('rows'))->firstWhere('id', $unit)['outdated'])->toBeFalse();
+})->with(['Save' => 'one', 'Save all generated' => 'all']);
+
+it('never writes over an outdated translation that was saved for the new English meanwhile', function (string $when) {
+    [$category, $unit, $batch] = generationWithAnOutdatedTranslation($this);
+    $other = User::factory()->admin()->create();
+    $meanwhile = fn () => app(UpdateProjectTranslationAction::class)->handle($other, $unit, $this->target, 'Hallo von Hand');
+
+    if ($when === 'before') {
+        $meanwhile();
+        $ran = fn (): bool => true;
+    } else {
+        $ran = inTheGapAfterTheEarlyRead($meanwhile);
+    }
+
+    $result = saveGeneration($this->admin, $this->target, $batch, $unit);
+
+    expect($ran())->toBeTrue()
+        ->and($result['results'][0])->toBe([
+            'unit' => $unit, 'outcome' => 'already_translated', 'value' => 'Hallo von Hand', 'message' => ProjectTranslationGenerationIssue::AlreadyTranslated->message(),
+        ])
+        ->and($category->fresh()->name_translations)->toBe([$this->target => 'Hallo von Hand']);
+})->with(['before the save' => 'before', 'between its early read and the write' => 'gap']);
+
+it('never saves a suggestion over an outdated translation once its English changed again', function () {
+    [$category, $unit, $batch] = generationWithAnOutdatedTranslation($this);
+    $category->update(['name' => 'Hi']);
+
+    $result = saveGeneration($this->admin, $this->target, $batch, $unit);
+
+    expect($result['results'][0])->toBe(['unit' => $unit, 'outcome' => 'source_changed', 'value' => 'Willkommen', 'message' => ProjectTranslationGenerationIssue::SourceChanged->message()])
+        ->and($category->fresh()->name_translations)->toBe([$this->target => 'Willkommen'])
+        ->and(translationSourceOf($unit, $this->target)['reference'])->toBe('Welcome');
+});
+
 it('writes nothing for a suggestion whose unit is gone, and refuses one that is not ready', function () {
     $this->categories['A']->delete();
 

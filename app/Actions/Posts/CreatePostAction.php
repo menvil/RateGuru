@@ -3,6 +3,7 @@
 namespace App\Actions\Posts;
 
 use App\Actions\Moderation\MarkUserTrustedAction;
+use App\Actions\Traffic\RecordAccountBonusAction;
 use App\Data\Posts\CreatePostData;
 use App\Enums\MediaKind;
 use App\Enums\MediaStatus;
@@ -24,6 +25,7 @@ use App\Support\Media\ImageUploadStorer;
 use App\Support\Media\MediaAssetCreator;
 use App\Support\Observability\DomainLogger;
 use App\Support\Rating\RatingConfigurationManager;
+use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -129,6 +131,10 @@ final class CreatePostAction
 
                 if ($data->tagIds !== []) {
                     $post->tags()->sync($data->tagIds);
+                }
+
+                if ($publishedAt !== null) {
+                    app(RecordAccountBonusAction::class)->firstPostQuietly((int) $user->id, CarbonImmutable::instance($publishedAt));
                 }
 
                 if ($authorAnswers !== []) {

@@ -80,7 +80,7 @@
                             <div class="rg-admin-table__cell" role="columnheader">Status</div>
                             <div class="rg-admin-table__cell rg-admin-table__cell--numeric" role="columnheader" title="Attempts started in the last 30 days">Plays</div>
                             <div class="rg-admin-table__cell rg-admin-table__cell--numeric" role="columnheader" title="Attempts completed of those started in the last 30 days">Completion</div>
-                            <div class="rg-admin-table__cell rg-admin-table__cell--numeric" role="columnheader" title="New accounts of anonymous visitors in the last 30 days">Sign-ups</div>
+                            <div class="rg-admin-table__cell rg-admin-table__cell--numeric" role="columnheader" title="Plays of the last 30 days that reached their flow’s goal">Goal rate</div>
                             <div class="rg-admin-table__cell" role="columnheader">Last updated</div>
                             <div class="rg-admin-table__cell rg-admin-table__cell--end" role="columnheader">Actions</div>
                         </div>
