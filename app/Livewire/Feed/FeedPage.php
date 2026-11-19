@@ -2,6 +2,7 @@
 
 namespace App\Livewire\Feed;
 
+use App\Livewire\Concerns\CountsPostViews;
 use App\Models\RatingGroup;
 use App\Models\User;
 use App\Queries\Categories\ActiveCategorySlugsQuery;
@@ -9,6 +10,7 @@ use App\Queries\Feed\MatchedUsersQuery;
 use App\Services\Feed\FeedPostDeletionService;
 use App\Support\Feed\FeedAddress;
 use App\Support\Rating\RatingConfigurationManager;
+use App\Support\Settings\ProjectSettingsManager;
 use App\Support\View\AppLayoutData;
 use Illuminate\Contracts\View\View;
 use Illuminate\Support\Collection;
@@ -19,6 +21,8 @@ use Livewire\Component;
 
 class FeedPage extends Component
 {
+    use CountsPostViews;
+
     private RatingConfigurationManager $ratingConfiguration;
 
     private ActiveCategorySlugsQuery $activeCategorySlugs;
@@ -116,9 +120,17 @@ class FeedPage extends Component
     // split view a selection opens the inline detail column only on a desktop,
     // and below it the mobile overlay shows the post, so a phone must not
     // also load it into the hidden column.
+    //
+    // The detail column mounts a drawer of its own for the post, which never
+    // hears the selection, so the post is counted opened here — in the split
+    // view only: with posts opening in the overlay, the overlay counts it.
     public function selectPost(int $postId, ?string $focus = null): void
     {
         $this->selectedPostId = $postId;
+
+        if (! app(ProjectSettingsManager::class)->current()->featureFlag('post_detail_overlay_mode', false)) {
+            $this->countPostView($postId);
+        }
 
         $this->dispatch('post-selected', postId: $postId, focus: $focus);
     }
