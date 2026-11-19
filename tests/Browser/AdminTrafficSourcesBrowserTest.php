@@ -2,6 +2,7 @@
 
 use App\Actions\Traffic\SaveTrafficSourceAction;
 use App\Enums\TrafficBlockLevel;
+use App\Models\Game;
 use App\Models\ProjectSettings;
 use App\Models\TrafficBlock;
 use App\Models\TrafficCampaign;
@@ -21,8 +22,9 @@ use function Pest\Laravel\actingAs;
  * range the moment its end is picked; a fixed price's days in one calendar,
  * given an end by keys, left with none by No end and by closing after a
  * start, each saved as chosen; a campaign's price from the day clicked; a
- * source's blocked sites opened from its editor at the list itself; and a
- * source switched between the general block rule and its own thresholds.
+ * source's blocked sites opened from its editor at the list itself; copies
+ * said to be made only once the clipboard took them; and a source switched
+ * between the general block rule and its own thresholds.
  */
 beforeEach(function () {
     ProjectSettings::factory()->create();
@@ -294,6 +296,29 @@ it('says the ticked sites’ IDs were copied only when the clipboard took them',
     $page->script('(() => { navigator.clipboard.writeText = () => Promise.resolve() })()');
     $page->script("{$copy}.click()");
     waitForScript($page, "{$copy}.textContent.trim()", 'Copied');
+
+    $page->assertNoJavaScriptErrors();
+});
+
+it('says a network’s campaign link was copied only when the clipboard took it', function () {
+    TrafficSource::factory()->create(['name' => 'PopAds main']);
+    Game::factory()->create();
+    $page = visitAdminEditor('/admin/traffic-sources?tab=campaigns');
+    $copy = '[data-testid="traffic-get-link"] .rg-admin-button';
+
+    waitForScript($page, "document.querySelector('[data-testid=\"traffic-link\"]') !== null", true, 10.0);
+
+    // Refused: the toast says nothing was copied, never that it was.
+    $page->script("(() => { navigator.clipboard.writeText = () => Promise.reject(new DOMException('Denied', 'NotAllowedError')) })()");
+    $page->click($copy);
+    waitForScript($page, "document.querySelector('.rg-admin-toast')?.textContent.includes('nothing was copied') === true");
+    expect($page->script("document.body.textContent.includes('Link copied')"))->toBeFalse();
+
+    // Taken: the link as the page shows it, and Link copied.
+    $page->script('(() => { navigator.clipboard.writeText = (text) => { window.copiedLink = text; return Promise.resolve() } })()');
+    $page->click($copy);
+    waitForScript($page, "document.body.textContent.includes('Link copied')");
+    expect($page->script('window.copiedLink'))->toBe($page->script("document.querySelector('[data-testid=\"traffic-link\"]').textContent.trim()"));
 
     $page->assertNoJavaScriptErrors();
 });

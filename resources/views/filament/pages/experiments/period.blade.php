@@ -43,6 +43,9 @@
                     <a href="{{ $each['url'] }}" class="rg-admin-experiments__period" @if ($each['current']) aria-current="page" @endif>
                         <span class="rg-admin-experiments__period-dates">{{ $each['label'] }}</span>
                         <span class="rg-admin-experiments__period-mix">{{ $each['mix'] }}</span>
+                        @if ($each['scope'] !== null)
+                            <span class="rg-admin-experiments__period-scope">{{ $each['scope'] }}</span>
+                        @endif
                     </a>
                 @endforeach
             </nav>

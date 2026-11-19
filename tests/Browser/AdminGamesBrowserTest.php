@@ -185,6 +185,35 @@ it('saves a flow from the foot of the selected step’s settings once something 
     $page->assertNoJavaScriptErrors();
 });
 
+it('chooses a flow’s goal from the keyboard, and closes the goals back to Change', function () {
+    $page = visitAdminEditor(GameResource::getUrl('flow', ['record' => $this->draft['game']]), 1440);
+    $focused = 'document.activeElement?.dataset.testid ?? null';
+    $closed = "getComputedStyle(document.getElementById('rg-admin-games-goal-menu')).display === 'none' && document.querySelector('[data-testid=\"game-flow-goal-change\"]').getAttribute('aria-expanded') === 'false'";
+
+    // The goals open on the one in force: this flow follows its steps.
+    $page->keys('[data-testid="game-flow-goal-change"]', 'Enter');
+    waitForScript($page, $focused, 'game-flow-goal-option-steps', 10.0);
+    $page->keys(':focus', 'ArrowDown');
+    waitForScript($page, $focused, 'game-flow-goal-option-account', 10.0);
+    $page->keys(':focus', 'ArrowUp');
+    waitForScript($page, $focused, 'game-flow-goal-option-steps', 10.0);
+    $page->keys(':focus', 'Escape');
+    waitForScript($page, $focused, 'game-flow-goal-change', 10.0);
+    waitForScript($page, $closed, true, 10.0);
+
+    // Down opens them too; End and Enter choose the last goal, back on Change.
+    $page->keys('[data-testid="game-flow-goal-change"]', 'ArrowDown');
+    waitForScript($page, $focused, 'game-flow-goal-option-steps', 10.0);
+    $page->keys(':focus', 'End');
+    waitForScript($page, $focused, 'game-flow-goal-option-completed', 10.0);
+    $page->keys(':focus', 'Enter');
+    waitForScript($page, "document.querySelector('.rg-admin-games__goal-name')?.textContent.trim()", 'Game finished', 10.0);
+    waitForScript($page, $focused, 'game-flow-goal-change', 10.0);
+    waitForScript($page, $closed, true, 10.0);
+
+    $page->assertNoJavaScriptErrors();
+});
+
 it('opens every unpublished change from the keyboard, and keeps the list open while the page draws again', function () {
     liveGame($this->draft);
     $this->travel(1)->minutes();

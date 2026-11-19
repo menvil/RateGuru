@@ -133,11 +133,12 @@ plays, completion and sign-ups of the last 30 days.
 The game's own records know no device or country: those come from the visits
 Traffic sources recorded. With a **Device** or **Country** chosen — a country,
 or a country group of Value → Country groups, the last group holding every
-other country and the visits whose country isn't known — every card counts
-only what came on such a visit: a play by the visit it started on, a visitor
-by their visits of the game (a logged-in player by a browser they signed up or
-in on, or by the visit a play of theirs came on). Plays with no recorded visit
-— before Record visits was switched on, say — drop out, and the page says so.
+other country and the visits whose country isn't known — every card but
+Traffic periods counts only what came on such a visit: a play by the visit it
+started on, a visitor by their visits of the game (a logged-in player by a
+browser they signed up or in on, or by the visit a play of theirs came on).
+Plays with no recorded visit — before Record visits was switched on, say —
+drop out, and the page says so.
 The Traffic sources card's own device switch is there only while the page is
 of every device.
 
@@ -146,12 +147,14 @@ its versions can be compared yet: **One version** when only one had a share,
 **No visitors yet** while nobody has been sent to a version, **Too early**
 until every version has 10 confirmed accounts (logged-in players
 make none, so their goals reached count instead) — the bar the comparison of
-versions on paid traffic uses — and **Enough data** after. A split for a source
-is listed by its source and campaign, and the general split beside one as
-"Everyone else". **Results** opens the period in Growth → Experiments, where
-its versions are compared metric by metric (docs/admin/experiments.md); the
-same link is on each period of the Traffic tab. A period deleted there stays
-listed here.
+versions on paid traffic uses — and **Enough data** after. Each period is read
+whole, as Growth → Experiments reads it: all of its visitors, whatever the
+days, device and country chosen for the rest of the page, and the card says
+so. A split for a source is listed by its source and campaign, and the general
+split beside one as "Everyone else". **Results** opens the period in Growth →
+Experiments, where its versions are compared metric by metric
+(docs/admin/experiments.md); the same link is on each period of the Traffic
+tab. A period deleted there stays listed here.
 
 The same analytics, with a chooser of the games not archived, is Growth →
 Analytics → **Games** (docs/admin/analytics.md), read for the period and device
@@ -161,8 +164,11 @@ and whether their accounts come back (Retention).
 
 The funnel counts people: someone who played three times started once. Each
 step's rate says what it is a share of — Played again, for instance, is of the
-players who started, not of those who shared. Completion is the share of plays
-finished, replays included. Between the finished players and the new accounts,
+players who started, not of those who shared. **Completed** above it counts
+people too; for logged-in players its note also says how many plays were
+finished, replays included. Email captured is of the people who finished a
+version that asks for an email, each once however many such versions they
+finished. Between the finished players and the new accounts,
 **Sign-up begun** shows who started signing up from the game and how — email,
 Google, Facebook, the site's sign-up dialog or Log in.
 

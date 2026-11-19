@@ -6,7 +6,7 @@
     <legend class="rg-admin-label">{{ $label }}</legend>
     @foreach ($options as $optionValue => $optionLabel)
         <label @class(['rg-admin-games__radio-row', 'rg-admin-games__radio-row--on' => (string) $value === (string) $optionValue])>
-            <input type="radio" value="{{ $optionValue }}" wire:model.live="{{ $model }}" />
+            <input type="radio" name="{{ $model }}" value="{{ $optionValue }}" wire:model.live="{{ $model }}" />
             {{ $optionLabel }}
         </label>
     @endforeach

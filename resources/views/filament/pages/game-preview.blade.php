@@ -130,8 +130,11 @@
 
             <div class="rg-admin-games__preview-actions">
                 @if ($testLink !== null)
-                    {{-- Copied from the page as drawn, so the click itself writes the clipboard: a browser lets only a click do that. --}}
-                    <x-admin.ui.button size="sm" icon="link" :data-copy="$testLink" :data-copied="'Test link copied. It plays '.$testLabel.' for 7 days and records nothing.'" data-testid="game-preview-test-link" x-on:click="navigator.clipboard?.writeText($el.dataset.copy).then(() => $dispatch('rg-admin-toast', { message: $el.dataset.copied, tone: 'success' }))">Copy test link</x-admin.ui.button>
+                    {{--
+                        Copied from the page as drawn, so the click itself writes the clipboard: a browser lets only a click do that.
+                        Says it was copied only once the clipboard took it: the write can be refused, and there is no clipboard outside a secure page.
+                    --}}
+                    <x-admin.ui.button size="sm" icon="link" :data-copy="$testLink" :data-copied="'Test link copied. It plays '.$testLabel.' for 7 days and records nothing.'" data-testid="game-preview-test-link" x-on:click="async () => { try { await navigator.clipboard.writeText($el.dataset.copy); $dispatch('rg-admin-toast', { message: $el.dataset.copied, tone: 'success' }) } catch { $dispatch('rg-admin-toast', { message: 'The browser refused the clipboard, so nothing was copied.', tone: 'error' }) } }">Copy test link</x-admin.ui.button>
                 @endif
                 <x-admin.ui.button size="sm" icon="rotate-ccw" x-on:click="restart()">Restart</x-admin.ui.button>
                 <x-admin.ui.button size="sm" icon="external-link" :href="$frameUrl" target="_blank">Open</x-admin.ui.button>

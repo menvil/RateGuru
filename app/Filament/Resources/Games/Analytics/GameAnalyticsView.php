@@ -104,8 +104,10 @@ final class GameAnalyticsView
         $worthBefore = $before !== null ? self::sum(collect($reports->gameBreakdown((int) $game->id, $before, $from, $visits))->filter($ofVersion)) : null;
         $goals = ($versionId !== null ? $versions->only([$versionId]) : $versions)->map(fn (GameVersion $version): string => $version->flowGoal()->label())->unique()->values();
         // Of the versions the figures are of: the one chosen, or every one.
-        $emailVersions = ($versionId !== null ? $versions->only([$versionId]) : $versions)->filter(fn (GameVersion $version): bool => $version->asksAnonymousForEmail())->keys()->all();
-        $finishedWithEmail = array_sum(array_map(fn (GameFunnel $funnel): int => $funnel->finishers, array_intersect_key($byVersion, array_flip($emailVersions))));
+        $ofScope = $versionId !== null ? $versions->only([$versionId]) : $versions;
+        $emailVersions = $ofScope->filter(fn (GameVersion $version): bool => $version->asksAnonymousForEmail())->keys()->all();
+        // Each person once, however many of those versions they finished.
+        $finishedWithEmail = count($emailVersions) === $ofScope->count() ? $total->finishers : $metrics->finishers($scope, $emailVersions);
         $focus = $versionId !== null ? $versions->get($versionId) : self::busiest($versions, $byVersion);
         $other = $audience === GameAudience::Anonymous ? GameAudience::Authenticated : GameAudience::Anonymous;
         $visitorCounts = [$audience->value => $total->visitors, $other->value => $metrics->visitors($scope->with(audience: $other))];
@@ -237,7 +239,8 @@ final class GameAnalyticsView
      * version's new visitors, how far they got, its accounts, what an account
      * cost and what a visitor was worth, with the share it has now; and the
      * two that bring the most accounts per new visitor compared — whether one
-     * brings more, or it is too early to say (TwoProportionTest).
+     * brings more, or it is too early to say (TwoProportionTest). A source
+     * chosen that sent nobody in the window stays chosen, with no rows.
      *
      * @param  Collection<int, array{channel: string, source_id: int|null, version_id: int|null, device: string, first_at: CarbonImmutable, figures: ReportFigures}>  $traffic
      * @param  Collection<int, GameVersion>  $versions
@@ -252,7 +255,8 @@ final class GameAnalyticsView
             return null;
         }
 
-        $names = TrafficSource::query()->whereIn('id', $paid->pluck('source_id')->unique())->orderBy('name')->pluck('name', 'id');
+        // The source chosen stays a choice though it sent nobody in this window, so the menu, the address and the card agree.
+        $names = TrafficSource::query()->whereIn('id', $paid->pluck('source_id')->when($sourceId > 0, fn (Collection $ids) => $ids->push($sourceId))->unique()->values())->orderBy('name')->pluck('name', 'id');
         $sourceId = $names->has($sourceId) ? $sourceId : 0;
         $rows = $sourceId === 0 ? $paid : $paid->where('source_id', $sourceId);
         // The shares the chosen source's clicks get now: its own split's when it has one, else the general split's.
@@ -849,13 +853,18 @@ final class GameAnalyticsView
             ->all();
     }
 
-    /** What Traffic periods shows, and when its versions can be compared. */
+    /**
+     * What Traffic periods shows, and when its versions can be compared: each
+     * period read whole, as Growth → Experiments reads it, whatever the days,
+     * device and country the rest of the page is narrowed to.
+     */
     private static function periodsNote(GameAudience $audience, ?string $version): string
     {
         $enough = TwoProportionTest::MIN_ACCOUNTS.' '.($audience === GameAudience::Anonymous ? 'accounts' : 'players who reached the goal');
 
         return 'A new period starts whenever the shares change. Versions are only a fair comparison inside one period, and only once each has '.$enough.', as the versions comparison asks.'
-            .($version !== null ? ' Periods '.$version.' had a share in, with every version’s share and '.$version.'’s figures only.' : '');
+            .($version !== null ? ' Periods '.$version.' had a share in, with every version’s share and '.$version.'’s figures only.' : '')
+            .' Each period counts all of its own visitors, whatever the days, device and country chosen above.';
     }
 
     private static function percent(int $part, int $whole): string

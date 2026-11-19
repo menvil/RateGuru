@@ -165,5 +165,20 @@ it('picks a custom range in the period picker’s own calendar with two clicks, 
     waitForScript($page, "getComputedStyle(document.querySelector('{$panel}')).display", 'none');
     expect(analyticsScreen($page)['search'])->toBe('?from='.$first->toDateString().'&to='.$last->toDateString());
 
+    // A start picked, then Escape from a preset, outside the calendar: the start goes with the panel, and reopened it shows the range taken.
+    $taken = $first->format($first->year === $last->year ? 'd M' : 'd M Y').' — '.$last->format('d M Y').' · 16 days';
+    $page->click('#rg-admin-analytics-period');
+    waitForScript($page, "getComputedStyle(document.querySelector('{$panel}')).display !== 'none'");
+    waitForScript($page, $status, $taken);
+    $page->click(dateRangeDayButton($page, $panel, $first->addDay()));
+    waitForScript($page, $status, 'From '.$first->addDay()->format('d M Y').' · pick the end date');
+    $page->script("document.querySelector('{$panel} .rg-admin-period__preset').focus()");
+    $page->keys(':focus', 'Escape');
+    waitForScript($page, "getComputedStyle(document.querySelector('{$panel}')).display", 'none');
+    $page->click('#rg-admin-analytics-period');
+    waitForScript($page, "getComputedStyle(document.querySelector('{$panel}')).display !== 'none'");
+    expect($page->script($status))->toBe($taken)
+        ->and(analyticsScreen($page)['search'])->toBe('?from='.$first->toDateString().'&to='.$last->toDateString());
+
     $page->assertNoJavaScriptErrors();
 });

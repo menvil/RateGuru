@@ -60,8 +60,11 @@
             </div>
             <p class="rg-admin-traffic__mono rg-admin-traffic__link" data-testid="traffic-link">{{ $link }}</p>
             <div class="rg-admin-traffic__link-foot">
-                {{-- The link rides in an attribute: Blade compiles no directive inside a component's attribute. --}}
-                <x-admin.ui.button size="sm" icon="copy" :data-copy="$link" x-data x-on:click="navigator.clipboard?.writeText($el.dataset.copy).then(() => $dispatch('rg-admin-toast', { message: 'Link copied', tone: 'success' }))">Copy link</x-admin.ui.button>
+                {{--
+                    The link rides in an attribute: Blade compiles no directive inside a component's attribute.
+                    Says Link copied only once the clipboard took it: the write can be refused, and there is no clipboard outside a secure page.
+                --}}
+                <x-admin.ui.button size="sm" icon="copy" :data-copy="$link" x-data x-on:click="async () => { try { await navigator.clipboard.writeText($el.dataset.copy); $dispatch('rg-admin-toast', { message: 'Link copied', tone: 'success' }) } catch { $dispatch('rg-admin-toast', { message: 'The browser refused the clipboard, so nothing was copied.', tone: 'error' }) } }">Copy link</x-admin.ui.button>
                 <span class="rg-admin-traffic__note">The same link for every {{ $linkSourceName }} campaign of this game. rg_src={{ $linkKey }} names the source; its tokens fill in the campaign, site, zone and cost.</span>
             </div>
         @endif

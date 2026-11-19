@@ -163,6 +163,9 @@ final class ExperimentsView
         $ended = $period->ended_at !== null;
         $days = self::days($period, $today);
         $scope = $this->scopes->labels([$period])[(int) $period->id] ?? null;
+        $siblings = $this->periods->siblings($period);
+        // The general split's periods each say whether a split ran beside them; a split's own are named by the heading.
+        $siblingScopes = $period->source_id === null ? $this->scopes->labels($siblings) : [];
 
         return [
             'notFound' => false,
@@ -175,9 +178,10 @@ final class ExperimentsView
             'state' => ['label' => $state->label(), 'tone' => $state->tone()],
             'meta' => self::dates($period, false).' · '.number_format($days).' '.str('day')->plural($days).' · '.number_format($visitors).' '.str('visitor')->plural($visitors),
             'group' => implode(' · ', array_filter([mb_strtolower($audience->label()), $period->source_id === null ? null : $scope])),
-            'switcher' => $this->periods->siblings($period)->map(fn (GameTrafficPeriod $each): array => [
+            'switcher' => $siblings->map(fn (GameTrafficPeriod $each): array => [
                 'label' => self::dates($each, true, $today),
                 'mix' => self::mix($each),
+                'scope' => $siblingScopes[(int) $each->id] ?? null,
                 'current' => (int) $each->id === (int) $period->id,
                 'url' => ExperimentsPage::getUrl(['period' => $each->id]),
             ])->values()->all(),

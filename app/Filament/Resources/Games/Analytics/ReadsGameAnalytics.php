@@ -5,6 +5,7 @@ namespace App\Filament\Resources\Games\Analytics;
 use App\Enums\GameAudience;
 use App\Models\GameVersion;
 use App\Models\TrafficPriceSet;
+use App\Models\TrafficSource;
 use Livewire\Attributes\Url;
 
 /**
@@ -34,7 +35,7 @@ trait ReadsGameAnalytics
     #[Url(as: 'by', except: 'version')]
     public string $breakdown = 'version';
 
-    /** Versions on paid traffic: every paid source ('0'), or one by id, as text like the version. */
+    /** Versions on paid traffic: every paid source ('0'), or one of Traffic sources by id, as text like the version. */
     #[Url(as: 'paid', except: '0')]
     public mixed $paidSource = '0';
 
@@ -52,7 +53,9 @@ trait ReadsGameAnalytics
         $this->audience = (GameAudience::tryFrom($this->audience) ?? GameAudience::Anonymous)->value;
         $version = is_numeric($this->version) ? (int) $this->version : 0;
         $this->version = (string) ($version > 0 && GameVersion::query()->where('game_id', $gameId)->whereKey($version)->exists() ? $version : 0);
-        $this->paidSource = (string) (is_numeric($this->paidSource) ? max(0, (int) $this->paidSource) : 0);
+        // A paid source that is one, kept chosen though the period has no traffic of it; anything else is every paid source.
+        $paidSource = is_numeric($this->paidSource) ? (int) $this->paidSource : 0;
+        $this->paidSource = (string) ($paidSource > 0 && TrafficSource::query()->whereKey($paidSource)->exists() ? $paidSource : 0);
         $this->country = GameAnalyticsView::country($this->country, TrafficPriceSet::current()->country_groups);
         $this->breakdown = array_key_exists($this->breakdown, GameAnalyticsView::BREAKDOWNS) ? $this->breakdown : 'version';
         $this->sourcesDevice = in_array($this->sourcesDevice, ['mobile', 'desktop'], true) ? $this->sourcesDevice : 'all';

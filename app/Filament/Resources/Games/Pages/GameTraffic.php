@@ -276,6 +276,8 @@ final class GameTraffic extends Page
             return;
         }
 
+        $ended = $this->openSplitPeriod($periodId)?->scope();
+
         try {
             app(EndGameTrafficSplitAction::class)->handle($this->admin(), $game, $periodId);
         } catch (CannotManageGameException $exception) {
@@ -284,7 +286,8 @@ final class GameTraffic extends Page
             return;
         }
 
-        if ($this->split !== null && $this->splitScope() !== null) {
+        // Only a form of the split ended is drawn again; one of another split keeps what is typed in it.
+        if ($this->split !== null && $ended !== null && $this->splitScope()?->equals($ended) === true) {
             $this->updatedSplit($this->split['campaign'], 'campaign');
         }
 
@@ -373,8 +376,9 @@ final class GameTraffic extends Page
     /**
      * The split form as drawn: the sources of Traffic sources to choose from
      * — ad networks and banners, none ended unless the split is already for
-     * it — the chosen source's campaigns not archived, and the shares checked
-     * the way saving checks them.
+     * it — the chosen source's latest 200 campaigns not archived, and the one
+     * chosen whatever its age or status, and the shares checked the way saving
+     * checks them.
      *
      * @param  Collection<int|string, GameVersion>  $versions
      * @param  Collection<int|string, GameVersion>  $active
@@ -390,12 +394,17 @@ final class GameTraffic extends Page
             ->where(fn ($query) => $query->where('status', '!=', TrafficSourceStatus::Ended->value)->orWhere('id', $sourceId))
             ->orderBy('name')
             ->get(['id', 'name', 'type']);
+        $campaignId = is_numeric($split['campaign']) ? (int) $split['campaign'] : 0;
         $campaigns = $sourceId === 0 ? collect() : TrafficCampaign::query()
             ->where('source_id', $sourceId)
-            ->where(fn ($query) => $query->where('status', '!=', TrafficCampaignStatus::Archived->value)->orWhere('id', is_numeric($split['campaign']) ? (int) $split['campaign'] : 0))
+            ->where('status', '!=', TrafficCampaignStatus::Archived->value)
             ->orderByDesc('first_click_at')
             ->limit(200)
             ->get(['id', 'source_id', 'external_id', 'name']);
+        // The campaign chosen is offered whatever the cap leaves out: an older one, or one archived since.
+        $chosen = $sourceId === 0 || $campaignId === 0 || $campaigns->contains('id', $campaignId) ? null
+            : TrafficCampaign::query()->whereKey($campaignId)->where('source_id', $sourceId)->first(['id', 'source_id', 'external_id', 'name']);
+        $campaigns = $chosen === null ? $campaigns : $campaigns->prepend($chosen);
         $scope = $this->splitScope();
         $issues = match (true) {
             $scope === null => ['Choose a source for the split.'],

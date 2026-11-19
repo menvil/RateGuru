@@ -995,7 +995,7 @@ select:disabled {
         cursor: pointer;
     }
 
-    /* Just the box, in the accent when ticked: no frame of its own, and no ring when clicked or tapped. */
+    /* Just the box, in the accent when ticked: no frame of its own, no ring when clicked or tapped, the accent's ring when reached by keyboard. */
     .rg-game__check > input {
         flex: none;
         width: 20px;
@@ -1010,10 +1010,15 @@ select:disabled {
         accent-color: var(--rg-accent);
     }
 
-    .rg-game__check > input:focus,
-    .rg-game__check > input:checked:focus {
+    .rg-game__check > input:focus:not(:focus-visible) {
         box-shadow: none;
         outline: none;
+    }
+
+    .rg-game__check > input:focus-visible {
+        outline: 2px solid var(--rg-accent);
+        outline-offset: 2px;
+        box-shadow: none;
     }
 
     /* Sign-up on the result: the second ground, radius 18. */

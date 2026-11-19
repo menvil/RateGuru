@@ -352,9 +352,10 @@ every country the others don't name and an unknown one.
 The funnel counts people at every step, and each step's rate names the step it
 is a share of — not always the one above it: Sign-up begun and New accounts
 are shares of the people who completed, Email captured of those who finished a
-version that asks for an email, and Played again of the players who started.
-The plays behind it — and how many of them were completed — are the
-Completion figure's.
+version that asks for an email (each person once, however many such versions
+they finished), and Played again of the players who started. The Completed
+figure counts people as well; for logged-in players its note counts the plays
+behind it, and how many of them were completed.
 
 Goal reached counts the attempts of the window that reached their flow's goal,
 however late — an account confirmed within 7 days on any page of the site

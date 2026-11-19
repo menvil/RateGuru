@@ -47,7 +47,8 @@ Traffic periods card of its Analytics has a **Results** link to the same page.
   campaign; whether the period is current or ended; the data badge; and the
   days, shares and visitors.
 - **Periods for …** switches to the other periods of the same game, audience
-  and split.
+  and split. Each of the general split's says "Everyone else" when a split ran
+  beside it, so it reads apart from one that had every visitor.
 - A strip says what the figures show so far: enough data in every version
   (read the metrics together — a version can capture more emails and still
   activate fewer users), too early and what each version still lacks, only one

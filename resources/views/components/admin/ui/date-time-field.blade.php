@@ -91,10 +91,12 @@
     $long = fn (\Carbon\CarbonImmutable $at): string => $at->format($dateOnly ? 'D d M Y' : ($at->second === 0 ? 'D d M Y · H:i' : 'D d M Y · H:i:s'));
     // Wall-clock seconds, as the browser counts them: a day is always 24 hours.
     $wall = fn (\Carbon\CarbonImmutable $at): int => \Carbon\CarbonImmutable::parse($at->format('Y-m-d H:i:s'), 'UTC')->getTimestamp();
+    // The calendar day alone, counted the same way: a day whose midnight daylight saving skips starts at 01:00.
+    $day = fn (\Carbon\CarbonImmutable $at): int => \Carbon\CarbonImmutable::parse($at->format('Y-m-d'), 'UTC')->getTimestamp();
     $relative = null;
 
     if ($chosen !== null && $dateOnly) {
-        $days = intdiv($wall($chosen) - $wall($now->startOfDay()), 86400);
+        $days = intdiv($day($chosen) - $day($now), 86400);
         $count = fn (int $number, string $unit): string => $number.' '.$unit.($number === 1 ? '' : 's');
         $span = match (true) {
             abs($days) < 60 => $count(abs($days), 'day'),
@@ -261,7 +263,7 @@
             return (this.minimum === null || at >= this.minimum) && (this.maximum === null || at <= this.maximum)
         },
         clamp(at) {
-            return Math.min(this.maximum ?? at, Math.max(this.minimum ?? at, at))
+            return Math.min(this.maximum ?? Infinity, Math.max(this.minimum ?? -Infinity, at))
         },
         dayOf(at) {
             return at - (((at % this.dayLength) + this.dayLength) % this.dayLength)

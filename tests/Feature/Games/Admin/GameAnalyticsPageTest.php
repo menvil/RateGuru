@@ -15,6 +15,7 @@ use App\Livewire\Games\PlayGame;
 use App\Models\AccountAttribution;
 use App\Models\GameAssignment;
 use App\Models\GameAttempt;
+use App\Models\GameEmailCapture;
 use App\Models\GameEvent;
 use App\Models\GameTrafficPeriod;
 use App\Models\GameVersion;
@@ -97,9 +98,10 @@ it('shows what two guests did: one opened the game, the other played it through'
         ->and(collect($page->viewData('funnel'))->pluck('rateOf', 'label')->all())
         ->toBe(['Visitors' => null, 'Game started' => 'of Visitors', 'Completed' => 'of Game started', 'Sign-up begun' => 'of Completed', 'Goal reached' => 'of Game started', 'Account confirmed' => 'of Completed']);
 
-    // The funnel counts people, and says so.
+    // The funnel counts people, and says so; so does Completed above it, for anonymous visitors.
     $page->assertSee('each counted once')
         ->assertDontSee('counts the attempts started')
+        ->assertDontSee('counts plays')
         ->assertSeeHtml('<span class="rg-admin-table__meta">of Game started</span>');
 
     // Split by flow: the flow and the versions made from it.
@@ -146,6 +148,30 @@ it('counts the emails of versions that ask for one', function () {
         ->assertSeeInOrder(['Email captured', '1', '100.0%']);
 });
 
+it('counts each person who finished a version asking for an email once, however many such versions they finished', function () {
+    $resultFirst = $this->draft['flow'];
+    $this->draft['flow'] = app(ChangeGameFlowAction::class)->create($this->draft['admin'], $this->draft['game'], 'Email first', GameFlowTemplate::EmailBeforeResult);
+    $first = liveGame($this->draft);
+    $second = app(PublishGameVersionAction::class)->handle($this->draft['admin'], $this->draft['game']->fresh(), $this->draft['set']->id, $this->draft['flow']->id);
+    $finished = fn (GameVersion $version, string $guest): GameAttempt => GameAttempt::factory()->completed()->create(['version_id' => $version->id, 'visitor_hash' => hash('sha256', $guest)]);
+    // One guest finished both versions that ask for an email, and left one email.
+    $finished($first, 'guest-a');
+    $emailed = $finished($second, 'guest-a');
+    GameEmailCapture::query()->forceCreate(['attempt_id' => $emailed->id, 'game_id' => $this->draft['game']->id, 'email' => 'guest@example.test', 'captured_at' => now()]);
+    $this->actingAs($this->draft['admin']);
+    $captured = fn (): array => collect(Livewire::test(GameAnalytics::class, ['record' => $this->draft['game']->id])->viewData('funnel'))->firstWhere('label', 'Email captured');
+
+    expect($captured())->toMatchArray(['count' => '1', 'rate' => '100.0%', 'rateOf' => 'of finishers asked']);
+
+    // A version asking for none: its finishers are never asked; another guest finished one version that asks, and counts once.
+    $third = app(PublishGameVersionAction::class)->handle($this->draft['admin'], $this->draft['game']->fresh(), $this->draft['set']->id, $resultFirst->id);
+    $finished($third, 'guest-a');
+    $finished($third, 'guest-c');
+    $finished($second, 'guest-b');
+
+    expect($captured())->toMatchArray(['count' => '1', 'rate' => '50.0%']);
+});
+
 it('narrows the figures to one version, and to the window asked for', function () {
     $version = liveGame($this->draft);
     $cookie = (string) config('games.visitor_cookie.name');
@@ -186,7 +212,10 @@ it('names what each rate of the logged-in funnel is a share of: playing again is
 
     $page = Livewire::test(GameAnalytics::class, ['record' => $this->draft['game']->id])
         ->set('audience', 'authenticated')
-        ->assertSeeHtml('<span class="rg-admin-table__meta">of Game started</span>');
+        ->assertSeeHtml('<span class="rg-admin-table__meta">of Game started</span>')
+        // Completed above counts players, and its note the plays.
+        ->assertSee('0.0% of starters · 0 of 2 plays completed')
+        ->assertSee('The Completed note above counts plays too, replays included.');
     $funnel = collect($page->viewData('funnel'))->keyBy('label');
 
     expect($funnel['Played again'])->toMatchArray(['count' => '1', 'rate' => '100.0%', 'rateOf' => 'of Game started'])
@@ -256,6 +285,20 @@ it('compares the versions on paid traffic and shows every visitor by where they 
         ->assertSeeInOrder(['All visitors', '408']);
 
     expect(collect($page->viewData('sources')['groups'])->pluck('name')->all())->toBe(['Ad networks', 'Banners & links', 'Unpaid']);
+
+    // Days only the network sent paid traffic in: the banner stays chosen — in the menu, the address and the card, with nobody to show — rather than every paid source read under its name.
+    $day = now()->subDays(40)->toDateString();
+    $page->call('applyRange', $day, $day)
+        ->assertSet('paidSource', (string) $banner->id)
+        ->assertSee('No paid visitor reached a version in this period.')
+        ->assertViewHas('paid', fn (?array $paid): bool => $paid !== null
+            && $paid['source'] === (string) $banner->id
+            && array_column($paid['sources'], 'label', 'value') === ['0' => 'All paid sources', (string) $banner->id => 'Cat blog', (string) $network->id => 'PopAds main']
+            && $paid['rows'] === []
+            && str_starts_with($paid['note'], 'New visitors from Cat blog'));
+
+    // A source there is no such is every paid source, in the address too.
+    $page->call('$set', 'paidSource', '999999')->assertSet('paidSource', '0')->assertViewHas('paid', fn (?array $paid): bool => $paid !== null && $paid['source'] === '0');
 });
 
 it('lists only the traffic periods the version chosen had a share in, with every share but that version’s figures alone', function () {
@@ -447,9 +490,10 @@ it('reads the period from the address — a preset or a range of days — and th
     expect($started($page))->toBe('2');
 });
 
-it('narrows every card to the device and country chosen, says only plays on recorded visits count, and drops the sources card’s own device switch', function () {
+it('narrows every card but Traffic periods to the device and country chosen, says only plays on recorded visits count, and drops the sources card’s own device switch', function () {
     $version = liveGame($this->draft);
     $game = $this->draft['game'];
+    $period = GameTrafficPeriod::query()->where('game_id', $game->id)->where('audience', GameAudience::Anonymous->value)->whereNull('ended_at')->sole();
     $network = TrafficSource::factory()->create(['name' => 'PopAds main']);
     // A German phone that played and signed up, a French desktop that only opened the game.
     $visit = fn (string $guest, TrafficDevice $device, string $country, array $state = []) => TrafficVisit::factory()->create([
@@ -463,12 +507,21 @@ it('narrows every card to the device and country chosen, says only plays on reco
         (new GameEvent)->forceFill(['game_id' => $game->id, 'version_id' => $version->id, 'audience' => GameAudience::Anonymous, 'visitor_hash' => hash('sha256', $guest), 'type' => GameEventType::View, 'occurred_at' => now()])->save();
     }
 
+    // The phone and the desktop were both sent to the version in the same traffic period.
+    foreach (['guest-a', 'guest-b'] as $guest) {
+        GameAssignment::query()->forceCreate([
+            'game_id' => $game->id, 'audience' => GameAudience::Anonymous, 'visitor_hash' => hash('sha256', $guest),
+            'version_id' => $version->id, 'period_id' => $period->id, 'assigned_at' => now(), 'last_seen_at' => now(),
+        ]);
+    }
+
     GameAttempt::factory()->create(['version_id' => $version->id, 'visitor_hash' => hash('sha256', 'guest-a'), 'traffic_visit_id' => $german->id]);
     // A guest with no recorded visit, playing all the same.
     GameAttempt::factory()->create(['version_id' => $version->id, 'visitor_hash' => hash('sha256', 'guest-c')]);
     $this->actingAs($this->draft['admin']);
     $kpi = fn ($page, string $label): string => collect($page->viewData('kpis'))->firstWhere('label', $label)['value'];
     $signedUp = fn ($page): string => collect($page->viewData('signups')['figures'])->firstWhere('label', 'Signed up')['value'];
+    $periodVisitors = fn ($page): array => collect($page->viewData('periodRows'))->pluck('visitors')->all();
 
     $page = Livewire::test(GameAnalytics::class, ['record' => $game->id])
         ->assertViewHas('visitNote', null)
@@ -476,7 +529,8 @@ it('narrows every card to the device and country chosen, says only plays on reco
         ->assertSee('data-testid="game-traffic-sources-device"', false)
         // The paid sources are a menu now, for twenty and more.
         ->assertSee('Source: <span x-text="triggers[selected]">All paid</span>', false);
-    expect([$kpi($page, 'Visitors'), $kpi($page, 'Game started'), $signedUp($page)])->toBe(['3', '2', '1']);
+    expect([$kpi($page, 'Visitors'), $kpi($page, 'Game started'), $signedUp($page)])->toBe(['3', '2', '1'])
+        ->and($periodVisitors($page))->toBe(['2 visitors']);
 
     $page->set('device', 'mobile')
         ->assertSee('Only plays that came on a visit Traffic sources recorded are counted while a device or country is chosen.')
@@ -486,7 +540,10 @@ it('narrows every card to the device and country chosen, says only plays on reco
         ->assertViewHas('audienceCounts', ['anonymous' => '1', 'authenticated' => '0'])
         ->assertViewHas('sources', fn (array $sources): bool => $sources['total']['opened'] === 1)
         ->assertViewHas('paid', fn (array $paid): bool => collect($paid['rows'])->pluck('newVisitors')->all() === ['1']);
-    expect([$kpi($page, 'Visitors'), $kpi($page, 'Game started'), $signedUp($page)])->toBe(['1', '1', '1']);
+    expect([$kpi($page, 'Visitors'), $kpi($page, 'Game started'), $signedUp($page)])->toBe(['1', '1', '1'])
+        // Traffic periods reads each period whole, as Growth → Experiments does, and says so.
+        ->and($periodVisitors($page))->toBe(['2 visitors'])
+        ->and($page->viewData('periodsNote'))->toEndWith(' Each period counts all of its own visitors, whatever the days, device and country chosen above.');
 
     // A country, then the group it is in, then the price set's last group: every other country.
     $page->set('device', '')->set('country', 'FR');

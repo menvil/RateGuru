@@ -159,7 +159,7 @@
 
     @unless ($noData)
 
-    <x-admin.ui.card title="Funnel" description="People at every step, each counted once — someone who played three times started once — from the attempts started in this period, however late they finished. Completion above counts plays.">
+    <x-admin.ui.card title="Funnel" :description="'People at every step, each counted once — someone who played three times started once — from the attempts started in this period, however late they finished.'.($anonymous ? '' : ' The Completed note above counts plays too, replays included.')">
         <div class="rg-admin-table__scroll">
             <div @class(['rg-admin-table__grid rg-admin-games__funnel', 'rg-admin-games__funnel--compared' => $compared]) role="table" aria-label="Funnel">
                 <div class="rg-admin-table__row rg-admin-table__row--head" role="row">

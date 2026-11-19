@@ -56,17 +56,23 @@ it('names each split in Growth → Experiments, and the general split beside one
     ]);
 });
 
-it('titles a split’s page by its scope, and switches only between the periods of that scope', function (string $period, string $title, string $group, array $switcher) {
+it('titles a split’s page by its scope, and switches only between the periods of that scope', function (string $period, string $title, string $group, array $switcher, array $scopes) {
     $page = Livewire::withQueryParams(['period' => $this->{$period}->id])->test(ExperimentsPage::class)->call('load');
 
     expect($page->viewData('title'))->toBe($title)
         ->and($page->viewData('group'))->toBe($group)
-        ->and(collect($page->viewData('switcher'))->pluck('mix')->all())->toBe($switcher);
+        ->and(collect($page->viewData('switcher'))->pluck('mix')->all())->toBe($switcher)
+        // The general split's periods tell apart the one beside a split from the one before; a split's heading already names its scope.
+        ->and(collect($page->viewData('switcher'))->pluck('scope')->all())->toBe($scopes);
+
+    foreach (array_filter($scopes) as $scope) {
+        $page->assertSeeHtml('<span class="rg-admin-experiments__period-scope">'.$scope.'</span>');
+    }
 })->with([
-    'a campaign’s split' => ['campaign', 'Trust Your Taste · Anonymous visitors · PopAds main · Campaign 881377', 'anonymous visitors · PopAds main · Campaign 881377', ['V1 70% · V3 30%']],
-    'a source’s split' => ['exo', 'Trust Your Taste · Anonymous visitors · ExoClick tests', 'anonymous visitors · ExoClick tests', ['V2 50% · V3 50%']],
-    'the general split beside them' => ['general', 'Trust Your Taste · Anonymous visitors · Everyone else', 'anonymous visitors', ['V1 50% · V2 50%', 'V1 50% · V2 50%']],
-    'the general split before them' => ['before', 'Trust Your Taste · Anonymous visitors', 'anonymous visitors', ['V1 50% · V2 50%', 'V1 50% · V2 50%']],
+    'a campaign’s split' => ['campaign', 'Trust Your Taste · Anonymous visitors · PopAds main · Campaign 881377', 'anonymous visitors · PopAds main · Campaign 881377', ['V1 70% · V3 30%'], [null]],
+    'a source’s split' => ['exo', 'Trust Your Taste · Anonymous visitors · ExoClick tests', 'anonymous visitors · ExoClick tests', ['V2 50% · V3 50%'], [null]],
+    'the general split beside them' => ['general', 'Trust Your Taste · Anonymous visitors · Everyone else', 'anonymous visitors', ['V1 50% · V2 50%', 'V1 50% · V2 50%'], ['Everyone else', null]],
+    'the general split before them' => ['before', 'Trust Your Taste · Anonymous visitors', 'anonymous visitors', ['V1 50% · V2 50%', 'V1 50% · V2 50%'], ['Everyone else', null]],
 ]);
 
 it('names the split in Analytics → Experiments, its chip and its header', function () {
