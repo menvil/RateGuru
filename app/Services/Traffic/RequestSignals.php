@@ -1,8 +1,12 @@
 <?php
 
-namespace App\Support\Traffic\Capture;
+namespace App\Services\Traffic;
 
 use App\Support\Geo\GeoLookup;
+use App\Support\Traffic\Capture\BotSignals;
+use App\Support\Traffic\Capture\ChannelClassifier;
+use App\Support\Traffic\Capture\DeviceClassifier;
+use App\Support\Traffic\Capture\VisitorSignals;
 use Illuminate\Http\Request;
 
 /**

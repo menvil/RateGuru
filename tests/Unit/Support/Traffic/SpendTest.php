@@ -64,6 +64,14 @@ it('shares figures from the narrowest first, so the visits add up to them exactl
         ->and(array_sum(array_map('floatval', $plan['visits'])))->toEqualWithDelta(1.10, 1e-9);
 });
 
+it('shares a figure by price when a click carried a price of nothing, and equally when every one did', function () {
+    $fact = [['id' => 1, 'campaign_id' => null, 'site_ref' => '', 'zone_ref' => '', 'amount' => '1.00']];
+    $visit = fn (int $id, string $cost): array => ['id' => $id, 'campaign_id' => null, 'site_ref' => null, 'zone_ref' => null, 'cost' => $cost];
+
+    expect(SpendAllocator::plan($fact, [$visit(10, '0'), $visit(11, '1')])['visits'])->toBe([10 => '0.00000000', 11 => '1.00000000'])
+        ->and(SpendAllocator::plan($fact, [$visit(10, '0'), $visit(11, '0')])['visits'])->toBe([10 => '0.50000000', 11 => '0.50000000']);
+});
+
 it('reads a spend file, adding up repeated rows, or refuses the whole of it', function () {
     $file = SpendCsv::parse("\xEF\xBB\xBFDay;Amount;Campaign;Clicks\n2026-11-15;12.50;881204;900\n2026-11-15;0.50;881204;20\n2026-11-16;3;;\n", '2026-11-17');
     $broken = SpendCsv::parse("day,amount\n2026-11-15,12,5\n15.11.2026,3\n2026-11-30,1\n", '2026-11-17');
@@ -76,4 +84,26 @@ it('reads a spend file, adding up repeated rows, or refuses the whole of it', fu
         ->and($broken['rows'])->toBe([])
         ->and($broken['errors'])->toBe(['Row 2 has more cells than the header names. Write amounts with a point, such as 12.50, not a comma.', 'Row 3: “15.11.2026” isn’t a day written YYYY-MM-DD.', 'Row 4: 2026-11-30 hasn’t come yet.'])
         ->and(SpendCsv::parse("date,cost\n", '2026-11-17')['errors'][0])->toStartWith('The header has no “day” column.');
+});
+
+it('refuses a header that names a column twice, and keeps empty columns at the end', function () {
+    $twice = SpendCsv::parse("day,amount,amount\n2026-11-15,100,1\n", '2026-11-17');
+    $trailing = SpendCsv::parse("day;amount;;\n2026-11-15;1;;\n", '2026-11-17');
+
+    expect($twice['rows'])->toBe([])
+        ->and($twice['errors'])->toBe(['The header names “amount” more than once. Name each column once: day, amount, and if wanted campaign, site, zone, clicks, impressions.'])
+        ->and($trailing['errors'])->toBe([])
+        ->and($trailing['rows'])->toBe([['day' => '2026-11-15', 'campaign' => '', 'site' => '', 'zone' => '', 'amount' => '1.00000000', 'clicks' => null, 'impressions' => null]]);
+});
+
+it('adds up only rows of the same day, campaign, site and zone, as they are kept', function () {
+    $apart = SpendCsv::parse("day,amount,campaign,site\n2026-11-15,1,a|b,c\n2026-11-15,2,a,b|c\n", '2026-11-17');
+    $long = str_repeat('s', 120);
+    $cut = SpendCsv::parse("day,amount,site\n2026-11-15,1,{$long}x\n2026-11-15,2,{$long}y\n", '2026-11-17');
+
+    expect($apart['rows'])->toBe([
+        ['day' => '2026-11-15', 'campaign' => 'a|b', 'site' => 'c', 'zone' => '', 'amount' => '1.00000000', 'clicks' => null, 'impressions' => null],
+        ['day' => '2026-11-15', 'campaign' => 'a', 'site' => 'b|c', 'zone' => '', 'amount' => '2.00000000', 'clicks' => null, 'impressions' => null],
+    ])
+        ->and($cut['rows'])->toBe([['day' => '2026-11-15', 'campaign' => '', 'site' => $long, 'zone' => '', 'amount' => '3.00000000', 'clicks' => null, 'impressions' => null]]);
 });

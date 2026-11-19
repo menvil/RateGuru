@@ -100,8 +100,29 @@ it('checks a source’s link parameters', function () {
     ]);
 });
 
+it('refuses a token that would break the link it is pasted into', function () {
+    $token = 'A token looks like {name}, [NAME], ##NAME## or ${NAME}, as the network writes it.';
+
+    expect(LinkParams::violations([
+        ['kind' => 'click', 'label' => 'Click', 'param' => 'cid', 'token' => '##SUB_ID_SHORT(action)##', 'note' => ''],
+        ['kind' => 'campaign', 'label' => 'Campaign', 'param' => 'campaign', 'token' => '{a&b}', 'note' => ''],
+        ['kind' => 'site', 'label' => 'Site', 'param' => 'site', 'token' => '[a b]', 'note' => ''],
+        ['kind' => 'zone', 'label' => 'Zone', 'param' => 'zone', 'token' => '{a#b}', 'note' => ''],
+        ['kind' => 'cost', 'label' => 'Cost', 'param' => 'cost', 'token' => '{a=b?}', 'note' => ''],
+    ], TRAFFIC_RESERVED_PARAMS))->toBe([
+        ['index' => 1, 'field' => 'token', 'message' => $token],
+        ['index' => 2, 'field' => 'token', 'message' => $token],
+        ['index' => 3, 'field' => 'token', 'message' => $token],
+        ['index' => 4, 'field' => 'token', 'message' => $token],
+    ]);
+});
+
 describe('checking a link', function () {
-    $source = fn (string $key): ?array => $key === 'pop' ? ['id' => 3, 'name' => 'PopAds', 'link_params' => presetsFile()['presets']['popads']['link_params'], 'api_spend' => true] : null;
+    $source = fn (string $key): ?array => match ($key) {
+        'pop' => ['id' => 3, 'name' => 'PopAds', 'link_params' => presetsFile()['presets']['popads']['link_params'], 'api_spend' => true],
+        'adst' => ['id' => 4, 'name' => 'Adsterra', 'link_params' => presetsFile()['presets']['adsterra']['link_params'], 'api_spend' => false],
+        default => null,
+    };
     $game = fn (string $slug): ?string => $slug === 'trust-your-taste' ? 'Trust Your Taste' : null;
     $campaign = fn (int $sourceId, string $id): ?array => $id === '881204' ? ['name' => 'US popunder', 'archived' => true] : null;
 
@@ -119,10 +140,25 @@ describe('checking a link', function () {
             ->and(array_column($mixed->fields, 'state'))->toBe(['ok', 'token', 'missing', 'missing']);
     });
 
+    it('reads a network’s ##NAME## tokens as tokens, not as the start of a fragment', function () use ($source, $game, $campaign) {
+        $built = LinkInspector::inspect(TrackingLinkBuilder::forNetwork('https://rateguru.test/games/trust-your-taste', 'adst', presetsFile()['presets']['adsterra']['link_params']), 'rateguru.test', $source, $game, $campaign);
+        $typed = LinkInspector::inspect('https://rateguru.test/games/trust-your-taste?rg_src=adst&cid=##SUB_ID_SHORT(action)##&campaign=##CAMPAIGN_ID##&cost=##COST_CPM##', 'rateguru.test', $source, $game, $campaign);
+
+        expect($built->mode)->toBe('template')
+            ->and(array_column($built->fields, 'state'))->toBe(['token', 'token', 'token', 'token', 'token', 'token'])
+            ->and($built->fields[0]['value'])->toBe('##SUB_ID_SHORT(action)##')
+            ->and($built->extra)->toBe([])
+            ->and($typed->mode)->toBe('template')
+            ->and(array_column($typed->fields, 'state', 'param'))->toBe(['cid' => 'token', 'campaign' => 'token', 'site' => 'missing', 'zone' => 'missing', 'creative' => 'missing', 'cost' => 'token'])
+            ->and($typed->campaignId)->toBeNull();
+    });
+
     it('says what is missing from a broken one', function () use ($source, $game, $campaign) {
         $none = LinkInspector::inspect('https://elsewhere.test/feed', 'rateguru.test', $source, $game, $campaign);
         $unknown = LinkInspector::inspect('https://rateguru.test/games/nope?rg_src=exo', 'rateguru.test', $source, $game, $campaign);
         $noClick = LinkInspector::inspect('https://rateguru.test/games/trust-your-taste?rg_src=pop&campaign=5', 'rateguru.test', $source, $game, $campaign);
+        // An empty click ID is no click ID: the capture drops it, so the check warns of it the same way.
+        $emptyClick = LinkInspector::inspect('/games/trust-your-taste?rg_src=pop&cid=&campaign=5', 'rateguru.test', $source, $game, $campaign);
 
         expect($none->mode)->toBe('none')
             ->and(array_column($none->warnings, 'text'))->toBe([
@@ -132,6 +168,8 @@ describe('checking a link', function () {
             ])
             ->and(array_column($unknown->warnings, 'text'))->toBe(['No game has the address “nope”.', 'No source has the key “exo”. Check the key under Sources, or add the source first.'])
             ->and(array_column($noClick->warnings, 'text'))->toContain('No click id (cid=[IMPRESSIONID]): postbacks can’t tell PopAds which click it was.')
-            ->and(array_column($noClick->warnings, 'text'))->toContain('Campaign 5 isn’t known yet: this click adds it to the list as new, and it works at once.');
+            ->and(array_column($noClick->warnings, 'text'))->toContain('Campaign 5 isn’t known yet: this click adds it to the list as new, and it works at once.')
+            ->and($emptyClick->fields[0])->toMatchArray(['param' => 'cid', 'state' => 'missing'])
+            ->and(array_column($emptyClick->warnings, 'text'))->toContain('No click id (cid=[IMPRESSIONID]): postbacks can’t tell PopAds which click it was.');
     });
 });

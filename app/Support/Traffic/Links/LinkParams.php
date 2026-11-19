@@ -55,7 +55,9 @@ final class LinkParams
 
             $names[] = $name;
 
-            if ($token !== '' && (mb_strlen($token) > 120 || ! LinkTokenDetector::isToken($token))) {
+            // The link carries a token raw, so one holding a separator of the address would split it.
+            if ($token !== '' && (mb_strlen($token) > 120 || ! LinkTokenDetector::isToken($token) || preg_match('/[&=?\s]/', $token) === 1
+                || (! str_starts_with($token, '##') && str_contains($token, '#')))) {
                 $problems[] = ['index' => $index, 'field' => 'token', 'message' => 'A token looks like {name}, [NAME], ##NAME## or ${NAME}, as the network writes it.'];
             }
 

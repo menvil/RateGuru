@@ -6,7 +6,6 @@ use App\Actions\Traffic\MarkTrafficVisitAction;
 use App\Enums\GameMilestone;
 use App\Enums\TrafficEvent;
 use App\Events\Games\GameMilestoneReached;
-use App\Models\TrafficVisit;
 use App\Support\Traffic\Postbacks\MilestoneContext;
 use Carbon\CarbonImmutable;
 
@@ -41,7 +40,7 @@ final class RecordGameMilestoneOnVisit
         };
 
         if ($answered > 0) {
-            TrafficVisit::query()->whereKey($event->visitId)->where('rounds_answered', '<', $answered)->update(['rounds_answered' => $answered]);
+            $this->marks->answered($event->visitId, $answered);
         }
 
         $this->marks->handle($event->visitId, $traffic, $now, context: new MilestoneContext(

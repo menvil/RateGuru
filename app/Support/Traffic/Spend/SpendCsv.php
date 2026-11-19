@@ -50,6 +50,13 @@ final class SpendCsv
             return ['rows' => [], 'errors' => ['Unknown columns: '.implode(', ', $unknown).'. Use day, amount, campaign, site, zone, clicks and impressions.']];
         }
 
+        // A column named twice would lose one of its cells; empty names, from separators left at the end, may repeat.
+        $repeated = array_keys(array_filter(array_count_values(array_filter($header, fn (string $name): bool => $name !== '')), fn (int $times): bool => $times > 1));
+
+        if ($repeated !== []) {
+            return ['rows' => [], 'errors' => ["The header names “{$repeated[0]}” more than once. Name each column once: day, amount, and if wanted campaign, site, zone, clicks, impressions."]];
+        }
+
         if (count($lines) - 1 > self::MOST_ROWS) {
             return ['rows' => [], 'errors' => ['The file has more than '.number_format(self::MOST_ROWS).' rows. Split it by month.']];
         }
@@ -99,13 +106,15 @@ final class SpendCsv
                 continue;
             }
 
-            $key = implode('|', [$day, trim((string) ($cells['campaign'] ?? '')), trim((string) ($cells['site'] ?? '')), trim((string) ($cells['zone'] ?? ''))]);
+            // Rows are added up by what is kept of them, as a list, so no value can pass for two.
+            [$campaign, $site, $zone] = array_map(fn (string $column): string => mb_substr(trim((string) ($cells[$column] ?? '')), 0, 120), ['campaign', 'site', 'zone']);
+            $key = json_encode([$day, $campaign, $site, $zone], JSON_THROW_ON_ERROR);
             $previous = $rows[$key] ?? null;
             $rows[$key] = [
                 'day' => $day,
-                'campaign' => mb_substr(trim((string) ($cells['campaign'] ?? '')), 0, 120),
-                'site' => mb_substr(trim((string) ($cells['site'] ?? '')), 0, 120),
-                'zone' => mb_substr(trim((string) ($cells['zone'] ?? '')), 0, 120),
+                'campaign' => $campaign,
+                'site' => $site,
+                'zone' => $zone,
                 'amount' => TrafficMoney::stored(TrafficMoney::of($amount)->plus(TrafficMoney::of($previous['amount'] ?? 0))),
                 'clicks' => $clicks === null && ($previous['clicks'] ?? null) === null ? null : ($clicks ?? 0) + (int) ($previous['clicks'] ?? 0),
                 'impressions' => $impressions === null && ($previous['impressions'] ?? null) === null ? null : ($impressions ?? 0) + (int) ($previous['impressions'] ?? 0),

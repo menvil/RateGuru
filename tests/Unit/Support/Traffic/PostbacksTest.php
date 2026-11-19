@@ -91,7 +91,10 @@ it('keeps an answer that is not text as its size, so the log can always hold it'
     expect(PostbackResponse::excerpt($pixel))->toBe('[not text: 43 bytes]')
         ->and(PostbackResponse::excerpt("caf\xE9 ok"))->toBe('[not text: 7 bytes]')
         ->and(PostbackResponse::excerpt($pixel, 'X-PopAds-EC: 4 '))->toBe('X-PopAds-EC: 4 [not text: 43 bytes]')
-        ->and(PostbackResponse::excerpt("OK\n"))->toBe('OK');
+        ->and(PostbackResponse::excerpt("OK\n"))->toBe('OK')
+        // A header a rule reads is kept as text too, whatever bytes the network put in it.
+        ->and(PostbackResponse::excerpt('OK', "X-PopAds-EC: caf\xE9 "))->toBe('X-PopAds-EC: caf? OK')
+        ->and(mb_check_encoding(PostbackResponse::excerpt('OK', "X-PopAds-EC: caf\xE9 "), 'UTF-8'))->toBeTrue();
 });
 
 it('finds the switched-on rules that report to the same goal of the network', function (array $rules, array $shared) {
@@ -108,6 +111,10 @@ it('finds the switched-on rules that report to the same goal of the network', fu
     'a goal each, through {goal_code}' => [[
         ['event' => 'opened', 'goal_code' => 'abc', 'enabled' => true, 'url_template' => 'https://s.magsrv.com/tag.php?goal={goal_code}&tag={click_id}'],
         ['event' => 'completed', 'goal_code' => 'def', 'enabled' => true, 'url_template' => 'https://s.magsrv.com/tag.php?goal={goal_code}&tag={click_id}'],
+    ], []],
+    'goals told apart only by a plus and a space' => [[
+        ['event' => 'opened', 'goal_code' => 'signup+verified', 'enabled' => true, 'url_template' => 'https://pb.example.com/c?goal={goal_code}&id={click_id}'],
+        ['event' => 'completed', 'goal_code' => 'signup verified', 'enabled' => true, 'url_template' => 'https://pb.example.com/c?goal={goal_code}&id={click_id}'],
     ], []],
     'the event names the goal' => [[
         ['event' => 'opened', 'goal_code' => '', 'enabled' => true, 'url_template' => 'https://pb.example.com/c?id={click_id}&event={event}'],

@@ -51,7 +51,8 @@ it('sorts by any column with the key last, so equal rows keep their places, and 
 
     expect($first['rows'])->toHaveCount(25)
         ->and($first['rows'][0]['figures']->visits)->toBe(2)
-        ->and(array_column($first['rows'], 'key'))->toBe(array_column(SiteZoneList::of($rows, 'all', '', 0, 'visits', 'desc', 1)['rows'], 'key'))
+        ->and(array_slice(array_column($first['rows'], 'key'), 0, 6))->toBe(['1:site:11', '1:site:14', '1:site:17', '1:site:2', '1:site:20', '1:site:23'])
+        ->and(array_column(SiteZoneList::of(array_reverse($rows), 'all', '', 0, 'visits', 'desc', 1)['rows'], 'key'))->toBe(array_column($first['rows'], 'key'))
         ->and($last['page'])->toBe(2)
         ->and($last['rows'])->toHaveCount(5)
         ->and($first['pages'])->toBe(2)

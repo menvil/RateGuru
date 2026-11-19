@@ -5,8 +5,8 @@ namespace App\Http\Controllers\Traffic;
 use App\Actions\Traffic\RecordVisitSignalAction;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Traffic\VisitSignalRequest;
+use App\Services\Traffic\RequestSignals;
 use App\Support\Games\Play\GameVisitorResolver;
-use App\Support\Traffic\Capture\RequestSignals;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\Response;
 

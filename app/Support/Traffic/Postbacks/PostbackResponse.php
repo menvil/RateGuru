@@ -52,16 +52,17 @@ final class PostbackResponse
         return TrafficPostbackOutcome::HttpError;
     }
 
-    /** The first 255 bytes of an answer, without control characters, for the log. */
     /**
      * The start of an answer, to keep in the log: control characters as
      * spaces, and a body that is not text — a GIF pixel, a page in another
      * encoding — told as bytes, since a column of text can't hold them;
-     * after what the network said in a header a rule reads, when it did.
+     * after what the network said in a header a rule reads, when it did, a
+     * byte of it that is no text kept as "?".
      */
     public static function excerpt(string $body, string $said = ''): string
     {
         $text = mb_check_encoding($body, 'UTF-8') ? $body : '[not text: '.strlen($body).' bytes]';
+        $said = mb_check_encoding($said, 'UTF-8') ? $said : mb_scrub($said, 'UTF-8');
 
         return mb_strcut((string) preg_replace('/[\x00-\x1F\x7F]+/', ' ', trim($said.$text)), 0, 255);
     }
