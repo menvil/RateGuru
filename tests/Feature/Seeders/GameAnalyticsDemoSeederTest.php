@@ -88,9 +88,11 @@ it('plays the demo game\'s history through, every version on traffic, once', fun
         ->and(AccountAttribution::query()->whereNotNull('confirmed_at')->exists())->toBeTrue()
         ->and(TrafficVisit::query()->whereNotNull('signup_at')->whereNull('account_at')->exists())->toBeTrue();
 
-    // The recorded visit, played through: the same row, given the version it showed, its landing naming that version.
+    // The recorded visit, played through: the same row, opened seconds after it came (left alone, it would
+    // still be last seen when it arrived), given the version it showed, its landing naming that version.
     $replayed = $recorded->fresh();
-    expect($replayed->version_id)->not->toBeNull()
+    expect($replayed->last_seen_at->greaterThan($arrived))->toBeTrue()
+        ->and($replayed->version_id)->not->toBeNull()
         ->and($replayed->landing_key)->toBe(LandingRoute::key('games.play', (int) $game->id, (int) $replayed->version_id))
         ->and(TrafficVisit::query()->where('visitor_hash', $recorded->visitor_hash)->whereKeyNot($recorded->id)->whereBetween('arrived_at', [$arrived->subMinute(), $arrived->addMinute()])->exists())->toBeFalse();
 

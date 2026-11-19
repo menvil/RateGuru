@@ -10,8 +10,11 @@ Growth → Traffic sources (`/admin/traffic-sources`), for active administrators
 2. Switch on **Record visits** and save. Unpaid visits appear under Logs →
    Clicks, with their country and device. **Record site visits**, right under
    it, records the feed, posts, profiles, the static pages, signing in and up
-   and saved posts too — one visit a session (a new one each time the browser
-   comes from outside the site or after 30 minutes away), with the visitor
+   and saved posts too — one visit a session (a new session starts each time
+   the browser comes from another site, a search or a link with campaign tags
+   of its own, or after 30 minutes away; a move inside the site or a page
+   opened with no referrer — a bookmark, a typed address — within those 30
+   minutes continues it), with the visitor
    cookie on every such page and the posts it opens kept for 90 days,
    so update the privacy page first (below). It ships switched off. Those
    visits are for Growth → Analytics (docs/admin/analytics.md): nothing on

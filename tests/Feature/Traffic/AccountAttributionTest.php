@@ -270,23 +270,29 @@ it('records the first post within 30 days and a return on another day, once each
         ->and($click->fresh()->returned_at)->not->toBeNull();
 });
 
-it('keeps a return on the account’s record and on its visit together, in one transaction', function () {
+it('keeps a return on the account’s record and on its visit together: a mark that fails undoes both, to be tried again', function () {
     recordTraffic();
     $click = TrafficVisit::factory()->create(['visitor_hash' => $this->hash]);
     $member = registerIn($this->token);
-    $outside = DB::transactionLevel();
-    $levels = [];
-    DB::listen(function (QueryExecuted $query) use (&$levels): void {
-        if (str_starts_with(strtolower($query->sql), 'update') && preg_match('/account_attributions|traffic_visits/', $query->sql, $table) === 1) {
-            $levels[$table[0]][] = DB::transactionLevel();
+    $at = now()->addDay()->addHours(9)->toImmutable();
+    $failing = true;
+    // Marking the visit fails once, after the account's record was written.
+    DB::listen(function (QueryExecuted $query) use (&$failing): void {
+        if ($failing && str_starts_with(strtolower($query->sql), 'update') && str_contains($query->sql, 'traffic_visits')) {
+            $failing = false;
+
+            throw new RuntimeException('The visit cannot be marked.');
         }
     });
 
-    app(RecordAccountBonusAction::class)->returned($member->id, now()->addDay()->addHours(9)->toImmutable());
+    expect(fn () => app(RecordAccountBonusAction::class)->returned($member->id, $at))->toThrow(RuntimeException::class, 'The visit cannot be marked.')
+        ->and(AccountAttribution::query()->sole()->returned_at)->toBeNull()
+        ->and($click->fresh()->returned_at)->toBeNull();
 
-    expect($click->fresh()->returned_at)->not->toBeNull()
-        ->and(array_keys($levels))->toEqualCanonicalizing(['account_attributions', 'traffic_visits'])
-        ->and(min(array_merge(...array_values($levels))))->toBeGreaterThan($outside);
+    app(RecordAccountBonusAction::class)->returned($member->id, $at);
+
+    expect(AccountAttribution::query()->sole()->returned_at)->not->toBeNull()
+        ->and($click->fresh()->returned_at)->not->toBeNull();
 });
 
 it('looks for a return again once the account is old enough, not only the next day', function () {

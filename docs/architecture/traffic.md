@@ -74,7 +74,8 @@ from the site's own pages continues it; a page the session entered by,
 reached again from the same place — a reload — is the same visit. Every page
 of the site that shows no game is one visit of its session, the session's
 pages without a game sharing it, so a session leaves at most one such visit
-(an arrival from outside begins a new session, and with it a new one); a game
+(an arrival from another site, a search or with campaign tags of its own
+begins a new session, and with it a new one); a game
 reached from the feed is a visit inside the site, entered by the feed. While a
 paid click holds the browser, such a page records
 nothing and leaves the click as it was — it neither opens it nor keeps it from
