@@ -6,10 +6,12 @@
     'min' => null,
     'max' => null,
     'timezone' => null,
-    'placeholder' => 'Choose a date and time',
+    'placeholder' => null,
     'hint' => null,
     'error' => null,
     'required' => null,
+    'dateOnly' => false,
+    'quickPicks' => null,
 ])
 
 @php
@@ -27,6 +29,20 @@
      * exposed to wire:model and x-model (x-modelable); min and max, in the same
      * form, bound what Apply takes. What is taken is the server's to validate.
      *
+     * With `date-only` it is a day and nothing more, as a date input holds one:
+     * the value, min and max are Y-m-d, the trigger shows the day and how many
+     * days it is from today — never in the due colour, a past day being as
+     * ordinary as a coming one — and the dialog has no time, nor Apply and
+     * Cancel: a day clicked, or a quick pick, is taken at once and the dialog
+     * closes; Escape or a click outside leave the day as it was. Its quick
+     * picks are the ones named in `quick-picks`, from the days below, so each
+     * field offers those that make sense for it; a range of days is chosen in
+     * the date range field (x-admin.ui.date-range-field) instead.
+     *
+     * The dialog opens under the trigger, or over it when only there is room
+     * for all of it, within the window's bars and whatever panel around the
+     * field clips what overflows it — a drawer's scrolling body.
+     *
      * Keyboard: Enter, Space or Down on the trigger opens the dialog with focus
      * on the chosen day; the arrows move a day or a week, Home and End to the
      * week's ends, Page Up and Page Down a month (with Shift a year), Enter or
@@ -34,9 +50,27 @@
      */
     $id ??= 'rg-admin-field-'.\Illuminate\Support\Str::slug($name ?? $label);
     $timezone ??= (string) config('app.timezone');
+    $dateOnly = (bool) $dateOnly;
+    $placeholder ??= $dateOnly ? 'Choose a date' : 'Choose a date and time';
 
-    $parse = function (?string $text) use ($timezone): ?\Carbon\CarbonImmutable {
-        foreach (['Y-m-d\TH:i:s', 'Y-m-d\TH:i'] as $format) {
+    // The days a date-only field may offer as quick picks, each counted from today in `timezone`.
+    $dayPicks = [
+        'today' => 'Today',
+        'yesterday' => 'Yesterday',
+        'tomorrow' => 'Tomorrow',
+        'week-ago' => 'A week ago',
+        'in-a-week' => 'In a week',
+        'month-ago' => 'A month ago',
+        'in-a-month' => 'In a month',
+        'month-start' => 'Start of month',
+        'month-end' => 'End of month',
+    ];
+    $quickPicks = $dateOnly
+        ? array_map(fn (string $pick): array => ['key' => $pick, 'label' => $dayPicks[$pick] ?? throw new \InvalidArgumentException("No quick pick named {$pick}.")], $quickPicks ?? ['today', 'yesterday', 'tomorrow', 'week-ago', 'month-start'])
+        : [];
+
+    $parse = function (?string $text) use ($timezone, $dateOnly): ?\Carbon\CarbonImmutable {
+        foreach ($dateOnly ? ['Y-m-d'] : ['Y-m-d\TH:i:s', 'Y-m-d\TH:i'] as $format) {
             try {
                 $at = \Carbon\CarbonImmutable::createFromFormat('!'.$format, (string) $text, $timezone);
             } catch (\Carbon\Exceptions\InvalidFormatException) {
@@ -54,12 +88,27 @@
     // The trigger as the browser draws it, so it reads the same before the script runs.
     $now = \Carbon\CarbonImmutable::now($timezone);
     $chosen = $parse($value);
-    $long = fn (\Carbon\CarbonImmutable $at): string => $at->format($at->second === 0 ? 'D d M Y · H:i' : 'D d M Y · H:i:s');
+    $long = fn (\Carbon\CarbonImmutable $at): string => $at->format($dateOnly ? 'D d M Y' : ($at->second === 0 ? 'D d M Y · H:i' : 'D d M Y · H:i:s'));
     // Wall-clock seconds, as the browser counts them: a day is always 24 hours.
     $wall = fn (\Carbon\CarbonImmutable $at): int => \Carbon\CarbonImmutable::parse($at->format('Y-m-d H:i:s'), 'UTC')->getTimestamp();
     $relative = null;
 
-    if ($chosen !== null) {
+    if ($chosen !== null && $dateOnly) {
+        $days = intdiv($wall($chosen) - $wall($now->startOfDay()), 86400);
+        $count = fn (int $number, string $unit): string => $number.' '.$unit.($number === 1 ? '' : 's');
+        $span = match (true) {
+            abs($days) < 60 => $count(abs($days), 'day'),
+            abs($days) < 730 => $count((int) round(abs($days) / 30.4375), 'month'),
+            default => $count((int) round(abs($days) / 365.25), 'year'),
+        };
+        $relative = ['text' => match (true) {
+            $days === 0 => 'Today',
+            $days === 1 => 'Tomorrow',
+            $days === -1 => 'Yesterday',
+            $days > 0 => "in {$span}",
+            default => "{$span} ago",
+        }, 'past' => false];
+    } elseif ($chosen !== null) {
         $seconds = $wall($chosen) - $wall($now);
         $minutes = (int) round(abs($seconds) / 60);
         $days = (int) round($minutes / 1440);
@@ -88,12 +137,14 @@
 @endphp
 
 <div
-    {{ $attributes->except(['aria-describedby'])->class(['rg-admin-field', 'rg-admin-date-time']) }}
+    {{ $attributes->except(['aria-describedby'])->class(['rg-admin-field', 'rg-admin-date-time', 'rg-admin-date-time--date' => $dateOnly]) }}
     data-now="{{ $now->format('Y-m-d\TH:i:s') }}"
     x-data="{
         value: @js((string) $value),
         min: @js($min),
         max: @js($max),
+        dateOnly: @js($dateOnly),
+        quickPicks: @js($quickPicks),
         minimum: null,
         maximum: null,
         serverNow: null,
@@ -109,7 +160,7 @@
         weekdays: ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'],
         months: ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'],
         init() {
-            this.serverNow = this.parse(this.$root.dataset.now)
+            this.serverNow = this.parseMoment(this.$root.dataset.now)
             this.minimum = this.parse(this.min)
             this.maximum = this.parse(this.max)
             // How far the moment is from now, kept current while the page is open.
@@ -127,8 +178,11 @@
         pad(number) {
             return String(number).padStart(2, '0')
         },
-        {{-- Moments are wall-clock times in the field's time zone, counted as if in UTC: no daylight saving to step over. --}}
+        {{-- Moments are wall-clock times in the field's time zone, counted as if in UTC: no daylight saving to step over. A date-only field's are the starts of its days. --}}
         parse(text) {
+            return this.dateOnly ? this.parseDay(text) : this.parseMoment(text)
+        },
+        parseMoment(text) {
             const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?$/.exec(text ?? '')
 
             if (! match) {
@@ -138,9 +192,23 @@
             const [year, month, date, hour, minute, second] = match.slice(1).map((part) => Number(part ?? 0))
             const at = Date.UTC(year, month - 1, date, hour, minute, second)
 
-            return this.format(at) === text || this.format(at, true) === text ? at : null
+            return this.stamp(at) === text || this.stamp(at, true) === text ? at : null
+        },
+        parseDay(text) {
+            const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(text ?? '')
+
+            if (! match) {
+                return null
+            }
+
+            const at = Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]))
+
+            return this.format(at) === text ? at : null
         },
         format(at, seconds = false) {
+            return this.dateOnly ? this.stamp(at).slice(0, 10) : this.stamp(at, seconds)
+        },
+        stamp(at, seconds = false) {
             const date = new Date(at)
             const text = `${date.getUTCFullYear()}-${this.pad(date.getUTCMonth() + 1)}-${this.pad(date.getUTCDate())}T${this.pad(date.getUTCHours())}:${this.pad(date.getUTCMinutes())}`
 
@@ -149,13 +217,18 @@
         long(at) {
             const date = new Date(at)
             const seconds = date.getUTCSeconds() !== 0 ? `:${this.pad(date.getUTCSeconds())}` : ''
+            const day = `${this.weekdays[date.getUTCDay()].slice(0, 3)} ${this.pad(date.getUTCDate())} ${this.months[date.getUTCMonth()].slice(0, 3)} ${date.getUTCFullYear()}`
 
-            return `${this.weekdays[date.getUTCDay()].slice(0, 3)} ${this.pad(date.getUTCDate())} ${this.months[date.getUTCMonth()].slice(0, 3)} ${date.getUTCFullYear()} · ${this.pad(date.getUTCHours())}:${this.pad(date.getUTCMinutes())}${seconds}`
+            return this.dateOnly ? day : `${day} · ${this.pad(date.getUTCHours())}:${this.pad(date.getUTCMinutes())}${seconds}`
         },
         now() {
             return this.serverNow + (this.tick - this.loadedAt)
         },
         relative(at) {
+            if (this.dateOnly) {
+                return { text: this.daysAway(Math.round((this.dayOf(at) - this.dayOf(this.now())) / this.dayLength)), past: false }
+            }
+
             const seconds = (at - this.now()) / 1000
             const minutes = Math.round(Math.abs(seconds) / 60)
             const days = Math.round(minutes / 1440)
@@ -171,6 +244,15 @@
             }
 
             return seconds < 0 ? { text: `${span} ago · in the past`, past: true } : { text: `in ${span}`, past: false }
+        },
+        daysAway(days) {
+            const count = (number, unit) => `${number} ${unit}${number === 1 ? '' : 's'}`
+            const away = Math.abs(days)
+            const span = away < 60 ? count(away, 'day')
+                : away < 730 ? count(Math.round(away / 30.4375), 'month')
+                : count(Math.round(away / 365.25), 'year')
+
+            return days === 0 ? 'Today' : days === 1 ? 'Tomorrow' : days === -1 ? 'Yesterday' : (days > 0 ? `in ${span}` : `${span} ago`)
         },
         get chosen() {
             return this.parse(this.value)
@@ -208,6 +290,24 @@
             const now = this.now()
             const today = this.dayOf(now)
             const at = (days, hour) => today + days * this.dayLength + hour * 3600000
+
+            if (this.dateOnly) {
+                const date = new Date(today)
+                const first = (by) => Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + by, 1)
+                const days = {
+                    today,
+                    yesterday: at(-1, 0),
+                    tomorrow: at(1, 0),
+                    'week-ago': at(-7, 0),
+                    'in-a-week': at(7, 0),
+                    'month-ago': this.shiftMonths(today, -1),
+                    'in-a-month': this.shiftMonths(today, 1),
+                    'month-start': first(0),
+                    'month-end': first(1) - this.dayLength,
+                }
+
+                return this.quickPicks.map((pick) => ({ label: pick.label, moment: days[pick.key] }))
+            }
 
             return [
                 { label: 'Now', moment: now - (((now % 60000) + 60000) % 60000) },
@@ -319,10 +419,23 @@
             this.$nextTick(() => this.focusDay())
         },
         pickDay(day) {
+            // A day alone is taken the moment it is clicked.
+            if (this.dateOnly) {
+                this.take(day)
+
+                return
+            }
+
             this.draft = day + (this.draft === null ? 0 : this.draft - this.dayOf(this.draft))
             this.focused = day
         },
         choose(moment) {
+            if (this.dateOnly) {
+                this.take(moment)
+
+                return
+            }
+
             const date = new Date(moment)
 
             this.draft = moment
@@ -377,20 +490,44 @@
 
             return `${this.long(this.draft)} · ${this.relative(this.draft).text}`
         },
+        {{--
+            The room the dialog has: between the bars kept at the window's top and foot, inside the window's sides,
+            and inside every panel around the field that clips what overflows it — a drawer's scrolling body —
+            since the dialog hangs from the trigger within them.
+        --}}
         bounds() {
-            return {
+            const bounds = {
                 ceiling: Math.max(0, ...[...document.querySelectorAll('[data-admin-ceiling]')].map((bar) => bar.getBoundingClientRect().bottom)),
                 floor: Math.min(window.innerHeight, ...[...document.querySelectorAll('[data-admin-floor]')].map((bar) => bar.getBoundingClientRect().top)),
+                start: 16,
+                end: window.innerWidth - 16,
             }
+
+            for (let panel = this.$root.parentElement; panel !== null && panel !== document.body; panel = panel.parentElement) {
+                const style = getComputedStyle(panel)
+                const box = panel.getBoundingClientRect()
+
+                if (style.overflowY !== 'visible') {
+                    bounds.ceiling = Math.max(bounds.ceiling, box.top)
+                    bounds.floor = Math.min(bounds.floor, box.bottom)
+                }
+
+                if (style.overflowX !== 'visible') {
+                    bounds.start = Math.max(bounds.start, box.left)
+                    bounds.end = Math.min(bounds.end, box.right)
+                }
+            }
+
+            return bounds
         },
         {{--
             Under the trigger, or over it when only there is room for the whole dialog; with room on neither side,
-            wherever it is whole between the bars kept at the window's top and foot, over the trigger if it must —
-            never taller than that room, nor past the window's sides.
+            wherever it is whole in the room it has, over the trigger if it must — never taller than that room,
+            nor past its sides.
         --}}
         place() {
             const box = this.$refs.trigger.getBoundingClientRect()
-            const { ceiling, floor } = this.bounds()
+            const { ceiling, floor, start, end } = this.bounds()
             const height = this.$refs.dialog.offsetHeight
             const room = floor - ceiling - 16
             const top = box.bottom + 8 + height <= floor - 8
@@ -400,16 +537,17 @@
             // Set at once rather than bound, so the focus that follows finds the dialog where it is going to be.
             Object.assign(this.$refs.dialog.style, {
                 top: `${Math.round(top - this.$refs.dialog.offsetParent.getBoundingClientRect().top)}px`,
-                left: `${Math.max(16 - box.left, Math.min(0, window.innerWidth - 16 - box.left - this.$refs.dialog.offsetWidth))}px`,
+                left: `${Math.max(start - box.left, Math.min(0, end - box.left - this.$refs.dialog.offsetWidth))}px`,
                 maxHeight: height > room ? `${Math.max(240, room)}px` : '',
             })
         },
         show() {
             this.tick = Date.now()
-            const start = this.chosen ?? this.clamp(this.presets()[0].moment)
+            const start = this.chosen ?? this.clamp(this.dateOnly ? this.dayOf(this.now()) : this.presets()[0].moment)
             const date = new Date(start)
 
-            this.draft = start
+            // A day alone shows as chosen only the day it holds; otherwise the dialog opens on today.
+            this.draft = this.dateOnly ? this.chosen : start
             this.focused = this.dayOf(start)
             this.view = { year: date.getUTCFullYear(), month: date.getUTCMonth() }
             this.choosing = 'days'
@@ -439,6 +577,14 @@
             }
 
             this.value = this.format(this.draft)
+            this.close(true)
+        },
+        take(day) {
+            if (! this.allowed(day)) {
+                return
+            }
+
+            this.value = this.format(day)
             this.close(true)
         },
     }"
@@ -602,6 +748,7 @@
                     </div>
                 </div>
 
+                @unless ($dateOnly)
                 <div class="rg-admin-date-time__time" role="group" aria-label="Time">
                     <div class="rg-admin-date-time__clock">
                         <span class="rg-admin-date-time__time-label" aria-hidden="true">Time</span>
@@ -626,7 +773,6 @@
                         @endforeach
                     </div>
                 </div>
-
                 <div class="rg-admin-date-time__footer">
                     <p
                         class="rg-admin-date-time__summary"
@@ -642,6 +788,7 @@
                         <x-admin.ui.button size="sm" variant="primary" x-bind:disabled="draft === null || ! allowed(draft)" x-on:click="apply()">Apply</x-admin.ui.button>
                     </div>
                 </div>
+                @endunless
             </div>
         </div>
     </div>

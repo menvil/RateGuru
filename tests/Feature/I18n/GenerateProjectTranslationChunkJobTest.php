@@ -187,6 +187,36 @@ it('skips, without sending, what was translated meanwhile or left the catalog', 
         ->and($generation['status'])->toBe('completed');
 });
 
+it('sends an outdated translation\'s new English, and leaves the old translation stored', function () {
+    $provider = useScriptedTranslationProvider(ScriptedTranslationProvider::translating());
+    $outdated = outdatedCategory($this->target, 'Willkommen', 'Welcome', 'Hello');
+    $unit = ($this->unit)($outdated);
+    startTranslationGeneration($this->admin, $this->target);
+
+    runTranslationGenerationJobs();
+
+    $sent = array_merge(...array_map(fn (TranslationBatchRequest $request): array => array_map(fn ($item) => [$item->id, $item->sourceText], $request->items), $provider->received));
+
+    expect($sent)->toContain([$unit, 'Hello'])
+        ->and(translationGenerationItem(translationGenerationOf($this->admin, $this->target), $unit))->toMatchArray(['status' => 'ready', 'text' => "[{$this->target}] Hello"])
+        ->and($outdated->fresh()->name_translations)->toBe([$this->target => 'Willkommen']);
+});
+
+it('skips, without sending, an outdated translation saved for the new English meanwhile', function () {
+    $provider = useScriptedTranslationProvider(ScriptedTranslationProvider::translating());
+    $outdated = outdatedCategory($this->target);
+    $unit = ($this->unit)($outdated);
+    startTranslationGeneration($this->admin, $this->target);
+
+    app(UpdateProjectTranslationAction::class)->handle($this->admin, $unit, $this->target, 'Hallo');
+    runTranslationGenerationJobs();
+
+    $sent = array_merge(...array_map(fn (TranslationBatchRequest $request): array => $request->itemIds(), $provider->received));
+
+    expect($sent)->not->toContain($unit)->toContain(($this->unit)($this->dogs))
+        ->and(translationGenerationItem(translationGenerationOf($this->admin, $this->target), $unit))->toMatchArray(['status' => 'skipped', 'issue' => 'already_translated']);
+});
+
 it('asks for the language by its precise tag, and still checks the catalog by the installed code', function () {
     $provider = useScriptedTranslationProvider(ScriptedTranslationProvider::translating());
     startTranslationGeneration($this->admin, 'sr');

@@ -7,6 +7,7 @@ use App\Models\Game;
 use App\Models\GameFlow;
 use App\Models\GameFlowStep;
 use App\Support\Games\Drafts\ContentSetReport;
+use App\Support\Games\Flow\FlowFacts;
 use App\Support\Games\Flow\FlowIssue;
 use App\Support\Games\Flow\GameFlowValidator;
 
@@ -30,7 +31,7 @@ final readonly class GamePublishReadiness
     /**
      * @param  list<int>  $existingGameIds  the games a Next Game step may name
      */
-    public static function of(Game $game, ContentSetReport $content, GameFlow $flow, array $existingGameIds): self
+    public static function of(Game $game, ContentSetReport $content, GameFlow $flow, array $existingGameIds, ?FlowFacts $facts = null): self
     {
         $lines = [];
         $set = $content->set;
@@ -62,7 +63,7 @@ final readonly class GamePublishReadiness
         }
 
         $steps = $flow->steps->map(fn (GameFlowStep $step) => $step->draft())->values()->all();
-        $flowIssues = GameFlowValidator::issues($steps);
+        $flowIssues = GameFlowValidator::issues($steps, $flow->goal, $facts);
 
         foreach ($flow->steps as $index => $step) {
             if ($step->type !== GameFlowStepType::NextGame) {

@@ -1,5 +1,6 @@
 <?php
 
+use App\Actions\Translations\UpdateProjectTranslationAction;
 use App\Enums\UserRole;
 use App\Filament\Pages\TranslationCenterPage;
 use App\Filament\Resources\Categories\Pages\ManageCategories;
@@ -359,6 +360,114 @@ it('draws the filters the URL carries, holding the rows back until the browser a
 
     expect(livewireFragment($plain, "//*[@id='rg-admin-translation-section']"))->toContain('Section:<span x-text="triggers[selected]">All</span>')
         ->and(livewireDom($plain)->query("//*[@role='table'][@x-cloak]")->length)->toBe(0);
+});
+
+// Outdated translations ---------------------------------------------------------------
+
+it('marks a translation made from older English, keeping it on the row beside the English it was made from', function () {
+    [$target] = twoTranslatedLocales();
+    $category = outdatedCategory($target, 'Willkommen', 'Welcome', 'Hello');
+    $unit = "categories:{$category->id}:name";
+    $page = translationCenter($target);
+
+    $row = (string) translationRow($page, $unit);
+
+    expect(collect($page->viewData('rows'))->firstWhere('id', $unit))->toMatchArray(['stored' => 'Willkommen', 'outdated' => true, 'translatedFrom' => 'Welcome'])
+        ->and(collect($page->viewData('client')['units'])->firstWhere('id', $unit))->toMatchArray(['stored' => 'Willkommen', 'outdated' => true])
+        ->and($row)
+        ->toContain('lang="en">Hello</div>')
+        ->toContain('<span class="rg-admin-translation-row__previous-label">Translated from the old English</span>')
+        ->toContain('<div class="rg-admin-translation-row__previous-text" lang="en">Welcome</div>')
+        ->toContain('x-show="units[unit].outdated"')
+        // Still stored, and still what visitors see, until the row is saved.
+        ->toContain('value="Willkommen"')
+        ->toContain('English changed · update</span>')
+        ->toContain('rg-admin-translation-row--outdated')
+        ->toContain('Made from older English. Visitors see it until you save.')
+        ->toContain('Update with AI');
+});
+
+it('marks neither a current translation nor one with nothing recorded of its English', function () {
+    [$target] = twoTranslatedLocales();
+    $current = untranslatedCategory('Cats');
+    translationCenter($target)->call('save', "categories:{$current->id}:name", $target, 'Katzen');
+    $unknown = Category::factory()->create(['name' => 'Dogs', 'name_translations' => [$target => 'Hunde'], 'is_active' => true]);
+    $unknown->update(['name' => 'Puppies']);
+    $page = translationCenter($target);
+
+    foreach (["categories:{$current->id}:name", "categories:{$unknown->id}:name"] as $unit) {
+        expect(collect($page->viewData('rows'))->firstWhere('id', $unit))->toMatchArray(['outdated' => false, 'translatedFrom' => null])
+            ->and(translationRow($page, $unit))->not->toContain('Translated from')->not->toContain('English changed')->toContain('Stored translation');
+    }
+});
+
+it('counts the translations that need an update in the header, once there is one', function () {
+    [$target] = twoTranslatedLocales();
+    $before = translationCenterStats(translationCenter($target));
+
+    expect($before)->not->toHaveKey('Needs update')
+        ->and(translationCenter($target)->viewData('stats')['outdated'])->toBe(0);
+
+    outdatedCategory($target, 'Willkommen', 'Welcome', 'Hello');
+    outdatedCategory($target, 'Katzen', 'Cats', 'Kittens');
+    $after = translationCenterStats(translationCenter($target));
+
+    // Outdated translations are stored, so they count as translated as well.
+    expect($after['Needs update'])->toBe('2')
+        ->and((int) $after['Translated'])->toBe((int) $before['Translated'] + 2)
+        ->and(livewireFragment(translationCenter($target), "//dl[contains(@class, 'rg-admin-stats')]"))->toContain('x-text="figure(outdated)"');
+});
+
+it('offers Needs update beside Missing only and All, from the URL as well', function () {
+    [$target] = twoTranslatedLocales();
+    $page = translationCenter($target, ['mode' => 'outdated']);
+
+    expect(TranslationCenterPage::MODES)->toBe(['all', 'missing', 'outdated'])
+        ->and($page->viewData('filters')['mode'])->toBe('outdated')
+        ->and($page->viewData('client')['modes'])->toBe(TranslationCenterPage::MODES)
+        ->and(livewireFragment($page, "//*[@role='radiogroup']"))
+        ->toContain('Missing only')->toContain('Needs update')->toContain('All')
+        ->toContain('aria-checked="true" tabindex="0" x-bind:aria-checked="selected === \'outdated\'')
+        // Filtered in the browser: the rows wait for it to apply the mode.
+        ->and(livewireDom($page)->query("//*[@role='table'][@x-cloak]")->length)->toBe(1);
+});
+
+it('counts outdated translations into Generate missing, and says so', function () {
+    [$target] = twoTranslatedLocales();
+    $button = fn (): string => (string) livewireFragment(translationCenter($target), "//*[contains(@class, 'rg-admin-translation-center__actions')]//button[.//*[@x-text='generateLabel']]");
+    $missing = fn (): int => translationCenter($target)->viewData('stats')['missing'];
+
+    expect($button())->toContain('>Generate missing ('.$missing().')</span>');
+
+    outdatedCategory($target);
+
+    expect($button())->toContain('>Generate missing ('.$missing().') &amp; outdated (1)</span>');
+
+    // Everything else translated: the outdated translation alone still has something to generate.
+    $admin = User::factory()->admin()->create();
+    foreach (app(ProjectTranslationCatalog::class)->units() as $unit) {
+        if ($unit->requiresTranslation() && $unit->translation($target) === null) {
+            app(UpdateProjectTranslationAction::class)->handle($admin, $unit->id, $target, 'Übersetzt');
+        }
+    }
+
+    expect($button())->toContain('>Generate outdated (1)</span>')->not->toContain(' disabled');
+});
+
+it('makes an outdated translation current once the row is saved, as it is or changed', function () {
+    [$target] = twoTranslatedLocales();
+    $kept = outdatedCategory($target, 'Willkommen', 'Welcome', 'Hello');
+    $changed = outdatedCategory($target, 'Katzen', 'Cats', 'Kittens');
+    $page = translationCenter($target);
+
+    $page->call('save', "categories:{$kept->id}:name", $target, 'Willkommen')->assertReturned(['saved' => true, 'value' => 'Willkommen']);
+    $page->call('save', "categories:{$changed->id}:name", $target, 'Kätzchen')->assertReturned(['saved' => true, 'value' => 'Kätzchen']);
+
+    $rows = collect(translationCenter($target)->viewData('rows'));
+
+    expect($rows->firstWhere('id', "categories:{$kept->id}:name"))->toMatchArray(['stored' => 'Willkommen', 'outdated' => false])
+        ->and($rows->firstWhere('id', "categories:{$changed->id}:name"))->toMatchArray(['stored' => 'Kätzchen', 'outdated' => false])
+        ->and(translationSourceOf("categories:{$kept->id}:name", $target)['reference'])->toBe('Hello');
 });
 
 // Save -------------------------------------------------------------------------------
@@ -755,3 +864,36 @@ function untranslatedCategoryId(string $name): string
 {
     return 'categories:'.untranslatedCategory($name)->id.':name';
 }
+
+it('refuses a save from a page drawn with English that has changed since, and keeps what was stored', function () {
+    [$target] = twoTranslatedLocales();
+    $category = untranslatedCategory('Welcome');
+    $unit = "categories:{$category->id}:name";
+    $page = translationCenter($target);
+    $drawn = collect($page->viewData('rows'))->firstWhere('id', $unit)['fingerprint'];
+
+    $category->update(['name' => 'Hello']);
+
+    $page->call('save', $unit, $target, 'Willkommen', $drawn)
+        ->assertReturned(['saved' => false, 'error' => 'The English text changed since this page opened. Reload the page to translate the current text.', 'field' => false]);
+
+    expect($category->fresh()->name_translations)->not->toHaveKey($target)
+        ->and(translationSourceOf($unit, $target))->toBeNull();
+
+    $current = collect(translationCenter($target)->viewData('rows'))->firstWhere('id', $unit)['fingerprint'];
+
+    $page->call('save', $unit, $target, 'Hallo', $current)->assertReturned(['saved' => true, 'value' => 'Hallo']);
+
+    expect(translationSourceOf($unit, $target)['reference'])->toBe('Hello');
+});
+
+it('removes a translation from a page drawn with older English, which needs no current English', function () {
+    [$target] = twoTranslatedLocales();
+    $category = outdatedCategory($target);
+    $unit = "categories:{$category->id}:name";
+
+    translationCenter($target)->call('save', $unit, $target, '', 'drawn-with-older-english')->assertReturned(['saved' => true, 'value' => '']);
+
+    expect($category->fresh()->name_translations)->not->toHaveKey($target)
+        ->and(translationSourceOf($unit, $target))->toBeNull();
+});

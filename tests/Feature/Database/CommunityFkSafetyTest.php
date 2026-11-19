@@ -18,6 +18,7 @@ use App\Models\RatingVote;
 use App\Models\Report;
 use App\Models\Tag;
 use App\Models\User;
+use App\Models\UserActivityDay;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 
@@ -232,6 +233,15 @@ it('still cascades media variants and detaches references when an asset is purge
 
     expect(MediaVariant::find($variant->id))->toBeNull()
         ->and($post->fresh()->image_asset_id)->toBeNull();
+});
+
+it('refuses to hard-delete a user with days of activity, keeping them', function () {
+    $user = User::factory()->create();
+    UserActivityDay::factory()->create(['user_id' => $user->id]);
+
+    expect(fn () => rawDelete('users', $user->id))->toThrow(QueryException::class);
+
+    expect(UserActivityDay::query()->where('user_id', $user->id)->count())->toBe(1);
 });
 
 it('still allows deleting a user no community data references', function () {
