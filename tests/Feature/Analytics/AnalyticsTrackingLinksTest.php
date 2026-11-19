@@ -357,13 +357,8 @@ it('opens the link’s details after a save, with its figures, tags and the way 
 
     $page = trackingLinksPage(['edit' => 'new'])->dispatch('tracking-link-saved', id: $link->id, message: 'Tracking link created. It has no visits yet.');
 
-    $page->assertSet('edit', '')
+    $page->assertSet('edit', '')->assertSet('show', (string) $link->id)
         ->assertDispatched('rg-admin-toast', message: 'Tracking link created. It has no visits yet.', tone: 'success');
-
-    // The details open in a second step, once the editor's drawer has left the page.
-    expect(collect($page->effects['xjs'] ?? [])->flatten()->implode(' '))->toContain('$wire.set(\'show\', "'.$link->id.'")');
-
-    $page->set('show', (string) $link->id);
 
     $detail = $page->viewData('data')['detail'];
 

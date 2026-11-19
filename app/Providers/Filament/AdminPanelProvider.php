@@ -179,6 +179,11 @@ class AdminPanelProvider extends PanelProvider
                 fn (): string => GrowthAnalyticsPage::topbar(request()),
                 scopes: GrowthAnalyticsPage::class,
             )
+            // Every page: a Livewire component that has left the page is never drawn again.
+            ->renderHook(
+                PanelsRenderHook::SCRIPTS_AFTER,
+                fn (): string => view('filament.livewire.removed-components')->render(),
+            )
             ->navigationGroups(AdminNavigationGroup::all())
             // Admin v2 is light only; a dark page inside a light shell, with
             // the theme switcher gone along with Filament's user menu, would

@@ -571,14 +571,10 @@ final class GrowthAnalyticsPage extends Page
     public function linkSaved(mixed $id = null, mixed $message = ''): void
     {
         $this->edit = '';
+        $this->show = is_int($id) || (is_string($id) && ctype_digit($id)) ? (string) $id : '';
+        $this->normalize();
         $this->figuresChanged();
         $this->dispatch('rg-admin-toast', message: is_string($message) && $message !== '' ? $message : 'Link saved', tone: 'success');
-
-        // The details open once the editor's drawer has left the page, not in the same update: one overlay
-        // torn down while another traps the focus left Alpine reading the closed drawer's state.
-        if (is_int($id) || (is_string($id) && ctype_digit($id))) {
-            $this->js('$wire.set(\'show\', '.json_encode((string) $id).')');
-        }
     }
 
     /** @return array<string, mixed> */

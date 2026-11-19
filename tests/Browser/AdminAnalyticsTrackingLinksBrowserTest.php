@@ -13,8 +13,9 @@ use function Pest\Laravel\actingAs;
  * the drawer, the address built as the link is picked and typed, Copy link
  * putting it on the clipboard, Create link opening the new link's details,
  * and View in Campaigns opening its campaign with the banner and its rows
- * marked; and the list and both drawers at each width, never wider than the
- * screen.
+ * marked; the editor closed before what was typed in it was sent, leaving the
+ * page whole; and the list and both drawers at each width, never wider than
+ * the screen.
  */
 beforeEach(function () {
     ProjectSettings::factory()->create();
@@ -99,6 +100,30 @@ it('creates a link, copies its address, opens its details and its campaign', fun
         ->and($page->script("new URLSearchParams(location.search).get('campaign')"))->toBeNull();
 
     $page->assertNoJavaScriptErrors();
+});
+
+it('keeps the page whole when the editor closes before what was typed in it is sent', function () {
+    $page = visitTrackingLinks('/admin/analytics?tab=links');
+
+    $page->click('[data-testid="analytics-link-create"]');
+    waitForScript($page, "document.querySelector('[data-testid=\"analytics-link-drawer\"] .rg-admin-drawer') !== null", true, 10.0);
+
+    // The answers the editor gets from here on, counted once each is handled.
+    $page->script("() => { window.editorAnswers = 0; Livewire.interceptMessage(({ message, onFinish }) => message.component.name === 'admin.tracking-link-editor' && onFinish(() => window.editorAnswers++)); return true; }");
+
+    // Each typed field is sent 400 ms after its last key (wire:model.live.debounce), and its answer comes
+    // back for an editor already gone: Escape closes the drawer well before then. Drawing such an answer
+    // into the removed editor raised Alpine errors, which the suite fails the test on. Two fields, as a
+    // link is filled in: the server leaves out of an answer the drawing of a component it removed itself,
+    // but in a process that outlives one request, as this test's server does, only for the first answer.
+    $page->type('#rg-admin-tracking-link-campaign', 'versus_launch');
+    $page->type('#rg-admin-tracking-link-content', 'post_01');
+    $page->keys('#rg-admin-tracking-link-content', 'Escape');
+    waitForScript($page, "document.querySelector('[data-testid=\"analytics-link-drawer\"]') === null", true, 10.0);
+    waitForScript($page, 'window.editorAnswers', 2, 10.0);
+
+    expect($page->script("new URLSearchParams(location.search).get('edit')"))->toBeNull()
+        ->and($page->script("document.querySelector('[data-testid=\"analytics-links\"]') !== null"))->toBeTrue();
 });
 
 it('draws the links and both drawers at every width, never wider than the screen', function (int $width) {
