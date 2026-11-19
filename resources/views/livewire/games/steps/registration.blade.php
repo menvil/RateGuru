@@ -5,7 +5,7 @@
 --}}
 <section class="rg-game__card" data-testid="game-step-registration">
     <span class="rg-game__tile" aria-hidden="true"><x-ui.icon name="user-plus" class="size-6" /></span>
-    <h1 class="rg-game__title rg-game__title--sm">{{ $texts['title'] }}</h1>
+    <x-games.headline :text="$texts['title']" size="sm" />
     @if (($texts['body'] ?? '') !== '')
         <p class="rg-game__lead">{{ $texts['body'] }}</p>
     @endif
