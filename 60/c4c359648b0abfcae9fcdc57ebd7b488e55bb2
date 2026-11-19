@@ -1,0 +1,44 @@
+tests/Feature/Traffic/TrafficConnectorsTest.php
+  s_4b9dc6ab6b25d3::t_2e0bf45ac414f3 289-324
+tests/Unit/Support/Traffic/SpendTest.php
+  s_4b9dc6ab6b25d3::t_3997a6f02e5936 72-73,75-78
+  s_4b9dc6ab6b25d3::t_889d89e7d7eba1 11
+app/Support/Traffic/Spend/SpendAllocator.php
+  s_4b9dc6ab6b25d3::t_dbe14d2b51bcee 15-16
+  s_4b9dc6ab6b25d3::t_897c3ce9f34a20 57-58
+tests/Feature/Traffic/TrafficSourcesPageTest.php
+  s_4b9dc6ab6b25d3::t_30c771b65b8ffc 322-349
+app/Services/Traffic/Connectors/PopAdsConnector.php
+  s_4b9dc6ab6b25d3::t_97a740b825f1e6 129-131,134-139
+  s_4b9dc6ab6b25d3::t_bb2482f49ca293 149,153-157
+app/Filament/Pages/TrafficSourcesPage.php
+  s_4b9dc6ab6b25d3::t_726e48fb7871e9 842
+  s_4b9dc6ab6b25d3::t_1e1618f111f2e6 851
+  s_4b9dc6ab6b25d3::t_e7640966d47b33 861-864,868,878-880
+tests/Feature/Queries/AnalyticsVisitsQueryTest.php
+  s_4b9dc6ab6b25d3::t_0a6829e68f3c27 296
+  s_4b9dc6ab6b25d3::t_c34bae577f86a1 306-308
+database/seeders/AnalyticsDemoSeeder.php
+  s_4b9dc6ab6b25d3::t_98c9106ab94f8a 601-602,608
+app/Queries/Analytics/AnalyticsVisitsQuery.php
+  s_4b9dc6ab6b25d3::t_233467cd291a96 112-113
+  s_4b9dc6ab6b25d3::t_3e65f967028f34 114-116
+  s_4b9dc6ab6b25d3::t_ee32f5178ec872 584,594,599-600,604-605
+  s_4b9dc6ab6b25d3::t_95b3489c0fc929 630-638,640
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "60c4c359648b0abfcae9fcdc57ebd7b488e55bb2",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
