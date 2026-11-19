@@ -10,6 +10,12 @@ It is written to be dark until the administrator switches it on:
 nothing is recorded, no visitor cookie is issued for the tracker, and nothing
 is sent to any network.
 
+The same visits are what Growth → Analytics counts people from — every visit,
+the tracker's own and the rest of the site's — and it adds no table of visits of
+its own. Growth → Experiments reads none of them: only a game's assignments and
+attempts and the accounts the tracker credits to them (`account_attributions`),
+so it works the same with visits recorded or not (docs/architecture/analytics.md).
+
 Layers follow docs/architecture/http-and-database-boundaries.md: pure logic in
 `App\Support\Traffic\{Capture,Links,Presets,Postbacks,Worth,Spend,Reports,Blocking,Money}`
 with no config, clock or I/O; HTTP in `App\Services\Traffic\{Postbacks,Connectors}`;
@@ -75,7 +81,9 @@ settling. Channels are found as before. A signed-in member of staff or Persona l
 visit, while paid clicks are recorded for everyone: the owner
 checks the networks' links. The page's path, route and referrer host travel in
 the arrival token, since the call that hands it back is made from another
-address, and the visit's details keep the page's own path.
+address, and the visit's details keep the page's own path. How the keys are
+made, read and labelled is in docs/architecture/analytics.md, "Sessions and
+entry keys".
 
 The campaign tags of the address a session entered by — `utm_source`,
 `utm_medium`, `utm_campaign`, `utm_content`, `utm_term`
@@ -156,14 +164,16 @@ separate code added later.
 
 ## Worth
 
-The tracker counts paid clicks and game visits only
+The tracker counts paid clicks and game visits only — the tracked visits
 (`TrafficVisit::scopeTracked()`: `game_id` or `source_id` set). An unpaid visit
 to the rest of the site is worth nothing whatever it reaches — its value is set
 to 0 without working anything out (`OpenTrafficVisitAction`,
 `MarkTrafficVisitAction`) — never enters the chances or the nightly
-revaluation, and no read of Traffic sources or of a game's Analytics counts it:
-those figures, the worth and the postbacks are the same with Record site visits
-on as off.
+revaluation, and no read of Traffic sources or of a game's Analytics counts it
+(`TrafficReportQuery`, `TrafficLogsQuery` and `GameMetricsQuery`'s visit reads
+all go through the scope): those figures, the worth and the postbacks are the same with
+Record site visits on as off. Growth → Analytics alone reads every visit,
+tracked or not.
 
 `traffic:work-out-worth` works out nightly, from the matured visits of the last
 120 days (`TrafficChanceSampleQuery`), the chance that a new visitor who reached a
@@ -388,10 +398,15 @@ and activity days with it (docs/architecture/user-lifecycle.md).
 
 The visitor cookie now links an ad click to the account made from it, and is
 issued on sign-up and sign-in too while visits are recorded — and, while
-Record site visits is on, on every page of the site it records. No IP address is
-kept: only a keyed hash on the click's details, for 90 days. The posts a browser
-opened and shared on a visit are kept 90 days from the first of them
-(`traffic_visit_posts`, `traffic.retention_days.visit_details`), the same as
-the path and referrer of a click; the visit's counts of votes, comments and
-posts live as long as the visit. The site's privacy page is the owner's to
-update (docs/admin/traffic-sources.md).
+Record site visits is on, on every page of the site it records. No consent is
+asked for it, so Record site visits ships off and switching it on is the
+owner's decision. No IP address is kept: only a keyed hash on the click's
+details, for 90 days. A visit keeps its session's source, campaign, creative,
+landing and campaign tags for as long as the visit, 400 days. The posts a
+browser opened and shared on a visit are kept 90 days from the first of them
+(`traffic_visit_posts`, `traffic.retention_days.visit_details`) — what a
+browser read is personal history to keep short, as the path and referrer of a
+click are — and a period reaching further back shows no post
+figure at all; the visit's counts of votes, comments and posts live as long as
+the visit. The site's privacy page is the owner's to update, with a sentence
+for each switch in docs/admin/traffic-sources.md, "Privacy page".

@@ -9,11 +9,13 @@ Growth → Traffic sources (`/admin/traffic-sources`), for active administrators
    stands in by itself while GeoLite2 has no usable file.
 2. Switch on **Record visits** and save. Unpaid visits appear under Logs →
    Clicks, with their country and device. **Record site visits**, right under
-   it, records the feed, posts, profiles and the site's own pages too — one
-   visit a browser every 30 minutes, with the visitor cookie on every such
-   page, so update the privacy page first. Those visits are for Analytics:
-   nothing on Traffic sources, no worth and no postback changes with them. It
-   can only be on while Record visits is.
+   it, records the feed, posts, profiles, the static pages, signing in and up
+   and saved posts too — one visit a browser every 30 minutes, with the
+   visitor cookie on every such page and the posts it opens kept for 90 days,
+   so update the privacy page first (below). It ships switched off. Those
+   visits are for Growth → Analytics (docs/admin/analytics.md): nothing on
+   Traffic sources, no worth and no postback changes with them. It can only be
+   on while Record visits is.
 3. **Add source** → PopAds (or another network). Fill in what the preset asks
    (its note at the top of the editor) and save.
 4. Campaigns → Get the link: choose the source and a game, paste the link as
@@ -75,10 +77,11 @@ that UTC day, so unblocking one frees no room for another until the next day.
 
 The rule is gentle with traffic it can't judge yet:
 
-- **Likely bots** means fewer clicks opened the page than the rule's share
-  (50 %) *and* than half the source's own average — or fewer than the floor
-  (5 %), whatever the average. Pop traffic opens the page far less often than
-  banners: with a pop source averaging 40 %, a site is bots under 20 %; with
+- **Likely bots** needs at least 100 clicks on the site: on pop traffic a few
+  dozen say too little. Then it means fewer clicks opened the page than the
+  rule's share (50 %) *and* than half the source's own average — or fewer than
+  the floor (5 %), whatever the average. Pop traffic opens the page far less
+  often than banners: with a pop source averaging 40 %, a site is bots under 20 %; with
   banners averaging 85 %, under 42.5 %. Set the share of the average higher
   (Worth blocking → "of the source's own average") to let the rule's own 50 %
   be the line for banners. The floor is for sources half of whose average
@@ -117,13 +120,15 @@ shows with no figures.
 
 ## Period
 
-The period picker in the header — the same as a game's Analytics tab has —
-offers Yesterday and the last 7, 30 or 90 days, or a range of days typed in
-and taken with Apply. Days are each network's own. The period is kept in the
-page's address (`period`, or `from` and `to` for a range); a range that ends
-after today, runs backwards or starts before the oldest day visits are kept
-(400 days) opens the last 30 days instead. A game's Analytics links here with
-its own period and device.
+The period picker in the header — the same as a game's Analytics tab and
+Growth → Analytics have — offers Yesterday and the last 7, 30 or 90 days
+beside a calendar: click the first day of a range, then the last, and the
+period is taken at once, with no Apply. Days before the oldest day visits are
+kept (400 days) can't be picked. Days are each network's own. The period is
+kept in the page's address (`period`, or `from` and `to` for a range); a range
+in an address that ends after today, runs backwards or starts before the
+oldest kept day opens the last 30 days instead. A game's Analytics links here
+with its own period and device.
 
 ## Sign-ups that never confirm
 
@@ -149,3 +154,15 @@ visits are recorded. A sentence for the privacy page: "When you arrive from an
 advertisement we remember, with a cookie, which ad brought you, so we can tell
 the ad network whether its visitors found the site useful. We don't keep your
 IP address."
+
+**Record site visits** sets the same cookie on every page of the site it
+records, keeps which site or link each visit came from, and keeps the posts a
+browser opened and shared for 90 days. The site asks no consent for it, so
+whether to switch it on is the owner's decision; for visitors from the EU a
+year-long cookie linked to an account is a risk to weigh. Before switching it
+on, add to the privacy page (Project settings → Static pages), for example:
+"We count visits to this site ourselves, with a cookie of our own that lasts a
+year: which site or link brought you, the pages and posts you open, and
+whether you sign up and come back. We keep which posts a browser opened for
+90 days and the rest of a visit for 400 days. Nothing is shared with an
+analytics company, and we don't keep your IP address."

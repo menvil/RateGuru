@@ -80,7 +80,8 @@ version, give it traffic and set it live.
   share.
 - **Traffic.** Share each audience — anonymous visitors and logged-in
   players — between versions in whole percentages adding up to 100, and apply.
-  Every change starts a new period; compare versions only inside one period.
+  Every change starts a new period; compare versions only inside one period —
+  Growth → Experiments does, and each period's **Results** opens it there.
   Visitors keep their version while it keeps a share; a started game always
   finishes on the version it started on. If the shares changed after you
   opened Traffic — someone published and took a version's traffic over —
@@ -116,7 +117,8 @@ content. Players see a translation once a version is published after it.
 ## Analytics
 
 The Analytics tab shows, per audience and over the last 7, 30 or 90 days, all
-time or a range of days you type into the period picker: visitors, starts,
+time or a range of days picked on the period picker's calendar (click the
+first day, then the last): visitors, starts,
 completion, emails, new accounts and sign-ins (or, for logged-in players,
 shares and repeat players), the funnel, how many attempts reached each round,
 which results players got, the figures broken down by version, flow, content
@@ -141,9 +143,21 @@ of every device.
 
 Each traffic period shows how many visitors it sent to a version and whether
 its versions can be compared yet: **One version** when only one had a share,
-**Too early** until every version has 10 confirmed accounts (logged-in players
+**No visitors yet** while nobody has been sent to a version, **Too early**
+until every version has 10 confirmed accounts (logged-in players
 make none, so their goals reached count instead) — the bar the comparison of
-versions on paid traffic uses — and **Enough data** after.
+versions on paid traffic uses — and **Enough data** after. A split for a source
+is listed by its source and campaign, and the general split beside one as
+"Everyone else". **Results** opens the period in Growth → Experiments, where
+its versions are compared metric by metric (docs/admin/experiments.md); the
+same link is on each period of the Traffic tab. A period deleted there stays
+listed here.
+
+The same analytics, with a chooser of the games not archived, is Growth →
+Analytics → **Games** (docs/admin/analytics.md), read for the period and device
+chosen there. Growth → Analytics also follows a game's visitors from the page
+their session began on (Landings), the campaign that brought them (Campaigns)
+and whether their accounts come back (Retention).
 
 The funnel counts people: someone who played three times started once. Each
 step's rate says what it is a share of — Played again, for instance, is of the

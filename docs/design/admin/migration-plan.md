@@ -304,14 +304,44 @@ prototype (`RateGuru-Admin-v1.html`) and are reviewed against the current one, w
 reference.
 
 Planned on their own, once the screens above are on v2: the Dashboard, which is work of its own rather than a
-migration, and the rest of the prototype's Growth section — Experiments and Growth Analytics.
+migration.
 
 ### Growth
 
 Growth is a section of its own, built from the current prototype rather than migrated from v1, one working screen at
-a time like Content Studio. Games is built — the library and the game editor with General, Content and Results,
-Flow, Versions, Traffic, Analytics and Preview (the contract's Growth section, `docs/architecture/games.md`).
-Experiments and Growth Analytics come with their own screens; until then no item stands for them.
+a time like Content Studio; each screen brings its navigation item, and no item comes before its screen. The
+contract's [Growth](design-contract.md#growth) section describes what runs, with the deviations from the fifth
+delivery.
+
+| Order | Screen | Status |
+|---|---|---|
+| 1 | Games — the library and the game editor with General, Content and Results, Flow, Versions, Traffic with splits for a source, Analytics and Preview with test links | **done** |
+| 2 | Traffic sources — Report, Campaigns, Value, Spend, Sources and Logs, a source's and a campaign's editors | **done** |
+| 3 | Experiments — the traffic periods and a period's results | **done** |
+| 4 | Analytics — Overview, Site engagement, Campaigns with segments, Tracking links, Landings, Games, Experiments, Retention, Geography and Journeys | **done** |
+
+**Games. Status: done.** `docs/architecture/games.md`; the operator guide is `docs/admin/games.md`.
+
+**Traffic sources. Status: done.** `docs/architecture/traffic.md`; the operator guide is
+`docs/admin/traffic-sources.md`. Record visits, Record site visits and Send postbacks ship off. The PopAds and
+ExoClick connectors stay unverified until checked on a real account.
+
+**Experiments. Status: done.** `ExperimentsPage` lists the periods of every game not archived through
+`ComparisonPeriodsQuery`, a registered stable pagination boundary, and compares a period's versions with
+`GameMetricsQuery::periodFunnel()` and `PeriodComparison` — the same rule the game's Analytics badges its periods
+with. Delete period only hides an ended period (`HideGameTrafficPeriodAction`), with Undo. The operator guide is
+`docs/admin/experiments.md`.
+
+**Analytics. Status: done.** `GrowthAnalyticsPage` reads the visits Traffic sources records, the whole site's once
+Record site visits is on, counting people rather than visits, with no rollup: each tab is read on its own once the
+page is in a browser, a period is at most 93 days, and every raw read is a registered boundary
+(`docs/architecture/analytics.md`). The operator guide is `docs/admin/analytics.md`.
+
+**Not built, by decision.** The experiment editor, which rests on a default experience and a pause the traffic model
+doesn't have; the Email tab and anything else on outside tools — PostHog, replays, heatmaps, analytics
+integrations — since no outside API comes without a task of its own and the site sends no email; and the smaller
+gaps the contract lists. Whether Record site visits is switched on in production is the owner's decision, after
+the privacy page says what it records.
 
 ### Content Studio
 

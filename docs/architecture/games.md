@@ -361,7 +361,11 @@ traffic tracker (docs/architecture/traffic.md, "Worth"), and Analytics
 compares the two best versions on paid traffic by accounts per new visitor
 (TwoProportionTest): too early with fewer than 10 accounts on either, a leader
 from 95 % confidence. Outside paid traffic, versions are compared only inside
-one traffic period.
+one traffic period: Growth → Experiments reads each period's visitors by the
+version they were assigned (`GameMetricsQuery::periodFunnel()`,
+`PeriodComparison`), and the badge on a period here follows the same rule
+(docs/architecture/analytics.md, "Experiments"). A period hidden from
+Experiments (`hidden_at`) is still listed here.
 
 ## Retention
 
