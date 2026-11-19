@@ -1,16 +1,18 @@
 {{--
-    Choose a post (OVL-02): published posts with a ready picture, the most
-    voted first, searched on the server, each with its share of upvotes and
-    its votes — and whether that is enough for this set's crowd rounds.
+    The post picker of a game editor (PicksPosts): published posts with
+    their picture, the most voted first, searched on the server, each with
+    its author, its share of upvotes and its votes — marked when they fall
+    short of a crowd pick's bar, where there is one. Picking calls
+    pickPost(id); closing, closePicker().
 --}}
-<x-admin.ui.drawer id="rg-admin-game-picker" :title="'Choose a post for '.strtolower($picker['option'])" subtitle="Published posts with their picture, the most voted first." wide x-on:dismiss="$wire.closePicker()">
+<x-admin.ui.drawer id="rg-admin-game-picker" :title="$picker['title']" subtitle="Published posts with their picture, the most voted first." wide x-on:dismiss="$wire.closePicker()">
     <div class="rg-admin-games__form">
         <x-admin.ui.search-field placeholder="Search title, ID or author" name="pickerSearch" id="rg-admin-game-picker-search" :value="$pickerSearch" wire:model.live.debounce.300ms="pickerSearch" clearable />
 
         @if ($picker['posts'] === [])
-            <x-admin.ui.empty-state icon="search-x" title="No posts match">Only published posts with a ready picture can be shown in a game.</x-admin.ui.empty-state>
+            <x-admin.ui.empty-state icon="search-x" title="No posts match">Only published posts with a ready picture can be chosen.</x-admin.ui.empty-state>
         @else
-            <ul class="rg-admin-games__picker">
+            <ul class="rg-admin-games__picker" data-testid="game-post-picker">
                 @foreach ($picker['posts'] as $post)
                     <li wire:key="picker-post-{{ $post['id'] }}">
                         <button type="button" class="rg-admin-games__picker-item" wire:click="pickPost({{ $post['id'] }})">
@@ -32,6 +34,8 @@
             </ul>
             <x-admin.ui.pagination :paginator="$picker['paginator']" noun="posts" note="most voted first" action="pickerGoToPage" label="Post pages" />
         @endif
-        <p class="rg-admin-games__note">A crowd pick needs both posts to have at least {{ number_format($picker['minVotes']) }} site votes.</p>
+        @if (($picker['note'] ?? null) !== null)
+            <p class="rg-admin-games__note">{{ $picker['note'] }}</p>
+        @endif
     </div>
 </x-admin.ui.drawer>
