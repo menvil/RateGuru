@@ -19,7 +19,7 @@ class TrafficPostbackFactory extends Factory
             'conversion_id' => TrafficConversion::factory(),
             'rule_id' => null,
             'source_id' => fn (array $attributes): int => (int) TrafficConversion::query()->findOrFail($attributes['conversion_id'])->source_id,
-            'event' => TrafficEvent::Started,
+            'event' => fn (array $attributes): TrafficEvent => TrafficConversion::query()->findOrFail($attributes['conversion_id'])->event,
             'url' => 'https://postback.example.com/conversion?click={click_id}',
             'status' => TrafficPostbackStatus::Pending,
             'attempts' => 0,

@@ -42,6 +42,8 @@ final class SaveTrafficCampaignAction
      */
     public function handle(User $admin, TrafficCampaign $campaign, array $input, int $lockVersion): TrafficCampaign
     {
+        // A field left empty is no value, as the editor sends it: an empty spend mode or game clears it rather than failing.
+        $input = array_map(fn (mixed $value): mixed => $value === '' ? null : $value, $input);
         $money = ['nullable', 'numeric', 'regex:/^\d{1,10}(\.\d{1,8})?$/', 'min:0', 'max:1000000'];
         Validator::make($input, [
             'name' => ['nullable', 'string', 'max:120'],
@@ -64,8 +66,12 @@ final class SaveTrafficCampaignAction
         return DB::transaction(function () use ($admin, $campaign, $input, $lockVersion): TrafficCampaign {
             $locked = $this->lockAdministrator($admin);
             $record = $this->lockCampaign((int) $campaign->id, $lockVersion);
-            $amount = fn (string $key, int $scale): ?string => ($input[$key] ?? null) === null || $input[$key] === '' ? null : TrafficMoney::stored((string) $input[$key], $scale);
-            $before = $record->only(['name', 'game_id', 'daily_budget', 'target_cpa', 'spend_mode', 'bid_model', 'bid_mobile', 'bid_desktop', 'countries', 'devices', 'format']);
+            $amount = fn (string $key, int $scale): ?string => ($input[$key] ?? null) === null ? null : TrafficMoney::stored((string) $input[$key], $scale);
+            $before = $record->only(['name', 'game_id', 'daily_budget', 'target_cpa', 'whitelist_name', 'spend_mode', 'bid_model', 'bid_mobile', 'bid_desktop', 'countries', 'devices', 'format']);
+            $spendMode = ($input['spend_mode'] ?? null) === null ? null : TrafficSpendMode::from((string) $input['spend_mode']);
+            $prices = [TrafficDevice::Mobile->value => $amount('bid_mobile', 6), TrafficDevice::Desktop->value => $amount('bid_desktop', 6)];
+            // Priced already, a device left blank keeps the price in force, and the bid that shows it.
+            $kept = fn (?string $stored): ?string => $spendMode === TrafficSpendMode::Price && $record->spend_mode === TrafficSpendMode::Price ? $stored : null;
 
             $record->forceFill([
                 'name' => ($input['name'] ?? '') !== '' ? trim((string) $input['name']) : null,
@@ -77,10 +83,10 @@ final class SaveTrafficCampaignAction
                 'daily_budget' => $amount('daily_budget', 2),
                 'target_cpa' => $amount('target_cpa', 4),
                 'whitelist_name' => array_key_exists('whitelist_name', $input) ? (($input['whitelist_name'] ?? '') !== '' ? trim((string) $input['whitelist_name']) : null) : $record->whitelist_name,
-                'spend_mode' => ($input['spend_mode'] ?? null) === null ? null : TrafficSpendMode::from((string) $input['spend_mode']),
+                'spend_mode' => $spendMode,
                 'bid_model' => $input['bid_model'] ?? null,
-                'bid_mobile' => $amount('bid_mobile', 6),
-                'bid_desktop' => $amount('bid_desktop', 6),
+                'bid_mobile' => $prices[TrafficDevice::Mobile->value] ?? $kept($record->bid_mobile),
+                'bid_desktop' => $prices[TrafficDevice::Desktop->value] ?? $kept($record->bid_desktop),
                 'set_up_at' => $record->set_up_at ?? now(),
                 'lock_version' => $record->lock_version + 1,
             ])->save();
@@ -88,17 +94,24 @@ final class SaveTrafficCampaignAction
             $this->recordChanges($record, $before, (int) $locked->id);
 
             if ($record->spend_mode === TrafficSpendMode::Price) {
-                $this->priceFrom($record, CarbonImmutable::parse((string) ($input['price_from'] ?? now()->toDateString()))->startOfDay(), (int) $locked->id);
+                $this->priceFrom($record, $prices, CarbonImmutable::parse((string) ($input['price_from'] ?? now()->toDateString()))->startOfDay(), (int) $locked->id);
             }
 
             return $record;
         });
     }
 
-    /** The campaign's prices, per device, from a day on — replacing any set for that same day. */
-    private function priceFrom(TrafficCampaign $campaign, CarbonImmutable $from, int $userId): void
+    /**
+     * The campaign's prices, per device, from a day on — replacing any set for
+     * that same day. A blank price keeps the one in force: it never ends one.
+     *
+     * @param  array<string, string|null>  $prices  as typed, by device
+     */
+    private function priceFrom(TrafficCampaign $campaign, array $prices, CarbonImmutable $from, int $userId): void
     {
-        foreach ([[TrafficDevice::Mobile, $campaign->bid_mobile], [TrafficDevice::Desktop, $campaign->bid_desktop]] as [$device, $price]) {
+        foreach ([TrafficDevice::Mobile, TrafficDevice::Desktop] as $device) {
+            $price = $prices[$device->value] ?? null;
+
             if ($price === null) {
                 continue;
             }
@@ -151,6 +164,10 @@ final class SaveTrafficCampaignAction
 
         if ((string) $before['daily_budget'] !== (string) $campaign->daily_budget) {
             $this->history->handle((int) $campaign->id, TrafficCampaignEventKind::Budget, $campaign->daily_budget === null ? 'No daily budget' : 'Daily budget '.TrafficMoney::format($campaign->daily_budget), TrafficActor::User, $userId);
+        }
+
+        if ($before['whitelist_name'] !== $campaign->whitelist_name) {
+            $this->history->handle((int) $campaign->id, TrafficCampaignEventKind::List, $campaign->whitelist_name === null ? 'No whitelist' : 'Whitelist “'.$campaign->whitelist_name.'”', TrafficActor::User, $userId);
         }
 
         if ((string) $before['target_cpa'] !== (string) $campaign->target_cpa) {

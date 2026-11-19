@@ -25,6 +25,8 @@ final class LinkInspector
     {
         $text = trim($text);
         $url = preg_match('#^https?://#i', $text) === 1 ? $text : (str_starts_with($text, '/') ? 'https://'.$ownHost.$text : 'https://'.$text);
+        // A value's ##NAME## token is no fragment: encoded, it stays in the query, read back as it was.
+        $url = preg_replace('/(?<==)##([^#&=]+)##/', '%23%23$1%23%23', $url) ?? $url;
         $parts = parse_url($url);
 
         if ($text === '' || $parts === false || ! isset($parts['host'])) {
@@ -69,6 +71,8 @@ final class LinkInspector
 
             $used[$param['param']] = true;
             $value = $query[$param['param']] ?? null;
+            // An empty value is none: the capture drops it, as it drops a token left unfilled.
+            $value = $value !== null && trim($value) === '' ? null : $value;
             $isToken = $value !== null && LinkTokenDetector::isToken($value);
             $kind = TrafficLinkParam::tryFrom($param['kind']);
             $shown = $param['param'].'='.($param['token'] !== '' ? $param['token'] : '…');
@@ -92,7 +96,7 @@ final class LinkInspector
                 $warnings[] = ['tone' => 'neutral', 'text' => 'No click cost: spend comes from the '.($found['api_spend'] ? 'API' : 'price you set').' instead.'];
             }
 
-            if ($kind === TrafficLinkParam::Campaign && $value !== null && $value !== '' && ! $isToken) {
+            if ($kind === TrafficLinkParam::Campaign && $value !== null && ! $isToken) {
                 $campaignId = $value;
             }
         }

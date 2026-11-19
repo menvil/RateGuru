@@ -76,7 +76,8 @@ use UnitEnum;
  * the link's details. Asking for the page reads no visits: the open tab's
  * figures are read once the page is in a browser (wire:init), and only the
  * open tab's. A source chosen whose campaign isn't one of its own drops the
- * campaign, and another campaign the creative chosen of the last. The
+ * campaign with its creative and tracking link, and another campaign the
+ * creative and tracking link of the last. The
  * figures of the tabs slow to read on a busy site (READ_CACHED) are kept for
  * a few minutes once read, for the administrator alone (AnalyticsReadCache):
  * the page says when they were read and offers Refresh, and a segment or
@@ -266,8 +267,9 @@ final class GrowthAnalyticsPage extends Page
 
     /**
      * The period's days in the top bar (a panel render hook), read from the
-     * page's own request; a period chosen later moves them by a browser
-     * event the page sends.
+     * page's own request; every render after that moves them to the days its
+     * figures were read for, by a browser event the page sends — a period
+     * chosen, or a preset that rolled over at midnight.
      */
     public static function topbar(Request $request): string
     {
@@ -368,7 +370,7 @@ final class GrowthAnalyticsPage extends Page
         $this->period = $preset;
         $this->from = '';
         $this->to = '';
-        $this->periodChanged();
+        $this->normalize();
     }
 
     public function applyRange(mixed $from, mixed $to): void
@@ -376,7 +378,7 @@ final class GrowthAnalyticsPage extends Page
         $this->period = AnalyticsPeriod::DEFAULT;
         $this->from = $from;
         $this->to = $to;
-        $this->periodChanged();
+        $this->normalize();
     }
 
     /** A row of Overview's sources table: filters the page by its source, or — chosen already — by every source again. */
@@ -599,6 +601,9 @@ final class GrowthAnalyticsPage extends Page
         $shell = $view->shell($filter, $this->ready, $recordedSince, $keptFor, $this->fresh);
         $read = $state === 'ready' ? $this->readTab($filter, $view, $keptFor) : ['data' => null, 'readAt' => null];
 
+        // The top bar's days are the ones these figures are of: a period chosen moves them, and so does a preset that rolled over at midnight.
+        $this->dispatch('rg-admin-analytics-range', text: $period->range());
+
         return [
             ...$shell,
             'notices' => [
@@ -715,13 +720,6 @@ final class GrowthAnalyticsPage extends Page
         ];
     }
 
-    /** The period read back into the address, and its days into the top bar. */
-    private function periodChanged(): void
-    {
-        $this->normalize();
-        $this->dispatch('rg-admin-analytics-range', text: self::readPeriod($this->period, $this->from, $this->to)->range());
-    }
-
     /** Writes down that the journey asked for was looked up, when what is asked for is an ID: Journeys says lookups are logged. */
     private function logJourneyLookup(string $via): void
     {
@@ -740,11 +738,13 @@ final class GrowthAnalyticsPage extends Page
         }
     }
 
-    /** A campaign that isn't the chosen source's is dropped: both filters always hold together. */
+    /** A campaign that isn't the chosen source's is dropped, with the creative and tracking link chosen of it: both filters always hold together. */
     private function dropForeignCampaign(): void
     {
         if ($this->campaign !== '' && $this->source !== '' && ! app(AnalyticsView::class)->campaignBelongs($this->filter())) {
             $this->campaign = '';
+            $this->creative = '';
+            $this->link = '';
         }
     }
 

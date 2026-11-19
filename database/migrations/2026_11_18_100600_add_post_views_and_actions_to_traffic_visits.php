@@ -23,7 +23,8 @@ return new class extends Migration
         // The posts a visit opened, shared, voted on or commented on, one row
         // a post (RecordVisitPostAction): how often it was opened, when it was
         // first shared, whether it was voted on or commented on, and when the
-        // row began. A browser's history of what it looked at, so kept 90 days
+        // row began — again at the first view of a row a vote, comment or
+        // share made. A browser's history of what it looked at, so kept 90 days
         // from first_at (traffic:purge-expired), and gone with its visit.
         Schema::create('traffic_visit_posts', function (Blueprint $table) {
             $table->foreignId('visit_id')->constrained('traffic_visits')->cascadeOnDelete();

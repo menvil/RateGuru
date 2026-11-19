@@ -31,6 +31,7 @@ use InvalidArgumentException;
  *                   people behind them — in all, or per version, flow or set,
  *                   or per device, country or country group of their visits;
  *  - visitors()     the visitors alone;
+ *  - finishers()    the people who finished one of some versions, each once;
  *  - signUpMethods() the people who began signing up, by how;
  *  - reach()        how many started attempts answered each round of a version;
  *  - results()      the completed attempts of a version by result;
@@ -167,6 +168,26 @@ final class GameMetricsQuery implements RawSqlPersistenceBoundary
         [$sql, $bindings] = self::visitorCount();
 
         return $this->counts($this->viewEvents($scope)->selectRaw($sql, $bindings))[0]['visitors'] ?? 0;
+    }
+
+    /**
+     * The people of the scope who finished an attempt of one of the versions
+     * given, each person once however many of them they finished: what
+     * Email captured is a share of, of the versions that ask for an email.
+     *
+     * @param  list<int>  $versionIds
+     */
+    public function finishers(GameMetricsScope $scope, array $versionIds): int
+    {
+        if ($versionIds === []) {
+            return 0;
+        }
+
+        return $this->attempts($scope)
+            ->whereIn('game_attempts.version_id', $versionIds)
+            ->where('game_attempts.status', GameAttemptStatus::Completed->value)
+            ->distinct()
+            ->count(self::person($scope));
     }
 
     /**

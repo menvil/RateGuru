@@ -29,8 +29,9 @@ use Illuminate\Support\Collection;
  * (VersionSnapshotBuilder), stored nowhere, and compared with the version's
  * snapshot (VersionChanges) — so a save that changed nothing players meet is
  * no change, whatever it did to save times. Save times are only the gate:
- * while nothing of the set or the flow was saved after the version, nothing
- * is frozen or compared; the game's own title, description and cover are
+ * while nothing of the set or the flow was saved at or after the version —
+ * at: a save in the second it was published may come after it — nothing is
+ * frozen or compared; the game's own title, description and cover are
  * compared as they stand, which needs no freezing. Saved means saved: a translation made in
  * Translation Center counts, as it is saved on the row it translates.
  */
@@ -124,7 +125,7 @@ final class GameUnpublishedChangesQuery
 
         $groups = fn (GameVersion $version): array => array_values(array_filter([
             ['title' => 'Content set “'.$draft['set'].'”', 'changes' => VersionChanges::content($version->read(), $draft['snapshot'])],
-            ['title' => 'Flow “'.$draft['flow'].'”', 'changes' => VersionChanges::flow($version->read(), $draft['snapshot'])],
+            ['title' => 'Flow “'.$draft['flow'].'”', 'changes' => VersionChanges::flow($version->read(), $draft['snapshot'], $version->flowGoal())],
         ], fn (array $group): bool => $group['changes'] !== []));
         $listed = $groups($newest);
 
@@ -134,7 +135,7 @@ final class GameUnpublishedChangesQuery
 
         $ownDiff = fn (GameVersion $version): array => $own === 'set'
             ? VersionChanges::content($version->read(), $draft['snapshot'])
-            : VersionChanges::flow($version->read(), $draft['snapshot']);
+            : VersionChanges::flow($version->read(), $draft['snapshot'], $version->flowGoal());
         $behind = $versions->filter(fn (GameVersion $version): bool => $version->is($newest) || $ownDiff($version) !== [])->values();
 
         return new UnpublishedChanges(
@@ -167,13 +168,13 @@ final class GameUnpublishedChangesQuery
 
         $groups = array_values(array_filter([
             ['title' => 'Content set “'.$draft['set'].'”', 'changes' => VersionChanges::content($version->read(), $draft['snapshot'])],
-            ['title' => 'Flow “'.$draft['flow'].'”', 'changes' => VersionChanges::flow($version->read(), $draft['snapshot'])],
+            ['title' => 'Flow “'.$draft['flow'].'”', 'changes' => VersionChanges::flow($version->read(), $draft['snapshot'], $version->flowGoal())],
         ], fn (array $group): bool => $group['changes'] !== []));
 
         return $groups === [] ? null : new UnpublishedChanges([$version->label()], $setId, $flowId, (int) $version->id, $version->label(), $groups);
     }
 
-    /** Whether the set, a round, an option or a result profile of it was saved after a moment. */
+    /** Whether the set, a round, an option or a result profile of it was saved at or after a moment. */
     private function setEditedAfter(int $setId, CarbonInterface $moment): bool
     {
         $rounds = GameRound::query()->select('id')->where('content_set_id', $setId);
@@ -186,7 +187,7 @@ final class GameUnpublishedChangesQuery
         ]);
     }
 
-    /** Whether the flow or a step of it was saved after a moment. */
+    /** Whether the flow or a step of it was saved at or after a moment. */
     private function flowEditedAfter(int $flowId, CarbonInterface $moment): bool
     {
         return $this->after($moment, [
@@ -226,11 +227,16 @@ final class GameUnpublishedChangesQuery
         return $ids === [] ? collect() : GameVersion::query()->whereIn('id', $ids)->orderBy('number')->get();
     }
 
-    /** @param  list<mixed>  $saved */
+    /**
+     * Whether any of the save times is at or after the moment: save times
+     * keep whole seconds, so one equal to it may be a save made after it.
+     *
+     * @param  list<mixed>  $saved
+     */
     private function after(CarbonInterface $moment, array $saved): bool
     {
         foreach ($saved as $at) {
-            if ($at !== null && ($at instanceof CarbonInterface ? $at : CarbonImmutable::parse($at))->greaterThan($moment)) {
+            if ($at !== null && ($at instanceof CarbonInterface ? $at : CarbonImmutable::parse($at))->greaterThanOrEqualTo($moment)) {
                 return true;
             }
         }

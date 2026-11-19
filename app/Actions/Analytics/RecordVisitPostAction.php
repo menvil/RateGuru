@@ -27,7 +27,10 @@ use Illuminate\Database\Eloquent\Builder;
  * whichever request makes it first, on every engine: an insert that skips a
  * row already there, then a change of that row alone — each view adds one,
  * the first share sets `shared_at` and later ones leave it, a vote or a
- * comment sets its flag (RecordUserActivityAction).
+ * comment sets its flag (RecordUserActivityAction). The row begins
+ * (`first_at`) when it is made, and again at the first view of a row a
+ * vote, comment or share made: the moment the post was first opened, which
+ * decides the post a session opened first (AnalyticsContentQuery).
  */
 final class RecordVisitPostAction
 {
@@ -115,10 +118,20 @@ final class RecordVisitPostAction
         return $visit;
     }
 
+    /**
+     * One view more of the visit's row of the post: the first begins the row
+     * then, the row of a post voted on, commented on or shared before it was
+     * opened too. Of two first views at once, the one that finds the row
+     * opened already adds one instead.
+     */
     private function view(int $visitId, int $postId, CarbonImmutable $now): void
     {
         $this->row($visitId, $postId, $now);
-        $this->rowOf($visitId, $postId)->where('views', '<', self::MOST)->increment('views');
+        $opened = $this->rowOf($visitId, $postId)->where('views', 0)->update(['views' => 1, 'first_at' => $now->utc()]);
+
+        if ($opened === 0) {
+            $this->rowOf($visitId, $postId)->where('views', '>', 0)->where('views', '<', self::MOST)->increment('views');
+        }
     }
 
     /** The visit's row of the post, made with nothing counted yet unless a request made it first. */

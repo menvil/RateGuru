@@ -137,7 +137,16 @@ final class PopAdsConnector implements EditsBlockLists, ReadsCampaigns, ReadsSpe
             ->withBody(implode("\n", $list), 'text/plain')
             ->post(self::BASE.$path.'?'.http_build_query(['key' => (string) $session->get('api_key'), 'mode' => 'exclude'])));
         $json = $response->json();
-        $listed = array_map('strval', (array) (is_array($json) ? ($json['items'] ?? $json['global_items'] ?? $list) : $list));
+        $listed = is_array($json) ? ($json['items'] ?? $json['global_items'] ?? null) : null;
+
+        // An answer without the list proves nothing: the list is read back, never taken to be the one sent.
+        if ($listed === null) {
+            Sleep::for(1)->second();
+            $again = $this->json($this->get($session, '/api/campaign_website_targeting/'.rawurlencode($campaignId)));
+            $listed = $mode === 'global' ? ($again['global_items'] ?? []) : ($again['items'] ?? []);
+        }
+
+        $listed = array_map('strval', (array) $listed);
 
         return new BlockDeltaResult(array_diff($add, $listed) === [] && array_intersect($remove, $listed) === [], $response->status(), array_values($listed));
     }

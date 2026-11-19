@@ -66,6 +66,9 @@ final class DemoPlaythrough
     /** @var array<string, int> what was played, for the run's summary */
     public array $counts = ['clicks' => 0, 'views' => 0, 'attempts' => 0, 'completed' => 0, 'emails' => 0, 'shares' => 0, 'replays' => 0, 'exits' => 0, 'signups' => 0, 'confirmed' => 0, 'logins' => 0, 'returns' => 0];
 
+    /** @var list<int> the accounts signed up, in order: the only ones the history's cleanup may remove */
+    public array $created = [];
+
     /** @var list<int> the members of the site an anonymous visitor may turn out to be */
     private array $members;
 
@@ -152,7 +155,8 @@ final class DemoPlaythrough
         }
 
         $this->counts['views']++;
-        $token = ArrivalToken::make($paid ? ['visit' => $visitId] : [
+        // A visit already recorded — a paid click, or one TrafficDemoSeeder wrote — is opened by its id, as its own row.
+        $token = ArrivalToken::make($visitId !== null ? ['visit' => $visitId] : [
             'channel' => $arrival['channel'],
             'origin' => $arrival['origin'] ?? null,
             'slug' => GamesDemoSeeder::SLUG,
@@ -421,6 +425,7 @@ final class DemoPlaythrough
             'created_at' => $at,
             'updated_at' => $at,
         ])->save();
+        $this->created[] = (int) $user->id;
 
         if ($social) {
             SocialAccount::query()->create(['user_id' => $user->id, 'provider' => $method->value, 'provider_user_id' => (string) (7_000_000 + $this->people), 'provider_email' => $email, 'provider_email_verified' => true]);

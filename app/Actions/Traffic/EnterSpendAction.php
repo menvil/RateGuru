@@ -75,6 +75,8 @@ final class EnterSpendAction
 
             foreach ($parsed['rows'] as $row) {
                 $campaignId = $row['campaign'] === '' ? null : ($campaigns[$row['campaign']] ?? false);
+                // Every day the file names is replaced, even one whose rows are all left out.
+                $byDay[$row['day']] ??= [];
 
                 if ($campaignId === false) {
                     $skipped++;

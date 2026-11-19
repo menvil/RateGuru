@@ -172,7 +172,7 @@ final class SaveTrafficPricesAction
             'login_price' => $current->login_price,
             'country_groups' => $clean,
             'source_account_prices' => $current->source_account_prices,
-            'summary' => 'Country groups: '.implode(', ', array_map(fn (array $group): string => $group['name'].' '.$group['percent'].'%', $clean)),
+            'summary' => Str::limit('Country groups: '.implode(', ', array_map(fn (array $group): string => $group['name'].' '.$group['percent'].'%', $clean)), 299, '…'),
         ]);
     }
 
@@ -181,6 +181,9 @@ final class SaveTrafficPricesAction
     {
         return DB::transaction(function () use ($admin, $drawnFrom, $fields): TrafficPriceSet {
             $locked = $this->lockAdministrator($admin);
+            // Two administrators' saves queue up on the oldest set, which is never removed; only then is the newest set read, in a
+            // statement of its own, so a save that waited sees the set the other one added rather than the one it waited on.
+            TrafficPriceSet::query()->orderBy('id')->lockForUpdate()->firstOrFail();
             $current = TrafficPriceSet::query()->orderByDesc('id')->lockForUpdate()->firstOrFail();
 
             if ($current->id !== $drawnFrom) {

@@ -102,7 +102,8 @@ use RuntimeException;
  *
  * Never in DatabaseSeeder, never on a shared database; local and testing
  * environments only. Safe to run again: once its accounts are there,
- * nothing is added.
+ * nothing is added. A run cut short keeps what it wrote and can't be
+ * resumed: start again from a fresh database.
  */
 class AnalyticsVolumeSeeder extends Seeder
 {
@@ -304,7 +305,7 @@ class AnalyticsVolumeSeeder extends Seeder
         }
 
         if (User::query()->where('email', 'like', '%'.self::EMAIL_DOMAIN)->exists()) {
-            $this->command?->info('The volume is already there; nothing was added.');
+            $this->command?->info('The volume is already there, or a run cut short left part of it; nothing was added. To write it again, start from a fresh database: migrate:fresh and the seeders this one needs.');
 
             return;
         }
@@ -716,6 +717,8 @@ class AnalyticsVolumeSeeder extends Seeder
             'source_key' => AnalyticsSource::paid($source['id']),
             'campaign_key' => CampaignKey::paid($campaign),
             'creative_key' => $creative,
+            // The game's page names its game on the click, before it runs; its version only once it has.
+            'game_id' => $this->gameId,
             'landing_key' => LandingRoute::key('games.play', $this->gameId, null),
         ];
 

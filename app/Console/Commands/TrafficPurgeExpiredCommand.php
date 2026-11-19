@@ -80,8 +80,9 @@ final class TrafficPurgeExpiredCommand extends Command
             'activity days' => $this->purge(UserActivityDay::query()->where('day', '<', $now->subDays($activityDays)->format('Y-m-d')), $chunk),
         ];
 
-        $kept = TrafficChanceRun::query()->orderByDesc('id')->limit(max(1, (int) config('traffic.chance_runs_kept')))->pluck('id');
-        $deleted['chance runs'] = $kept->isEmpty() ? 0 : $this->purge(TrafficChanceRun::query()->whereNotIn('id', $kept), $chunk);
+        // Only runs older than the oldest one kept: a working-out begun since is newer still, and stays.
+        $oldestKept = TrafficChanceRun::query()->orderByDesc('id')->limit(max(1, (int) config('traffic.chance_runs_kept')))->pluck('id')->min();
+        $deleted['chance runs'] = $oldestKept === null ? 0 : $this->purge(TrafficChanceRun::query()->where('id', '<', $oldestKept), $chunk);
 
         foreach ($deleted as $what => $count) {
             $this->info("Deleted {$count} {$what}.");

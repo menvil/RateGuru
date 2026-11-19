@@ -110,8 +110,9 @@ final class PostbackTemplate
     private static function destination(string $template, string $goalCode, string $event): string
     {
         $address = preg_replace_callback('/\{([^{}]*)\}/', fn (array $match): string => match ($match[1]) {
-            'goal_code' => $goalCode,
-            'event' => $event,
+            // Encoded as PostbackUrl::render() sends them, so a "+" and a space stay two goals.
+            'goal_code' => rawurlencode($goalCode),
+            'event' => rawurlencode($event),
             default => '{}',
         }, $template) ?? $template;
         $parts = parse_url($address);

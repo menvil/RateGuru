@@ -62,7 +62,8 @@ use Illuminate\Database\Eloquent\Collection;
  * campaign with the best activation rate of those with enough visitors is
  * marked. The campaign the most people came through and its biggest
  * creative open to begin with — the creative the address names instead,
- * marked with its campaign — and any row can be opened or closed. Every
+ * listed even past the first ones and marked with its campaign — and any
+ * row can be opened or closed. Every
  * filter of the page applies to the tree; the paid sources read the period
  * and device. Nobody matching the filters is said once, with nothing else
  * drawn.
@@ -78,7 +79,7 @@ final class CampaignsTab implements AnalyticsTab
     /** How many campaigns the tree lists, the most people first; every other campaign is counted together after them. */
     public const int CAMPAIGNS = 25;
 
-    /** How many creatives an open campaign lists, the most people first; the rest of the campaign is counted together after them. */
+    /** How many creatives an open campaign lists, the most people first — the one the address names taking the last place when it is past them; the rest of the campaign is counted together after them. */
     public const int CREATIVES = 25;
 
     /** How many games an open creative lists, the most people first. */
@@ -408,7 +409,9 @@ final class CampaignsTab implements AnalyticsTab
         $creatives = [];
 
         foreach ($open as $key) {
-            $creatives[$key] = $this->visits->by($filter->within(AnalyticsDimension::Campaign, ['campaign_key' => $key]), AnalyticsDimension::Creative, self::CREATIVES);
+            // The creative the address names is listed even past the first ones, so it can open and be marked.
+            $keep = $marked !== null && $key === $filter->campaignKey ? [['creative_key' => $marked === CampaignKey::NO_CREATIVE ? null : $marked]] : [];
+            $creatives[$key] = $this->visits->by($filter->within(AnalyticsDimension::Campaign, ['campaign_key' => $key]), AnalyticsDimension::Creative, self::CREATIVES, keep: $keep);
         }
 
         $creativeSpend = [];
@@ -483,7 +486,7 @@ final class CampaignsTab implements AnalyticsTab
                 'kind' => 'campaign',
                 'id' => 'campaign-'.md5($key),
                 'name' => match (true) {
-                    $model instanceof TrafficCampaign => $model->name ?? 'Campaign '.$model->external_id,
+                    $model instanceof TrafficCampaign => $model->label(),
                     default => CampaignKey::label($key),
                 },
                 'sub' => implode(' · ', array_filter([
@@ -613,8 +616,7 @@ final class CampaignsTab implements AnalyticsTab
         $cost = fn (int $count): array => ! $paid || $count === 0
             ? self::cell('—', quiet: true)
             : self::cell(TrafficMoney::fine($money->dividedBy($count, TrafficMoney::SCALE, RoundingMode::HalfUp)));
-        // Activation is no rate yet while none of the row's accounts has had its days to activate.
-        $tooEarly = $figures->accounts > 0 && $figures->maturedAccounts === 0 && $figures->activationRate($minimum) !== null;
+        $tooEarly = self::tooEarly($figures) && $figures->activationRate($minimum) !== null;
         $ofNew = fn (?float $rate): ?string => $rate === null ? null : self::percent($rate).' of new visitors';
         $completion = $figures->completion($minimum);
 
@@ -680,10 +682,21 @@ final class CampaignsTab implements AnalyticsTab
     }
 
     /**
+     * Whether a row's activation is no rate yet: it has accounts, and none of
+     * them has had its days to activate. A row with no account at all reads
+     * its rate, none activated.
+     */
+    private static function tooEarly(VisitorFigures $figures): bool
+    {
+        return $figures->accounts > 0 && $figures->maturedAccounts === 0;
+    }
+
+    /**
      * The creative of a campaign with the best activation rate — activated
      * users of new visitors — among those with the visitors a creative needs
-     * to be named its best, once at least two have them; none while none of
-     * them has activated anyone, or none can be told yet. A tie goes to the
+     * to be named its best and a rate that can be told — not too early; one
+     * with no account reads none activated — once at least two have them;
+     * none while none of them has activated anyone. A tie goes to the
      * creative with more people.
      *
      * @param  list<array{keys: array<string, int|string|null>, figures: VisitorFigures, visits: int, tagged: int}>  $creatives  the most people first
@@ -697,7 +710,7 @@ final class CampaignsTab implements AnalyticsTab
             $figures = $row['figures'];
             $rate = $figures->activationRate($minimum);
 
-            if ($row['keys']['creative_key'] !== null && $figures->visitors >= $least && $rate !== null && $figures->maturedAccounts > 0) {
+            if ($row['keys']['creative_key'] !== null && $figures->visitors >= $least && $rate !== null && ! self::tooEarly($figures)) {
                 $rated[] = ['creative' => (string) $row['keys']['creative_key'], 'rate' => $rate];
             }
         }
@@ -719,9 +732,9 @@ final class CampaignsTab implements AnalyticsTab
 
     /**
      * Rows in the order the sorting asks: by people, or by a rate of new
-     * visitors — highest first, a rate that can't be shown last — or by what
-     * an account cost, cheapest first, a row with no spend or no account
-     * last; ties keep the most people first.
+     * visitors — highest first, a rate that can't be shown last, activation
+     * "Too early" among them — or by what an account cost, cheapest first, a
+     * row with no spend or no account last; ties keep the most people first.
      *
      * @template T of array{figures: VisitorFigures, spend: string}
      *
@@ -736,7 +749,7 @@ final class CampaignsTab implements AnalyticsTab
 
         $value = fn (array $row): ?float => match ($sort) {
             'registration' => $row['figures']->accountRate($minimum),
-            'activation' => $row['figures']->activationRate($minimum),
+            'activation' => self::tooEarly($row['figures']) ? null : $row['figures']->activationRate($minimum),
             default => $row['figures']->accounts === 0 || ! TrafficMoney::of($row['spend'])->isPositive()
                 ? null
                 : -1 * (float) (string) TrafficMoney::of($row['spend'])->dividedBy($row['figures']->accounts, TrafficMoney::SCALE, RoundingMode::HalfUp),

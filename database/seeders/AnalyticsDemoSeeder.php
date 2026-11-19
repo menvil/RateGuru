@@ -30,6 +30,7 @@ use App\Enums\UserStatus;
 use App\Enums\VoteType;
 use App\Models\Game;
 use App\Models\GameAttempt;
+use App\Models\GameTrafficPeriod;
 use App\Models\GameVersion;
 use App\Models\Post;
 use App\Models\PostVote;
@@ -75,6 +76,10 @@ use Throwable;
  * are written as live capture writes them; the posts opened and shared, the
  * votes, comments, posts, attempts, sign-ups and confirmations each go
  * through the action the screens call, the clock set back to its moment.
+ * Only posts published by then are read, and visitors go on from the feed to
+ * the game only from the moment the game's traffic split open now began: the
+ * game's page gives the version by the splits open now, never by the one of
+ * an earlier day.
  *
  * Needs the large demo dataset, the demo game, the traffic demo and the
  * game's history, in this order; it takes a few minutes on a local
@@ -87,7 +92,9 @@ use Throwable;
  *     php artisan db:seed --class=AnalyticsDemoSeeder
  *
  * Safe to run again: once the site's own pages have visits, nothing is
- * added. Local and testing environments only.
+ * added. Each visit is kept or undone whole, but a run stopped half way
+ * leaves half a history: start again from migrate:fresh. Local and testing
+ * environments only.
  */
 class AnalyticsDemoSeeder extends Seeder
 {
@@ -133,8 +140,11 @@ class AnalyticsDemoSeeder extends Seeder
 
     private string $password;
 
-    /** @var list<int> published posts, most read first */
+    /** @var list<array{0: int, 1: int}> published posts, by id with the moment each was published, most read first */
     private array $posts = [];
+
+    /** @var array<string, CarbonImmutable|null> when the game's general traffic split open now began, by audience */
+    private array $splitsSince = [];
 
     private int $readers = 0;
 
@@ -160,14 +170,15 @@ class AnalyticsDemoSeeder extends Seeder
         }
 
         if (TrafficVisit::query()->whereIn('landing_key', ['feed', 'posts.show'])->exists()) {
-            $this->command?->info('The site\'s own pages already have visits; nothing was added.');
+            $this->command?->info('The site\'s own pages already have visits; nothing was added. If an earlier run stopped half way, start again from migrate:fresh.');
 
             return;
         }
 
         $members = User::query()->where('email', 'like', 'fill%@demo.test')->where('role', UserRole::User)->whereNotNull('email_verified_at')
             ->orderBy('id')->limit(self::MEMBERS)->pluck('id')->map(fn (mixed $id): int => (int) $id)->all();
-        $this->posts = Post::query()->published()->orderByDesc('upvotes_count')->orderBy('id')->limit(200)->pluck('id')->map(fn (mixed $id): int => (int) $id)->all();
+        $this->posts = Post::query()->published()->orderByDesc('upvotes_count')->orderBy('id')->limit(200)->get(['id', 'published_at'])
+            ->map(fn (Post $post): array => [(int) $post->id, $post->published_at?->getTimestamp() ?? 0])->all();
 
         if ($members === [] || count($this->posts) < 5) {
             $this->command?->warn('Run DemoFillSeeder first: the site needs its members and published posts. Nothing was added.');
@@ -294,7 +305,8 @@ class AnalyticsDemoSeeder extends Seeder
         $tags = $creatives === [] ? $tags : [...$tags, 'utm_content' => $creatives[mt_rand(0, count($creatives) - 1)]];
         $signals = DemoTrafficMix::signals($visitor->country, $visitor->device, ChannelClassifier::host($referrer));
         $user = $visitor->userId === null ? null : User::query()->find($visitor->userId);
-        $post = $landing === 'post' ? $this->pickPost() : null;
+        // A post landing with no post published yet lands on the feed.
+        $post = $landing === 'post' ? $this->pickPost($at) : null;
         $token = $this->token($referrer, $tags, $post === null ? 'feed' : 'posts.show', $post === null ? '/' : '/posts/'.$post, $post, null, $visitor->browserHash, $at);
         // A member seen for the first time arrives signed out and signs in on the page.
         $visitId = app(OpenTrafficVisitAction::class)->handle($token, $visitor->browserHash, $signIn ? null : $visitor->userId, null, null, $signals, $at);
@@ -318,7 +330,12 @@ class AnalyticsDemoSeeder extends Seeder
         for ($read = 0, $reads = DemoTrafficMix::weighted([22, 26, 20, 13, 9, 6, 4]); $read < $reads; $read++) {
             $at = $at->addSeconds(mt_rand(20, 150));
             DemoPlaythrough::clock($at);
-            $post = $this->pickPost();
+            $post = $this->pickPost($at);
+
+            if ($post === null) {
+                continue;
+            }
+
             app(RecordVisitPostAction::class)->viewed($visitor->browserHash, $post, $at);
             $this->counts['post views']++;
             $this->onPost($user, $visitor, $post, $at);
@@ -383,12 +400,22 @@ class AnalyticsDemoSeeder extends Seeder
     /**
      * On to the game from the feed: a visit inside the site, of the same
      * session, given its version, and an attempt played through or given up.
+     * Only from the moment the game's general split open now began: the
+     * game's page gives the version by the splits open now, so a visitor
+     * before then would be given a version not yet shared out — or not yet
+     * published — on the day.
      */
     private function playFromTheFeed(Game $game, DemoVisitor $visitor, VisitorSignals $signals, CarbonImmutable &$at): bool
     {
         $at = $at->addSeconds(mt_rand(15, 90));
-        DemoPlaythrough::clock($at);
         $player = new GameVisitor($visitor->userId === null ? GameAudience::Anonymous : GameAudience::Authenticated, $visitor->userId, $visitor->userId === null ? $visitor->browserHash : null, $visitor->browserHash);
+        $since = $this->splitSince($game, $player->audience);
+
+        if ($since === null || $at->lessThan($since)) {
+            return false;
+        }
+
+        DemoPlaythrough::clock($at);
         $assignment = app(AssignGameVersionAction::class)->handle($game, $player, viewed: true);
 
         if ($assignment === null) {
@@ -561,10 +588,26 @@ class AnalyticsDemoSeeder extends Seeder
         ], $browserHash, $at->getTimestamp());
     }
 
-    /** A published post, the most voted on read most. */
-    private function pickPost(): int
+    /** A post published by the given moment, the most voted on read most; none while none was. */
+    private function pickPost(CarbonImmutable $at): ?int
     {
-        return $this->posts[DemoTrafficMix::skewed(count($this->posts))];
+        $published = array_values(array_filter($this->posts, fn (array $post): bool => $post[1] <= $at->getTimestamp()));
+
+        return $published === [] ? null : $published[DemoTrafficMix::skewed(count($published))][0];
+    }
+
+    /**
+     * When the game's general traffic split open now began for the
+     * audience — the split the version is given by — or null with none.
+     */
+    private function splitSince(Game $game, GameAudience $audience): ?CarbonImmutable
+    {
+        if (! array_key_exists($audience->value, $this->splitsSince)) {
+            $this->splitsSince[$audience->value] = GameTrafficPeriod::query()->where('game_id', $game->id)->where('audience', $audience)
+                ->whereNull('source_id')->whereNull('ended_at')->first(['started_at'])?->started_at;
+        }
+
+        return $this->splitsSince[$audience->value];
     }
 
     /** The demo's new accounts that never confirmed their address within the week, removed as the nightly cleanup removes them. */

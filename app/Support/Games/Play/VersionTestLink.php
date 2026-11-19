@@ -17,6 +17,9 @@ use Illuminate\Support\Facades\URL;
  * Only `v` and `expires` are signed: a parameter added to the link on its
  * way — `fbclid` from a Facebook message, `utm_*` from a mail tool — leaves
  * it working, as none of them changes which version plays or for how long.
+ * A parameter is told by the name PHP reads it under, so any other spelling
+ * of a signed one — `%76`, ` v`, `v[]` — counts as signed: it would replace
+ * the signed value, so it breaks the signature instead.
  */
 final class VersionTestLink
 {
@@ -36,10 +39,18 @@ final class VersionTestLink
         $version = $request->query('v');
 
         if (! is_string($version) || preg_match('/\A[1-9][0-9]{0,17}\z/', $version) !== 1
-            || ! $request->hasValidSignatureWhileIgnoring(fn (string $parameter): bool => ! in_array($parameter, self::SIGNED, true))) {
+            || ! $request->hasValidSignatureWhileIgnoring(self::unsigned(...))) {
             return null;
         }
 
         return (int) $version;
+    }
+
+    /** Whether a parameter of the raw query string is left out of the signature: none PHP reads as a signed one. */
+    private static function unsigned(string $parameter): bool
+    {
+        parse_str($parameter.'=', $parsed);
+
+        return array_intersect(array_keys($parsed), self::SIGNED) === [];
     }
 }

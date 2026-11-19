@@ -42,9 +42,15 @@ final class SpendAllocator
                 continue;
             }
 
-            $byCost = array_reduce($matched, fn (bool $all, array $visit): bool => $all && $visit['cost'] !== null && TrafficMoney::of($visit['cost'])->isPositive(), true);
+            // A price of nothing is a price: such a click gets nothing, unless every click cost nothing.
+            $byCost = array_reduce($matched, fn (bool $all, array $visit): bool => $all && $visit['cost'] !== null && ! TrafficMoney::of($visit['cost'])->isNegative(), true);
             $weights = array_map(fn (array $visit): BigDecimal => $byCost ? TrafficMoney::of($visit['cost']) : BigDecimal::one(), $matched);
             $total = array_reduce($weights, fn (BigDecimal $sum, BigDecimal $weight): BigDecimal => $sum->plus($weight), BigDecimal::zero());
+
+            if ($total->isZero()) {
+                $weights = array_fill(0, count($matched), BigDecimal::one());
+                $total = BigDecimal::of(count($matched));
+            }
             $amount = TrafficMoney::of($fact['amount']);
             $given = BigDecimal::zero();
             $newest = max(array_column($matched, 'id'));

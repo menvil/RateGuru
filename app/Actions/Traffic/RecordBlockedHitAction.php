@@ -9,9 +9,11 @@ use App\Models\TrafficVisit;
 
 /**
  * A click from a site or zone that was blocked more than an hour ago: the
- * network is still sending it. The visit is marked, the block counts it —
- * an applied block with a growing count is worth pushing again — and the
- * click is counted and paid for like any other.
+ * network is still sending it. The visit is marked, every block it matches
+ * counts it — its site's and its zone's both, in the database itself, so
+ * clicks counted at once never overwrite each other; an applied block with
+ * a growing count is worth pushing again — and the click is counted and
+ * paid for like any other.
  */
 final class RecordBlockedHitAction
 {
@@ -23,7 +25,7 @@ final class RecordBlockedHitAction
             return;
         }
 
-        $block = TrafficBlock::query()
+        $hits = TrafficBlock::query()
             ->where('source_id', $visit->source_id)
             ->whereIn('network_state', [TrafficBlockNetworkState::ByHand, TrafficBlockNetworkState::Applied])
             ->where('blocked_at', '<', $visit->arrived_at->subMinutes(self::GRACE_MINUTES))
@@ -31,13 +33,10 @@ final class RecordBlockedHitAction
                 ->when($visit->zone_ref !== null, fn ($zone) => $zone->orWhere(fn ($query) => $query->where('level', TrafficBlockLevel::Zone)->where('ref', $visit->zone_ref)))
                 ->when($visit->site_ref !== null, fn ($site) => $site->orWhere(fn ($query) => $query->where('level', TrafficBlockLevel::Site)->where('ref', $visit->site_ref))))
             ->where(fn ($campaign) => $campaign->whereNull('campaign_id')->orWhere('campaign_id', $visit->campaign_id))
-            ->first();
+            ->increment('clicks_after', 1, ['last_click_after_at' => $visit->arrived_at]);
 
-        if ($block === null) {
-            return;
+        if ($hits > 0) {
+            TrafficVisit::query()->whereKey($visit->id)->update(['blocked_hit' => true]);
         }
-
-        TrafficVisit::query()->whereKey($visit->id)->update(['blocked_hit' => true]);
-        TrafficBlock::query()->whereKey($block->id)->update(['clicks_after' => $block->clicks_after + 1, 'last_click_after_at' => $visit->arrived_at]);
     }
 }

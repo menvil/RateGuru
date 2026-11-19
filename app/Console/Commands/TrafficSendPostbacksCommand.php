@@ -36,7 +36,8 @@ final class TrafficSendPostbacksCommand extends Command
 
     protected $description = 'Send the postbacks waiting to be sent to ad networks.';
 
-    private const int BATCH = 40;
+    // One pool at a time: a source that keeps failing is rested between pools, its rows not yet claimed left waiting without spending an attempt.
+    private const int BATCH = PostbackDeliverer::CONCURRENCY;
 
     private const int SECONDS = 45;
 

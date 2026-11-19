@@ -615,7 +615,7 @@ final class EditGameFlow extends Page
             'stepWorth' => $step === null ? [] : $this->worthRows($step, $rounds, $worth),
             'worthWorkedOut' => $mobile['worked'],
             'valueUrl' => GameResource::getUrl('value', ['record' => $game]),
-            'goalCard' => $this->goalCard($drafts, $chosenGoal, $goal, $goalStep),
+            'goalCard' => $this->goalCard($drafts, $chosenGoal, $goal, $goalStep, $fullResult),
             'ratingGroups' => app(RatingConfigurationManager::class)->activeGroups()->map(fn ($group): array => ['key' => (string) $group->key, 'label' => $group->translatedLabel('en')])->values()->all(),
             'categories' => Category::query()->active()->ordered()->get()->mapWithKeys(fn (Category $category): array => [(string) $category->slug => $category->translatedName('en')])->all(),
             'linkedPost' => $this->linkedPost($step),
@@ -631,7 +631,7 @@ final class EditGameFlow extends Page
                 'tip' => match (true) {
                     in_array($type->value, $present, true) => 'Already in this flow',
                     GameFlowValidator::defaultPosition($drafts, $type) !== null => 'Add '.$type->label(),
-                    $type === GameFlowStepType::Registration && $fullResult !== null && ($fullResult['settings']['signup'] ?? 'inline') !== GameSignupMode::Step->value => 'Sign-up is on Full Result. Set its sign-up to a separate step first.',
+                    $type === GameFlowStepType::Registration && self::waitsForSignupStep($fullResult) => 'Sign-up is on Full Result. Set its sign-up to a separate step first.',
                     default => 'Doesn’t fit this flow',
                 },
             ], GameFlowStepType::cases()),
@@ -651,11 +651,14 @@ final class EditGameFlow extends Page
     /**
      * The goal card over the canvas: the goals to choose from, each with
      * whether this flow reaches it, and what counts for the one in force.
+     * The step a goal out of reach needs is offered only where it fits;
+     * otherwise the card says what to change first.
      *
      * @param  list<FlowStepDraft>  $drafts
+     * @param  array<string, mixed>|null  $fullResult  the flow's Full Result step, as edited
      * @return array<string, mixed>
      */
-    private function goalCard(array $drafts, ?GameFlowGoal $chosen, GameFlowGoal $goal, ?int $step): array
+    private function goalCard(array $drafts, ?GameFlowGoal $chosen, GameFlowGoal $goal, ?int $step, ?array $fullResult): array
     {
         $default = FlowGoalRules::defaultFor($drafts);
         $status = function (GameFlowGoal $option) use ($drafts): string {
@@ -669,6 +672,8 @@ final class EditGameFlow extends Page
         };
         $reachable = FlowGoalRules::reaches($drafts, $goal);
         $label = $step !== null ? 'step '.($step + 1).' · '.$drafts[$step]->type->label() : '';
+        $fix = $reachable ? null : $goal->fix();
+        $fits = $fix !== null && GameFlowValidator::defaultPosition($drafts, $fix) !== null;
 
         return [
             'choices' => [
@@ -692,8 +697,27 @@ final class EditGameFlow extends Page
                 $step !== null => 'Counted on '.$label.'.',
                 default => '',
             },
-            'fix' => ! $reachable && $goal->fix() !== null ? ['type' => $goal->fix()->value, 'label' => $goal->fix()->label()] : null,
+            'fix' => $fix !== null && $fits ? ['type' => $fix->value, 'label' => $fix->label()] : null,
+            'fixHint' => match (true) {
+                $fix === null || $fits => null,
+                $fix === GameFlowStepType::Registration && self::waitsForSignupStep($fullResult) => 'Set Full Result’s sign-up to a separate step first, then add '.$fix->label().'.',
+                default => $fix->label().' doesn’t fit this flow as it stands.',
+            },
         ];
+    }
+
+    /**
+     * Whether a Registration step waits on Full Result: Full Result goes on
+     * to the next step but keeps sign-up on itself or asks for none, so a
+     * Registration step fits only once its sign-up is set to a separate step.
+     *
+     * @param  array<string, mixed>|null  $fullResult
+     */
+    private static function waitsForSignupStep(?array $fullResult): bool
+    {
+        return $fullResult !== null
+            && ($fullResult['settings']['onward'] ?? GameOnward::Next->value) === GameOnward::Next->value
+            && ($fullResult['settings']['signup'] ?? GameSignupMode::Inline->value) !== GameSignupMode::Step->value;
     }
 
     /**

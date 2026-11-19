@@ -253,11 +253,12 @@ final class EngagementTab implements AnalyticsTab
         $sideA = $side($a);
         $sideB = $side($b);
         $label = fn (string $key): string => AnalyticsSource::label($key, $names);
+        // Two figures that read the same are a tie, however they differ underneath; rounding keeps the order of the rest.
         $line = fn (string $title, string $metric, callable $format): array => [
             'label' => $title,
             'a' => $sideA[$metric] === null ? '—' : $format($sideA[$metric]),
             'b' => $sideB[$metric] === null ? '—' : $format($sideB[$metric]),
-            'lead' => $a === $b || $sideA[$metric] === null || $sideB[$metric] === null || $sideA[$metric] == $sideB[$metric] ? null : ($sideA[$metric] > $sideB[$metric] ? 'a' : 'b'),
+            'lead' => $a === $b || $sideA[$metric] === null || $sideB[$metric] === null || $format($sideA[$metric]) === $format($sideB[$metric]) ? null : ($sideA[$metric] > $sideB[$metric] ? 'a' : 'b'),
         ];
         $average = fn (int|float $value): string => number_format((float) $value, 1);
         $share = fn (int|float $value): string => self::percent((float) $value);
@@ -307,7 +308,8 @@ final class EngagementTab implements AnalyticsTab
                 continue;
             }
 
-            if ($a[$metric] == $b[$metric]) {
+            // As often as the shares read: a difference the page doesn't show is none to say.
+            if (self::percent((float) $a[$metric]) === self::percent((float) $b[$metric])) {
                 return $nameA.' and '.$nameB.' visitors '.$verb.' as often: '.self::percent((float) $a[$metric]).' '.$what.'.';
             }
 

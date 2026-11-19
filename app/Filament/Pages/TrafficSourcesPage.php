@@ -203,7 +203,8 @@ final class TrafficSourcesPage extends Page
     /** @var array{day: string, amount: string} */
     public array $spendEntry = ['day' => '', 'amount' => ''];
 
-    public ?TemporaryUploadedFile $spendFile = null;
+    /** @var array<int|string, TemporaryUploadedFile> a spend file uploading, by the source it was chosen for */
+    public array $spendFiles = [];
 
     /** @var array{account_price: string, post_bonus: string, returned_bonus: string, login_price: string} */
     public array $prices = ['account_price' => '', 'post_bonus' => '', 'returned_bonus' => '', 'login_price' => ''];
@@ -242,7 +243,9 @@ final class TrafficSourcesPage extends Page
         $firstPaid = TrafficSource::query()->whereIn('type', [TrafficSourceType::Network, TrafficSourceType::Placement])->orderBy('name')->value('id');
         $this->spendSource = is_numeric($this->spendSource) ? (string) (int) $this->spendSource : (string) ($firstPaid ?? '');
         $this->spendOpen = $firstPaid === null ? [] : [(int) $firstPaid];
-        $this->drawPrices();
+        $prices = TrafficPriceSet::current();
+        $this->drawPriceFields($prices);
+        $this->drawGroups($prices);
         $this->drawSettings();
 
         if ($this->edit !== '') {
@@ -301,10 +304,17 @@ final class TrafficSourcesPage extends Page
         $this->normalize();
     }
 
-    /** Opens Report on one source: a banner's figures from its row in Campaigns. */
+    /**
+     * Opens Report on one source: a banner's figures from its row in
+     * Campaigns, on that source alone — no campaign, type of traffic or
+     * sites ticked kept from the filters before.
+     */
     public function reportFor(mixed $sourceId): void
     {
         $this->source = is_numeric($sourceId) ? (string) (int) $sourceId : '';
+        $this->campaignId = '';
+        $this->type = '';
+        $this->selected = [];
         $this->tab = 'report';
         $this->pageNumber = 1;
         $this->normalize();
@@ -809,6 +819,8 @@ final class TrafficSourcesPage extends Page
             app(SaveTrafficCampaignAction::class)->handle($this->admin(), $campaign, $input, $this->campaignLockVersion);
         } catch (ValidationException $exception) {
             $this->setErrorBag($exception->validator->errors());
+            // Said aloud too: a field can be far down the panel from Save.
+            $this->toast('Some fields need fixing before the campaign can be saved.', 'error');
 
             return;
         } catch (CannotManageTrafficException $exception) {
@@ -827,8 +839,7 @@ final class TrafficSourcesPage extends Page
         $stage = is_string($stage) ? TrafficCampaignStage::tryFrom($stage) : null;
 
         if ($campaign !== null && $stage !== null) {
-            $this->attempt(fn () => app(ChangeTrafficCampaignStageAction::class)->handle($this->admin(), $campaign, $stage), 'Stage: '.ucfirst($stage->value));
-            $this->openCampaign($campaign->id);
+            $this->changeCampaign($campaign, fn (): TrafficCampaign => app(ChangeTrafficCampaignStageAction::class)->handle($this->admin(), $campaign, $stage), 'Stage: '.ucfirst($stage->value));
         }
     }
 
@@ -837,11 +848,36 @@ final class TrafficSourcesPage extends Page
         $campaign = TrafficCampaign::query()->find((int) $this->camp);
 
         if ($campaign !== null) {
-            $this->attempt(fn () => $restore
+            $this->changeCampaign($campaign, fn (): TrafficCampaign => $restore
                 ? app(ArchiveTrafficCampaignAction::class)->restore($this->admin(), $campaign)
                 : app(ArchiveTrafficCampaignAction::class)->archive($this->admin(), $campaign), $restore ? 'Campaign restored' : 'Campaign archived');
-            $this->openCampaign($campaign->id);
         }
+    }
+
+    /**
+     * A stage set, an archive or a restore of the open campaign, its draft
+     * kept as typed: the version the change moved the campaign to becomes
+     * the draft's, so Save still goes through — unless someone else saved the
+     * campaign after it was opened, which Save must then say. A refusal
+     * keeps the draft and its version.
+     *
+     * @param  callable(): TrafficCampaign  $change
+     */
+    private function changeCampaign(TrafficCampaign $campaign, callable $change, string $done): void
+    {
+        try {
+            $changed = $change();
+        } catch (CannotManageTrafficException|RateLimitExceededException $exception) {
+            $this->toast($exception->getMessage(), 'error');
+
+            return;
+        }
+
+        if ($campaign->lock_version === $this->campaignLockVersion) {
+            $this->campaignLockVersion = $changed->lock_version;
+        }
+
+        $this->toast($done);
     }
 
     // Report: blocking -----------------------------------------------------
@@ -893,26 +929,31 @@ final class TrafficSourcesPage extends Page
         $this->toast('Spend saved; it is shared over the day’s visits within a minute.');
     }
 
-    /** A file chosen on Spend is taken as soon as it has uploaded. */
-    public function updatedSpendFile(): void
+    /**
+     * A file chosen on Spend is taken as soon as it has uploaded, into the
+     * source it was chosen for: the key it uploads under. Another source may
+     * be on screen by the time a slow upload ends, and its days are not the
+     * file's to replace.
+     */
+    public function updatedSpendFiles(mixed $file, ?string $key = null): void
     {
-        if ($this->spendFile !== null) {
-            $this->importSpend();
+        if ($key === null || ! ctype_digit($key)) {
+            $this->spendFiles = [];
+
+            return;
         }
-    }
 
-    public function importSpend(): void
-    {
-        $source = is_numeric($this->spendSource) ? TrafficSource::query()->find((int) $this->spendSource) : null;
+        unset($this->spendFiles[$key]);
+        $source = TrafficSource::query()->whereIn('type', [TrafficSourceType::Network, TrafficSourceType::Placement])->find((int) $key);
 
-        if ($source === null || $this->spendFile === null) {
+        if ($source === null || ! $file instanceof TemporaryUploadedFile) {
             $this->toast('Choose a source and a file first.', 'error');
 
             return;
         }
 
         try {
-            $import = app(EnterSpendAction::class)->file($this->admin(), $source, $this->spendFile->getClientOriginalName(), (string) file_get_contents($this->spendFile->getRealPath()));
+            $import = app(EnterSpendAction::class)->file($this->admin(), $source, $file->getClientOriginalName(), (string) file_get_contents($file->getRealPath()));
         } catch (ValidationException $exception) {
             $this->setErrorBag($exception->validator->errors());
 
@@ -921,8 +962,6 @@ final class TrafficSourcesPage extends Page
             $this->toast($exception->getMessage(), 'error');
 
             return;
-        } finally {
-            $this->spendFile = null;
         }
 
         $this->toast($import->fact_rows.' figures imported'.($import->skipped_rows > 0 ? ', '.$import->skipped_rows.' rows of other campaigns left out' : ''));
@@ -936,7 +975,7 @@ final class TrafficSourcesPage extends Page
         $sourcePrices = array_filter($this->accountPrices, fn (mixed $price, int|string $sourceId): bool => ctype_digit((string) $sourceId), ARRAY_FILTER_USE_BOTH);
 
         try {
-            app(SaveTrafficPricesAction::class)->prices($this->admin(), $this->prices, $this->pricesFrom, $sourcePrices);
+            $saved = app(SaveTrafficPricesAction::class)->prices($this->admin(), $this->prices, $this->pricesFrom, $sourcePrices);
         } catch (ValidationException $exception) {
             $this->setErrorBag($exception->validator->errors());
             // Said aloud too: a source's price can be wrong far from the button that saved it.
@@ -949,7 +988,8 @@ final class TrafficSourcesPage extends Page
             return;
         }
 
-        $this->drawPrices();
+        // The country groups stay as typed: the set saved carried over the ones they were drawn from.
+        $this->drawPriceFields($saved);
         $this->toast('Prices saved. Visits from now on count by them; earlier ones keep theirs.');
     }
 
@@ -958,7 +998,7 @@ final class TrafficSourcesPage extends Page
         $groups = array_map(fn (array $group): array => [...$group, 'countries' => array_values(array_filter(array_map(fn (string $code): string => strtoupper(trim($code)), explode(',', (string) $group['countries']))))], $this->groups);
 
         try {
-            app(SaveTrafficPricesAction::class)->groups($this->admin(), $groups, $this->pricesFrom);
+            $saved = app(SaveTrafficPricesAction::class)->groups($this->admin(), $groups, $this->pricesFrom);
         } catch (ValidationException $exception) {
             $this->setErrorBag($exception->validator->errors());
 
@@ -969,7 +1009,8 @@ final class TrafficSourcesPage extends Page
             return;
         }
 
-        $this->drawPrices();
+        // The prices stay as typed: the set saved carried over the ones they were drawn from.
+        $this->drawGroups($saved);
         $this->toast('Country groups saved. The chances are worked out again within five minutes.');
     }
 
@@ -1145,14 +1186,20 @@ final class TrafficSourcesPage extends Page
         $this->camp = is_numeric($this->camp) ? (string) (int) $this->camp : '';
     }
 
-    private function drawPrices(): void
+    /** Value's prices and each paid source's own account price as a set has them, the set the next save of either draft is drawn from. */
+    private function drawPriceFields(TrafficPriceSet $set): void
     {
-        $set = TrafficPriceSet::current();
         $this->pricesFrom = $set->id;
         // Prices read as money: two decimals, more only where a price has them.
         $money = fn (string $amount): string => number_format((float) $amount, max(2, strlen(rtrim((string) substr((string) strrchr($amount, '.'), 1), '0'))), '.', '');
         $this->prices = ['account_price' => $money((string) $set->account_price), 'post_bonus' => $money((string) $set->post_bonus), 'returned_bonus' => $money((string) $set->returned_bonus), 'login_price' => $money((string) $set->login_price)];
         $this->accountPrices = array_map($money, $set->sourceAccountPrices());
+    }
+
+    /** Value's country groups as a set has them, the set the next save of either draft is drawn from. */
+    private function drawGroups(TrafficPriceSet $set): void
+    {
+        $this->pricesFrom = $set->id;
         $this->groups = array_map(fn (array $group): array => ['key' => $group['key'], 'name' => $group['name'], 'percent' => $group['percent'], 'countries' => implode(', ', $group['countries'])], $set->country_groups);
     }
 

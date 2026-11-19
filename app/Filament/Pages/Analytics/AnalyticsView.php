@@ -151,7 +151,7 @@ final class AnalyticsView
     /** A paid campaign's name, or its id on the network, and — asked — its source's name. */
     private static function campaignName(TrafficCampaign $campaign, bool $withSource): string
     {
-        $name = $campaign->name ?? 'Campaign '.$campaign->external_id;
+        $name = $campaign->label();
 
         return $withSource && $campaign->source !== null ? $name.' · '.$campaign->source->name : $name;
     }
@@ -190,7 +190,8 @@ final class AnalyticsView
         }
 
         if ($ready) {
-            $tagged = array_column($this->kept($keptFor, 'campaigns', $filter, $fresh, fn (): array => $this->visits->top(new AnalyticsFilter($filter->period, null, $filter->sourceKey), AnalyticsDimension::Campaign, self::CAMPAIGN_OPTIONS)), 'campaign_key');
+            // Only the campaigns named by their tags are ranked, so paid ones with more people never crowd them out of the limit.
+            $tagged = array_column($this->kept($keptFor, 'campaigns', $filter, $fresh, fn (): array => $this->visits->top(new AnalyticsFilter($filter->period, null, $filter->sourceKey), AnalyticsDimension::Campaign, self::CAMPAIGN_OPTIONS, 'tag:')), 'campaign_key');
 
             foreach ($tagged as $key) {
                 if (is_string($key) && CampaignKey::paidCampaignId($key) === null && CampaignKey::read($key) !== null) {

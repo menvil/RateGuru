@@ -132,7 +132,9 @@ final class TranslationCenterPage extends Page
      * with; the action finds the unit again and checks all three. A text is
      * saved only while the unit still has that English — saving records the
      * translation as made from it — and refused once it has changed, so the
-     * page is reloaded first; removing a translation needs no such check.
+     * page is reloaded first. A text sent with no fingerprint, or with one
+     * that is not a string, is refused the same way: nothing says which
+     * English it was made from. Removing a translation needs no such check.
      * Nothing on the page is re-rendered: the browser updates the row from
      * what this returns.
      *
@@ -148,9 +150,10 @@ final class TranslationCenterPage extends Page
                 throw CannotSaveTranslationException::becauseUserIsNotAllowed();
             }
 
-            $saved = is_string($fingerprint) && is_string($text) && trim($text) !== ''
+            // Checked in the guard, once the unit is found, so an unknown unit or language keeps its own refusal.
+            $saved = is_string($text) && trim($text) !== ''
                 ? app(UpdateProjectTranslationAction::class)->handleGuarded($user, $unit, $locale, $text, function (ProjectTranslationUnit $locked) use ($fingerprint): void {
-                    if (! hash_equals(ProjectTranslationSourceFingerprint::of($locked), $fingerprint)) {
+                    if (! is_string($fingerprint) || ! hash_equals(ProjectTranslationSourceFingerprint::of($locked), $fingerprint)) {
                         throw CannotSaveTranslationException::becauseTheEnglishChanged();
                     }
                 })

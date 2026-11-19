@@ -99,7 +99,7 @@ final class TrafficReportQuery implements RawSqlPersistenceBoundary
             ->selectRaw($signups, $bindings)
             ->havingRaw('SUM(CASE WHEN signup_at IS NOT NULL THEN 1 ELSE 0 END) > ?', [0])
             ->orderByRaw('SUM(CASE WHEN signup_at IS NOT NULL THEN 1 ELSE 0 END) DESC, SUM(CASE WHEN account_at IS NOT NULL THEN 1 ELSE 0 END) DESC', [])
-            ->orderBy($columns[0])
+            ->tap(fn (Builder $query) => self::byEveryColumn($query, $columns))
             ->limit(self::MOST_GROUPS)
             ->toBase()
             ->get()
@@ -124,7 +124,7 @@ final class TrafficReportQuery implements RawSqlPersistenceBoundary
             ->select(...$columns)
             ->selectRaw('MIN(arrived_at) AS first_at, '.$metrics, $bindings)
             ->orderByRaw('SUM(CASE WHEN account_at IS NOT NULL THEN 1 ELSE 0 END) DESC, COUNT(*) DESC', [])
-            ->orderBy($columns[0])
+            ->tap(fn (Builder $query) => self::byEveryColumn($query, $columns))
             ->limit(self::MOST_GROUPS)
             ->toBase()
             ->get()
@@ -385,6 +385,21 @@ final class TrafficReportQuery implements RawSqlPersistenceBoundary
         }
 
         return $query;
+    }
+
+    /**
+     * Groups that tie ordered by every column they are grouped by, so they
+     * keep one order from one reading to the next — and the same ones stay
+     * within the limit.
+     *
+     * @param  Builder<TrafficVisit>  $query
+     * @param  list<string>  $columns
+     */
+    private static function byEveryColumn(Builder $query, array $columns): void
+    {
+        foreach ($columns as $column) {
+            $query->orderBy($column);
+        }
     }
 
     /** @return array{0: string, 1: list<mixed>} the figures of a row, as SQL */

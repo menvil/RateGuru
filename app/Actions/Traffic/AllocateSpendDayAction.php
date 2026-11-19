@@ -25,8 +25,12 @@ use Illuminate\Support\Facades\DB;
  * leaving out the campaigns priced their own way, whose API figures then
  * count for nothing. A day left with no figures goes back to what each
  * click was taken to cost as it came in. A visit is written only when its
- * spend moved, in batches by key; an interrupted run is finished by the
- * next. A fixed price stays an estimate while its day is not over.
+ * spend moved, in batches — one statement for each spend a batch takes —
+ * and each batch, and the figures' marks at the end, only while the day's
+ * figures are still the ones the plan was drawn from: figures replaced
+ * meanwhile stop the run and leave the day due, for the next run to share
+ * out afresh; an interrupted run is finished by the next. A fixed price
+ * stays an estimate while its day is not over.
  */
 final class AllocateSpendDayAction
 {
@@ -36,12 +40,12 @@ final class AllocateSpendDayAction
 
     private const array ORDER = [TrafficSpendOrigin::Manual, TrafficSpendOrigin::Csv, TrafficSpendOrigin::Api, TrafficSpendOrigin::Fixed];
 
-    /** The bases a visit's spend takes from a day's figures rather than from its click. */
-    private const array ALLOCATED = [TrafficSpendBasis::Manual, TrafficSpendBasis::Csv, TrafficSpendBasis::Api, TrafficSpendBasis::Fixed];
+    private const array ALLOCATED = TrafficSpendBasis::ALLOCATED;
 
     public function handle(TrafficSource $source, string $day, CarbonImmutable $now): void
     {
-        $facts = TrafficSpendDay::query()->where('source_id', $source->id)->where('network_day', $day)->get();
+        $facts = TrafficSpendDay::query()->where('source_id', $source->id)->where('network_day', $day)->orderBy('id')->get();
+        $drawnFrom = $facts->pluck('id')->map(fn (mixed $id): int => (int) $id)->all();
         // The network's own figures count only for a source that takes its spend from them.
         $origin = collect(self::ORDER)->first(fn (TrafficSpendOrigin $candidate): bool => $facts->contains('origin', $candidate)
             && ($candidate !== TrafficSpendOrigin::Api || $source->spend_mode === TrafficSpendMode::Api));
@@ -53,8 +57,9 @@ final class AllocateSpendDayAction
             ->where('network_day', $day);
 
         if ($origin === null) {
-            $this->backToClicks($source, $ofDay()->whereIn('spend_basis', self::ALLOCATED)->orderBy('id')->get(['id', 'campaign_id', 'cost', 'device', 'arrived_at', 'spend', 'spend_basis', 'spend_estimated']));
-            $this->markFacts($facts, collect(), ['facts' => []], $now);
+            if ($this->backToClicks($source, $day, $drawnFrom, $ofDay()->whereIn('spend_basis', self::ALLOCATED)->orderBy('id')->get(['id', 'campaign_id', 'cost', 'device', 'arrived_at', 'spend', 'spend_basis', 'spend_estimated']))) {
+                $this->markFacts($source, $day, $drawnFrom, $facts, collect(), ['facts' => []], $now);
+            }
 
             return;
         }
@@ -66,8 +71,8 @@ final class AllocateSpendDayAction
         $counted = $facts->where('origin', $origin)->reject(fn (TrafficSpendDay $fact): bool => in_array($fact->campaign_id, $ownPriced, true))->values();
 
         // Their clicks priced by a figure since removed go back to their own prices.
-        if ($ownPriced !== []) {
-            $this->backToClicks($source, $ofDay()->whereIn('campaign_id', $ownPriced)->whereIn('spend_basis', self::ALLOCATED)->orderBy('id')->get(['id', 'campaign_id', 'cost', 'device', 'arrived_at', 'spend', 'spend_basis', 'spend_estimated']));
+        if ($ownPriced !== [] && ! $this->backToClicks($source, $day, $drawnFrom, $ofDay()->whereIn('campaign_id', $ownPriced)->whereIn('spend_basis', self::ALLOCATED)->orderBy('id')->get(['id', 'campaign_id', 'cost', 'device', 'arrived_at', 'spend', 'spend_basis', 'spend_estimated']))) {
+            return;
         }
 
         $visits = $ofDay()
@@ -89,28 +94,59 @@ final class AllocateSpendDayAction
         $estimated = $origin === TrafficSpendOrigin::Fixed && $start->addDay()->greaterThan($now);
 
         foreach ($visits->chunk(self::BATCH) as $batch) {
-            DB::transaction(function () use ($batch, $plan, $basis, $estimated): void {
-                foreach ($batch as $visit) {
-                    $spend = $plan['visits'][(int) $visit->id];
-
-                    if ((string) $visit->spend !== $spend || $visit->spend_basis !== $basis || (bool) $visit->spend_estimated !== $estimated) {
-                        TrafficVisit::query()->whereKey($visit->id)->update(['spend' => $spend, 'spend_basis' => $basis, 'spend_estimated' => $estimated]);
-                    }
+            $written = DB::transaction(function () use ($source, $day, $drawnFrom, $batch, $plan, $basis, $estimated): bool {
+                if (! $this->stillDrawnFrom($source, $day, $drawnFrom)) {
+                    return false;
                 }
+
+                $moved = $batch->filter(fn (TrafficVisit $visit): bool => (string) $visit->spend !== $plan['visits'][(int) $visit->id] || $visit->spend_basis !== $basis || (bool) $visit->spend_estimated !== $estimated);
+
+                foreach ($moved->groupBy(fn (TrafficVisit $visit): string => $plan['visits'][(int) $visit->id]) as $spend => $same) {
+                    TrafficVisit::query()->whereKey($same->pluck('id')->all())->update(['spend' => (string) $spend, 'spend_basis' => $basis, 'spend_estimated' => $estimated]);
+                }
+
+                return true;
             });
+
+            if (! $written) {
+                return;
+            }
         }
 
-        $this->markFacts($facts, $counted, $plan, $now);
+        $this->markFacts($source, $day, $drawnFrom, $facts, $counted, $plan, $now);
     }
 
     /**
+     * Whether the day's figures are still the ones the plan was drawn from —
+     * replaced figures have new IDs — asked with the source locked against a
+     * typed total or a file, which lock it for update to replace figures, so
+     * they stay so until the caller's transaction ends. Shared, not for
+     * update: a click or a conversion of the source checks its key against
+     * that row, and would otherwise wait on the batch, or deadlock with it
+     * over a visit it holds.
+     *
+     * @param  list<int>  $drawnFrom
+     */
+    private function stillDrawnFrom(TrafficSource $source, string $day, array $drawnFrom): bool
+    {
+        TrafficSource::query()->whereKey($source->id)->sharedLock()->first();
+
+        return TrafficSpendDay::query()->where('source_id', $source->id)->where('network_day', $day)->orderBy('id')->pluck('id')->map(fn (mixed $id): int => (int) $id)->all() === $drawnFrom;
+    }
+
+    /**
+     * @param  list<int>  $drawnFrom
      * @param  Collection<int, TrafficSpendDay>  $facts
      * @param  Collection<int, TrafficSpendDay>  $counted
      * @param  array{facts: array<int, array{allocated: string, matched: int}>}  $plan
      */
-    private function markFacts(Collection $facts, Collection $counted, array $plan, CarbonImmutable $now): void
+    private function markFacts(TrafficSource $source, string $day, array $drawnFrom, Collection $facts, Collection $counted, array $plan, CarbonImmutable $now): void
     {
-        DB::transaction(function () use ($facts, $counted, $plan, $now): void {
+        DB::transaction(function () use ($source, $day, $drawnFrom, $facts, $counted, $plan, $now): void {
+            if (! $this->stillDrawnFrom($source, $day, $drawnFrom)) {
+                return;
+            }
+
             foreach ($facts as $fact) {
                 $isCounted = $counted->contains('id', $fact->id);
                 TrafficSpendDay::query()->whereKey($fact->id)->update([
@@ -127,19 +163,40 @@ final class AllocateSpendDayAction
      * Puts each visit back to what its click was taken to cost, once no
      * figure for its day is left to share out.
      *
+     * @param  list<int>  $drawnFrom
      * @param  Collection<int, TrafficVisit>  $visits
+     * @return bool whether every batch was written: false once the day's figures changed
      */
-    private function backToClicks(TrafficSource $source, Collection $visits): void
+    private function backToClicks(TrafficSource $source, string $day, array $drawnFrom, Collection $visits): bool
     {
         $campaigns = TrafficCampaign::query()->whereKey($visits->pluck('campaign_id')->filter()->unique()->all())->get()->keyBy('id');
 
         foreach ($visits->chunk(self::BATCH) as $batch) {
-            DB::transaction(function () use ($batch, $source, $campaigns): void {
+            $written = DB::transaction(function () use ($batch, $source, $day, $drawnFrom, $campaigns): bool {
+                if (! $this->stillDrawnFrom($source, $day, $drawnFrom)) {
+                    return false;
+                }
+
+                $bySpend = [];
+
                 foreach ($batch as $visit) {
                     $spend = $this->clickSpend($source, $visit->campaign_id === null ? null : $campaigns->get($visit->campaign_id), $visit->cost === null ? null : (string) $visit->cost, $visit->device, $visit->arrived_at);
-                    TrafficVisit::query()->whereKey($visit->id)->update($spend);
+                    $bySpend[(string) json_encode($spend)] ??= ['spend' => $spend, 'ids' => []];
+                    $bySpend[(string) json_encode($spend)]['ids'][] = (int) $visit->id;
                 }
+
+                foreach ($bySpend as $same) {
+                    TrafficVisit::query()->whereKey($same['ids'])->update($same['spend']);
+                }
+
+                return true;
             });
+
+            if (! $written) {
+                return false;
+            }
         }
+
+        return true;
     }
 }

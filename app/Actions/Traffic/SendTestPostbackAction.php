@@ -36,6 +36,8 @@ final class SendTestPostbackAction
      */
     public function handle(User $admin, string $template, TrafficEvent $event, ?string $goalCode, ?array $responseRules): PostbackAttempt
     {
+        // Checked and sent as one: an address pasted with a newline after it is checked trimmed, so it is sent trimmed.
+        $template = trim($template);
         $problems = PostbackTemplate::violations($template);
 
         if ($problems !== []) {

@@ -8,6 +8,7 @@ use App\Enums\TrafficPostbackStatus;
 use App\Exceptions\Traffic\CannotManageTrafficException;
 use App\Models\TrafficPostback;
 use App\Models\TrafficPostbackAttempt;
+use App\Models\TrafficSetting;
 use App\Models\TrafficSource;
 use App\Models\TrafficVisitDetail;
 use App\Models\User;
@@ -40,6 +41,12 @@ final class ResendTrafficPostbackAction
 
         $claim = DB::transaction(function () use ($admin, $postback): array {
             $this->lockAdministrator($admin);
+
+            // While postbacks are switched off nothing is sent to networks; a test postback stays available for setting a rule up.
+            if (! TrafficSetting::current()->postbacks_enabled) {
+                throw CannotManageTrafficException::because('Postbacks are switched off, so nothing is sent to networks. Switch on Send postbacks first.');
+            }
+
             $locked = TrafficPostback::query()->whereKey($postback->id)->lockForUpdate()->with('conversion')->first();
 
             if ($locked === null) {

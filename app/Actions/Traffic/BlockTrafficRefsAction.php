@@ -9,6 +9,7 @@ use App\Enums\TrafficBlockMethod;
 use App\Enums\TrafficBlockNetworkState;
 use App\Enums\TrafficBlockVerdict;
 use App\Enums\TrafficConnectionStatus;
+use App\Enums\TrafficSourceStatus;
 use App\Exceptions\Traffic\CannotManageTrafficException;
 use App\Models\TrafficApiConnection;
 use App\Models\TrafficBlock;
@@ -25,7 +26,9 @@ use Illuminate\Support\Str;
  * copied for the network's own black list — or queued for the network's API
  * when the source is connected and its API blocks that level, applied by
  * traffic:sync-networks; or unblocked. Up to 200 at a time, one batch, one
- * line of the log; a site already blocked is left as it is.
+ * line of the log; a site already blocked is left as it is. The block rule
+ * blocks nothing for a source no longer set, as it stands locked, to block
+ * that level by itself; an administrator blocks whatever it is set to.
  */
 final class BlockTrafficRefsAction
 {
@@ -51,14 +54,19 @@ final class BlockTrafficRefsAction
 
         return DB::transaction(function () use ($admin, $source, $level, $refs, $campaignId, $viaApi, $method, $verdict, $reason): int {
             $locked = $admin === null ? null : $this->lockAdministrator($admin);
-            $this->lockSource((int) $source->id);
+            $current = $this->lockSource((int) $source->id);
 
-            if ($viaApi && ! $this->canBlockViaApi($source, $level)) {
+            // The block rule blocks only for a source still set to block this level by itself: one paused, switched off or moved to another level since the rule read it is left alone.
+            if (($locked === null || $method === TrafficBlockMethod::Auto) && ! $this->blocksByItself($current, $level)) {
+                return 0;
+            }
+
+            if ($viaApi && ! $this->canBlockViaApi($current, $level)) {
                 throw CannotManageTrafficException::because('This source’s API can’t block '.($level === TrafficBlockLevel::Zone ? 'zones' : 'sites').'. Mark them as blocked and add them to the network’s list by hand.');
             }
 
             $batch = (string) Str::ulid();
-            $existing = TrafficBlock::query()->where('source_id', $source->id)->where('level', $level)->whereIn('ref', $refs)->get();
+            $existing = TrafficBlock::query()->where('source_id', $current->id)->where('level', $level)->whereIn('ref', $refs)->get();
             // A block on its way off the network's list is kept instead: blocked again, it goes back on the list at the next sync.
             TrafficBlock::query()->whereKey($existing->where('network_state', TrafficBlockNetworkState::Removing)->pluck('id')->all())
                 ->update(['network_state' => TrafficBlockNetworkState::Pending, 'network_error' => null]);
@@ -67,7 +75,7 @@ final class BlockTrafficRefsAction
 
             foreach ($new as $ref) {
                 TrafficBlock::query()->create([
-                    'source_id' => $source->id,
+                    'source_id' => $current->id,
                     'level' => $level,
                     'ref' => $ref,
                     'campaign_id' => $campaignId,
@@ -83,7 +91,7 @@ final class BlockTrafficRefsAction
 
             if ($new !== []) {
                 TrafficBlockEvent::query()->create([
-                    'source_id' => $source->id,
+                    'source_id' => $current->id,
                     'kind' => $viaApi ? 'queued' : 'marked',
                     'level' => $level,
                     'ref' => count($new) === 1 ? $new[0] : null,
@@ -138,6 +146,13 @@ final class BlockTrafficRefsAction
                 'occurred_at' => now(),
             ]);
         });
+    }
+
+    /** Whether the block rule may block this level of the source by itself. */
+    private function blocksByItself(TrafficSource $source, TrafficBlockLevel $level): bool
+    {
+        return $source->status === TrafficSourceStatus::Active && $source->block_auto && $source->block_level === $level
+            && $source->connector !== null && $this->registry->verified($source->connector);
     }
 
     public function canBlockViaApi(TrafficSource $source, TrafficBlockLevel $level): bool

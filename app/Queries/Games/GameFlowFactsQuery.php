@@ -45,9 +45,16 @@ final class GameFlowFactsQuery
             }
         }
 
-        $posts = $postIds === [] ? [] : Post::withTrashed()->whereIn('id', array_unique($postIds))->get(['id', 'title', 'status', 'deleted_at'])
-            ->mapWithKeys(fn (Post $post): array => [(int) $post->id => ['title' => (string) $post->title, 'published' => ! $post->trashed() && Post::query()->published()->whereKey($post->id)->exists()]])
-            ->all();
+        $posts = [];
+
+        if ($postIds !== []) {
+            $postIds = array_values(array_unique($postIds));
+            // Which of them are published, read at once; a deleted one never is.
+            $published = Post::query()->published()->whereIn('id', $postIds)->pluck('id')->map(fn (mixed $id): int => (int) $id)->flip()->all();
+            $posts = Post::withTrashed()->whereIn('id', $postIds)->get(['id', 'title', 'deleted_at'])
+                ->mapWithKeys(fn (Post $post): array => [(int) $post->id => ['title' => (string) $post->title, 'published' => ! $post->trashed() && isset($published[(int) $post->id])]])
+                ->all();
+        }
 
         return new FlowFacts(
             posts: $posts,

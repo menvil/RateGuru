@@ -128,8 +128,10 @@ final class AnalyticsContentQuery implements RawSqlPersistenceBoundary
      * The accounts credited to a visit of the days and the device given
      * whose session — that visit and every other with the same entry — first
      * opened one of the posts given, by the post: different browsers, as an
-     * account is counted. The first post is the one whose row of the session
-     * began first, the lower id first at the same moment.
+     * account is counted. The first post is the one the session opened first
+     * — an opened row begins when its post was first opened, though a vote
+     * made it earlier (RecordVisitPostAction) — the lower id first at the
+     * same moment.
      *
      * @param  list<int>  $postIds
      * @return array<int, int>

@@ -75,12 +75,15 @@ final class RecordAccountBonusAction
         return null;
     }
 
+    /** On the account's record and on its visit together: a mark that fails leaves the record to be tried again. */
     private function record(AccountAttribution $attribution, string $column, TrafficEvent $event, CarbonImmutable $at): void
     {
-        $first = AccountAttribution::query()->whereKey($attribution->id)->whereNull($column)->update([$column => $at]) === 1;
+        DB::transaction(function () use ($attribution, $column, $event, $at): void {
+            $first = AccountAttribution::query()->whereKey($attribution->id)->whereNull($column)->update([$column => $at]) === 1;
 
-        if ($first && $attribution->credited_visit_id !== null) {
-            $this->marks->handle((int) $attribution->credited_visit_id, $event, $at);
-        }
+            if ($first && $attribution->credited_visit_id !== null) {
+                $this->marks->handle((int) $attribution->credited_visit_id, $event, $at);
+            }
+        });
     }
 }

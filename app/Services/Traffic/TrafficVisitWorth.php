@@ -12,7 +12,6 @@ use App\Queries\Traffic\TrafficWorthQuery;
 use App\Support\Traffic\Worth\ChanceTable;
 use App\Support\Traffic\Worth\Slice;
 use App\Support\Traffic\Worth\StepWorth;
-use App\Support\Traffic\Worth\TrafficStep;
 use App\Support\Traffic\Worth\VisitValue;
 use Brick\Math\BigDecimal;
 use Carbon\CarbonImmutable;
@@ -130,9 +129,14 @@ final class TrafficVisitWorth
         }
 
         $best = ['value' => BigDecimal::zero(), 'basis' => TrafficValueBasis::None, 'step' => null];
+        // Read once for every step compared, and only for this settling: a later one sees a value set by hand since.
+        $slice = $this->sliceOf($visit);
+        $table = $this->table($slice);
+        $prices = $this->worth->prices((int) $visit->price_set_id)->forSource($visit->source_id);
+        $manual = $this->worth->manualValues($visit->game_id);
 
         foreach ($this->reachedSteps($visit) as $step) {
-            $worth = $this->step($visit, $step);
+            $worth = StepWorth::of($slice, $step, $prices, (int) $visit->worth_percent, (bool) $visit->known, $manual[$step] ?? null, $table);
 
             if ($worth['value']->isGreaterThan($best['value'])) {
                 $best = ['value' => $worth['value'], 'basis' => $worth['basis'], 'step' => $step];
@@ -163,8 +167,10 @@ final class TrafficVisitWorth
 
         $rounds = $this->roundsOf($visit->version_id);
 
-        if ($rounds > 1 && $visit->rounds_answered > 0 && $visit->rounds_answered < $rounds) {
-            $steps[] = TrafficStep::round((int) $visit->rounds_answered, $rounds);
+        // Every round answered on the way, not the last alone: an earlier one may be worth more, by hand or by its chance.
+        // The last round of the game is its finish, reached as completed.
+        for ($round = 1; $round <= min((int) $visit->rounds_answered, $rounds - 1); $round++) {
+            $steps[] = 'round_'.$round;
         }
 
         return $steps;

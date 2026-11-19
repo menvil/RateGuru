@@ -55,9 +55,11 @@ final class GameWorthQuery
         }
 
         $slice = new Slice((int) $game->id);
-        $prices = $this->worth->pricesFor(TrafficPriceSet::current()->worth(), $run, $slice);
+        $set = TrafficPriceSet::current();
+        $prices = $this->worth->pricesFor($set->worth(), $run, $slice);
 
-        return StepWorth::of($slice, 'opened', $prices, 100, false, $this->worth->manualValues((int) $game->id)['opened'] ?? null, $this->worth->table($run, $slice))['value'];
+        // At the country groups' shares as the game's visitors spread over them, as the tab's own steps count it.
+        return StepWorth::of($slice, 'opened', $prices, $this->mix($run, (int) $game->id, null, null, null, $set), false, $this->worth->manualValues((int) $game->id)['opened'] ?? null, $this->worth->table($run, $slice))['value'];
     }
 
     /**

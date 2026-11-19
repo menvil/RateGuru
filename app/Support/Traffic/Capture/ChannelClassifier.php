@@ -55,11 +55,15 @@ final class ChannelClassifier
         if (str_starts_with($referrer, 'android-app://')) {
             $app = strtolower((string) parse_url($referrer, PHP_URL_HOST));
 
+            if ($landsOnResult) {
+                return ['channel' => TrafficChannel::Shared, 'origin' => self::REDIRECTORS[$app] ?? $app];
+            }
+
             if ($app === 'com.google.android.googlequicksearchbox' || $app === 'com.google.android.gm') {
                 return ['channel' => TrafficChannel::Search, 'origin' => 'google'];
             }
 
-            return ['channel' => $landsOnResult ? TrafficChannel::Shared : TrafficChannel::Referral, 'origin' => self::REDIRECTORS[$app] ?? $app];
+            return ['channel' => TrafficChannel::Referral, 'origin' => self::REDIRECTORS[$app] ?? $app];
         }
 
         $host = self::host($referrer);
@@ -81,12 +85,26 @@ final class ChannelClassifier
         }
 
         foreach (self::SEARCH_ENGINES as $engine) {
-            if (str_starts_with($host, $engine) || str_contains($host, '.'.$engine) || $host === rtrim($engine, '.')) {
+            if (self::isEngine($host, $engine)) {
                 return ['channel' => TrafficChannel::Search, 'origin' => explode('.', rtrim($engine, '.'))[0]];
             }
         }
 
         return ['channel' => TrafficChannel::Referral, 'origin' => self::REDIRECTORS[$host] ?? $host];
+    }
+
+    /**
+     * Whether a host is the engine's own: its domain or one under it, a name
+     * ending in a dot standing for the engine's country domains (google.de,
+     * google.co.uk) — never a site that only starts with the engine's name.
+     */
+    private static function isEngine(string $host, string $engine): bool
+    {
+        if (str_ends_with($engine, '.')) {
+            return preg_match('/(^|\.)'.preg_quote(rtrim($engine, '.'), '/').'\.(com?\.)?[a-z]{2,3}$/', $host) === 1;
+        }
+
+        return $host === $engine || str_ends_with($host, '.'.$engine);
     }
 
     /** A referrer's host without "www.", lower-case; null when it has none. */

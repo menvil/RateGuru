@@ -293,9 +293,7 @@ final class OpenTrafficVisitAction
             return $latest;
         }
 
-        $visit = $this->visits->recentUnpaid($browserHash, $gameId, $since);
-
-        return $visit !== null && ($visit->entry_visit_id ?? $visit->id) === ($latest->entry_visit_id ?? $latest->id) ? $visit : null;
+        return $this->visits->recentUnpaid($browserHash, $gameId, $since, (int) ($latest->entry_visit_id ?? $latest->id));
     }
 
     /** The campaign tags a visit keeps for its session. */
@@ -355,20 +353,23 @@ final class OpenTrafficVisitAction
         });
     }
 
-    /** A visit the page's steps go to, given the game and version it now shows when it had none. */
+    /**
+     * A visit the page's steps go to, seen now unless it was seen later
+     * already, and given the game and version it now shows when it had none:
+     * only while it still has none, so a game another tab gave it since it
+     * was read is never replaced.
+     */
     private function touch(TrafficVisit $visit, ?int $gameId, ?int $versionId, CarbonImmutable $now): int
     {
-        $changes = ['last_seen_at' => $now];
+        TrafficVisit::query()->whereKey($visit->id)->where('last_seen_at', '<', $now)->update(['last_seen_at' => $now]);
 
         if ($visit->game_id === null && $gameId !== null) {
-            $changes['game_id'] = $gameId;
+            TrafficVisit::query()->whereKey($visit->id)->whereNull('game_id')->update(['game_id' => $gameId]);
         }
 
-        if ($visit->version_id === null && $versionId !== null && ($changes['game_id'] ?? $visit->game_id) === $gameId) {
-            $changes['version_id'] = $versionId;
+        if ($visit->version_id === null && $versionId !== null && ($visit->game_id ?? $gameId) === $gameId) {
+            TrafficVisit::query()->whereKey($visit->id)->where('game_id', $gameId)->whereNull('version_id')->update(['version_id' => $versionId]);
         }
-
-        TrafficVisit::query()->whereKey($visit->id)->update($changes);
 
         return (int) $visit->id;
     }

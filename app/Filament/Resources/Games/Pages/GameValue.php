@@ -4,6 +4,7 @@ namespace App\Filament\Resources\Games\Pages;
 
 use App\Actions\Traffic\SetTrafficStepValueAction;
 use App\Data\Games\GameFlowDraft;
+use App\Enums\GameVersionStatus;
 use App\Enums\TrafficChannel;
 use App\Enums\TrafficEvent;
 use App\Enums\TrafficPostbackStatus;
@@ -17,6 +18,7 @@ use App\Filament\Resources\Games\Concerns\InteractsWithGameEditor;
 use App\Filament\Resources\Games\GameResource;
 use App\Models\Game;
 use App\Models\GameFlow;
+use App\Models\GameVersion;
 use App\Models\TrafficPostback;
 use App\Models\TrafficPostbackRule;
 use App\Models\TrafficPriceSet;
@@ -32,6 +34,7 @@ use Filament\Resources\Pages\Page;
 use Filament\Support\Enums\Width;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use Livewire\Attributes\Url;
 
@@ -139,7 +142,8 @@ final class GameValue extends Page
             return;
         }
 
-        $value = preg_replace('/[^0-9.]/', '', $this->editValue) ?? '';
+        // Only the dollar sign the field shows comes off: anything else that is not an amount is refused, never read as another one.
+        $value = trim(Str::chopStart(trim($this->editValue), '$'));
         $mode = TrafficStepValueMode::tryFrom($this->editMode) ?? TrafficStepValueMode::Always;
 
         try {
@@ -198,8 +202,11 @@ final class GameValue extends Page
         $visited = $this->visitedSources($breakdown, $sources);
         $flows = GameFlow::query()->where('game_id', $game->id)->whereNull('archived_at')->with('steps')->orderBy('position')->orderBy('id')->get();
         $goalSteps = $flows->groupBy(fn (GameFlow $flow): string => GameFlowDraft::of($flow)->goal()->step())->map(fn (Collection $group): string => $group->pluck('name')->implode(', '));
+        // A Goal postback sends the goal of the version the visitor played: the live versions' goals, the flows' own until one is live.
+        $liveGoalSteps = GameVersion::query()->where('game_id', $game->id)->where('status', GameVersionStatus::Active)->get()
+            ->map(fn (GameVersion $version): string => $version->flowGoal()->step())->unique()->values()->all();
         $halfway = TrafficStep::halfway($rounds);
-        $postbacks = $this->postbacks($game, $rounds, $goalSteps->keys()->all(), $halfway, $groups);
+        $postbacks = $this->postbacks($game, $rounds, $liveGoalSteps !== [] ? $liveGoalSteps : $goalSteps->keys()->all(), $halfway, $groups);
         $stepTags = [];
 
         foreach ($postbacks as $postback) {
@@ -478,7 +485,7 @@ final class GameValue extends Page
      * it sends, the range of values it sends across devices and country
      * groups, and whether its last postback failed.
      *
-     * @param  list<string>  $goalSteps
+     * @param  list<string>  $goalSteps  the steps a Goal postback sends: the goals of the live versions
      * @param  array<string, string>  $groups
      * @return list<array{id: int, sourceId: int, source: string, event: TrafficEvent, label: string, code: string, steps: list<string>, range: string, failing: bool, url: string}>
      */
@@ -540,7 +547,7 @@ final class GameValue extends Page
                 'code' => trim((string) $rule->goal_code),
                 'steps' => $steps,
                 'range' => abs($high - $low) < 1e-9 ? TrafficMoney::fine($low) : TrafficMoney::fine($low).'–'.TrafficMoney::fine($high),
-                'failing' => TrafficPostback::query()->where('rule_id', $rule->id)->orderByDesc('id')->value('status') === TrafficPostbackStatus::Failed->value,
+                'failing' => TrafficPostback::query()->where('rule_id', $rule->id)->orderByDesc('id')->value('status') === TrafficPostbackStatus::Failed,
                 'url' => TrafficSourcesPage::getUrl(['tab' => 'sources', 'edit' => $sourceId]),
             ];
         }

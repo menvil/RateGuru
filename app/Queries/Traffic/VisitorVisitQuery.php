@@ -38,12 +38,18 @@ final class VisitorVisitQuery
             ->first();
     }
 
-    public function recentUnpaid(string $browserHash, ?int $gameId, CarbonImmutable $since): ?TrafficVisit
+    /**
+     * Given the first visit of a session, only that session's visits: one of
+     * another session seen since never hides the session's own.
+     */
+    public function recentUnpaid(string $browserHash, ?int $gameId, CarbonImmutable $since, ?int $entryVisitId = null): ?TrafficVisit
     {
         return TrafficVisit::query()
             ->where('visitor_hash', $browserHash)
             ->whereNull('source_id')
             ->when($gameId !== null, fn ($query) => $query->where('game_id', $gameId), fn ($query) => $query->whereNull('game_id'))
+            // The first visit itself is its session's, whether or not it names itself.
+            ->when($entryVisitId !== null, fn ($query) => $query->where(fn ($session) => $session->where('entry_visit_id', $entryVisitId)->orWhere('id', $entryVisitId)))
             ->where('last_seen_at', '>=', $since)
             ->orderByDesc('id')
             ->first();

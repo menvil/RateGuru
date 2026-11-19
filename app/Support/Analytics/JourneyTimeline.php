@@ -32,8 +32,10 @@ use Carbon\CarbonImmutable;
  * `visits`, `posts`, `attempts`, `assignments` (with when each `ended`, if
  * it did), `periods`, `events`,
  * `emails`, `attribution`, `days`, `first` (the earliest visit, when the
- * visits read are only the latest), `credited` (visits named by the
- * attribution and not among them), `games`, `versions` and `cut` (whether
+ * visits read are only the latest), `lastNamed` (then, the latest visit that
+ * began a session from somewhere named), `credited` (visits named by the
+ * attribution and not among them), `creditedAttempt` (the attempt it names,
+ * when not among the attempts read), `games`, `versions` and `cut` (whether
  * there was more than was read). Pure: every moment given is UTC.
  */
 final class JourneyTimeline
@@ -321,9 +323,10 @@ final class JourneyTimeline
     }
 
     /**
-     * The posts each session opened, shared, voted and commented on, and
-     * the votes, comments and posts its member made on its visits — one
-     * line a session.
+     * The posts each session opened, shared, voted and commented on — each
+     * post once, however many of the session's visits did so — and the
+     * votes, comments and posts its member made on its visits: one line a
+     * session.
      */
     private function postSteps(callable $add): void
     {
@@ -342,13 +345,17 @@ final class JourneyTimeline
                 continue;
             }
 
-            $session = $sessions[$entry] ?? ['at' => $row['at'], 'posts' => [], 'views' => 0, 'shared' => 0, 'voted' => 0, 'commented' => 0, 'votes' => 0, 'comments' => 0, 'made' => 0];
+            $session = $sessions[$entry] ?? ['at' => $row['at'], 'posts' => [], 'views' => 0, 'shared' => [], 'voted' => [], 'commented' => [], 'votes' => 0, 'comments' => 0, 'made' => 0];
             $session['at'] = $row['at'] < $session['at'] ? $row['at'] : $session['at'];
             $session['posts'][$row['post']] = true;
             $session['views'] += $row['views'];
-            $session['shared'] += $row['shared'] ? 1 : 0;
-            $session['voted'] += $row['voted'] ? 1 : 0;
-            $session['commented'] += $row['commented'] ? 1 : 0;
+
+            foreach (['shared', 'voted', 'commented'] as $did) {
+                if ($row[$did]) {
+                    $session[$did][$row['post']] = true;
+                }
+            }
+
             $sessions[$entry] = $session;
         }
 
@@ -357,7 +364,7 @@ final class JourneyTimeline
                 continue;
             }
 
-            $session = $sessions[$visit['entry']] ?? ['at' => $visit['seen'], 'posts' => [], 'views' => 0, 'shared' => 0, 'voted' => 0, 'commented' => 0, 'votes' => 0, 'comments' => 0, 'made' => 0];
+            $session = $sessions[$visit['entry']] ?? ['at' => $visit['seen'], 'posts' => [], 'views' => 0, 'shared' => [], 'voted' => [], 'commented' => [], 'votes' => 0, 'comments' => 0, 'made' => 0];
             $session['votes'] += $visit['votes'];
             $session['comments'] += $visit['comments'];
             $session['made'] += $visit['posts'];
@@ -367,14 +374,17 @@ final class JourneyTimeline
         foreach ($sessions as $entry => $session) {
             $opened = count($session['posts']);
             $ids = array_keys($session['posts']);
+            $shared = count($session['shared']);
+            $voted = count($session['voted']);
+            $commented = count($session['commented']);
             $parts = array_filter([
                 $session['views'] > $opened ? self::count($session['views'], 'view') : null,
-                $session['shared'] > 0 ? 'shared '.$session['shared'] : null,
-                $session['voted'] > 0 ? 'voted on '.self::count($session['voted'], 'post') : null,
-                $session['commented'] > 0 ? 'commented on '.self::count($session['commented'], 'post') : null,
+                $shared > 0 ? 'shared '.$shared : null,
+                $voted > 0 ? 'voted on '.self::count($voted, 'post') : null,
+                $commented > 0 ? 'commented on '.self::count($commented, 'post') : null,
                 // The member's own counts, where they say more than the posts voted and commented on.
-                $session['votes'] > $session['voted'] ? self::count($session['votes'], 'vote') : null,
-                $session['comments'] > $session['commented'] ? self::count($session['comments'], 'comment') : null,
+                $session['votes'] > $voted ? self::count($session['votes'], 'vote') : null,
+                $session['comments'] > $commented ? self::count($session['comments'], 'comment') : null,
                 $session['made'] > 0 ? self::count($session['made'], 'post', 'posts').' published' : null,
             ]);
 
@@ -551,21 +561,24 @@ final class JourneyTimeline
         };
 
         $named = array_values(array_filter($starts, fn (array $visit): bool => ! in_array($visit['source'], [AnalyticsSource::DIRECT, AnalyticsSource::INTERNAL], true)));
-        $last = $named === [] ? null : $named[count($named) - 1];
+        // Among the visits read, else — when only the latest were — the latest named start of all.
+        $last = $named === [] ? ($this->journey['lastNamed'] ?? null) : $named[count($named) - 1];
+        $cut = (bool) ($this->journey['cut'] ?? false);
 
         return [
             $first,
             $conversion,
             $last === null
-                ? ['label' => 'Last non-direct touch', 'value' => 'None', 'note' => 'Every visit came with no tags and no referrer']
+                ? ['label' => 'Last non-direct touch', 'value' => 'None', 'note' => $cut ? 'None of the visits read came with tags or a referrer' : 'Every visit came with no tags and no referrer']
                 : ['label' => 'Last non-direct touch', 'value' => $this->source($last), 'note' => $last['at']->format('d M').($last['at'] > $attribution['signedUp'] ? ' · after registration' : ' · '.$this->basis($last))],
             $this->credit($attribution, $credited),
         ];
     }
 
     /**
-     * What the sign-up is credited to: the attempt finished before it, else
-     * the page of the visit, else nothing.
+     * What the sign-up is credited to: the attempt finished before it — one
+     * of the attempts read, else the one read for it alone — else the page
+     * of the visit, else nothing.
      *
      * @param  array<string, mixed>  $attribution
      * @param  array<string, mixed>|null  $credited
@@ -580,6 +593,9 @@ final class JourneyTimeline
                 $attempt = $each;
             }
         }
+
+        $alone = $this->journey['creditedAttempt'] ?? null;
+        $attempt ??= $alone !== null && $alone['id'] === $attribution['attempt'] ? $alone : null;
 
         if ($attempt !== null) {
             $flow = $this->journey['versions'][$attempt['version']]['flow'] ?? null;

@@ -135,8 +135,10 @@ final class SaveTrafficSourceAction
     private function validate(TrafficSourceType $type, ?TrafficSource $existing, array $source, array $rules): void
     {
         $network = $type === TrafficSourceType::Network;
+        // The connector the source will have: an edit keeps the one it has, only a new source takes the one sent with it.
+        $connector = $existing !== null ? $existing->connector : TrafficConnector::tryFrom((string) ($source['connector'] ?? ''));
         $spendModes = $network
-            ? [TrafficSpendMode::ClickCost, TrafficSpendMode::Rate, TrafficSpendMode::Manual, TrafficSpendMode::None, ...(($source['connector'] ?? $existing?->connector) !== null ? [TrafficSpendMode::Api] : [])]
+            ? [TrafficSpendMode::ClickCost, TrafficSpendMode::Rate, TrafficSpendMode::Manual, TrafficSpendMode::None, ...($connector !== null ? [TrafficSpendMode::Api] : [])]
             : [TrafficSpendMode::Fixed, TrafficSpendMode::Manual, TrafficSpendMode::None];
         $money = ['nullable', 'numeric', 'regex:/^\d{1,10}(\.\d{1,8})?$/', 'min:0', 'max:1000000'];
 
@@ -149,7 +151,7 @@ final class SaveTrafficSourceAction
             'source.click_id_ttl_hours' => ['nullable', 'integer', 'min:1', 'max:720'],
             'source.target_cpa' => [...$money, 'max:1000'],
             // A network read through its API gives its spend by its own days: the source files its visits by the same.
-            'source.reporting_timezone' => ['required', 'string', Rule::in(($connector = TrafficConnector::tryFrom((string) ($source['connector'] ?? $existing?->connector->value ?? ''))) === null ? timezone_identifiers_list() : [$connector->reportsIn()])],
+            'source.reporting_timezone' => ['required', 'string', Rule::in($connector === null ? timezone_identifiers_list() : [$connector->reportsIn()])],
             'source.link_params' => ['array'],
             'source.response_rules' => ['nullable', 'array'],
             'source.response_rules.rules' => ['array', 'max:20'],
@@ -198,7 +200,8 @@ final class SaveTrafficSourceAction
                 $validator->errors()->add('rules', 'A banner or link sends no postbacks.');
             }
 
-            if (($source['spend_mode'] ?? null) === TrafficSpendMode::Rate->value && ($source['rate_mobile'] ?? null) === null && ($source['rate_desktop'] ?? null) === null) {
+            // A rate left blank is none, as it is saved; a rate of 0 is one.
+            if (($source['spend_mode'] ?? null) === TrafficSpendMode::Rate->value && trim((string) ($source['rate_mobile'] ?? '')) === '' && trim((string) ($source['rate_desktop'] ?? '')) === '') {
                 $validator->errors()->add('source.rate_mobile', 'Enter a rate for mobile, desktop or both.');
             }
 
@@ -213,7 +216,8 @@ final class SaveTrafficSourceAction
                     }
                 }
 
-                $key = ($rule['event'] ?? '').'|'.($rule['goal_code'] ?? '').'|'.$template;
+                // The goal code as it is saved, trimmed.
+                $key = ($rule['event'] ?? '').'|'.trim((string) ($rule['goal_code'] ?? '')).'|'.$template;
 
                 if (in_array($key, $seen, true)) {
                     $validator->errors()->add("rules.{$index}.url_template", 'Another rule already sends this address for this event.');
@@ -270,7 +274,8 @@ final class SaveTrafficSourceAction
             'rate_mobile' => $money('rate_mobile', 6),
             'rate_desktop' => $money('rate_desktop', 6),
             'fixed_amount' => $network ? null : $money('fixed_amount', 2),
-            'fixed_period' => $network || ($source['fixed_period'] ?? null) === null ? null : TrafficFixedPeriod::from((string) $source['fixed_period']),
+            // A period cleared outside Fixed comes back empty: no period. Fixed itself asks for one when validated.
+            'fixed_period' => $network || trim((string) ($source['fixed_period'] ?? '')) === '' ? null : TrafficFixedPeriod::from(trim((string) $source['fixed_period'])),
             // A date field cleared in the browser comes back empty: no date, not today.
             'fixed_from' => $network || trim((string) ($source['fixed_from'] ?? '')) === '' ? null : $source['fixed_from'],
             'fixed_to' => $network || trim((string) ($source['fixed_to'] ?? '')) === '' ? null : $source['fixed_to'],

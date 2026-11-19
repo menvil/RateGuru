@@ -39,7 +39,7 @@ final class SaveTrafficSettingsAction
             'capture_enabled' => ['sometimes', 'boolean'],
             'site_capture_enabled' => ['sometimes', 'boolean'],
             'postbacks_enabled' => ['sometimes', 'boolean'],
-            'geo_edition' => ['sometimes', 'in:'.implode(',', array_map(fn (GeoEdition $edition): string => $edition->value, GeoEdition::cases()))],
+            'geo_edition' => ['sometimes', 'required', 'in:'.implode(',', array_map(fn (GeoEdition $edition): string => $edition->value, GeoEdition::cases()))],
             // The general block rule: every threshold a value, as a source's own may be empty.
             ...array_map(fn (array $rules): array => ['sometimes', 'required', ...$rules], BlockRule::validation()),
         ], BlockRule::messages(), BlockRule::names())->validate();

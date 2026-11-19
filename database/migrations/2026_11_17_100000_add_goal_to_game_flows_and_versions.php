@@ -9,6 +9,10 @@ return new class extends Migration
 {
     public function up(): void
     {
+        // On PostgreSQL a busy table fails the deploy before the release
+        // switches instead of queueing the players' queries behind an ALTER.
+        $this->limitLockWait();
+
         // A flow's goal (GameFlowGoal): what analytics, version comparison and
         // postbacks count for it. Null means the goal its steps give it.
         Schema::table('game_flows', function (Blueprint $table) {
@@ -17,13 +21,10 @@ return new class extends Migration
 
         // The goal a version was published with, beside the copy frozen into
         // its snapshot, so analytics can group by it in SQL. Added in place on
-        // SQLite: a table SQLite rebuilds loses the CHECK on its status. On
-        // PostgreSQL a busy table fails the deploy before the release switches
-        // instead of queueing the players' queries behind the ALTER.
+        // SQLite: a table SQLite rebuilds loses the CHECK on its status.
         if (DB::getDriverName() === 'sqlite') {
             DB::statement('alter table "game_versions" add column "goal" varchar(40)');
         } else {
-            $this->limitLockWait();
             Schema::table('game_versions', function (Blueprint $table) {
                 $table->string('goal', 40)->nullable()->after('flow_id');
             });
@@ -32,6 +33,8 @@ return new class extends Migration
         // Versions published before goals existed get the goal their flow's
         // steps gave it — the rule written out here, as it stood, so a later
         // change of the application's rule never rewrites what this one did.
+        // A version whose snapshot carries the goal it was published with
+        // keeps that one.
         DB::table('game_versions')->whereNull('goal')->orderBy('id')->chunkById(100, function ($versions): void {
             foreach ($versions as $version) {
                 DB::table('game_versions')->where('id', $version->id)->update(['goal' => $this->goalOf((string) $version->snapshot)]);
@@ -54,10 +57,19 @@ return new class extends Migration
         });
     }
 
-    /** The goal a published flow's steps give it, for the eleven step types that existed then. */
+    /**
+     * The goal a snapshot was published with, when it carries one; otherwise
+     * the goal the published flow's steps give it, for the eleven step types
+     * that existed then.
+     */
     private function goalOf(string $snapshot): string
     {
         $data = json_decode($snapshot, true);
+
+        if (is_string($data['flow']['goal'] ?? null) && $data['flow']['goal'] !== '') {
+            return $data['flow']['goal'];
+        }
+
         $steps = is_array($data['flow']['steps'] ?? null) ? $data['flow']['steps'] : [];
         $types = array_map(fn (mixed $step): string => is_array($step) ? (string) ($step['type'] ?? '') : '', $steps);
 

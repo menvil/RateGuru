@@ -24,16 +24,23 @@ final class RevalueOpenVisitsAction
 
     private const string NOTICEABLE = '0.00005';
 
+    /**
+     * How long a visit is still swept after it closed: a night or a few the
+     * scheduler missed still bring a closed visit to 0, rather than leaving it
+     * outside every later scan with the worth it last had.
+     */
+    private const int SWEPT_AFTER_CLOSE_DAYS = 7;
+
     public function __construct(private readonly TrafficVisitWorth $worth) {}
 
     public function handle(CarbonImmutable $now): int
     {
         // A visit is open until its own close — a paid click a week after the window it was given, an unpaid visit two weeks after it came —
         // whatever the sources' windows are now; the longest window there can be bounds the scan.
-        $coarse = $now->subDays(max(max(PresetSchema::ATTRIBUTION_DAYS) + VisitValue::PAID_CLOSES_AFTER_WINDOW_DAYS, VisitValue::UNPAID_CLOSES_AFTER_DAYS) + 1);
-        $paidHeldSince = $now->subDays(VisitValue::PAID_CLOSES_AFTER_WINDOW_DAYS + 1);
-        $unpaidSince = $now->subDays(VisitValue::UNPAID_CLOSES_AFTER_DAYS + 1);
-        $accountsSince = $now->subDays(VisitValue::POST_BONUS_DAYS + 1);
+        $coarse = $now->subDays(max(max(PresetSchema::ATTRIBUTION_DAYS) + VisitValue::PAID_CLOSES_AFTER_WINDOW_DAYS, VisitValue::UNPAID_CLOSES_AFTER_DAYS) + self::SWEPT_AFTER_CLOSE_DAYS);
+        $paidHeldSince = $now->subDays(VisitValue::PAID_CLOSES_AFTER_WINDOW_DAYS + self::SWEPT_AFTER_CLOSE_DAYS);
+        $unpaidSince = $now->subDays(VisitValue::UNPAID_CLOSES_AFTER_DAYS + self::SWEPT_AFTER_CLOSE_DAYS);
+        $accountsSince = $now->subDays(VisitValue::POST_BONUS_DAYS + self::SWEPT_AFTER_CLOSE_DAYS);
         $changed = 0;
         $after = 0;
 
@@ -41,7 +48,8 @@ final class RevalueOpenVisitsAction
             $ids = TrafficVisit::query()
                 ->tracked()
                 ->where('id', '>', $after)
-                ->whereNotNull('opened_at')
+                // The page ran, or the visitor signed up all the same: a click that reached nothing is worth nothing and stays out.
+                ->where(fn ($ran) => $ran->whereNotNull('opened_at')->orWhereNotNull('signup_at'))
                 ->where('known', false)
                 ->where(fn ($open) => $open
                     ->where(fn ($young) => $young->whereNull('account_at')->where('arrived_at', '>=', $coarse)->where(fn ($closing) => $closing
@@ -76,6 +84,14 @@ final class RevalueOpenVisitsAction
 
     private function moved(mixed $stored, string $worked): bool
     {
-        return TrafficMoney::of($stored)->minus(TrafficMoney::of($worked))->abs()->isGreaterThan(TrafficMoney::of(self::NOTICEABLE));
+        $stored = TrafficMoney::of($stored);
+        $worked = TrafficMoney::of($worked);
+
+        // Nothing is nothing: a closed visit's last crumb goes, however small.
+        if ($worked->isZero() && ! $stored->isZero()) {
+            return true;
+        }
+
+        return $stored->minus($worked)->abs()->isGreaterThan(TrafficMoney::of(self::NOTICEABLE));
     }
 }

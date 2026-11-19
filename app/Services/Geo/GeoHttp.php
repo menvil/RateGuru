@@ -19,7 +19,7 @@ final class GeoHttp
 {
     public function json(string $url, string $source): array
     {
-        $response = $this->send(fn (): Response => $this->request((int) config('geo.timeouts.metadata'))->acceptJson()->get($url), $source);
+        $response = $this->send(fn (): Response => $this->request((int) config('geo.timeouts.metadata'))->acceptJson()->get($url), $source, GeoUpdateFailure::DiscoveryFailed);
 
         $data = $response->json();
 
@@ -32,7 +32,7 @@ final class GeoHttp
 
     public function head(string $url, string $source): Response
     {
-        return $this->send(fn (): Response => $this->request((int) config('geo.timeouts.metadata'))->head($url), $source);
+        return $this->send(fn (): Response => $this->request((int) config('geo.timeouts.metadata'))->head($url), $source, GeoUpdateFailure::DiscoveryFailed);
     }
 
     /** Streams the body to $path; refuses anything but 200 and anything over $maxBytes. */
@@ -40,8 +40,11 @@ final class GeoHttp
     {
         $tooLarge = false;
 
-        $response = $this->send(fn (): Response => $this->request((int) config('geo.timeouts.download'))
-            ->withOptions([
+        // An explicit closure, not an arrow function: an arrow function would
+        // capture $tooLarge by value, and the guards below would set its copy
+        // instead of the flag send() reads.
+        $response = $this->send(function () use ($url, $path, $maxBytes, &$tooLarge): Response {
+            return $this->request((int) config('geo.timeouts.download'))->withOptions([
                 'sink' => $path,
                 'decode_content' => false,
                 'on_headers' => function ($response) use ($maxBytes, &$tooLarge): void {
@@ -60,8 +63,8 @@ final class GeoHttp
                         throw new \RuntimeException('The download is larger than the limit.');
                     }
                 },
-            ])
-            ->get($url), $source, $tooLarge);
+            ])->get($url);
+        }, $source, GeoUpdateFailure::DownloadFailed, $tooLarge);
 
         if ($response->status() !== 200) {
             throw GeoUpdateException::because(GeoUpdateFailure::DownloadFailed, $source);
@@ -82,13 +85,19 @@ final class GeoHttp
             ->withUserAgent(config('app.name').' IP database update');
     }
 
-    /** @param  callable(): Response  $call */
-    private function send(callable $call, string $source, bool &$tooLarge = false): Response
+    /**
+     * A call that does not complete fails as $failure — a metadata request
+     * as discovery, the archive as its download — or as too large once a
+     * download's size guard has cut it off.
+     *
+     * @param  callable(): Response  $call
+     */
+    private function send(callable $call, string $source, GeoUpdateFailure $failure, bool &$tooLarge = false): Response
     {
         try {
             return $call();
         } catch (Throwable) {
-            throw GeoUpdateException::because($tooLarge ? GeoUpdateFailure::TooLarge : GeoUpdateFailure::DownloadFailed, $source);
+            throw GeoUpdateException::because($tooLarge ? GeoUpdateFailure::TooLarge : $failure, $source);
         }
     }
 }
