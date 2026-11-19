@@ -11,8 +11,14 @@
     // A background generation the page opens with: running, or with suggestions waiting, it replaces Generate missing.
     $generation = $target !== null ? $client['generation'] : null;
     $generationBusy = $generation !== null && ($generation['status'] !== 'completed' || $generation['counts']['ready'] > 0);
+    // Generate missing as the page opens, outdated translations counted beside the missing ones; the browser's generateLabel from then on.
+    $generateLabel = $target === null ? '' : match (true) {
+        $stats['outdated'] === 0 => 'Generate missing ('.number_format($stats['missing']).')',
+        $stats['missing'] === 0 => 'Generate outdated ('.number_format($stats['outdated']).')',
+        default => 'Generate missing ('.number_format($stats['missing']).') & outdated ('.number_format($stats['outdated']).')',
+    };
     // Dialog titles that count as the page does.
-    $generateTitle = new \Illuminate\Support\HtmlString('<span x-text="\'Generate \' + figure(missing) + (missing === 1 ? \' suggestion?\' : \' suggestions?\')"></span>');
+    $generateTitle = new \Illuminate\Support\HtmlString('<span x-text="\'Generate \' + figure(missing + outdated) + (missing + outdated === 1 ? \' suggestion?\' : \' suggestions?\')"></span>');
     $saveAllTitle = new \Illuminate\Support\HtmlString('<span x-text="\'Save \' + figure(saveAllUnits.length) + (saveAllUnits.length === 1 ? \' generated translation?\' : \' generated translations?\')"></span>');
 @endphp
 
@@ -70,6 +76,13 @@
                         <dt class="rg-admin-stat__label">Missing</dt>
                         <dd class="rg-admin-stat__value" x-text="figure(missing)">{{ number_format($stats['missing']) }}</dd>
                     </div>
+                    {{-- Translations made from English that has changed since: drawn once there is one, and kept, at zero too, as they are saved. --}}
+                    @if ($stats['outdated'] > 0)
+                        <div class="rg-admin-stat rg-admin-translation-center__outdated">
+                            <dt class="rg-admin-stat__label">Needs update</dt>
+                            <dd class="rg-admin-stat__value" x-text="figure(outdated)">{{ number_format($stats['outdated']) }}</dd>
+                        </div>
+                    @endif
                     <div class="rg-admin-stat rg-admin-translation-center__completion">
                         <dt class="rg-admin-stat__label">Completion</dt>
                         <dd class="rg-admin-translation-center__completion-figure">
@@ -86,17 +99,17 @@
                     </div>
                 </dl>
 
-                {{-- Every missing translation of the language, whatever the filters show; then the suggestions, saved together. --}}
+                {{-- Every missing and outdated translation of the language, whatever the filters show; then the suggestions, saved together. --}}
                 <div class="rg-admin-translation-center__actions">
                     <x-admin.ui.button
                         icon="sparkles"
-                        :disabled="$stats['missing'] === 0"
+                        :disabled="$stats['missing'] + $stats['outdated'] === 0"
                         :x-cloak="$generationBusy"
                         x-show="offersGenerate"
-                        x-bind:disabled="missing === 0 || generationBusy"
+                        x-bind:disabled="missing + outdated === 0 || generationBusy"
                         x-on:click="askToGenerate()"
                     >
-                        <span x-text="'Generate missing (' + figure(missing) + ')'">Generate missing ({{ number_format($stats['missing']) }})</span>
+                        <span x-text="generateLabel">{{ $generateLabel }}</span>
                     </x-admin.ui.button>
                     <x-admin.ui.button
                         variant="primary"
@@ -132,7 +145,7 @@
                         />
                         <x-admin.ui.segmented
                             label="Show"
-                            :options="['missing' => 'Missing only', 'all' => 'All']"
+                            :options="['missing' => 'Missing only', 'outdated' => 'Needs update', 'all' => 'All']"
                             :value="$filters['mode']"
                             x-model="mode"
                         />
@@ -201,7 +214,12 @@
                                     Every item in this view has a stored {{ $target['label'] }} translation.
                                 </x-admin.ui.empty-state>
                             </template>
-                            <template x-if="! (mode === 'missing' && query.trim() === '')">
+                            <template x-if="mode === 'outdated' && query.trim() === ''">
+                                <x-admin.ui.empty-state icon="check" tone="success" title="Nothing to update here">
+                                    No {{ $target['label'] }} translation in this view was made from English that has changed since.
+                                </x-admin.ui.empty-state>
+                            </template>
+                            <template x-if="! (['missing', 'outdated'].includes(mode) && query.trim() === '')">
                                 <x-admin.ui.empty-state title="No items match these filters">
                                     Try a different search or section, or show all items.
                                     <x-slot:action>
@@ -227,9 +245,12 @@
                     :title="$generateTitle"
                     x-on:dismiss="pendingGenerate = false"
                 >
-                    <p>AI translates every missing item into {{ $target['native'] }}, whatever the filters show, using each item’s context, limits and existing translations. It runs in the background: you can leave this page meanwhile.</p>
+                    <p><span x-text="generateScope"></span> into {{ $target['native'] }}, whatever the filters show, using each item’s context, limits and existing translations. It runs in the background: you can leave this page meanwhile.</p>
                     <x-slot:details>
-                        <x-admin.ui.inline-notice tone="info">Suggestions are not saved. They become project data only when you save them, one by one or with Save all generated.</x-admin.ui.inline-notice>
+                        <x-admin.ui.inline-notice tone="info">
+                            Suggestions are not saved. They become project data only when you save them, one by one or with Save all generated.
+                            <span x-show="outdated > 0">Until then, visitors keep seeing the outdated translations.</span>
+                        </x-admin.ui.inline-notice>
                     </x-slot:details>
                     <x-slot:actions>
                         <x-admin.ui.button x-on:click="dismiss()" autofocus>Cancel</x-admin.ui.button>

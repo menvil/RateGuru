@@ -2,10 +2,15 @@
 
 namespace App\Livewire\Comments;
 
+use App\Actions\Analytics\RecordUserActivityAction;
 use App\Actions\Comments\AddCommentAction;
+use App\Enums\UserActivity;
 use App\Exceptions\Comments\CannotCommentException;
 use App\Models\Post;
+use App\Models\User;
+use App\Support\Games\Play\GameVisitorResolver;
 use App\Support\Settings\ProjectSettingsManager;
+use Carbon\CarbonImmutable;
 use Illuminate\Contracts\View\View;
 use Livewire\Component;
 
@@ -51,6 +56,12 @@ final class CommentForm extends Component
         $this->reset('body');
         // The error an earlier attempt left belongs to that attempt.
         $this->resetErrorBag('body');
+
+        $user = auth()->user();
+
+        if ($user instanceof User) {
+            app(RecordUserActivityAction::class)->quietly($user, UserActivity::Commented, $this->postId, app(GameVisitorResolver::class)->browserHash(), CarbonImmutable::now());
+        }
 
         $this->dispatch('comment-created', postId: $this->postId, commentId: $comment->id);
     }

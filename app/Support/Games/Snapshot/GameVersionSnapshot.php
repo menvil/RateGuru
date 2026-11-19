@@ -2,6 +2,7 @@
 
 namespace App\Support\Games\Snapshot;
 
+use App\Enums\GameFlowGoal;
 use App\Enums\GameMechanic;
 use App\Enums\GameRoundMode;
 use App\Support\Games\Flow\FlowStepDraft;
@@ -17,7 +18,8 @@ use InvalidArgumentException;
  */
 final readonly class GameVersionSnapshot
 {
-    public const SCHEMA = 1;
+    /** The shape written now: the second adds the flow's goal. A first-shape snapshot is still read. */
+    public const SCHEMA = 2;
 
     /**
      * @param  list<SnapshotRound>  $rounds
@@ -41,12 +43,14 @@ final readonly class GameVersionSnapshot
         public string $flowName,
         public array $steps,
         public array $locales,
+        public ?GameFlowGoal $flowGoal = null,
+        public int $schema = self::SCHEMA,
     ) {}
 
     /** @param  array<string, mixed>  $data */
     public static function fromArray(array $data): self
     {
-        if (($data['schema'] ?? null) !== self::SCHEMA) {
+        if (! in_array($data['schema'] ?? null, [1, self::SCHEMA], true)) {
             throw new InvalidArgumentException('Unknown game version snapshot schema.');
         }
 
@@ -70,6 +74,8 @@ final readonly class GameVersionSnapshot
             flowName: (string) $flow['name'],
             steps: array_values(array_map(fn (array $step): SnapshotStep => SnapshotStep::fromArray($step), (array) $flow['steps'])),
             locales: array_values(array_map('strval', (array) ($data['locales'] ?? []))),
+            flowGoal: GameFlowGoal::tryFrom((string) ($flow['goal'] ?? '')),
+            schema: (int) $data['schema'],
         );
     }
 
@@ -77,7 +83,7 @@ final readonly class GameVersionSnapshot
     public function toArray(): array
     {
         return [
-            'schema' => self::SCHEMA,
+            'schema' => $this->schema,
             'game' => [
                 'id' => $this->gameId,
                 'slug' => $this->slug,
@@ -97,6 +103,7 @@ final readonly class GameVersionSnapshot
                 'id' => $this->flowId,
                 'name' => $this->flowName,
                 'steps' => array_map(fn (SnapshotStep $step): array => $step->toArray(), $this->steps),
+                ...($this->schema >= 2 ? ['goal' => $this->flowGoal?->value] : []),
             ],
             'locales' => $this->locales,
         ];

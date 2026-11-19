@@ -2,7 +2,11 @@
 
 namespace App\Models;
 
+use App\Enums\GameAudience;
+use App\Enums\GameFlowGoal;
+use App\Enums\GameFlowStepType;
 use App\Enums\GameVersionStatus;
+use App\Support\Games\Flow\FlowGoalRules;
 use App\Support\Games\Snapshot\GameVersionSnapshot;
 use Carbon\CarbonImmutable;
 use Database\Factories\GameVersionFactory;
@@ -25,6 +29,7 @@ use LogicException;
  * @property GameVersionStatus $status
  * @property int $content_set_id
  * @property int $flow_id
+ * @property GameFlowGoal|null $goal
  * @property array<string, mixed> $snapshot
  * @property int $snapshot_schema
  * @property int $round_count
@@ -67,6 +72,7 @@ class GameVersion extends Model
             'status' => GameVersionStatus::class,
             'content_set_id' => 'integer',
             'flow_id' => 'integer',
+            'goal' => GameFlowGoal::class,
             'snapshot' => 'array',
             'snapshot_schema' => 'integer',
             'round_count' => 'integer',
@@ -84,9 +90,27 @@ class GameVersion extends Model
         return $this->readSnapshot ??= GameVersionSnapshot::fromArray($this->snapshot);
     }
 
+    /** The goal the version counts: the one it was published with. */
+    public function flowGoal(): GameFlowGoal
+    {
+        return $this->goal ?? $this->read()->flowGoal ?? FlowGoalRules::defaultFor($this->read()->flowSteps());
+    }
+
     public function label(): string
     {
         return 'V'.$this->number;
+    }
+
+    /** Whether an anonymous visitor of the version can meet an Email capture step. */
+    public function asksAnonymousForEmail(): bool
+    {
+        foreach ($this->read()->steps as $step) {
+            if ($step->type === GameFlowStepType::EmailCapture && $step->audience->includes(GameAudience::Anonymous)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     public function isActive(): bool
