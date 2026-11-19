@@ -161,6 +161,9 @@ return [
                     ['outcome' => 'rejected', 'match' => 'header', 'text' => 'X-PopAds-EC'],
                 ],
                 'otherwise' => 'ok',
+                // PopAds answers every unknown impression ID, and so Send test's made-up one, with
+                // X-PopAds-EC: InvalidEnvironmentException…, whatever the aid: only a real click's postback checks it.
+                'test_note' => 'PopAds refuses any click ID it did not issue, so Send test always comes back rejected, even with a wrong aid. Check the rule with a real click: its postback shows as delivered in Logs → Postbacks.',
             ],
             'fill' => 'Your account’s aid from Conversions → Pixels and Postbacks, in the postback address.',
             'custom' => false,

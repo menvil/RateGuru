@@ -33,6 +33,7 @@ use App\Models\TrafficPriceSet;
 use App\Models\TrafficSetting;
 use App\Models\TrafficSource;
 use App\Models\User;
+use App\Services\Traffic\Postbacks\PostbackAttempt;
 use App\Services\Traffic\TrafficPresetCatalog;
 use App\Support\Geo\Countries;
 use App\Support\Traffic\Blocking\BlockRule;
@@ -42,6 +43,7 @@ use App\Support\Traffic\Reports\TrafficReportFilter;
 use Filament\Pages\Page;
 use Filament\Support\Enums\Width;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use Livewire\Attributes\Locked;
 use Livewire\Attributes\On;
@@ -643,7 +645,27 @@ final class TrafficSourcesPage extends Page
             return;
         }
 
-        $this->toast('Test postback: '.$attempt->outcome->value.($attempt->httpStatus !== null ? ' · HTTP '.$attempt->httpStatus : '').($attempt->latencyMs !== null ? ' · '.$attempt->latencyMs.' ms' : ''), $attempt->outcome->value === 'ok' ? 'success' : 'error');
+        $this->toast(self::testOutcome($attempt, app(TrafficPresetCatalog::class)->find($this->draft['source']['preset_key'] ?? null)), $attempt->outcome->value === 'ok' ? 'success' : 'error');
+    }
+
+    /**
+     * What Send test came to, with what the network said, as far as the log
+     * keeps it (its body or the header a rule reads), and, when the network
+     * refused it, the preset's word on a network that refuses every made-up
+     * click.
+     *
+     * @param  array<string, mixed>|null  $preset
+     */
+    private static function testOutcome(PostbackAttempt $attempt, ?array $preset): string
+    {
+        $said = trim((string) $attempt->excerpt);
+        $note = $attempt->outcome->value === 'rejected' ? trim((string) ($preset['postback']['test_note'] ?? '')) : '';
+
+        return 'Test postback: '.$attempt->outcome->value
+            .($attempt->httpStatus !== null ? ' · HTTP '.$attempt->httpStatus : '')
+            .($attempt->latencyMs !== null ? ' · '.$attempt->latencyMs.' ms' : '')
+            .($said !== '' ? ' · '.Str::limit($said, 120) : '')
+            .($note !== '' ? '. '.$note : '');
     }
 
     public function connectApi(): void
