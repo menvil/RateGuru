@@ -4,7 +4,7 @@
         <p class="rg-game__eyebrow">{{ $texts['title'] }}</p>
     @endif
     @if ($data['nextGame'] !== null)
-        <h1 class="rg-game__title rg-game__title--sm">{{ $data['nextGame']['title'] }}</h1>
+        <x-games.headline :text="$data['nextGame']['title']" size="sm" />
         <button type="button" class="rg-game__button rg-game__button--primary rg-game__button--wide" wire:click="leave('next')" data-testid="game-next-game">{{ $texts['button_label'] }} <span aria-hidden="true">→</span></button>
     @endif
     @if ($data['canReplay'])

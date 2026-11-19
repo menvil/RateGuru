@@ -15,6 +15,7 @@ window.rgAuthModal = function ({ open = false, mode = 'login' } = {}) {
             if (this.open) {
                 this.syncReturnPath();
                 this.focusFirstField();
+                this.tellTraffic();
             }
         },
 
@@ -24,6 +25,15 @@ window.rgAuthModal = function ({ open = false, mode = 'login' } = {}) {
             this.syncReturnPath();
             this.open = true;
             this.focusFirstField();
+            this.tellTraffic();
+        },
+
+        // A sign-in or sign-up form shown: the traffic tracker counts the
+        // visit as having seen one (resources/js/traffic.js).
+        tellTraffic() {
+            if (this.mode !== 'forgot-password' && typeof window.rgTrafficSignal === 'function') {
+                window.rgTrafficSignal('signup_form');
+            }
         },
 
         // The page the person is on right now. Livewire may have changed the

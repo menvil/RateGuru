@@ -7,7 +7,9 @@
      * it: the flow's steps, the one on screen marked as the frame moves, each
      * a way to start again there. Restart plays it again from where it began;
      * Fullscreen lays the whole of it over the window. Nothing the frame does
-     * is recorded.
+     * is recorded. A published version still active of a live or paused game
+     * has Copy test link: the game's public page playing it for seven days,
+     * recording nothing.
      */
     $view = $device === 'mobile' ? 'mobile' : 'desktop';
     $display = $device === 'page' ? 'page' : 'window';
@@ -127,6 +129,13 @@
             </label>
 
             <div class="rg-admin-games__preview-actions">
+                @if ($testLink !== null)
+                    {{--
+                        Copied from the page as drawn, so the click itself writes the clipboard: a browser lets only a click do that.
+                        Says it was copied only once the clipboard took it: the write can be refused, and there is no clipboard outside a secure page.
+                    --}}
+                    <x-admin.ui.button size="sm" icon="link" :data-copy="$testLink" :data-copied="'Test link copied. It plays '.$testLabel.' for 7 days and records nothing.'" data-testid="game-preview-test-link" x-on:click="async () => { try { await navigator.clipboard.writeText($el.dataset.copy); $dispatch('rg-admin-toast', { message: $el.dataset.copied, tone: 'success' }) } catch { $dispatch('rg-admin-toast', { message: 'The browser refused the clipboard, so nothing was copied.', tone: 'error' }) } }">Copy test link</x-admin.ui.button>
+                @endif
                 <x-admin.ui.button size="sm" icon="rotate-ccw" x-on:click="restart()">Restart</x-admin.ui.button>
                 <x-admin.ui.button size="sm" icon="external-link" :href="$frameUrl" target="_blank">Open</x-admin.ui.button>
                 <x-admin.ui.button size="sm" variant="primary" icon="monitor" x-on:click="fs = ! fs"><span x-text="fs ? 'Exit fullscreen' : 'Fullscreen'">Fullscreen</span></x-admin.ui.button>

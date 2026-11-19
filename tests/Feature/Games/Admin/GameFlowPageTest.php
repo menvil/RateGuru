@@ -123,11 +123,13 @@ it('puts a removed Full Result back into a flow with a Registration step, sendin
     expect($page->viewData('issues'))->toBe([]);
 });
 
-it('shows a step\'s button text on its card when the step has no title', function () {
+it('shows where an exit step leads on its card, after its button', function () {
     $page = Livewire::test(EditGameFlow::class, ['record' => $this->draft['game']->id])
-        ->call('insertStep', 'feed');
+        ->call('insertStep', 'feed')
+        ->set('steps.3.texts.title', '')
+        ->set('steps.3.settings.feed_sort', 'top');
 
-    expect(collect($page->viewData('cards'))->firstWhere('label', 'Go to Feed')['summary'])->toBe('“Go to the feed”');
+    expect(collect($page->viewData('cards'))->firstWhere('label', 'Go to Feed')['summary'])->toBe('Go to the feed → top');
 });
 
 it('lists the flow\'s problems as it stands, and keeps the game', function () {
@@ -147,6 +149,35 @@ it('saves the flow from the top bar', function () {
 
     expect(GameFlowStep::query()->where('flow_id', $this->draft['flow']->id)->orderBy('position')->first()->type->value)->toBe('game')
         ->and(GameFlowStep::query()->where('type', 'landing')->sole()->title)->toBe('Pick one');
+});
+
+it('offers Save flow again at the foot of the selected step’s settings, waiting as the top bar’s waits for an unsaved change', function () {
+    $html = (string) $this->get(GameResource::getUrl('flow', ['record' => $this->draft['game']]))->assertOk()->getContent();
+    $disabledWhen = fn (string $button): string => preg_match('/x-bind:disabled="([^"]+)"/', $button, $match) === 1 ? $match[1] : '';
+
+    // Each opening tag stands on a line of its own; the binding holds a “>”.
+    expect(preg_match('/<button[^\n]*save-game-flow[^\n]*>/', $html, $top))->toBe(1)
+        ->and(preg_match('/<button[^\n]*data-testid="game-flow-step-save"[^\n]*>/', $html, $foot))->toBe(1)
+        // Drawn disabled, enabled by the same unsaved changes as the top bar's.
+        ->and($foot[0])->toContain(' disabled ')
+        ->and($disabledWhen($foot[0]))->not->toBe('')->toBe($disabledWhen($top[0]))
+        ->and($foot[0])->toContain('wire:click="save"');
+
+    // The Game step has no Remove step, and still its Save.
+    Livewire::withQueryParams(['step' => 1])->test(EditGameFlow::class, ['record' => $this->draft['game']->id])
+        ->assertSeeHtml('data-testid="game-flow-step-save"')
+        ->assertDontSee('Remove step');
+});
+
+it('saves the flow from the foot of the selected step’s settings as from the top bar', function () {
+    $page = Livewire::test(EditGameFlow::class, ['record' => $this->draft['game']->id])
+        ->assertSeeHtml('wire:click="save" data-testid="game-flow-step-save"')
+        ->set('steps.0.texts.title', 'Saved from below')
+        ->call('save')
+        ->assertDispatched('rg-admin-toast', message: 'Flow saved', tone: 'success');
+
+    expect(GameFlowStep::query()->where('type', 'landing')->sole()->title)->toBe('Saved from below')
+        ->and($page->get('saved'))->toBe($page->get('steps'));
 });
 
 it('keeps the step on screen when a step above it is removed', function () {
@@ -248,4 +279,39 @@ it('names the + after the last step for where it adds one', function () {
         ->assertSeeHtml('aria-label="Between steps 2 and 3"')
         ->assertSeeHtml('aria-label="After step 3"')
         ->assertDontSeeHtml('aria-label="Between steps 3 and 4"');
+});
+
+it('chooses the post a step sends visitors to from the list of posts with their pictures', function () {
+    $post = tap(gamePost(3, 1))->update(['title' => 'A cat in a box']);
+
+    // Full Result, sending visitors on to a post.
+    Livewire::test(EditGameFlow::class, ['record' => $this->draft['game']->id])
+        ->set('selected', 2)
+        ->set('steps.2.settings.onward', 'post')
+        ->set('steps.2.settings.post_target', 'chosen')
+        ->assertSee('Choose a post')
+        ->call('openPicker')
+        ->assertSee('Choose a post to send visitors to')
+        ->assertViewHas('picker', fn (array $picker): bool => collect($picker['posts'])->contains('title', 'A cat in a box'))
+        ->set('pickerSearch', 'box')
+        ->assertSee('A cat in a box')
+        ->call('pickPost', $post->id)
+        ->assertSet('picking', false)
+        ->assertSet('steps.2.settings.post_id', $post->id)
+        ->assertSee('Choose another post')
+        // The chosen post shows with its picture, small, beside its title.
+        ->assertViewHas('linkedPost', fn (array $linked): bool => $linked['title'] === 'A cat in a box' && $linked['thumbnail'] !== null);
+});
+
+it('lets Full Result go on to a page, set as Go to Page sets one, and asks for what it lacks', function () {
+    Livewire::test(EditGameFlow::class, ['record' => $this->draft['game']->id])
+        ->set('selected', 2)
+        ->set('steps.2.settings.onward', 'page')
+        ->assertSee('Where it leads')
+        ->assertSee('Choose a category')
+        ->assertSee('Missing settings: Category.')
+        ->set('steps.2.settings.destination', 'tag')
+        ->assertSee('Missing settings: Tag.')
+        ->set('steps.2.settings.tag', 'cats')
+        ->assertSee('Go to a page: #cats tag');
 });

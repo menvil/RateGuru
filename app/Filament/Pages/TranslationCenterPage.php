@@ -13,7 +13,9 @@ use App\Exceptions\Translations\CannotSaveTranslationException;
 use App\Exceptions\Translations\CannotSuggestTranslationException;
 use App\Filament\Support\AdminNavigationGroup;
 use App\Filament\Support\TranslationSourceEditor;
+use App\Models\ProjectTranslationSource;
 use App\Models\User;
+use App\Queries\Translations\ProjectTranslationSourcesQuery;
 use App\Support\Locale\LocaleManager;
 use App\Support\TranslationEngine\Exceptions\InvalidTranslationRequestException;
 use App\Support\Translations\Generation\ProjectTranslationSourceFingerprint;
@@ -48,17 +50,23 @@ use UnitEnum;
  * Drawn entirely in Admin v2. The target language is the page's one piece of
  * server state, in the URL (`?locale=`): choosing another reads that
  * language's translations afresh. Everything else is the browser's, over the
- * units already on the page — the search, the section, Missing only / All
- * (kept in the URL with replaceState), and the drafts typed or suggested here,
- * which exist only in the browser until they are saved. Typing sends nothing;
- * Save sends one unit id, the language and the text; AI translate, Suggest
- * alternative and Regenerate send one unit id, the language and the stored
- * text the row shows, and get a suggestion back, which is a draft like any
- * other; Generate missing asks for suggestions for every missing translation
- * of the language, made in the background and kept on the server, which the
- * page restores and polls for; and the context drawer asks for one unit's
- * details when it opens. None of them re-renders the page, so drafts in other
- * rows stay as they are.
+ * units already on the page — the search, the section, Missing only / Needs
+ * update / All (kept in the URL with replaceState), and the drafts typed or
+ * suggested here, which exist only in the browser until they are saved.
+ * Typing sends nothing; Save sends one unit id, the language and the text;
+ * AI translate, Suggest alternative and Regenerate send one unit id, the
+ * language and the stored text the row shows, and get a suggestion back,
+ * which is a draft like any other; Generate missing asks for suggestions for
+ * every missing and every outdated translation of the language, made in the
+ * background and kept on the server, which the page restores and polls for;
+ * and the context drawer asks for one unit's details when it opens. None of
+ * them re-renders the page, so drafts in other rows stay as they are.
+ *
+ * A translation is outdated when it was made from English the unit no longer
+ * has (ProjectTranslationSourceFingerprint::isOutdated()). Its row says so and
+ * shows the English it was made from; the translation stays stored, and what
+ * visitors see, until the row is saved — as it is, or changed — which makes
+ * it current.
  *
  * Every method checks what the browser sends against the catalog and the
  * installed languages now; UpdateProjectTranslationAction is the final
@@ -68,8 +76,8 @@ use UnitEnum;
  */
 final class TranslationCenterPage extends Page
 {
-    /** Missing only / All, as the URL carries them; All is the default. */
-    public const MODES = ['all', 'missing'];
+    /** All / Missing only / Needs update, as the URL carries them; All is the default. */
+    public const MODES = ['all', 'missing', 'outdated'];
 
     /** How long a search kept in the URL may be. */
     public const QUERY_LIMIT = 100;
@@ -120,14 +128,20 @@ final class TranslationCenterPage extends Page
 
     /**
      * Saves one draft. The unit, the language and the text are all the
-     * browser sends; the action finds the unit again and checks all three.
+     * browser sends, with the fingerprint of the English the row was drawn
+     * with; the action finds the unit again and checks all three. A text is
+     * saved only while the unit still has that English — saving records the
+     * translation as made from it — and refused once it has changed, so the
+     * page is reloaded first. A text sent with no fingerprint, or with one
+     * that is not a string, is refused the same way: nothing says which
+     * English it was made from. Removing a translation needs no such check.
      * Nothing on the page is re-rendered: the browser updates the row from
      * what this returns.
      *
      * @return array{saved: true, value: string}|array{saved: false, error: string, field: bool}
      */
     #[Renderless]
-    public function save(mixed $unit = null, mixed $locale = null, mixed $text = null): array
+    public function save(mixed $unit = null, mixed $locale = null, mixed $text = null, mixed $fingerprint = null): array
     {
         $user = auth()->user();
 
@@ -136,7 +150,14 @@ final class TranslationCenterPage extends Page
                 throw CannotSaveTranslationException::becauseUserIsNotAllowed();
             }
 
-            $saved = app(UpdateProjectTranslationAction::class)->handle($user, $unit, $locale, $text);
+            // Checked in the guard, once the unit is found, so an unknown unit or language keeps its own refusal.
+            $saved = is_string($text) && trim($text) !== ''
+                ? app(UpdateProjectTranslationAction::class)->handleGuarded($user, $unit, $locale, $text, function (ProjectTranslationUnit $locked) use ($fingerprint): void {
+                    if (! is_string($fingerprint) || ! hash_equals(ProjectTranslationSourceFingerprint::of($locked), $fingerprint)) {
+                        throw CannotSaveTranslationException::becauseTheEnglishChanged();
+                    }
+                })
+                : app(UpdateProjectTranslationAction::class)->handle($user, $unit, $locale, $text);
         } catch (CannotSaveTranslationException $exception) {
             return ['saved' => false, 'error' => $exception->getMessage(), 'field' => $exception->isAboutTheText()];
         }
@@ -148,10 +169,11 @@ final class TranslationCenterPage extends Page
     }
 
     /**
-     * Generate missing: suggestions for every missing translation of the
-     * language, made in the background. The language is all the browser
-     * sends — never which units; the action reads them from the catalog,
-     * plans, stores and queues, and returns without waiting for a provider.
+     * Generate missing: suggestions for every missing and every outdated
+     * translation of the language, made in the background. The language is
+     * all the browser sends — never which units; the action reads them from
+     * the catalog, plans, stores and queues, and returns without waiting for
+     * a provider.
      *
      * @return array{started: true, generation: array<string, mixed>}|array{started: false, error: string, reason: string}
      */
@@ -469,7 +491,7 @@ final class TranslationCenterPage extends Page
         $units = app(ProjectTranslationCatalog::class)->units();
         $reports = app(ProjectTranslationCompleteness::class)->reportsFor($units, array_keys($targets));
         $report = $reports[$locale];
-        $rows = $this->rows($units, $locale);
+        $rows = $this->rows($units, $locale, app(ProjectTranslationSourcesQuery::class)->forLocale($locale));
         $filters = self::requestedFilters();
 
         return [
@@ -479,6 +501,7 @@ final class TranslationCenterPage extends Page
                 'total' => $report->required,
                 'translated' => $report->translated,
                 'missing' => count($report->missing),
+                'outdated' => count(array_filter($rows, fn (array $row): bool => $row['outdated'])),
                 'percentage' => $report->percentage(),
             ],
             'sections' => $this->sectionOptions($rows),
@@ -489,6 +512,7 @@ final class TranslationCenterPage extends Page
                 'label' => $targets[$locale]['label'],
                 'targets' => array_map(fn (array $target): string => $target['label'], $targets),
                 'sections' => array_map(fn (ProjectContentSection $section): string => $section->value, ProjectContentSection::cases()),
+                'modes' => self::MODES,
                 'queryLimit' => self::QUERY_LIMIT,
                 // The administrator's background generation for this language, read once with the page.
                 'generation' => $this->initialGeneration($locale),
@@ -501,6 +525,7 @@ final class TranslationCenterPage extends Page
                     'multiline' => $row['multiline'],
                     'placeholders' => $row['placeholders'],
                     'stored' => $row['stored'],
+                    'outdated' => $row['outdated'],
                     'fingerprint' => $row['fingerprint'],
                     'search' => $row['search'],
                 ], $rows),
@@ -510,17 +535,22 @@ final class TranslationCenterPage extends Page
 
     /**
      * One row per unit that needs a translation, in the catalog's order, with
-     * the target language's stored text — what the page draws and what the
-     * browser filters and edits.
+     * the target language's stored text and whether it is outdated, with the
+     * English it was made from — what the page draws and what the browser
+     * filters and edits.
      *
      * @param  list<ProjectTranslationUnit>  $units
+     * @param  array<string, ProjectTranslationSource>  $sources  what each stored translation of the language was made from, by unit id
      * @return list<array<string, mixed>>
      */
-    private function rows(array $units, string $locale): array
+    private function rows(array $units, string $locale, array $sources): array
     {
         $rows = [];
 
         foreach (array_values(array_filter($units, fn (ProjectTranslationUnit $unit): bool => $unit->requiresTranslation())) as $index => $unit) {
+            $source = $sources[$unit->id] ?? null;
+            $outdated = ProjectTranslationSourceFingerprint::isOutdated($unit, $locale, $source?->fingerprint);
+
             $rows[] = [
                 'id' => $unit->id,
                 'dom' => "rg-admin-tr-{$index}",
@@ -536,6 +566,9 @@ final class TranslationCenterPage extends Page
                 'multiline' => $unit->multiline,
                 'placeholders' => $unit->placeholders(),
                 'stored' => $unit->translation($locale) ?? '',
+                // Made from English the unit no longer has: that English, shown beside the current one.
+                'outdated' => $outdated,
+                'translatedFrom' => $outdated ? $source?->reference : null,
                 // Which English the row shows, to tell a background suggestion made from other English.
                 'fingerprint' => ProjectTranslationSourceFingerprint::of($unit),
                 'sourceUrl' => TranslationSourceEditor::url($unit),
