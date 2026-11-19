@@ -1,0 +1,85 @@
+docs/admin/analytics.md
+  s_4b9dc6ab6b25d3::t_28a5934bbbf5df 46-47
+  s_4b9dc6ab6b25d3::t_3e54da1d7c8e63 1-38,43-45,50-121,125-170,173-276,280-283
+  s_4b9dc6ab6b25d3::t_f6ed8f54c74680 48-49
+  s_4b9dc6ab6b25d3::t_faf018decd9b63 122-124
+  s_4b9dc6ab6b25d3::t_42e40114eb1b6e 171-172
+  s_4b9dc6ab6b25d3::t_801ca2ed424f6e 39-42
+  s_4b9dc6ab6b25d3::t_069ba068a9c3a3 277-279
+docs/architecture/analytics.md
+  s_4b9dc6ab6b25d3::t_c0d2a21c83003f 399-400
+  s_4b9dc6ab6b25d3::t_dd3cab9d4fb5a7 215-216
+  s_4b9dc6ab6b25d3::t_3e37476368f308 245
+  s_4b9dc6ab6b25d3::t_dd4317fc033195 1-65,70-192,194-207,217-221,224-244,246,249-398,401,403-405
+  s_4b9dc6ab6b25d3::t_9118356870a383 247-248
+  s_4b9dc6ab6b25d3::t_eb2216b913563a 66-69
+  s_4b9dc6ab6b25d3::t_87992233b93d77 193
+  s_4b9dc6ab6b25d3::t_1bafed05345d07 402
+  s_4b9dc6ab6b25d3::t_8e0da9445e1aac 208-214,222-223
+docs/architecture/traffic.md
+  s_4b9dc6ab6b25d3::t_97ffca2a2ada06 173-174
+  s_4b9dc6ab6b25d3::t_22cc2624bb9afe 13,18
+  s_4b9dc6ab6b25d3::t_fe103dc6c1d62c 84-86
+  s_4b9dc6ab6b25d3::t_38963746a63867 408-409
+  s_4b9dc6ab6b25d3::t_1aa0ee9d88239e 401-407,410-412
+  s_4b9dc6ab6b25d3::t_50c19120a15dda 167,172,175-176
+  s_4b9dc6ab6b25d3::t_3555ba066ea92a 14-17
+docs/admin/games.md
+  s_4b9dc6ab6b25d3::t_88a1252bbef164 83-84
+  s_4b9dc6ab6b25d3::t_98ebd264d9302f 120-121
+  s_4b9dc6ab6b25d3::t_621fc20588ab9b 149-160
+  s_4b9dc6ab6b25d3::t_50f361c98383cc 146-147
+docs/design/admin/design-contract.md
+  s_4b9dc6ab6b25d3::t_0ede42f6b3526f 1576-1578
+  s_4b9dc6ab6b25d3::t_f483eca253571d 1903
+  s_4b9dc6ab6b25d3::t_ee61a764eedbcf 1451
+  s_4b9dc6ab6b25d3::t_c4c06c669770e4 1526
+  s_4b9dc6ab6b25d3::t_bdf4ddf751ed39 1466-1467
+  s_4b9dc6ab6b25d3::t_5aaa6c81b487c5 1442-1444
+  s_4b9dc6ab6b25d3::t_3bd504f7a5ab96 1395-1405,1407-1440,1445-1450,1458-1465,1468-1478,1482-1483,1486-1499,1504-1525,1527-1538,1540-1550
+  s_4b9dc6ab6b25d3::t_9d94c8929196bf 290
+  s_4b9dc6ab6b25d3::t_258d7c8e80f4e2 193
+  s_4b9dc6ab6b25d3::t_12423250d90403 219-220
+  s_4b9dc6ab6b25d3::t_84ebc2d333e54b 1406
+  s_4b9dc6ab6b25d3::t_9edcec418336bd 1441
+  s_4b9dc6ab6b25d3::t_6239a1de661190 1479-1481
+  s_4b9dc6ab6b25d3::t_554ccce2d2bf79 1539
+  s_4b9dc6ab6b25d3::t_a8f37421f53b57 1557-1560
+  s_4b9dc6ab6b25d3::t_73353abf8f864f 291
+  s_4b9dc6ab6b25d3::t_46b13852d6a009 1926-1928
+  s_4b9dc6ab6b25d3::t_4779e826788b0e 1266-1267,1271-1275
+  s_4b9dc6ab6b25d3::t_2c46a7f0ab0e4d 1368-1380
+  s_4b9dc6ab6b25d3::t_f5ed5984d2a958 1452-1457
+  s_4b9dc6ab6b25d3::t_405c831d24295a 1383-1385
+  s_4b9dc6ab6b25d3::t_b028712c6f7a29 1484-1485
+  s_4b9dc6ab6b25d3::t_202b822a1c182f 1500-1503
+docs/admin/traffic-sources.md
+  s_4b9dc6ab6b25d3::t_4005e5b40a6052 80-82
+  s_4b9dc6ab6b25d3::t_9d4a59ee2f8c21 123-131
+  s_4b9dc6ab6b25d3::t_fd9c364b79d726 12-18
+  s_4b9dc6ab6b25d3::t_dc6bbc1f33817f 157-168
+  s_4b9dc6ab6b25d3::t_f43d7f541e83c0 83-84
+docs/design/admin/migration-plan.md
+  s_4b9dc6ab6b25d3::t_c777fd9635f5fa 307,312-344
+docs/admin/experiments.md
+  s_4b9dc6ab6b25d3::t_239e5486ff256b 1-37,40-87
+  s_4b9dc6ab6b25d3::t_f43e08e1dcdb36 38-39
+docs/architecture/games.md
+  s_4b9dc6ab6b25d3::t_1d36543e8d8e92 364-368
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "5dde7fdd3c8a440886554aa04455671bb05db6db",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
