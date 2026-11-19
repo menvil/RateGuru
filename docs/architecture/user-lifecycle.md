@@ -127,6 +127,8 @@ erases what it did before tombstoning it through `AnonymizeUserAccountAction`:
 | Its votes (post / comment / rating) | delete; counts on what others wrote are counted again |
 | Reports it filed, and reports about it | delete; report counts counted again |
 | Its game attempts, answers, emails, events and assignments | delete |
+| What the tracker credited it to (`account_attributions`) and the browsers it was known by (`account_browsers`) | delete; the visit it signed up on keeps the sign-up, as one never confirmed, and conversions or other accounts' attributions naming its attempts let them go |
+| The days it did something on the site (`user_activity_days`) | delete |
 | Everything account deletion removes | as account deletion (table below) |
 | Moderation logs | retain (audit history) |
 
@@ -263,6 +265,11 @@ row. `AnonymizeUserAccountAction` turns it into an irreversible tombstone:
 | Post saves | delete |
 | Game attempts (Growth → Games) | retain, as the game's anonymous history |
 | Emails left on a game's Email Capture step by attempts that became the account's | delete |
+| The browsers the tracker knew the account by (`account_browsers`) | delete |
+| What the tracker credited the account to (`account_attributions`) | retain, without the browser's hash: it is already an anonymous count |
+| The days the account did something on the site (`user_activity_days`) | retain, as the anonymous history the account's cohort is counted from; gone after 400 days (`traffic:purge-expired`) |
+| The segments of a paid source an administrator made or last changed (`traffic_segments`) | retain, naming the tombstone |
+| The tracking links an administrator made or last changed (`tracking_links`) | retain, naming the tombstone |
 | Received notifications | delete |
 | Other users' notifications referencing this identity | delete |
 

@@ -2,8 +2,12 @@
 
 namespace App\Support\Games\Flow;
 
+use App\Enums\GameFlowGoal;
 use App\Enums\GameFlowStage;
 use App\Enums\GameFlowStepType;
+use App\Enums\GameOnward;
+use App\Enums\GamePageDestination;
+use App\Enums\GamePostTarget;
 use App\Enums\GameSignupMode;
 use App\Enums\GameStepAudience;
 
@@ -16,10 +20,14 @@ use App\Enums\GameStepAudience;
 final class GameFlowValidator
 {
     /**
+     * With a goal, also whether the flow can reach it; with facts read from
+     * the site, also whether the posts, groups, categories, tags and pages its
+     * steps name are there.
+     *
      * @param  list<FlowStepDraft>  $steps
      * @return list<FlowIssue>
      */
-    public static function issues(array $steps): array
+    public static function issues(array $steps, ?GameFlowGoal $goal = null, ?FlowFacts $facts = null): array
     {
         $issues = [];
         $first = [];
@@ -77,7 +85,7 @@ final class GameFlowValidator
                 $exits++;
 
                 if ($exits > 1) {
-                    $issues[] = new FlowIssue($index, 'Use one exit step: Next Game or Go to Feed.');
+                    $issues[] = new FlowIssue($index, 'Use one exit step: Next Game, Go to Feed, Go to Post or Go to Page.');
                 } elseif ($index !== $lastIndex) {
                     $issues[] = new FlowIssue($index, "{$type->label()} ends the flow, so it must be the last step.");
                 }
@@ -109,14 +117,36 @@ final class GameFlowValidator
                 $issues[] = new FlowIssue($index, 'Choose the next game.');
             }
 
-            $missing = $step->missingTexts();
+            $missing = [...$step->missingTexts(), ...self::missingSettings($step)];
 
             if ($missing !== []) {
                 $issues[] = new FlowIssue($index, 'Missing settings: '.implode(', ', $missing).'.');
             }
+
+            if ($facts !== null) {
+                array_push($issues, ...self::factIssues($index, $step, $facts));
+            }
         }
 
-        if ($fullResultAt !== null) {
+        $onward = $fullResultAt === null ? GameOnward::Next : $steps[$fullResultAt]->onward();
+
+        if ($onward !== GameOnward::Next) {
+            $where = match ($onward) {
+                GameOnward::Post => 'a post',
+                GameOnward::Page => 'a page',
+                default => 'the feed',
+            };
+
+            foreach ($steps as $index => $step) {
+                if ($index > $fullResultAt && ($first[$step->type->value] ?? null) === $index) {
+                    $issues[] = new FlowIssue($index, $step->type === GameFlowStepType::Registration
+                        ? "Full Result sends visitors on to {$where}, so this step is never shown. They can still sign up there: voting asks for an account, and the goal counts a sign-up within 7 days. Remove this step."
+                        : "Full Result already sends visitors on to {$where}, so this step is never shown. Remove it, or set Full Result to go on to the next step.");
+                }
+            }
+        }
+
+        if ($fullResultAt !== null && $onward === GameOnward::Next) {
             $signup = $steps[$fullResultAt]->signup();
             $registrationAt = $first[GameFlowStepType::Registration->value] ?? null;
 
@@ -128,6 +158,105 @@ final class GameFlowValidator
                 $issues[] = new FlowIssue($registrationAt, $signup === GameSignupMode::None
                     ? 'Full Result is set to no sign-up. Remove this step, or set Full Result to a separate Registration step.'
                     : 'Sign-up is already on Full Result. Remove this step, or set Full Result to a separate Registration step.');
+            }
+        }
+
+        if ($goal !== null && ! FlowGoalRules::reaches($steps, $goal)) {
+            $issues[] = new FlowIssue(-1, "The goal “{$goal->label()}” needs {$goal->needs()}. Add it, or choose another goal.");
+        }
+
+        return $issues;
+    }
+
+    /**
+     * The settings a step needs and lacks, by their labels: the post a step
+     * sends visitors to when it is chosen, the category or tag a Go to Page
+     * leads to — one that is no longer active counts as none — and an address
+     * that is not one.
+     *
+     * @return list<string>
+     */
+    private static function missingSettings(FlowStepDraft $step): array
+    {
+        $missing = [];
+
+        if ($step->sendsToPost() && $step->postTarget() === GamePostTarget::Chosen && $step->setting('post_id') === null) {
+            $missing[] = 'Post';
+        }
+
+        if (! $step->sendsToPage()) {
+            return $missing;
+        }
+
+        $category = (string) $step->setting('category');
+        $tag = (string) $step->setting('tag');
+
+        return match ($step->destination()) {
+            GamePageDestination::Category => $category === '' ? [...$missing, 'Category'] : $missing,
+            GamePageDestination::Tag => $tag === '' ? [...$missing, 'Tag'] : $missing,
+            GamePageDestination::Page => preg_match('#^/(?!/)#', (string) $step->setting('path')) !== 1 ? [...$missing, 'Page address'] : $missing,
+            GamePageDestination::Url => ! self::isSiteAddress((string) $step->setting('url')) ? [...$missing, 'Site address'] : $missing,
+        };
+    }
+
+    /**
+     * Another site's address a Go to Page step may send visitors to: https, a
+     * host with a dot, no user name or password, and no placeholder but the
+     * click id, the game and the result.
+     */
+    public static function isSiteAddress(string $url): bool
+    {
+        $parts = parse_url($url);
+
+        if (! is_array($parts) || ($parts['scheme'] ?? '') !== 'https' || ! str_contains((string) ($parts['host'] ?? ''), '.') || isset($parts['user']) || isset($parts['pass'])) {
+            return false;
+        }
+
+        preg_match_all('/\{([^{}]*)\}/', $url, $placeholders);
+
+        return array_diff($placeholders[1], ['click_id', 'game', 'result']) === [];
+    }
+
+    /** @return list<FlowIssue> what the site says of the posts and pages a step names */
+    private static function factIssues(int $index, FlowStepDraft $step, FlowFacts $facts): array
+    {
+        $issues = [];
+        $postId = $step->setting('post_id');
+
+        if ($step->sendsToPost() && $step->postTarget() === GamePostTarget::Chosen && is_int($postId)) {
+            $post = $facts->posts[$postId] ?? null;
+
+            if ($post === null) {
+                $issues[] = new FlowIssue($index, 'The linked post no longer exists. Link another post.');
+            } elseif (! $post['published']) {
+                $issues[] = new FlowIssue($index, "The linked post “{$post['title']}” is hidden, so visitors can’t open it. Link another post, or publish it again.");
+            }
+        }
+
+        if ($step->sendsToPost()) {
+            foreach ($step->askGroups() as $key) {
+                if (! in_array($key, $facts->ratingGroups, true)) {
+                    $issues[] = new FlowIssue($index, "The post asks for the rating group “{$key}”, which is no longer active. Untick it.");
+                }
+            }
+        }
+
+        $category = (string) $step->setting('category');
+        $tag = (string) $step->setting('tag');
+
+        if ($step->sendsToPage() && $step->destination() === GamePageDestination::Category && $category !== '' && ! in_array($category, $facts->categories, true)) {
+            $issues[] = new FlowIssue($index, "The category “{$category}” isn’t active on the site. Choose another category.");
+        }
+
+        if ($step->sendsToPage() && $step->destination() === GamePageDestination::Tag && $tag !== '' && ! in_array($tag, $facts->tags, true)) {
+            $issues[] = new FlowIssue($index, "There is no tag “{$tag}” on the site. Choose another tag.");
+        }
+
+        if ($step->sendsToPage() && $step->destination() === GamePageDestination::Page) {
+            $path = (string) $step->setting('path');
+
+            if (preg_match('#^/(?!/)#', $path) === 1 && ! ($facts->paths[$path] ?? false)) {
+                $issues[] = new FlowIssue($index, "“{$path}” isn’t a page of this site. Use the address of the feed, a post, a profile, a game or a static page.");
             }
         }
 

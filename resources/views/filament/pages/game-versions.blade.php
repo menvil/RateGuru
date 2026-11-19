@@ -55,7 +55,10 @@
                         </ul>
                     @endif
                     @if ($changedSince !== null)
-                        <p class="rg-admin-games__note">This set or flow, or a translation of it, changed after {{ $changedSince }} was published from them.</p>
+                        <p class="rg-admin-games__note" data-testid="game-versions-changed">This set or flow, or a translation of it, changed after {{ $changedSince['version'] }} was published from them: {{ $changedSince['named'] }}.</p>
+                        @if ($changedSince['groups'] !== [])
+                            @include('filament.pages.games.unpublished-changes-list', ['count' => $changedSince['count'], 'groups' => $changedSince['groups'], 'testid' => 'game-versions-changed-all'])
+                        @endif
                     @elseif ($duplicateOf !== null)
                         <p class="rg-admin-games__note">{{ $duplicateOf }} already uses this set and flow, and neither changed since. Publish again to freeze today’s votes, or to take in what changed on the General tab and the translations of the game’s title and description.</p>
                     @endif

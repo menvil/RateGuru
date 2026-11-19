@@ -4,6 +4,10 @@
     data-testid="share-buttons"
     x-data="rgSharePicture({ pictureUrl: @js($metadata->pictureUrl), fileName: @js($pictureFileName), title: @js($metadata->title), text: @js($metadata->shareText.' '.$metadata->url) })"
     x-intersect.once="prepare()"
+    {{-- A share that never passes the server — by email, a copied link or the system's
+         share sheet — is told to the traffic tracker here; the other providers' buttons
+         link to the site's own redirect, which records theirs (SharePostController). --}}
+    x-on:rg-shared="window.rgTrafficSignal?.('post_shared', { post: @js($post->id) })"
 >
     {{-- URL input with copy button inside --}}
     @if(isset($enabledProviders['copy_link']))

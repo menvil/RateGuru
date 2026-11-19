@@ -3,6 +3,7 @@
 namespace App\Actions\Games;
 
 use App\Actions\Games\Concerns\LocksGameDraft;
+use App\Actions\Translations\RecordProjectTranslationSourceAction;
 use App\Exceptions\Games\CannotManageGameException;
 use App\Models\Game;
 use App\Models\GameFlow;
@@ -10,6 +11,7 @@ use App\Models\GameFlowStep;
 use App\Models\GameVersion;
 use App\Models\User;
 use App\Support\Games\Flow\GameFlowTemplate;
+use App\Support\Translations\ProjectContentSection;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -29,6 +31,8 @@ final class ChangeGameFlowAction
 
     public const NAME_MAX = 80;
 
+    public function __construct(private readonly RecordProjectTranslationSourceAction $sources) {}
+
     /** @throws CannotManageGameException */
     public function create(User $admin, Game $game, string $name, ?GameFlowTemplate $template, ?int $copyOfFlowId = null): GameFlow
     {
@@ -44,6 +48,8 @@ final class ChangeGameFlowAction
             $flow->forceFill([
                 'game_id' => $locked->id,
                 'name' => $name,
+                // A copy keeps the goal it was given; a new flow takes the one its steps give it.
+                'goal' => $source?->goal,
                 'position' => (int) GameFlow::query()->where('game_id', $locked->id)->max('position') + 1,
             ])->save();
 
@@ -51,6 +57,7 @@ final class ChangeGameFlowAction
                 foreach ($source->steps as $step) {
                     $copy = $step->replicate(['flow_id']);
                     $copy->forceFill(['flow_id' => $flow->id])->save();
+                    $this->sources->copy(ProjectContentSection::GameFlowSteps, (int) $step->id, (int) $copy->id);
                 }
             } else {
                 FlowTemplateWriter::fromTemplate($flow, $template ?? GameFlowTemplate::ResultFirst, $locked->title);
@@ -63,11 +70,30 @@ final class ChangeGameFlowAction
     }
 
     /** @throws CannotManageGameException */
-    public function rename(User $admin, GameFlow $flow, string $name, ?int $expectedLockVersion = null): void
+    /**
+     * The flow's name, which only the editor shows: a name kept as it was
+     * writes nothing, and a new one doesn't count as an edit players would
+     * see (GameUnpublishedChangesQuery reads when a flow was saved).
+     * Whether it wrote one.
+     *
+     * @throws CannotManageGameException
+     */
+    public function rename(User $admin, GameFlow $flow, string $name, ?int $expectedLockVersion = null): bool
     {
         $name = $this->name($name);
+        $renamed = false;
 
-        $this->change($admin, $flow, fn (GameFlow $locked) => $locked->forceFill(['name' => $name, 'lock_version' => $locked->lock_version + 1])->save(), $expectedLockVersion);
+        $this->change($admin, $flow, function (GameFlow $locked) use ($name, &$renamed): void {
+            if ($locked->name === $name) {
+                return;
+            }
+
+            $locked->timestamps = false;
+            $locked->forceFill(['name' => $name, 'lock_version' => $locked->lock_version + 1])->save();
+            $renamed = true;
+        }, $expectedLockVersion);
+
+        return $renamed;
     }
 
     /** @throws CannotManageGameException */

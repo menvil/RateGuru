@@ -3,6 +3,7 @@
 namespace App\Actions\Moderation;
 
 use App\Actions\Moderation\Concerns\LocksAndAuthorizesPostModeration;
+use App\Actions\Traffic\RecordAccountBonusAction;
 use App\Enums\ModerationActionType;
 use App\Enums\PostStatus;
 use App\Exceptions\Moderation\CannotModeratePostException;
@@ -43,6 +44,7 @@ final class ApprovePostAction
             [$lockedActor, $locked] = $this->lockAndAuthorizePostModeration($moderator, $post, 'approve', PostStatus::Pending);
 
             $fromStatus = $locked->status;
+            $firstPublished = $locked->published_at === null;
 
             $persisted = $locked->forceFill([
                 'status' => PostStatus::Published,
@@ -52,6 +54,10 @@ final class ApprovePostAction
 
             if ($persisted !== true) {
                 throw CannotModeratePostException::becausePostStatusIsInvalid();
+            }
+
+            if ($firstPublished) {
+                app(RecordAccountBonusAction::class)->firstPostQuietly((int) $locked->user_id, CarbonImmutable::instance($locked->published_at));
             }
 
             $this->createModerationLog->handle(

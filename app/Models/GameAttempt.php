@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Enums\GameAccountOutcome;
 use App\Enums\GameAttemptStatus;
 use App\Enums\GameAudience;
+use App\Enums\GameOnwardKind;
 use Carbon\CarbonImmutable;
 use Database\Factories\GameAttemptFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -39,6 +40,11 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
  * @property CarbonImmutable $started_at
  * @property CarbonImmutable|null $completed_at
  * @property CarbonImmutable $last_activity_at
+ * @property CarbonImmutable|null $goal_reached_at
+ * @property int|null $traffic_visit_id
+ * @property GameOnwardKind|null $onward_kind
+ * @property int|null $onward_post_id
+ * @property CarbonImmutable|null $onward_at
  */
 class GameAttempt extends Model
 {
@@ -67,6 +73,11 @@ class GameAttempt extends Model
             'started_at' => 'immutable_datetime',
             'completed_at' => 'immutable_datetime',
             'last_activity_at' => 'immutable_datetime',
+            'goal_reached_at' => 'immutable_datetime',
+            'traffic_visit_id' => 'integer',
+            'onward_kind' => GameOnwardKind::class,
+            'onward_post_id' => 'integer',
+            'onward_at' => 'immutable_datetime',
         ];
     }
 
