@@ -1,0 +1,79 @@
+app/Support/Analytics/PeriodComparison.php
+  s_4b9dc6ab6b25d3::t_75a6e97908b9ec 264-265,267-272
+app/Support/Analytics/TrackingLinkUrl.php
+  s_4b9dc6ab6b25d3::t_893c24d26f9f58 157-160,166-170
+app/Actions/Analytics/RecordVisitPostAction.php
+  s_4b9dc6ab6b25d3::t_b08559a86245c3 121-126,130-134
+  s_4b9dc6ab6b25d3::t_955660053b91b9 30-33
+app/Models/TrafficVisitPost.php
+  s_4b9dc6ab6b25d3::t_1a55235c846733 13
+  s_4b9dc6ab6b25d3::t_2b196f6f711bfe 14-15
+tests/Feature/Queries/AnalyticsVisitsQueryTest.php
+  s_4b9dc6ab6b25d3::t_7f91d62aabb934 158-173
+app/Queries/Analytics/JourneyQuery.php
+  s_4b9dc6ab6b25d3::t_7b41883c518122 205
+  s_4b9dc6ab6b25d3::t_53306eae4d6a53 128-130
+  s_4b9dc6ab6b25d3::t_8d4057d6f25e51 67-72
+  s_4b9dc6ab6b25d3::t_9ee460d6eb4169 199-200
+  s_4b9dc6ab6b25d3::t_f049e400d0b57c 398-422
+  s_4b9dc6ab6b25d3::t_e1fbe3f1ae7160 42-44
+  s_4b9dc6ab6b25d3::t_2343398d5e376e 154
+  s_4b9dc6ab6b25d3::t_58283672700638 216-217
+  s_4b9dc6ab6b25d3::t_e75a805b7512d5 184-187
+  s_4b9dc6ab6b25d3::t_c403a44c333f1d 131-133
+  s_4b9dc6ab6b25d3::t_75ec650768ccab 190-195
+app/Filament/Pages/Analytics/JourneysTab.php
+  s_4b9dc6ab6b25d3::t_260d2348461710 72
+tests/Unit/Support/Analytics/PeriodComparisonTest.php
+  s_4b9dc6ab6b25d3::t_a8208bfe58e977 139-148
+app/Queries/Analytics/AnalyticsVisitsQuery.php
+  s_4b9dc6ab6b25d3::t_75989a65fa66e1 129
+  s_4b9dc6ab6b25d3::t_39492b66cbbf10 81-83
+  s_4b9dc6ab6b25d3::t_a0735ea0e3944d 98-100
+  s_4b9dc6ab6b25d3::t_94ce492be159a5 119
+  s_4b9dc6ab6b25d3::t_50828858b9fc8e 570-571,585-594
+  s_4b9dc6ab6b25d3::t_a39cd5a752e268 96-97
+  s_4b9dc6ab6b25d3::t_fb23e14b3e9fc3 137
+tests/Feature/Analytics/AnalyticsJourneysTabTest.php
+  s_4b9dc6ab6b25d3::t_f6d6829bf0003f 202-216
+tests/Unit/Support/Analytics/JourneyTimelineTest.php
+  s_4b9dc6ab6b25d3::t_5ad14042f63341 269-295
+  s_4b9dc6ab6b25d3::t_b188cb6c0c4b1d 333-347
+app/Support/Analytics/JourneyTimeline.php
+  s_4b9dc6ab6b25d3::t_98203b23a2c4b4 37-38
+  s_4b9dc6ab6b25d3::t_0ddb1b25abe845 326-329,348,352-358,367,377-379,382-384,386-387
+  s_4b9dc6ab6b25d3::t_161a3006798c2a 564-566,572
+  s_4b9dc6ab6b25d3::t_85a23e97589328 35-36
+  s_4b9dc6ab6b25d3::t_2bb33a73866221 579-581,597-598
+tests/Feature/Analytics/VisitPostsTest.php
+  s_4b9dc6ab6b25d3::t_c7c6ffb6ffd6cc 361-374
+  s_4b9dc6ab6b25d3::t_129823a332851f 4
+tests/Feature/Queries/AnalyticsContentQueryTest.php
+  s_4b9dc6ab6b25d3::t_f8cbb956fe8e28 123-134
+  s_4b9dc6ab6b25d3::t_777e4e79700612 3,5
+app/Queries/Analytics/AnalyticsContentQuery.php
+  s_4b9dc6ab6b25d3::t_fa63af9964baa5 131-134
+database/migrations/2026_11_18_100600_add_post_views_and_actions_to_traffic_visits.php
+  s_4b9dc6ab6b25d3::t_785c8462231d18 26-27
+tests/Unit/Support/Analytics/TrackingLinkUrlTest.php
+  s_4b9dc6ab6b25d3::t_f798dd155767d5 32-37
+tests/Feature/Queries/JourneyQueryTest.php
+  s_4b9dc6ab6b25d3::t_477119a08e30d2 169-173
+  s_4b9dc6ab6b25d3::t_bbdd3c495871f7 149-168,174-175
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "bf7c693e992d998ec791e91e106690eb33fc1989",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
