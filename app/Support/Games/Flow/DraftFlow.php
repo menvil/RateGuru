@@ -53,6 +53,7 @@ final class DraftFlow
         }
 
         $flow = clone $saved;
+        $flow->setAttribute('goal', $draft->goal);
         $flow->setRelation('steps', $steps);
 
         return $flow;

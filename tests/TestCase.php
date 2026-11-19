@@ -89,6 +89,11 @@ abstract class TestCase extends BaseTestCase
             // padding was real sleep — 200 ms in every test that signs in.
             $app['config']->set('auth.timebox_duration', 0);
 
+            // The IP location database a developer installed locally must not
+            // place the visitors of a test: tests see none unless one installs
+            // a fixture (installGeoDatabase()).
+            $app['config']->set('geo.directory', sys_get_temp_dir().'/rateguru-tests-no-geoip');
+
             foreach (static::$bootConfiguration as $key => $value) {
                 $app['config']->set($key, $value);
             }

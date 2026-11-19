@@ -3,6 +3,7 @@
 namespace App\Actions\Games;
 
 use App\Actions\Games\Concerns\LocksGameDraft;
+use App\Actions\Games\Concerns\SavesOnlyChanges;
 use App\Data\Games\ContentSetDraft;
 use App\Enums\GameOptionSource;
 use App\Enums\GameRoundMode;
@@ -48,6 +49,7 @@ use Throwable;
 final class SaveContentSetAction
 {
     use LocksGameDraft;
+    use SavesOnlyChanges;
 
     public function __construct(
         private readonly ContentSetDraftRules $rules,
@@ -122,6 +124,8 @@ final class SaveContentSetAction
 
         $allowed = [...$before, ...array_values($assets)];
         $keptRounds = [];
+        // Whether anything players would meet changed: a save of what is already there writes nothing.
+        $changed = $assets !== [];
 
         foreach ($draft->rounds as $position => $data) {
             $round = $data['id'] !== null ? $locked->rounds->firstWhere('id', $data['id']) : null;
@@ -136,7 +140,9 @@ final class SaveContentSetAction
                 'mode' => GameRoundMode::from($data['mode']),
                 'unscored' => $data['unscored'],
                 'show_crowd' => $data['show_crowd'],
-            ])->save();
+            ]);
+            $changed = $this->keepsChanges($round) || $changed;
+            $round->save();
             $keptRounds[] = (int) $round->id;
 
             foreach ($data['options'] as $slot => $option) {
@@ -160,12 +166,15 @@ final class SaveContentSetAction
                     'asset_id' => $source === GameOptionSource::Upload ? $assetId : null,
                     'label' => $option['label'] !== '' ? $option['label'] : null,
                     'is_correct' => $option['is_correct'],
-                ])->save();
+                ]);
+                $changed = $this->keepsChanges($row) || $changed;
+                $row->save();
             }
         }
 
-        $locked->rounds->reject(fn (GameRound $round): bool => in_array((int) $round->id, $keptRounds, true))
-            ->each(fn (GameRound $round) => $round->delete());
+        $goneRounds = $locked->rounds->reject(fn (GameRound $round): bool => in_array((int) $round->id, $keptRounds, true));
+        $changed = $changed || $goneRounds->isNotEmpty();
+        $goneRounds->each(fn (GameRound $round) => $round->delete());
 
         $keptProfiles = [];
 
@@ -191,6 +200,7 @@ final class SaveContentSetAction
                 'share_text' => $data['share_text'] !== '' ? $data['share_text'] : null,
                 'share_asset_id' => $assetId !== null ? (int) $assetId : null,
             ]);
+            $changed = $this->keepsChanges($profile) || $changed;
             $keptProfiles[] = $profile;
         }
 
@@ -199,8 +209,9 @@ final class SaveContentSetAction
         // An underscore keeps it from ever being a profile's own key: those are
         // slugs, which never hold one.
         $keptIds = array_filter(array_map(fn (GameResultProfile $profile): ?int => $profile->exists ? (int) $profile->id : null, $keptProfiles));
-        $locked->profiles->reject(fn (GameResultProfile $profile): bool => in_array((int) $profile->id, $keptIds, true))
-            ->each(fn (GameResultProfile $profile) => $profile->delete());
+        $goneProfiles = $locked->profiles->reject(fn (GameResultProfile $profile): bool => in_array((int) $profile->id, $keptIds, true));
+        $changed = $changed || $goneProfiles->isNotEmpty();
+        $goneProfiles->each(fn (GameResultProfile $profile) => $profile->delete());
 
         foreach ($keptProfiles as $profile) {
             if ($profile->exists && $profile->isDirty('key')) {
@@ -216,9 +227,12 @@ final class SaveContentSetAction
             'points_per_round' => $draft->scoring['points_per_round'],
             'crowd_min_votes' => $draft->scoring['crowd_min_votes'],
             'crowd_min_gap' => $draft->scoring['crowd_min_gap'],
-            'lock_version' => $locked->lock_version + 1,
-        ])->save();
-        $this->touchGame($game, $lockedAdmin);
+        ]);
+
+        if ($changed || $locked->isDirty()) {
+            $locked->forceFill(['lock_version' => $locked->lock_version + 1])->save();
+            $this->touchGame($game, $lockedAdmin);
+        }
 
         $after = $this->assetIdsOf($locked->fresh(['rounds.options', 'profiles']));
         $released = array_values(array_diff($before, $after));

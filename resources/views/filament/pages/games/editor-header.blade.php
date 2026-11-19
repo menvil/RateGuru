@@ -5,8 +5,9 @@
      * behind its icon), its status menu — each move asked first, a move that
      * cannot be made now saying why — and the editor's tabs (NAV-03). The
      * tabs are links: each is a page. Under them, on a tab whose saved changes
-     * the players don't see yet, what they play instead and the way to put
-     * the changes live.
+     * the players don't see yet, what changed — named while there are three at
+     * most, else the first three and how many more, with every change behind a
+     * disclosure — what they play instead and the way to put the changes live.
      */
     $game = $header['game'];
 @endphp
@@ -57,12 +58,18 @@
 </section>
 
 @if (($header['unpublished'] ?? null) !== null)
-    {{-- Saved, but not what the players play: the way to put it live. --}}
+    @php($unpublished = $header['unpublished'])
+    {{-- Saved, but not what the players play: what changed, and the way to put it live. --}}
     <x-admin.ui.inline-notice tone="warning" strip class="rg-admin-games__unpublished" data-testid="game-unpublished">
-        <strong>Players don’t see these saved changes yet.</strong>
-        They play {{ $header['unpublished']['versions'] }}, published before them. Publish {{ $header['unpublished']['next'] }} to put them live; it takes over {{ $header['unpublished']['plural'] ? 'the traffic of the newest' : 'that version’s traffic' }}.
+        <div class="rg-admin-games__unpublished-body">
+            <p data-testid="game-unpublished-what"><strong>{{ $unpublished['headline'] }}:</strong> {{ $unpublished['named'] }}</p>
+            <p>Players don’t see these saved changes yet. They play {{ $unpublished['versions'] }}, published before them. Publish {{ $unpublished['next'] }} to put them live; it takes over {{ $unpublished['plural'] ? 'the traffic of the newest' : 'that version’s traffic' }}.</p>
+            @if ($unpublished['groups'] !== [])
+                @include('filament.pages.games.unpublished-changes-list', ['count' => $unpublished['count'], 'groups' => $unpublished['groups'], 'testid' => 'game-unpublished-all'])
+            @endif
+        </div>
         <x-slot:actions>
-            <x-admin.ui.button size="sm" variant="primary" icon="upload" :href="$header['unpublished']['url']">Publish {{ $header['unpublished']['next'] }}…</x-admin.ui.button>
+            <x-admin.ui.button size="sm" variant="primary" icon="upload" :href="$unpublished['url']">Publish {{ $unpublished['next'] }}…</x-admin.ui.button>
         </x-slot:actions>
     </x-admin.ui.inline-notice>
 @endif

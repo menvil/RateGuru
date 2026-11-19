@@ -14,7 +14,6 @@ use App\Models\Game;
 use App\Models\GameAttempt;
 use App\Models\GameEmailCapture;
 use App\Models\GameEvent;
-use App\Models\GameFlow;
 use App\Models\GameFlowStep;
 use App\Models\ProjectSettings;
 use App\Models\User;
@@ -41,25 +40,6 @@ function emailFlowGame(array $draft, bool $required = false): void
 
     $draft['flow'] = $flow;
     liveGame($draft);
-}
-
-/**
- * The flow's steps replaced by fresh ones of these types, in this order; a
- * Next Game step leads to the game given.
- *
- * @param  list<GameFlowStepType>  $types
- */
-function replaceFlowSteps(GameFlow $flow, array $types, ?Game $nextGame = null): void
-{
-    $flow->steps()->delete();
-
-    foreach ($types as $position => $type) {
-        $step = GameFlowStep::factory()->type($type)->create(['flow_id' => $flow->id, 'position' => $position]);
-
-        if ($type === GameFlowStepType::NextGame) {
-            $step->forceFill(['settings' => ['next_game_id' => $nextGame?->id]])->save();
-        }
-    }
 }
 
 /** The one-round game played by a guest's browser to the step after its result. */
