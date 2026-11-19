@@ -358,7 +358,10 @@ they finished), and Played again of the players who started. The Completed
 figure counts people as well; for logged-in players its note counts the plays
 behind it, and how many of them were completed. The ways on come before
 Sign-up begun (after Shared result for logged-in players), a row only for those
-the versions in view offer the audience (`GameVersion::waysOn()`): Went on to
+the versions in view offer the audience (`GameVersion::waysOn()`). A guest who
+signs in on the way is led on as a player while their attempt stays a guest's,
+so a way on offered only to logged-in players gets a row for anonymous
+visitors too, and a rating such a step asks for counts with them. Went on to
 the post, to the feed, to a page and to the next game are shares of the people
 who completed; Voted on the post and Rated the post — only where a step sending
 to a post asks for ratings (`GameVersion::asksForPostRatings()`) — of the

@@ -2,8 +2,8 @@
 
 namespace App\Filament\Concerns;
 
+use App\Filament\Support\ReportPeriodMemory;
 use App\Support\Traffic\Reports\ReportPeriod;
-use App\Support\Traffic\Reports\ReportPeriodMemory;
 use Carbon\CarbonImmutable;
 use Livewire\Attributes\Url;
 

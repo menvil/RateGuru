@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Support\Traffic\Reports;
+namespace App\Filament\Support;
 
 use Illuminate\Http\Request;
 

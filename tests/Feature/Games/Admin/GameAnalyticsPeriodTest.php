@@ -4,10 +4,10 @@ use App\Enums\TrafficChannel;
 use App\Filament\Pages\GrowthAnalyticsPage;
 use App\Filament\Pages\TrafficSourcesPage;
 use App\Filament\Resources\Games\Pages\GameAnalytics;
+use App\Filament\Support\ReportPeriodMemory;
 use App\Models\GameAttempt;
 use App\Models\ProjectSettings;
 use App\Models\TrafficVisit;
-use App\Support\Traffic\Reports\ReportPeriodMemory;
 use Livewire\Livewire;
 
 /*

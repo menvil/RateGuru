@@ -2,7 +2,9 @@
 
 use App\Actions\Games\ApplyGameTrafficAction;
 use App\Actions\Games\ChangeGameFlowAction;
+use App\Actions\Games\ClaimGuestGameAttemptsAction;
 use App\Actions\Games\PublishGameVersionAction;
+use App\Enums\GameAccountOutcome;
 use App\Enums\GameAttemptStatus;
 use App\Enums\GameAudience;
 use App\Enums\GameEventType;
@@ -34,6 +36,7 @@ use App\Models\TrafficSource;
 use App\Models\TrafficVisit;
 use App\Models\User;
 use App\Support\Games\Flow\GameFlowTemplate;
+use App\Support\Games\Play\GameSessionAttempts;
 use Livewire\Features\SupportTesting\Testable;
 use Livewire\Livewire;
 
@@ -353,6 +356,35 @@ it('shows a row only for the ways on the versions in view offer the audience', f
     $page->set('version', 0)->set('audience', 'authenticated');
     expect($funnel($page)->keys()->all())->toBe(['Players', 'Game started', 'Completed', 'Shared result', 'Went on to the post', 'Voted on the post', 'Played again'])
         ->and($funnel($page)['Voted on the post']['hint'])->toBe('Voted up or down on that post within 30 minutes');
+});
+
+it('keeps a guest who signed in on the way with the guests, so a way on offered only to logged-in players gets their row too', function () {
+    RatingGroup::factory()->create(['key' => 'cuteness']);
+    replaceFlowSteps($this->draft['flow'], [GameFlowStepType::Landing, GameFlowStepType::Game, GameFlowStepType::FullResult, GameFlowStepType::Registration, GameFlowStepType::GoToPost], settings: ['full_result' => ['signup' => 'step'], 'go_to_post' => ['ask_groups' => 'cuteness']]);
+    $this->draft['flow']->steps()->where('type', GameFlowStepType::GoToPost->value)->update(['audience' => 'authenticated']);
+    liveGame($this->draft);
+    $cookie = (string) config('games.visitor_cookie.name');
+
+    // A guest plays to Registration and signs in there: their play stays a guest's, and the step for players sends them to the post.
+    guestAtResult($this->draft, str_repeat('s', 40))->call('continue')->assertSee('data-testid="game-step-registration"', false);
+    $user = User::factory()->create();
+    $this->actingAs($user);
+    app(ClaimGuestGameAttemptsAction::class)->handle($user, GameSessionAttempts::all(session()->driver()), GameAccountOutcome::SignedIn);
+    Livewire::withCookie($cookie, str_repeat('s', 40))->test(PlayGame::class, ['slug' => $this->draft['game']->slug])
+        ->assertSee('data-testid="game-step-go_to_post"', false)
+        ->call('leave', 'step');
+    session()->flush();
+    $this->actingAs($this->draft['admin']);
+    $funnel = fn ($page) => collect($page->viewData('funnel'))->keyBy('label');
+
+    $page = Livewire::test(GameAnalytics::class, ['record' => $this->draft['game']->id]);
+    expect($funnel($page)->keys()->all())->toBe(['Visitors', 'Game started', 'Completed', 'Went on to the post', 'Voted on the post', 'Rated the post', 'Sign-up begun', 'Goal reached', 'Account confirmed'])
+        ->and($funnel($page)['Went on to the post'])->toMatchArray(['count' => '1', 'rate' => '100.0%', 'rateOf' => 'of Completed']);
+
+    // The players' own funnel offers the step too, though no player of theirs went yet.
+    $page->set('audience', 'authenticated');
+    expect($funnel($page)->keys()->all())->toBe(['Players', 'Game started', 'Completed', 'Shared result', 'Went on to the post', 'Voted on the post', 'Rated the post', 'Played again'])
+        ->and($funnel($page)['Went on to the post']['count'])->toBe('0');
 });
 
 it('follows the guests sent on to a page or the next game, each a share of the people who finished', function () {

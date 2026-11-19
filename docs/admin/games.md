@@ -185,7 +185,9 @@ there); **Went on to the feed**, then
 next game**. Each way on is of the people who completed. A vote or a rating
 counts when it comes within 30 minutes of leaving the game, and a vote needs an
 account. Only the flow's own way on counts, never the link to the feed at the
-top of every screen.
+top of every screen. A guest who signs in on the way still counts with the
+guests, so a way on shown only to logged-in players also gets a row for
+anonymous visitors.
 
 Under the funnel, **Sign-ups** shows for anonymous visitors how many signed up,
 how many confirmed, how many never confirmed and how many are still inside the

@@ -1,7 +1,7 @@
 <?php
 
+use App\Filament\Support\ReportPeriodMemory;
 use App\Models\User;
-use App\Support\Traffic\Reports\ReportPeriodMemory;
 use Illuminate\Http\Request;
 use Tests\TestCase;
 
