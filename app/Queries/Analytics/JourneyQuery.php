@@ -39,7 +39,9 @@ use Illuminate\Database\Eloquent\Builder;
  *                versions assigned with each period's shares, the attempts,
  *                the sign-up and share buttons pressed on them, the moments an
  *                email was left — never the address — and the account's
- *                sign-up and the later days it came back;
+ *                sign-up and the later days it came back; when only the
+ *                latest were read, the very first visit and the latest
+ *                that began a session from somewhere named too;
  *  - examples()  the latest three confirmed accounts of members, then the
  *                latest two players no account has, as IDs — of the visits a
  *                filter keeps, when one is given; with neither and no
@@ -60,6 +62,12 @@ final class JourneyQuery
         'id', 'entry_visit_id', 'visitor_hash', 'channel', 'source_id', 'source_key', 'campaign_key', 'creative_key', 'landing_key', 'origin',
         'utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term', 'device', 'country', 'city', 'game_id',
         'arrived_at', 'last_seen_at', 'opened_at', 'login_at', 'votes', 'comments', 'posts_created',
+    ];
+
+    /** @var list<string> the columns of an attempt a journey reads */
+    private const array ATTEMPT_COLUMNS = [
+        'id', 'game_id', 'version_id', 'assignment_id', 'status', 'rounds_answered', 'score', 'max_score', 'started_at', 'completed_at', 'last_activity_at',
+        'goal_reached_at', 'account_outcome', 'account_outcome_at',
     ];
 
     /** @var list<string> the campaign tags a session can carry */
@@ -117,7 +125,12 @@ final class JourneyQuery
      * step the latest JourneyTimeline::MOST_STEPS, and the latest
      * MOST_POST_ROWS rows of the posts their sessions opened, as
      * JourneyTimeline reads a journey (without its `kind`, `browsers`,
-     * `user`, `account` and `more`).
+     * `user`, `account` and `more`). When there was more than was read, the
+     * browsers' very first visit (`first`) and their latest visit that began a
+     * session from somewhere named, neither Direct nor inside the site
+     * (`lastNamed`), whenever it was; each null otherwise. The attempt the
+     * sign-up is credited to, when it isn't among the attempts read
+     * (`creditedAttempt`, its game and version named too); null otherwise.
      *
      * @param  list<string>  $browsers  visitor hashes
      * @param  int|null  $userId  the member whose own records count too: their attempts and assignments signed in
@@ -138,7 +151,7 @@ final class JourneyQuery
         };
         $attempts = $browsers === [] && $userId === null ? collect() : GameAttempt::query()->where($mine)
             ->orderByDesc('started_at')->orderByDesc('id')->limit($most + 1)
-            ->get(['id', 'game_id', 'version_id', 'assignment_id', 'status', 'rounds_answered', 'score', 'max_score', 'started_at', 'completed_at', 'last_activity_at', 'goal_reached_at', 'account_outcome', 'account_outcome_at']);
+            ->get(self::ATTEMPT_COLUMNS);
         $assignments = $browsers === [] && $userId === null ? collect() : GameAssignment::query()->where($mine)
             ->orderByDesc('assigned_at')->orderByDesc('id')->limit($most + 1)
             ->get(['id', 'game_id', 'version_id', 'period_id', 'assigned_at', 'ended_at']);
@@ -168,17 +181,28 @@ final class JourneyQuery
         $read = $visits->pluck('id')->all();
         $named = array_values(array_diff(array_filter([$attribution?->credited_visit_id, $attribution?->expired_visit_id]), $read));
         $credited = $named === [] ? collect() : TrafficVisit::query()->whereKey($named)->with('detail:visit_id,landing_path,referrer_host')->get(self::VISIT_COLUMNS);
+        // The attempt the sign-up is credited to, when it isn't among those read: older than the latest, it is still what the account is credited to.
+        $creditedAttemptId = $attribution?->credited_attempt_id;
+        $creditedAttempt = $creditedAttemptId === null || $attempts->contains('id', $creditedAttemptId) ? null
+            : GameAttempt::query()->whereKey($creditedAttemptId)->first(self::ATTEMPT_COLUMNS);
         $first = $cut && $browsers !== [] ? TrafficVisit::query()->whereIn('visitor_hash', $browsers)->with('detail:visit_id,landing_path,referrer_host')
             ->orderBy('arrived_at')->orderBy('id')->first(self::VISIT_COLUMNS) : null;
+        // The last non-direct touch, which may be older than the visits read: the latest visit that began a session from somewhere named.
+        $lastNamed = $cut && $browsers !== [] ? TrafficVisit::query()->whereIn('visitor_hash', $browsers)
+            ->where(fn (Builder $query) => $query->whereColumn('entry_visit_id', 'id')->orWhereNull('entry_visit_id'))
+            ->whereNotIn('source_key', [AnalyticsSource::DIRECT, AnalyticsSource::INTERNAL])
+            ->with('detail:visit_id,landing_path,referrer_host')
+            ->orderByDesc('arrived_at')->orderByDesc('id')->first(self::VISIT_COLUMNS) : null;
 
         $periods = $assignments->isEmpty() ? collect() : GameTrafficPeriod::query()->whereKey($assignments->pluck('period_id')->unique()->all())
             ->with(['versions:game_versions.id,game_versions.number', 'source:id,name', 'campaign:id,name,external_id'])->get(['id', 'game_id', 'started_at', 'source_id', 'campaign_id']);
-        $gameIds = array_values(array_unique(array_filter([...$visits->pluck('game_id')->all(), ...$credited->pluck('game_id')->all(), ...$attempts->pluck('game_id')->all(), ...$assignments->pluck('game_id')->all()])));
-        $versionIds = array_values(array_unique([...$attempts->pluck('version_id')->all(), ...$assignments->pluck('version_id')->all()]));
+        $gameIds = array_values(array_unique(array_filter([...$visits->pluck('game_id')->all(), ...$credited->pluck('game_id')->all(), ...$attempts->pluck('game_id')->all(), ...$assignments->pluck('game_id')->all(), $creditedAttempt?->game_id])));
+        $versionIds = array_values(array_unique(array_filter([...$attempts->pluck('version_id')->all(), ...$assignments->pluck('version_id')->all(), $creditedAttempt?->version_id])));
 
         return [
             'visits' => $visits->map(fn (TrafficVisit $visit): array => self::visit($visit))->values()->all(),
             'first' => $first === null ? null : self::visit($first),
+            'lastNamed' => $lastNamed === null ? null : self::visit($lastNamed),
             'credited' => $credited->map(fn (TrafficVisit $visit): array => self::visit($visit))->values()->all(),
             'posts' => $posts->map(fn (TrafficVisitPost $row): array => [
                 'visit' => (int) $row->visit_id,
@@ -189,21 +213,8 @@ final class JourneyQuery
                 'commented' => (bool) $row->commented,
                 'at' => $row->first_at->utc(),
             ])->all(),
-            'attempts' => $attempts->map(fn (GameAttempt $attempt): array => [
-                'id' => (int) $attempt->id,
-                'game' => (int) $attempt->game_id,
-                'version' => (int) $attempt->version_id,
-                'status' => $attempt->status->value,
-                'rounds' => (int) $attempt->rounds_answered,
-                'score' => $attempt->score,
-                'max' => (int) $attempt->max_score,
-                'started' => $attempt->started_at->utc(),
-                'completed' => $attempt->completed_at?->utc(),
-                'last' => $attempt->last_activity_at->utc(),
-                'goal' => $attempt->goal_reached_at?->utc(),
-                'outcome' => $attempt->account_outcome?->value,
-                'outcomeAt' => $attempt->account_outcome_at?->utc(),
-            ])->values()->all(),
+            'attempts' => $attempts->map(fn (GameAttempt $attempt): array => self::attempt($attempt))->values()->all(),
+            'creditedAttempt' => $creditedAttempt === null ? null : self::attempt($creditedAttempt),
             'assignments' => $assignments->map(fn (GameAssignment $assignment): array => [
                 'id' => (int) $assignment->id,
                 'game' => (int) $assignment->game_id,
@@ -382,6 +393,31 @@ final class JourneyQuery
             'votes' => (int) $visit->votes,
             'comments' => (int) $visit->comments,
             'posts' => (int) $visit->posts_created,
+        ];
+    }
+
+    /**
+     * An attempt as a journey reads it: its game and version, how far it
+     * got, and what became of its account.
+     *
+     * @return array<string, mixed>
+     */
+    private static function attempt(GameAttempt $attempt): array
+    {
+        return [
+            'id' => (int) $attempt->id,
+            'game' => (int) $attempt->game_id,
+            'version' => (int) $attempt->version_id,
+            'status' => $attempt->status->value,
+            'rounds' => (int) $attempt->rounds_answered,
+            'score' => $attempt->score,
+            'max' => (int) $attempt->max_score,
+            'started' => $attempt->started_at->utc(),
+            'completed' => $attempt->completed_at?->utc(),
+            'last' => $attempt->last_activity_at->utc(),
+            'goal' => $attempt->goal_reached_at?->utc(),
+            'outcome' => $attempt->account_outcome?->value,
+            'outcomeAt' => $attempt->account_outcome_at?->utc(),
         ];
     }
 }

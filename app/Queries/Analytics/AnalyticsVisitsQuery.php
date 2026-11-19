@@ -78,6 +78,9 @@ final class AnalyticsVisitsQuery implements RawSqlPersistenceBoundary
     /** A split leaves the visits whose dimension holds no value out altogether: neither a group, nor in the rest, nor counted at all. */
     public const string UNNAMED_LEFT_OUT = 'out';
 
+    /** How many groups the rest of a split leaves out in one block of its test (excluding()). */
+    private const int EXCLUDED_BLOCK = 100;
+
     /** The figures of every visit the filter admits. */
     public function figures(AnalyticsFilter $filter): VisitorFigures
     {
@@ -90,10 +93,11 @@ final class AnalyticsVisitsQuery implements RawSqlPersistenceBoundary
      * The visits the filter admits split by a dimension: a person counts in
      * each group they came through, so the groups can add up to more than
      * the figures of them all. The most people first, then by the value; at
-     * most the limit given, each with at least the people given — and then
-     * the people of all the other groups together, each once, as `rest`
-     * (none when no one is left). With each group, how many visits it had
-     * and how many of them carried campaign tags (AnalyticsSource::basis()).
+     * most the limit given — MOST_GROUPS when none is, and never more — each
+     * with at least the people given — and then the people of all the other
+     * groups together, each once, as `rest` (none when no one is left). With
+     * each group, how many visits it had and how many of them carried
+     * campaign tags (AnalyticsSource::basis()).
      *
      * The visits whose dimension holds no value — its first column empty —
      * are a group like any other (UNNAMED_LISTED); or never one, their
@@ -112,7 +116,7 @@ final class AnalyticsVisitsQuery implements RawSqlPersistenceBoundary
 
         [$metrics, $bindings] = self::metrics($filter);
         $columns = $dimension->columns();
-        $limit = $limit === null ? null : max(1, min($limit, self::MOST_GROUPS));
+        $limit = max(1, min($limit ?? self::MOST_GROUPS, self::MOST_GROUPS));
         $least = max(1, $least);
         $named = fn (Builder $query): Builder => $unnamed === self::UNNAMED_LISTED ? $query : $query->whereNotNull($columns[0]);
 
@@ -122,7 +126,7 @@ final class AnalyticsVisitsQuery implements RawSqlPersistenceBoundary
             ->selectRaw($metrics, $bindings)
             ->orderByRaw('COUNT(DISTINCT visitor_hash) DESC', [])
             ->orderBy($columns[0])
-            ->limit($limit ?? self::MOST_GROUPS)
+            ->limit($limit)
             ->toBase()
             ->get()
             ->map(fn (object $row): array => ['keys' => self::keys((array) $row, $columns), ...self::counted((array) $row)])
@@ -130,7 +134,7 @@ final class AnalyticsVisitsQuery implements RawSqlPersistenceBoundary
             ->all();
         // The most people first: a group too small to be listed is followed only by others as small.
         $rows = array_values(array_filter($read, fn (array $row): bool => $row['figures']->visitors >= $least));
-        $left = ($limit !== null && count($read) >= $limit) || count($rows) < count($read) || $unnamed === self::UNNAMED_IN_REST;
+        $left = count($read) >= $limit || count($rows) < count($read) || $unnamed === self::UNNAMED_IN_REST;
         $rest = null;
 
         if ($left) {
@@ -563,6 +567,8 @@ final class AnalyticsVisitsQuery implements RawSqlPersistenceBoundary
     /**
      * The visits of none of the groups given: for each group, a visit whose
      * columns all hold its values — a null value by being null — is left out.
+     * The groups are tested a block of EXCLUDED_BLOCK at a time, so even
+     * MOST_GROUPS of them nest no deeper than SQLite's parser allows (1,000).
      *
      * @param  Builder<TrafficVisit>  $query
      * @param  list<string>  $columns
@@ -576,12 +582,16 @@ final class AnalyticsVisitsQuery implements RawSqlPersistenceBoundary
         }
 
         return $query->whereNot(function (Builder $any) use ($columns, $groups): void {
-            foreach ($groups as $keys) {
-                // Each column compared so a null never makes the whole test unknown.
-                $any->orWhere(function (Builder $same) use ($columns, $keys): void {
-                    foreach ($columns as $column) {
-                        $value = $keys[$column] ?? null;
-                        $value === null ? $same->whereNull($column) : $same->whereNotNull($column)->where($column, $value);
+            foreach (array_chunk($groups, self::EXCLUDED_BLOCK) as $block) {
+                $any->orWhere(function (Builder $inBlock) use ($columns, $block): void {
+                    foreach ($block as $keys) {
+                        // Each column compared so a null never makes the whole test unknown.
+                        $inBlock->orWhere(function (Builder $same) use ($columns, $keys): void {
+                            foreach ($columns as $column) {
+                                $value = $keys[$column] ?? null;
+                                $value === null ? $same->whereNull($column) : $same->whereNotNull($column)->where($column, $value);
+                            }
+                        });
                     }
                 });
             }

@@ -199,6 +199,21 @@ it('joins every browser a member signed up or signed in with, and keeps the acco
         ->and($alone['journey']['touches'][1])->toBe(['label' => 'Conversion touch', 'value' => 'In another browser', 'note' => 'user_'.$member['user']->id.' signed up elsewhere: its journey has the sign-up']);
 });
 
+it('names a member’s last non-direct touch even when it came before the latest visits read', function () {
+    $reddit = analyticsVisit('long-member', ['source_key' => 'reddit:organic', 'network_day' => '2026-11-01', 'arrived_at' => '2026-11-01 10:00:00']);
+    $reddit->forceFill(['entry_visit_id' => $reddit->id])->save();
+    $member = retentionAccount('2026-11-01 10:05:00', [], ['visitor_hash' => $reddit->visitor_hash]);
+
+    foreach (range(1, JourneyTimeline::MOST_STEPS + 1) as $n) {
+        analyticsVisit('long-member', ['network_day' => '2026-11-02', 'arrived_at' => CarbonImmutable::parse('2026-11-02 00:00:00')->addMinutes($n * 5)]);
+    }
+
+    $journey = analyticsJourneys(['who' => 'user_'.$member->user_id])['journey'];
+
+    expect($journey['cut'])->toBeTrue()
+        ->and(collect($journey['touches'])->firstWhere('label', 'Last non-direct touch')['value'])->toBe('Reddit · organic_social');
+});
+
 it('says of an anonymous player where they first and last came from, and that nothing converted yet', function () {
     $player = journeyPlayer(CarbonImmutable::parse('2026-11-05 12:03:00'));
     $data = analyticsJourneys(['who' => JourneyTimeline::visitorId($player['hash'])]);

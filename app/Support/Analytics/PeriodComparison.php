@@ -261,10 +261,15 @@ final readonly class PeriodComparison
             return null;
         }
 
-        $dash = $this->dash($version, $metric) ?? $this->dash($reference, $metric);
+        // Both sides' reasons: one of the flow or the audience outweighs one of waiting, whichever side has it.
+        $dashes = [$this->dash($version, $metric), $this->dash($reference, $metric)];
 
-        if ($dash !== null) {
-            return in_array($dash, [self::NOT_IN_FLOW, self::SIGNED_UP], true) ? ComparisonEvidence::ByDesign : ComparisonEvidence::TooEarly;
+        if (array_intersect($dashes, [self::NOT_IN_FLOW, self::SIGNED_UP]) !== []) {
+            return ComparisonEvidence::ByDesign;
+        }
+
+        if (array_filter($dashes) !== []) {
+            return ComparisonEvidence::TooEarly;
         }
 
         $mine = $this->funnel($version);

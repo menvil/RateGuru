@@ -1,6 +1,7 @@
 <?php
 
 use App\Actions\Analytics\RecordUserActivityAction;
+use App\Actions\Analytics\RecordVisitPostAction;
 use App\Enums\CommentStatus;
 use App\Enums\PostStatus;
 use App\Enums\UserActivity;
@@ -355,6 +356,20 @@ it('writes nothing on a visit while visits are not recorded, the member’s day 
     expect(TrafficVisitPost::query()->exists())->toBeFalse()
         ->and($visit->fresh()->votes)->toBe(0)
         ->and(UserActivityDay::query()->where('user_id', $member->id)->sole()->voted)->toBeTrue();
+});
+
+it('begins a post voted on before it was opened at the moment it was first opened, and keeps that moment', function () {
+    $visit = feedVisitOf($this->hash);
+    $posts = app(RecordVisitPostAction::class);
+
+    $posts->actedOn($visit->id, $this->post->id, UserActivity::Voted, CarbonImmutable::parse('2026-11-18 12:01:00'));
+    $posts->viewed($this->hash, $this->post->id, CarbonImmutable::parse('2026-11-18 12:03:00'));
+
+    expect(TrafficVisitPost::query()->sole())->views->toBe(1)->voted->toBeTrue()->first_at->toEqual(CarbonImmutable::parse('2026-11-18 12:03:00'));
+
+    $posts->viewed($this->hash, $this->post->id, CarbonImmutable::parse('2026-11-18 12:05:00'));
+
+    expect(TrafficVisitPost::query()->sole())->views->toBe(2)->first_at->toEqual(CarbonImmutable::parse('2026-11-18 12:03:00'));
 });
 
 it('keeps one row a visit and post however the requests race, every engine taking the insert that finds it there', function () {

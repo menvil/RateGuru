@@ -146,6 +146,33 @@ it('reads a long journey as its latest steps, with its very first visit and the 
         ->and($journey['attribution']['visit'])->toBe($elsewhere->id);
 });
 
+it('reads the attempt a sign-up is credited to, with its game and version, though it is older than the latest attempts', function () {
+    $member = User::factory()->create();
+    $credited = GameVersion::factory()->create(['number' => 7]);
+    $attempt = GameAttempt::factory()->completed()->create(['version_id' => $credited->id, 'user_id' => $member->id, 'started_at' => '2026-11-01 10:00:00', 'completed_at' => '2026-11-01 10:01:00', 'last_activity_at' => '2026-11-01 10:01:00']);
+    retentionAccount('2026-11-01 10:05:00', [], ['credited_attempt_id' => $attempt->id], $member);
+
+    // As many later attempts as a journey reads, of another game.
+    GameAttempt::factory()->count(JourneyTimeline::MOST_STEPS)
+        ->sequence(fn ($sequence): array => ['started_at' => CarbonImmutable::parse('2026-11-02 00:00:00')->addMinutes($sequence->index), 'last_activity_at' => CarbonImmutable::parse('2026-11-02 00:00:00')->addMinutes($sequence->index)])
+        ->create(['version_id' => GameVersion::factory()->create()->id, 'user_id' => $member->id]);
+
+    $journey = $this->journeys->journey([], $member->id, $member->id);
+
+    expect($journey['cut'])->toBeTrue()
+        ->and(array_column($journey['attempts'], 'id'))->not->toContain($attempt->id)
+        ->and($journey['creditedAttempt'])->toMatchArray(['id' => $attempt->id, 'game' => $credited->game_id, 'version' => $credited->id])
+        ->and($journey['versions'][$credited->id]['number'])->toBe(7)
+        ->and($journey['games'])->toHaveKey($credited->game_id);
+
+    // Among the attempts read, it needs no reading of its own.
+    GameAttempt::query()->whereKeyNot($attempt->id)->delete();
+    $journey = $this->journeys->journey([], $member->id, $member->id);
+
+    expect(array_column($journey['attempts'], 'id'))->toBe([$attempt->id])
+        ->and($journey['creditedAttempt'])->toBeNull();
+});
+
 it('reads the latest rows of the posts a journey’s sessions opened, oldest first, and says the older were left out', function () {
     $older = analyticsVisit('busy-reader', ['network_day' => '2026-11-10', 'arrived_at' => '2026-11-10 10:00:00']);
     $newer = analyticsVisit('busy-reader', ['network_day' => '2026-11-15', 'arrived_at' => '2026-11-15 10:00:00']);

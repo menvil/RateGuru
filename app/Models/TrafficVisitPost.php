@@ -10,8 +10,9 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 /**
  * A post on one visit (RecordVisitPostAction): how often the visit opened
  * it, when it first shared it, whether the member voted on it or commented
- * on it there, and when the row began. A row without views is a post voted
- * or commented on from the feed without opening it. Kept 90 days from
+ * on it there, and when the row began — for a row a vote, comment or share
+ * made, again when the post was first opened. A row without views is a post
+ * voted or commented on from the feed without opening it. Kept 90 days from
  * first_at (traffic:purge-expired) and gone with its visit; the post is held
  * by id only, so one deleted since reads as removed.
  *

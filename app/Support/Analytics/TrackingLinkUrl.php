@@ -154,12 +154,19 @@ final class TrackingLinkUrl
     }
 
     /**
-     * The parameters of a query that aren't campaign tags, as written.
+     * The parameters of a query that aren't campaign tags, as written. A
+     * name counts as a utm_ one when PHP's request parser would read it as
+     * one: decoded, + a space, leading spaces gone, and a dot, space or [ an
+     * underscore — so `utm.content`, `utm+term` and `utm%2Esource` go too.
      *
      * @return list<string>
      */
     private static function kept(string $query): array
     {
-        return array_values(array_filter(explode('&', $query), fn (string $pair): bool => $pair !== '' && preg_match('/^utm_/i', rawurldecode($pair)) !== 1));
+        return array_values(array_filter(explode('&', $query), function (string $pair): bool {
+            $name = strtr(ltrim(urldecode(explode('=', $pair, 2)[0]), ' '), ['.' => '_', ' ' => '_', '[' => '_']);
+
+            return $pair !== '' && preg_match('/^utm_/i', $name) !== 1;
+        }));
     }
 }

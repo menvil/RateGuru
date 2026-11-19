@@ -155,6 +155,22 @@ it('counts the people past the top groups together, each once, those of no group
         ->and($all['rest'])->toBeNull();
 });
 
+it('counts the people of the groups past the most a split reads in the rest, though no limit was given', function () {
+    // One more source than a split reads, each with a browser of its own.
+    $visit = collect(analyticsVisit('first', ['source_key' => 'source:0'])->getAttributes())->except('id')->all();
+    $rows = array_map(fn (int $n): array => [...$visit, 'source_key' => 'source:'.$n, 'visitor_hash' => hash('sha256', 'browser-'.$n)], range(1, AnalyticsVisitsQuery::MOST_GROUPS));
+
+    foreach (array_chunk($rows, 200) as $chunk) {
+        TrafficVisit::query()->insert($chunk);
+    }
+
+    $by = analyticsQuery()->by(analyticsFilter(), AnalyticsDimension::Source);
+
+    expect($by['rows'])->toHaveCount(AnalyticsVisitsQuery::MOST_GROUPS)
+        ->and($by['rest']['figures']->visitors)->toBe(1)
+        ->and($by['rest']['visits'])->toBe(1);
+});
+
 it('counts the rest of a split on two columns by both, and leaves a top group of no value out of it', function () {
     foreach (['a', 'b', 'c'] as $browser) {
         analyticsVisit($browser, ['country' => 'US', 'city' => 'Austin']);

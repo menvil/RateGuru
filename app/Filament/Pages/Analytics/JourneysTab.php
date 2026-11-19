@@ -69,7 +69,7 @@ final class JourneysTab implements AnalyticsTab
             $found['account'] ? $found['user'] : null,
             $found['account'] ? $found['user'] : null,
         );
-        $visits = [...$journey['visits'], ...$journey['credited'], ...($journey['first'] === null ? [] : [$journey['first']])];
+        $visits = [...$journey['visits'], ...$journey['credited'], ...array_filter([$journey['first'], $journey['lastNamed']])];
 
         return [...$base, 'state' => 'journey', 'journey' => (new JourneyTimeline(
             ['kind' => $id['kind'], 'browsers' => $found['browsers'], 'user' => $found['user'], 'account' => $found['account'], 'more' => $found['more'], ...$journey],

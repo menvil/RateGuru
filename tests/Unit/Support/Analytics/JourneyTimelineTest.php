@@ -266,6 +266,33 @@ it('counts a session’s votes and comments once: by the posts, and by the membe
     ]);
 });
 
+it('counts a post once in a session however many of its visits shared, voted and commented on it', function () {
+    $row = fn (int $visit, string $at): array => ['visit' => $visit, 'post' => 12, 'views' => 1, 'shared' => true, 'voted' => true, 'commented' => true, 'at' => CarbonImmutable::parse($at, 'UTC')];
+    $view = journeyOf([
+        'visits' => [
+            journeyVisitRecord(1, '2026-10-01 10:00:00'),
+            journeyVisitRecord(2, '2026-10-01 10:05:00', ['entry' => 1]),
+        ],
+        'posts' => [$row(1, '2026-10-01 10:01:00'), $row(2, '2026-10-01 10:06:00')],
+    ]);
+
+    expect(collect($view['entries'])->firstWhere('title', 'Opened 1 post')['body'])->toBe('2 views · shared 1 · voted on 1 post · commented on 1 post.');
+});
+
+it('names the last non-direct touch of a longer journey from before the visits read, and says when only those were read', function () {
+    $account = [
+        'kind' => 'user', 'user' => 12, 'account' => true, 'cut' => true,
+        'visits' => [journeyVisitRecord(300, '2026-10-20 10:00:00'), journeyVisitRecord(301, '2026-10-21 10:00:00')],
+        'attribution' => ['signedUp' => CarbonImmutable::parse('2026-10-02 10:00:00', 'UTC'), 'confirmed' => null, 'method' => 'email', 'place' => 'feed', 'visit' => null, 'attempt' => null, 'expired' => null, 'activated' => null],
+    ];
+    $reddit = journeyVisitRecord(1, '2026-10-01 10:00:00', ['source' => 'reddit:organic', 'referrer' => 'old.reddit.com']);
+
+    expect(journeyOf([...$account, 'lastNamed' => $reddit])['touches'][2])->toBe(['label' => 'Last non-direct touch', 'value' => 'Reddit · organic_social', 'note' => '01 Oct · inferred from referrer old.reddit.com, no tags'])
+        // Nothing named among the visits read: no more said of those that weren't.
+        ->and(journeyOf($account)['touches'][2])->toBe(['label' => 'Last non-direct touch', 'value' => 'None', 'note' => 'None of the visits read came with tags or a referrer'])
+        ->and(journeyOf([...$account, 'cut' => false])['touches'][2])->toBe(['label' => 'Last non-direct touch', 'value' => 'None', 'note' => 'Every visit came with no tags and no referrer']);
+});
+
 it('says a version stays the same only while its assignment is kept', function () {
     $view = journeyOf([
         'assignments' => [
@@ -301,6 +328,21 @@ it('credits a sign-up with no attempt before it to the page of its visit, in a w
     ]);
 
     expect($view['touches'][3])->toBe(['label' => 'Registration credited to', 'value' => 'Trust Your Taste', 'note' => 'The page of the credited visit · no game attempt was credited']);
+});
+
+it('credits a sign-up to its attempt though that attempt is older than the latest ones read', function () {
+    $view = journeyOf([
+        'kind' => 'user', 'user' => 12, 'account' => true, 'cut' => true,
+        'attempts' => [journeyAttemptRecord(9001, '2026-10-09 10:00:00', ['game' => 9, 'version' => 90])],
+        'creditedAttempt' => journeyAttemptRecord(5893, '2026-10-01 10:01:00'),
+        'attribution' => ['signedUp' => CarbonImmutable::parse('2026-10-01 10:05:00', 'UTC'), 'confirmed' => null, 'method' => 'email', 'place' => 'game', 'visit' => null, 'attempt' => 5893, 'expired' => null, 'activated' => null],
+        'games' => [7 => ['title' => 'Trust Your Taste', 'slug' => 'trust-your-taste'], 9 => ['title' => 'Swipe Challenge', 'slug' => 'swipe-challenge']],
+        'versions' => [70 => ['number' => 7, 'flow' => 'Result First', 'goal' => null, 'rounds' => 5], 90 => ['number' => 3, 'flow' => null, 'goal' => null, 'rounds' => 5]],
+    ]);
+
+    expect($view['touches'][3])->toBe(['label' => 'Registration credited to', 'value' => 'Trust Your Taste · V7', 'note' => 'Result First · attempt_5893'])
+        // Credited, not one of the latest steps: neither drawn nor counted.
+        ->and(collect($view['identity'])->firstWhere('label', 'Sessions · attempts')['value'])->toBe('0 · 1');
 });
 
 it('names a member by the browsers read, and says they signed in with more', function () {
