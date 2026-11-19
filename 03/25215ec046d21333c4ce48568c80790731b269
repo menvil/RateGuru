@@ -1,0 +1,96 @@
+app/Livewire/Admin/TrackingLinkEditor.php
+  s_4b9dc6ab6b25d3::t_4d6b4bd357b5ad 312-323
+  s_4b9dc6ab6b25d3::t_2f41a444a4c5c6 173-174
+  s_4b9dc6ab6b25d3::t_ed526ef65cde36 220
+tests/Browser/AdminAnalyticsBrowserTest.php
+  s_4b9dc6ab6b25d3::t_aa827a02e86815 81-83
+  s_4b9dc6ab6b25d3::t_fcc0160efb25f1 149
+tests/Feature/Analytics/GrowthAnalyticsPageTest.php
+  s_4b9dc6ab6b25d3::t_94f18a67649578 489-493,502,506,509,512,515,520-526
+  s_4b9dc6ab6b25d3::t_01cdacfce9e00a 126-138
+tests/Browser/AdminAnalyticsEngagementBrowserTest.php
+  s_4b9dc6ab6b25d3::t_c10407016424ca 94-106
+app/Filament/Pages/Analytics/AnalyticsView.php
+  s_4b9dc6ab6b25d3::t_23f62e5d0e3e64 154
+  s_4b9dc6ab6b25d3::t_aa1ca951752549 193-194
+tests/Feature/Analytics/AnalyticsSegmentsTest.php
+  s_4b9dc6ab6b25d3::t_1f1b270afdf27b 218-223
+  s_4b9dc6ab6b25d3::t_e54a4a8107b9fc 211-217,224-231
+  s_4b9dc6ab6b25d3::t_11177da965e520 13
+app/Queries/Analytics/AnalyticsVisitsQuery.php
+  s_4b9dc6ab6b25d3::t_7a0adecee9459a 41
+  s_4b9dc6ab6b25d3::t_c815c2eec34e75 309-314,318,322-325,327
+  s_4b9dc6ab6b25d3::t_5d44fe4f64adc6 110-117,120
+  s_4b9dc6ab6b25d3::t_9c8ca0ffc51998 396
+  s_4b9dc6ab6b25d3::t_3ff395fee09b02 146
+  s_4b9dc6ab6b25d3::t_23568e5f21e364 50-51
+  s_4b9dc6ab6b25d3::t_5882f34bb091a8 579-654
+resources/views/filament/pages/analytics/engagement.blade.php
+  s_4b9dc6ab6b25d3::t_ab05f95a35613f 84-111,116-117
+resources/views/filament/pages/analytics/links.blade.php
+  s_4b9dc6ab6b25d3::t_be01e74902bd78 15-16
+tests/Feature/Analytics/AnalyticsRetentionTabTest.php
+  s_4b9dc6ab6b25d3::t_c257a8fc5fb598 200-205
+resources/views/livewire/admin/tracking-link-editor.blade.php
+  s_4b9dc6ab6b25d3::t_7c91811c4c2473 202
+  s_4b9dc6ab6b25d3::t_b27c7d05ed06ed 195
+app/Filament/Pages/Analytics/CampaignsTab.php
+  s_4b9dc6ab6b25d3::t_0966b228f1e28a 735-737
+  s_4b9dc6ab6b25d3::t_8d005ba0fe8c46 65-66
+  s_4b9dc6ab6b25d3::t_69761140cc293d 619
+  s_4b9dc6ab6b25d3::t_f0818aaf74d81a 752
+  s_4b9dc6ab6b25d3::t_b7a3958b26c0e9 685-693,697-699,713
+  s_4b9dc6ab6b25d3::t_9a33210e7aa7da 82
+  s_4b9dc6ab6b25d3::t_c20e0d72ff125e 412-414
+  s_4b9dc6ab6b25d3::t_948f567754630c 489
+tests/Feature/Analytics/AnalyticsTrackingLinksTest.php
+  s_4b9dc6ab6b25d3::t_dd9fbd78a78684 128-144
+resources/views/filament/pages/analytics/retention.blade.php
+  s_4b9dc6ab6b25d3::t_d5769671f50004 49-76,81-82
+tests/Feature/Analytics/AnalyticsEngagementTabTest.php
+  s_4b9dc6ab6b25d3::t_b759a0bc69c86d 172-180
+  s_4b9dc6ab6b25d3::t_59edb0bbb0db44 285-295
+  s_4b9dc6ab6b25d3::t_0ed105ea8d801a 209-212,217,219-221,223-224
+  s_4b9dc6ab6b25d3::t_ec0b6938eb8f2e 263-273,275-279
+  s_4b9dc6ab6b25d3::t_165b69b429c578 252-254
+tests/Feature/Queries/AnalyticsVisitsQueryTest.php
+  s_4b9dc6ab6b25d3::t_03f1fb0fa53f76 281-287,289-303,305-314
+  s_4b9dc6ab6b25d3::t_ad2fdab6aa9110 548-562
+  s_4b9dc6ab6b25d3::t_f174658c035e8c 23-27
+  s_4b9dc6ab6b25d3::t_ce241a4929cb31 288
+  s_4b9dc6ab6b25d3::t_c2e23dcefa3e2b 304
+tests/Feature/Analytics/AnalyticsCampaignsTabTest.php
+  s_4b9dc6ab6b25d3::t_f25b815e968816 257-264
+  s_4b9dc6ab6b25d3::t_a926a700204b3d 325-356
+  s_4b9dc6ab6b25d3::t_a4a120c4e1ecce 204-217
+tests/Browser/AdminAnalyticsTrackingLinksBrowserTest.php
+  s_4b9dc6ab6b25d3::t_acd6cbc49b7ff7 71-77
+  s_4b9dc6ab6b25d3::t_5d81458aac01e8 14-15
+tests/Browser/AdminAnalyticsRetentionBrowserTest.php
+  s_4b9dc6ab6b25d3::t_6ec4c14222dd2e 97-109
+app/Filament/Pages/Analytics/EngagementTab.php
+  s_4b9dc6ab6b25d3::t_6cf1edf6d08d88 311-312
+  s_4b9dc6ab6b25d3::t_326d81e8f3dfa8 256,261
+app/Filament/Pages/GrowthAnalyticsPage.php
+  s_4b9dc6ab6b25d3::t_695eac91f8a4e8 270-272
+  s_4b9dc6ab6b25d3::t_1a4574ba74abf9 79-80
+  s_4b9dc6ab6b25d3::t_6b32217d9e554c 604-606
+  s_4b9dc6ab6b25d3::t_fa4de9182365db 741,746-747
+  s_4b9dc6ab6b25d3::t_76328b7c31a275 373,381
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "0325215ec046d21333c4ce48568c80790731b269",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
