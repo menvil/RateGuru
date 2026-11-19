@@ -45,32 +45,37 @@ final class GeoDatabaseUpdater
         return GeoEditionSpec::fromConfig($edition, (array) config('geo.editions.'.$edition->value));
     }
 
+    /**
+     * The state is read, and the plan made from it, only under the edition's
+     * lock: a run that read it before another run installed a build would
+     * otherwise delete that build's previous copy, or withdraw the new
+     * build, on what it read.
+     */
     public function update(GeoEdition $edition, CarbonImmutable $now, ?CarbonImmutable $refreshRequestedAt, bool $force): GeoUpdateOutcome
     {
         $this->ensureDirectories();
         $spec = $this->spec($edition);
-        $state = $this->states->read($edition);
-        $current = $this->locator->current($edition);
-        $plan = GeoUpdatePlan::decide($state, $spec, $now, $refreshRequestedAt, $force, is_file($current));
+        $lock = $this->lock($edition);
 
-        if ($plan->dropPrevious) {
-            @unlink($this->locator->previous($edition));
-            $state['previous'] = null;
-            $this->states->write($edition, $state);
-        }
-
-        if (! $plan->due) {
-            return GeoUpdateOutcome::Idle;
-        }
-
-        $lock = @fopen($this->locator->lock($edition), 'c');
-
-        if ($lock === false || ! flock($lock, LOCK_EX | LOCK_NB)) {
+        if ($lock === null) {
             return GeoUpdateOutcome::Busy;
         }
 
         try {
             $state = $this->states->read($edition);
+            $current = $this->locator->current($edition);
+            $plan = GeoUpdatePlan::decide($state, $spec, $now, $refreshRequestedAt, $force, is_file($current));
+
+            if ($plan->dropPrevious) {
+                @unlink($this->locator->previous($edition));
+                $state['previous'] = null;
+                $this->states->write($edition, $state);
+            }
+
+            if (! $plan->due) {
+                return GeoUpdateOutcome::Idle;
+            }
+
             $state['attempt_started_at'] = $now->toIso8601String();
             $state['last_attempt_at'] = $now->toIso8601String();
 
@@ -95,50 +100,116 @@ final class GeoDatabaseUpdater
 
             return $this->attempt($spec, $state, $now);
         } finally {
-            flock($lock, LOCK_UN);
-            fclose($lock);
+            $this->unlock($lock);
         }
     }
 
-    /** Puts previous.mmdb back in service and keeps the build it replaces from being installed again. */
+    /**
+     * Puts previous.mmdb back in service and keeps the build it replaces from
+     * being installed again — Busy, changing nothing, while an update holds
+     * the edition's lock.
+     */
     public function rollback(GeoEdition $edition, CarbonImmutable $now): GeoUpdateOutcome
     {
-        $state = $this->states->read($edition);
-        $previous = $this->locator->previous($edition);
-
-        if (! is_file($previous) || ! is_array($state['previous'] ?? null)) {
+        if (! is_dir($this->locator->editionDirectory($edition))) {
             throw GeoUpdateException::because(GeoUpdateFailure::NothingToRollBack);
         }
 
-        if (! @rename($previous, $this->locator->current($edition))) {
-            throw GeoUpdateException::because(GeoUpdateFailure::SwapFailed);
+        $lock = $this->lock($edition);
+
+        if ($lock === null) {
+            return GeoUpdateOutcome::Busy;
         }
 
-        $state['skip_version'] = $state['installed']['version'] ?? null;
-        $state['installed'] = array_diff_key($state['previous'], ['kept_until' => true]);
-        $state['previous'] = null;
-        $state['last_result'] = 'rolled_back';
-        $state['next_check_at'] = $now->addHours((int) config('geo.check_every_hours'))->toIso8601String();
-        $this->states->write($edition, $state);
-        $this->logger->info('geo.database.rolled_back', ['edition' => $edition->value]);
+        try {
+            $state = $this->states->read($edition);
+            $previous = $this->locator->previous($edition);
 
-        return GeoUpdateOutcome::RolledBack;
+            if (! is_file($previous) || ! is_array($state['previous'] ?? null)) {
+                throw GeoUpdateException::because(GeoUpdateFailure::NothingToRollBack);
+            }
+
+            if (! @rename($previous, $this->locator->current($edition))) {
+                throw GeoUpdateException::because(GeoUpdateFailure::SwapFailed);
+            }
+
+            $state['skip_version'] = $state['installed']['version'] ?? null;
+            $state['installed'] = array_diff_key($state['previous'], ['kept_until' => true]);
+            $state['previous'] = null;
+            $state['last_result'] = 'rolled_back';
+            $state['next_check_at'] = $now->addHours((int) config('geo.check_every_hours'))->toIso8601String();
+            $this->states->write($edition, $state);
+            $this->logger->info('geo.database.rolled_back', ['edition' => $edition->value]);
+
+            return GeoUpdateOutcome::RolledBack;
+        } finally {
+            $this->unlock($lock);
+        }
     }
 
-    /** Deletes an edition's database files, for when the other edition serves again. */
+    /**
+     * Deletes an edition's database files, for when the other edition serves
+     * again. While a run of that edition holds its lock nothing is deleted:
+     * the next run deletes them.
+     */
     public function discard(GeoEdition $edition): void
     {
-        $existed = is_file($this->locator->current($edition)) || is_file($this->locator->previous($edition));
-        @unlink($this->locator->current($edition));
-        @unlink($this->locator->previous($edition));
-
-        if ($existed) {
-            $state = $this->states->read($edition);
-            $state['installed'] = null;
-            $state['previous'] = null;
-            $state['last_result'] = 'discarded';
-            $this->states->write($edition, $state);
+        if (! is_dir($this->locator->editionDirectory($edition))) {
+            return;
         }
+
+        $lock = $this->lock($edition);
+
+        if ($lock === null) {
+            return;
+        }
+
+        try {
+            $existed = is_file($this->locator->current($edition)) || is_file($this->locator->previous($edition));
+            @unlink($this->locator->current($edition));
+            @unlink($this->locator->previous($edition));
+
+            if ($existed) {
+                $state = $this->states->read($edition);
+                $state['installed'] = null;
+                $state['previous'] = null;
+                $state['last_result'] = 'discarded';
+                $this->states->write($edition, $state);
+            }
+        } finally {
+            $this->unlock($lock);
+        }
+    }
+
+    /**
+     * The edition's update lock, held — the one lock an update, a rollback
+     * and a discard all take before they read the state or touch a file —
+     * or null while another run holds it.
+     *
+     * @return resource|null
+     */
+    private function lock(GeoEdition $edition)
+    {
+        $lock = @fopen($this->locator->lock($edition), 'c');
+
+        if ($lock === false) {
+            return null;
+        }
+
+        if (! flock($lock, LOCK_EX | LOCK_NB)) {
+            fclose($lock);
+
+            return null;
+        }
+
+        return $lock;
+    }
+
+    /** @param  resource  $lock */
+    private function unlock($lock): void
+    {
+        flock($lock, LOCK_UN);
+        fclose($lock);
     }
 
     /** @param  array<string, mixed>  $state */

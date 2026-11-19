@@ -35,9 +35,15 @@ final class GeoUpdateCommand extends Command
 
         if ((bool) $this->option('rollback')) {
             try {
-                $updater->rollback($chosen, $now);
+                $rolledBack = $updater->rollback($chosen, $now);
             } catch (GeoUpdateException $exception) {
                 $this->error($exception->failure->description());
+
+                return self::FAILURE;
+            }
+
+            if ($rolledBack === GeoUpdateOutcome::Busy) {
+                $this->error("An update of the {$chosen->label()} database is running; try again when it finishes.");
 
                 return self::FAILURE;
             }

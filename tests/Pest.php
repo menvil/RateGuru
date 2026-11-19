@@ -8927,6 +8927,15 @@ function translationSourceOf(string $unit, string $locale): ?array
 }
 
 /**
+ * The fingerprint of the English Translation Center drew a unit's row with —
+ * what the browser sends back with every save of a text.
+ */
+function translationCenterFingerprint(Testable $page, string $unit): string
+{
+    return collect($page->viewData('rows'))->firstWhere('id', $unit)['fingerprint'];
+}
+
+/**
  * Counts, from here on, every Livewire update the page sends — through the
  * fetch Livewire calls, and through the browser's own record of requests, so
  * the proof does not rest on how Livewire happens to send them.

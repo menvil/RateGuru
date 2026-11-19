@@ -47,10 +47,16 @@ it('answers unknown for a file that is not a database, and stops trying for the 
     Log::shouldHaveReceived('warning')->once();
 });
 
-it('answers unknown for a corrupt record instead of failing the page', function () {
+it('answers unknown for a corrupt record instead of failing the page, and stops trying for the rest of the request', function () {
     installGeoDatabase('geolite2_city', 'MaxMind-DB-test-broken-pointers-24.mmdb');
+    Log::spy();
+    $geo = app(GeoLookup::class);
 
-    expect(app(GeoLookup::class)->lookup('1.1.1.1')->isKnown())->toBeFalse();
+    // Both addresses lead the reader into the fixture's broken pointers; one
+    // warning for two lookups shows the second never reached the file.
+    expect($geo->lookup('1.1.1.16')->isKnown())->toBeFalse()
+        ->and($geo->lookup('1.1.1.32')->isKnown())->toBeFalse();
+    Log::shouldHaveReceived('warning')->once();
 });
 
 it('reads the other edition while the chosen one has no database', function () {

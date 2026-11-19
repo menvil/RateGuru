@@ -6,15 +6,20 @@ use App\Enums\GeoUpdateFailure;
 use App\Exceptions\Geo\GeoUpdateException;
 
 /**
- * Unpacks a gzip file into another file in 1 MiB steps, never more than a
+ * Unpacks a gzip file into another file in 16 KiB steps, never more than a
  * given number of bytes, and only accepts a stream that reaches its proper
  * end — a download cut short or a file that is not gzip fails instead of
  * leaving half a database. Uses PHP's own zlib; there is no fallback to a
  * gzip binary.
+ *
+ * The step is small because inflate_add() unpacks a whole step before the
+ * limit can be compared: deflate expands at most about 1032 to 1, so a step
+ * of 16 KiB never holds more than about 16.5 MiB in memory, however far a
+ * crafted file would unpack.
  */
 final class GzipInflater
 {
-    private const int CHUNK = 1024 * 1024;
+    private const int CHUNK = 16 * 1024;
 
     /** @var callable(): bool */
     private $zlibAvailable;

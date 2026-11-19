@@ -206,7 +206,8 @@ UpdateProjectTranslationAction (one transaction, the unit's row locked)
   replaces one, so a change of English stays visible.
 - **A save from an older page is refused.** Translation Center's Save sends the fingerprint of the English the row
   was drawn with, and a text is saved only while the unit still has that English: otherwise it would be recorded as
-  made from English the administrator never saw. Removing a translation needs no such check.
+  made from English the administrator never saw. A text sent without that fingerprint is refused the same way.
+  Removing a translation needs no such check.
 - **Copies keep their records.** A content set or flow copied with its translations carries the records over to the
   copy's unit ids, so a translation outdated on the original is outdated on the copy too.
 

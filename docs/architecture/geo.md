@@ -63,10 +63,12 @@ file lock keeps two runs apart as well.
 
 A run, for the chosen edition (`GeoDatabaseUpdater`):
 
-1. If the installed GeoLite2 build is past 30 days, deletes it and its
-   previous copy.
-2. Takes the file lock; refuses without PHP's zlib (`zlib_missing`) or without
-   room for the download and the unpacked file (`disk_space`).
+1. Takes the file lock — a run that finds it held ends at once, as `busy` —
+   and only then reads the state, so no run acts on a state another run has
+   changed since.
+2. If the installed GeoLite2 build is past 30 days, deletes it and its
+   previous copy; refuses without PHP's zlib (`zlib_missing`) or without room
+   for the download and the unpacked file (`disk_space`).
 3. Checks the serving file against the size and SHA-256 the state recorded;
    a file that does not match counts as not installed.
 4. Asks each source in turn for its latest build. A source offering the
@@ -76,8 +78,10 @@ A run, for the chosen edition (`GeoDatabaseUpdater`):
 6. Holds the download to the published checksum: the SHA-512 the npm registry
    lists for the tarball, the SHA-256 jsDelivr lists for the file. DB-IP
    publishes none; its file is held to the size its server announces.
-7. Unpacks it in 1 MiB steps — for npm, the gzipped database out of the
+7. Unpacks it in 16 KiB steps — for npm, the gzipped database out of the
    package's tar — and refuses a stream that does not reach its proper end.
+   A step that small never unpacks to more than about 16.5 MiB in memory, so
+   a crafted file is refused at its size cap instead of exhausting memory.
 8. Opens it with the reader: the expected database type, IPv6-capable, binary
    format 2, a build no older than the installed one and not dated in the
    future, and at least three of four well-known addresses placed in their
@@ -91,7 +95,11 @@ Any failure deletes the half-written files, leaves the serving database alone,
 and is recorded with its reason (`GeoUpdateFailure`); from the third in a row
 it is logged as an error. `geo:update --force` checks now; `geo:update
 --rollback` puts `previous.mmdb` back and keeps the build it replaces from
-being installed again.
+being installed again. The rollback and the deletion of the other edition's
+files take the same file lock as an update: a rollback while an update of the
+edition runs is refused, to be tried again once it finishes, and files an
+update of their edition is still working on are left for the next run to
+delete.
 
 ## Looking up
 
