@@ -1,0 +1,49 @@
+docs/architecture/geo.md
+  s_4b9dc6ab6b25d3::t_00e8347b05e371 81,83-84
+  s_4b9dc6ab6b25d3::t_7b42d97c8f4e3e 66-71,98-102
+app/Support/Geo/Update/GzipInflater.php
+  s_4b9dc6ab6b25d3::t_d2a241cd8bb9c7 9,14-18,22
+app/Services/Geo/GeoDatabaseUpdater.php
+  s_4b9dc6ab6b25d3::t_4d844a09eafb46 48-53,58,60,66-78,103,107-111,114,118-121,124-126,128-147,150-154,157-159,161-180,184-212
+tests/Pest.php
+  s_4b9dc6ab6b25d3::t_8bc6f9a7d27e87 8930-8937
+tests/Feature/Filament/TranslationCenterPageTest.php
+  s_4b9dc6ab6b25d3::t_19d5cd1a4fbad8 393-394,464-465,481,493-495,644,733,825-826
+  s_4b9dc6ab6b25d3::t_ad888c0a92bdba 893-909
+app/Filament/Pages/TranslationCenterPage.php
+  s_4b9dc6ab6b25d3::t_a56ff3e796e166 135-137,153-154,156
+tests/Feature/I18n/ProjectTranslationGenerationReviewTest.php
+  s_4b9dc6ab6b25d3::t_19d5cd1a4fbad8 397-398
+tests/Feature/Console/GeoUpdateCommandTest.php
+  s_4b9dc6ab6b25d3::t_99a69be1aa6040 78-99
+  s_4b9dc6ab6b25d3::t_7b06953eef6e4a 224-265
+  s_4b9dc6ab6b25d3::t_3ef78aa92a2e17 202-213
+  s_4b9dc6ab6b25d3::t_4ad212e5914ca9 164-177
+  s_4b9dc6ab6b25d3::t_076a66cc31f849 7
+docs/architecture/translation-engine.md
+  s_4b9dc6ab6b25d3::t_fa9c45026e6746 209-210
+tests/Unit/Support/Geo/GeoArchivesTest.php
+  s_4b9dc6ab6b25d3::t_6f253031c35a1f 49-68
+tests/Feature/Support/Geo/MmdbGeoLookupTest.php
+  s_4b9dc6ab6b25d3::t_fc4d443739c8af 50,52-53,55-59
+app/Services/Geo/GeoHttp.php
+  s_4b9dc6ab6b25d3::t_af2a44f8cd211d 22,35,43-47,66-67,88-95,100
+app/Console/Commands/GeoUpdateCommand.php
+  s_4b9dc6ab6b25d3::t_67e42e3ee2840e 38,45-46
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "0586a1f7e9c595a8529982c58a4433ba501db157",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
