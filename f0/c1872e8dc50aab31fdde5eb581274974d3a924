@@ -1,0 +1,52 @@
+app/Filament/Pages/TrafficSources/TrafficSourcesView.php
+  s_4b9dc6ab6b25d3::t_550b3864249d49 71
+  s_4b9dc6ab6b25d3::t_7f0b9f4b8d1881 1697-1698,1700
+  s_4b9dc6ab6b25d3::t_a2ada7c341a1bb 1686
+  s_4b9dc6ab6b25d3::t_a5fc743f17fb55 1699
+  s_4b9dc6ab6b25d3::t_f73b9a86743a59 1670-1671
+app/Support/Traffic/Spend/SpendHint.php
+  s_4b9dc6ab6b25d3::t_fe198556a4df53 8,18-22,33,35-38,41
+  s_4b9dc6ab6b25d3::t_82074a71d510cb 1-7,9-17,23-32,34,39-40,42-58
+tests/Browser/AdminTrafficSourcesBrowserTest.php
+  s_4b9dc6ab6b25d3::t_c2d514c1737736 30
+  s_4b9dc6ab6b25d3::t_eb77568776889f 384-385,397-400,408-410,413
+  s_4b9dc6ab6b25d3::t_68cdc7ad9bfec1 422-453
+app/Support/Traffic/Money/TrafficMoney.php
+  s_4b9dc6ab6b25d3::t_529f9c245bf4af 94-101
+  s_4b9dc6ab6b25d3::t_cebc33e50eb632 56-61,64-65,67-84
+docs/admin/traffic-sources.md
+  s_4b9dc6ab6b25d3::t_12e8efa8ceabd8 257-258
+  s_4b9dc6ab6b25d3::t_5bf4918e7115e5 252-256,259
+resources/css/filament/admin/components.css
+  s_4b9dc6ab6b25d3::t_b6acc419b17344 16565
+  s_4b9dc6ab6b25d3::t_ce0520e6fd74bf 16552-16564,16566-16569
+  s_4b9dc6ab6b25d3::t_34711b4f9f6a06 15403-15408,15410-15412,15417-15418
+  s_4b9dc6ab6b25d3::t_be0ad1c1222ec7 17205,17207
+tests/Unit/Support/Traffic/TrafficMoneyTest.php
+  s_4b9dc6ab6b25d3::t_53ec3ab83793e9 23-68
+tests/Feature/Traffic/TrafficReportPageTest.php
+  s_4b9dc6ab6b25d3::t_3474d33a12599f 854-877
+resources/views/filament/pages/traffic-sources/logs.blade.php
+  s_4b9dc6ab6b25d3::t_3637a1be0bb40c 131
+  s_4b9dc6ab6b25d3::t_9f7766afc8d884 8-9
+  s_4b9dc6ab6b25d3::t_12636c9e353a04 132
+tests/Unit/Support/Traffic/SpendTest.php
+  s_4b9dc6ab6b25d3::t_31285fade4cf4d 11,117-129,132-137
+  s_4b9dc6ab6b25d3::t_44dcc5381688c5 130-131
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "f0c1872e8dc50aab31fdde5eb581274974d3a924",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
