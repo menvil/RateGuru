@@ -36,6 +36,7 @@ use App\Support\Traffic\Money\TrafficMoney;
 use App\Support\Traffic\Postbacks\PostbackSchedule;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use Livewire\Livewire;
@@ -82,6 +83,30 @@ it('hands the link to Copy link as written, with no Blade directive left in the 
     expect($link)->toContain('/games/trust-your-taste?rg_src=exo')
         ->and($page->html())->toContain('data-copy="'.e($link).'"')
         ->and($page->html())->not->toContain('@js(');
+});
+
+it('says what the network answered a test postback, and why PopAds always refuses one', function () {
+    bindFakeHostResolver(['pb.example.com' => ['93.184.216.40'], 'pb2.example.com' => ['93.184.216.41']]);
+    Http::preventStrayRequests();
+    // PopAds answers 200 with an empty body; its error code comes only in this header.
+    Http::fake(['pb.example.com/*' => Http::response('', 200, ['X-PopAds-EC' => 'InvalidEnvironmentException-16-46'])]);
+
+    $page = Livewire::test(TrafficSourcesPage::class)->call('openEditor', 'new:popads');
+    $page->set('draft.rules.0.url_template', 'https://pb.example.com/cpixel.php?s2s=1&aid=abc&id={click_id}&value={value}')
+        ->call('testRule', 0)
+        ->assertDispatched('rg-admin-toast', fn (string $name, array $params): bool => $params['tone'] === 'error'
+            && str_starts_with($params['message'], 'Test postback: rejected · HTTP 200 · ')
+            && str_contains($params['message'], 'X-PopAds-EC: InvalidEnvironmentException-16-46')
+            && str_contains($params['message'], 'PopAds refuses any click ID it did not issue'));
+
+    // A network that took the test: its answer, and no word about refusing.
+    Http::fake(['pb2.example.com/*' => Http::response('OK', 200)]);
+    $page->call('openEditor', 'new:placement');
+    $page->set('draft.rules', [['event' => 'goal', 'goal_code' => '', 'url_template' => 'https://pb2.example.com/t?id={click_id}', 'enabled' => true]])
+        ->call('testRule', 0)
+        ->assertDispatched('rg-admin-toast', fn (string $name, array $params): bool => $params['tone'] === 'success'
+            && str_starts_with($params['message'], 'Test postback: ok · HTTP 200 · ')
+            && str_ends_with($params['message'], ' · OK'));
 });
 
 it('creates a source from a preset in its editor', function () {
