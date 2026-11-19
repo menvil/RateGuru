@@ -18,6 +18,9 @@ return [
     // The longest period Analytics reads at a time, in days.
     'max_range_days' => 93,
 
+    // How long the figures of a tab slow to read are kept once read, in minutes, unless Refresh asks for them again; 0 reads them every time.
+    'read_cache_minutes' => 10,
+
     // The visitors a city needs before it gets a row of its own on Geography.
     'city_min_visitors' => 20,
 

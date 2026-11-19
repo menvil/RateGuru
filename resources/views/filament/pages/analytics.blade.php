@@ -35,6 +35,13 @@
                 </span>
             @endif
             <span class="rg-admin-analytics__counted"><x-admin.ui.icon name="shield-check" :size="13" />Counted by RateGuru</span>
+            {{-- A tab slow to read shows its figures as kept since they were read, for a few minutes, until Refresh. --}}
+            @if ($readAt !== null)
+                <span class="rg-admin-analytics__read" data-testid="analytics-figures-read">
+                    Figures read {{ $readAt }} UTC
+                    <x-admin.ui.button variant="ghost" size="sm" icon="refresh-cw" wire:click="refreshFigures" wire:loading.attr="disabled" wire:target="refreshFigures">Refresh</x-admin.ui.button>
+                </span>
+            @endif
         </div>
 
         <x-admin.ui.tabs label="Analytics" class="rg-admin-analytics__tabs" :active="$tab" :items="$tabs" />

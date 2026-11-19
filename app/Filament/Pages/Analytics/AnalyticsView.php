@@ -12,6 +12,7 @@ use App\Support\Analytics\AnalyticsFilter;
 use App\Support\Analytics\AnalyticsSource;
 use App\Support\Analytics\CampaignKey;
 use Carbon\CarbonImmutable;
+use Closure;
 
 /**
  * What the shell of Growth → Analytics shows around its tabs
@@ -20,7 +21,9 @@ use Carbon\CarbonImmutable;
  * switches that keep visits from being recorded, and the day the first visit
  * was. Until the page is in a browser it offers only the source and campaign
  * already chosen and reads no visits; then the sources the most people came
- * from in the period, and the campaigns of the chosen source. Reads only.
+ * from in the period, and the campaigns of the chosen source — read from
+ * every visit of the period, so kept for the administrator a few minutes
+ * once read, as the slow tabs' figures are (AnalyticsReadCache). Reads only.
  */
 final class AnalyticsView
 {
@@ -41,12 +44,16 @@ final class AnalyticsView
     public function __construct(private readonly AnalyticsVisitsQuery $visits) {}
 
     /**
+     * @param  int|null  $keptFor  the administrator the options are kept for once read; none, read every time
+     * @param  bool  $fresh  whether the options are read again now, whatever was kept
      * @return array{sourceOptions: list<array{value: string, label: string, trigger?: string}>, campaignOptions: list<array{value: string, label: string, trigger?: string}>, chip: string|null, notices: list<array{tone: string, text: string, action: array{label: string, url: string}|null}>}
      */
-    public function shell(AnalyticsFilter $filter, bool $ready, ?CarbonImmutable $recordedSince): array
+    public function shell(AnalyticsFilter $filter, bool $ready, ?CarbonImmutable $recordedSince, ?int $keptFor = null, bool $fresh = false): array
     {
+        // Read, and kept, of every source: the source chosen is no part of what is offered.
+        $everySource = new AnalyticsFilter($filter->period);
         $sourceKeys = $ready
-            ? array_values(array_filter(array_column($this->visits->top(new AnalyticsFilter($filter->period), AnalyticsDimension::Source, self::SOURCE_OPTIONS), 'source_key'), 'is_string'))
+            ? array_values(array_filter(array_column($this->kept($keptFor, 'sources', $everySource, $fresh, fn (): array => $this->visits->top($everySource, AnalyticsDimension::Source, self::SOURCE_OPTIONS)), 'source_key'), 'is_string'))
             : [];
 
         if ($filter->sourceKey !== null && ! in_array($filter->sourceKey, $sourceKeys, true)) {
@@ -62,7 +69,7 @@ final class AnalyticsView
             ],
             'campaignOptions' => [
                 ['value' => '', 'label' => 'All campaigns', 'trigger' => 'All'],
-                ...$this->campaignOptions($filter, $ready),
+                ...$this->campaignOptions($filter, $ready, $keptFor, $fresh),
             ],
             'chip' => $filter->sourceKey === null ? null : self::sourceLabel($filter->sourceKey, $sourceNames),
             'notices' => $this->notices($filter, $ready, $recordedSince),
@@ -168,7 +175,7 @@ final class AnalyticsView
      *
      * @return list<array{value: string, label: string}>
      */
-    private function campaignOptions(AnalyticsFilter $filter, bool $ready): array
+    private function campaignOptions(AnalyticsFilter $filter, bool $ready, ?int $keptFor, bool $fresh): array
     {
         $chosen = $filter->campaignKey;
         $sourceId = $filter->sourceKey === null ? null : AnalyticsSource::paidSourceId($filter->sourceKey);
@@ -183,7 +190,7 @@ final class AnalyticsView
         }
 
         if ($ready) {
-            $tagged = array_column($this->visits->top(new AnalyticsFilter($filter->period, null, $filter->sourceKey), AnalyticsDimension::Campaign, self::CAMPAIGN_OPTIONS), 'campaign_key');
+            $tagged = array_column($this->kept($keptFor, 'campaigns', $filter, $fresh, fn (): array => $this->visits->top(new AnalyticsFilter($filter->period, null, $filter->sourceKey), AnalyticsDimension::Campaign, self::CAMPAIGN_OPTIONS)), 'campaign_key');
 
             foreach ($tagged as $key) {
                 if (is_string($key) && CampaignKey::paidCampaignId($key) === null && CampaignKey::read($key) !== null) {
@@ -197,6 +204,24 @@ final class AnalyticsView
         }
 
         return array_map(fn (string $key, string $label): array => ['value' => $key, 'label' => $label], array_keys($options), array_values($options));
+    }
+
+    /**
+     * Values a filter offers, as kept for the administrator given since they
+     * were read — by the period's days and the source the read narrows to,
+     * the filter given being the one read — or read now;
+     * with no administrator, or nothing kept at all, read every time.
+     *
+     * @param  Closure(): list<array<string, int|string|null>>  $read
+     * @return list<array<string, int|string|null>>
+     */
+    private function kept(?int $userId, string $name, AnalyticsFilter $filter, bool $fresh, Closure $read): array
+    {
+        if ($userId === null || (int) config('analytics.read_cache_minutes') <= 0) {
+            return $read();
+        }
+
+        return array_values(app(AnalyticsReadCache::class)->remember($userId, 'options:'.$name, ['days' => [$filter->fromDay(), $filter->toDay()], 'source' => $filter->sourceKey], $fresh, $read)['data']);
     }
 
     /**

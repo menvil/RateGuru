@@ -6,6 +6,7 @@ use App\Actions\Analytics\LogJourneyLookupAction;
 use App\Actions\Analytics\RestoreTrafficSegmentAction;
 use App\Enums\TrafficDevice;
 use App\Exceptions\Traffic\CannotManageTrafficException;
+use App\Filament\Pages\Analytics\AnalyticsReadCache;
 use App\Filament\Pages\Analytics\AnalyticsTab;
 use App\Filament\Pages\Analytics\AnalyticsView;
 use App\Filament\Pages\Analytics\CampaignsTab;
@@ -36,6 +37,8 @@ use Illuminate\Support\Facades\Gate;
 use Livewire\Attributes\Locked;
 use Livewire\Attributes\On;
 use Livewire\Attributes\Url;
+use ReflectionClass;
+use ReflectionProperty;
 use UnitEnum;
 
 /**
@@ -73,7 +76,11 @@ use UnitEnum;
  * the link's details. Asking for the page reads no visits: the open tab's
  * figures are read once the page is in a browser (wire:init), and only the
  * open tab's. A source chosen whose campaign isn't one of its own drops the
- * campaign, and another campaign the creative chosen of the last. The page,
+ * campaign, and another campaign the creative chosen of the last. The
+ * figures of the tabs slow to read on a busy site (READ_CACHED) are kept for
+ * a few minutes once read, for the administrator alone (AnalyticsReadCache):
+ * the page says when they were read and offers Refresh, and a segment or
+ * tracking link saved, deleted or brought back reads them afresh. The page,
  * and every request it answers, is an active administrator's who may manage
  * traffic sources.
  */
@@ -117,6 +124,15 @@ final class GrowthAnalyticsPage extends Page
 
     /** @var list<string> the tabs the source and campaign filters don't apply to: each says so while one is chosen */
     public const array WITHOUT_SOURCE = ['games', 'retention'];
+
+    /**
+     * @var list<string> the tabs whose figures are kept for a few minutes
+     *                   once read: each took over two seconds to read on 4.5
+     *                   million visits over 90 days, the load Analytics was
+     *                   built to — Journeys, one visitor's steps, alone stays
+     *                   quick
+     */
+    public const array READ_CACHED = ['overview', 'engagement', 'campaigns', 'links', 'landings', 'games', 'experiments', 'retention', 'geo'];
 
     /** @var array<string, string> how Overview's sources table can be sorted */
     public const array SORTS = ['visitors' => 'Visitors', 'start' => 'Start rate', 'registration' => 'Registration rate', 'activation' => 'Activation rate'];
@@ -240,6 +256,9 @@ final class GrowthAnalyticsPage extends Page
     /** Whether the page is in a browser: only then does the open tab read its figures. */
     public bool $ready = false;
 
+    /** Whether this request reads the open tab's figures afresh rather than as kept: Refresh, or a change the page made itself. */
+    private bool $fresh = false;
+
     public static function canAccess(): bool
     {
         return Gate::allows('manage-traffic-sources');
@@ -327,6 +346,23 @@ final class GrowthAnalyticsPage extends Page
         $this->logJourneyLookup('pick');
     }
 
+    /** Refresh: the open tab's figures read again now, whatever was kept. */
+    public function refreshFigures(): void
+    {
+        $this->fresh = true;
+    }
+
+    /**
+     * A segment or tracking link the page changed: the open tab's figures
+     * read again now, and everything else kept dropped — the change may show
+     * on any tab, filter or link details, and to every administrator.
+     */
+    private function figuresChanged(): void
+    {
+        $this->fresh = true;
+        app(AnalyticsReadCache::class)->forgetAll();
+    }
+
     public function choosePeriod(mixed $preset): void
     {
         $this->period = $preset;
@@ -397,6 +433,7 @@ final class GrowthAnalyticsPage extends Page
     public function segmentSaved(mixed $message = ''): void
     {
         $this->segment = '';
+        $this->figuresChanged();
         $this->dispatch('rg-admin-toast', message: is_string($message) ? $message : 'Segment saved', tone: 'success');
     }
 
@@ -405,6 +442,7 @@ final class GrowthAnalyticsPage extends Page
     public function segmentDeleted(mixed $id = null, mixed $name = ''): void
     {
         $this->segment = '';
+        $this->figuresChanged();
         $this->dispatch('rg-admin-toast',
             message: 'Segment “'.(is_string($name) ? $name : '').'” deleted',
             tone: 'success',
@@ -431,6 +469,7 @@ final class GrowthAnalyticsPage extends Page
             return;
         }
 
+        $this->figuresChanged();
         $this->dispatch('rg-admin-toast', message: 'Segment “'.$segment->name.'” is back', tone: 'success');
     }
 
@@ -532,6 +571,7 @@ final class GrowthAnalyticsPage extends Page
     public function linkSaved(mixed $id = null, mixed $message = ''): void
     {
         $this->edit = '';
+        $this->figuresChanged();
         $this->dispatch('rg-admin-toast', message: is_string($message) && $message !== '' ? $message : 'Link saved', tone: 'success');
 
         // The details open once the editor's drawer has left the page, not in the same update: one overlay
@@ -558,7 +598,10 @@ final class GrowthAnalyticsPage extends Page
             $period->toDay < $recordedSince->toDateString() => 'early',
             default => 'ready',
         };
-        $shell = $view->shell($filter, $this->ready, $recordedSince);
+        $reader = auth()->user();
+        $keptFor = $reader instanceof User ? (int) $reader->id : null;
+        $shell = $view->shell($filter, $this->ready, $recordedSince, $keptFor, $this->fresh);
+        $read = $state === 'ready' ? $this->readTab($filter, $view, $keptFor) : ['data' => null, 'readAt' => null];
 
         return [
             ...$shell,
@@ -577,8 +620,57 @@ final class GrowthAnalyticsPage extends Page
             'tabs' => array_map(fn (string $id, string $label): array => ['id' => $id, 'label' => $label, 'attributes' => ['wire:click' => "\$set('tab', '{$id}')"]], array_keys(self::TABS), self::TABS),
             'deviceOptions' => [['value' => '', 'label' => 'All devices', 'trigger' => 'All'], ...array_map(fn (TrafficDevice $device): array => ['value' => $device->value, 'label' => $device->label()], TrafficDevice::cases())],
             'periodPicker' => $this->periodPicker($period),
-            'data' => $state === 'ready' ? app()->make(self::TAB_DATA[(string) $this->tab], ['view' => $view])->data($this, $filter) : null,
+            'data' => $read['data'],
+            'readAt' => $read['readAt']?->format('H:i'),
         ];
+    }
+
+    /**
+     * The open tab's figures: read now, or — a tab slow to read — as kept
+     * for the administrator since they were last read, with that moment.
+     *
+     * @return array{data: array<string, mixed>, readAt: CarbonImmutable|null}
+     */
+    private function readTab(AnalyticsFilter $filter, AnalyticsView $view, ?int $keptFor): array
+    {
+        $tab = (string) $this->tab;
+        $read = fn (): array => app()->make(self::TAB_DATA[$tab], ['view' => $view])->data($this, $filter);
+
+        if (! in_array($tab, self::READ_CACHED, true) || $keptFor === null || (int) config('analytics.read_cache_minutes') <= 0) {
+            return ['data' => $read(), 'readAt' => null];
+        }
+
+        return app(AnalyticsReadCache::class)->remember($keptFor, $tab, $this->readState($filter), $this->fresh, $read);
+    }
+
+    /**
+     * What the open tab's figures depend on: the days of the period as read
+     * today, the address, and the rows of the Campaigns tree toggled — less
+     * what the tab ignores, so changing it reads nothing again.
+     *
+     * @return array<string, mixed>
+     */
+    private function readState(AnalyticsFilter $filter): array
+    {
+        // Experiments reads no filter of the page: only the comparison it shows, as of today.
+        if ($this->tab === 'experiments') {
+            return ['exp' => $this->exp, 'today' => $filter->period->today->toDateString()];
+        }
+
+        $state = ['days' => [$filter->fromDay(), $filter->toDay()], 'toggled' => $this->toggled];
+
+        foreach ((new ReflectionClass($this))->getProperties(ReflectionProperty::IS_PUBLIC) as $property) {
+            if ($property->getAttributes(Url::class) !== []) {
+                $state[$property->getName()] = $property->getValue($this);
+            }
+        }
+
+        // The source and campaign, and what choosing them clears, are nothing to a tab they don't apply to.
+        if (in_array($this->tab, self::WITHOUT_SOURCE, true)) {
+            unset($state['source'], $state['campaign'], $state['creative'], $state['link'], $state['segment']);
+        }
+
+        return $state;
     }
 
     /** The filter every figure of the tab open reads. */

@@ -34,6 +34,8 @@ use Livewire\Livewire;
  */
 beforeEach(function () {
     $this->travelTo(CarbonImmutable::parse('2026-11-18 12:00:00'));
+    // The figures as they are at each read: the read cache has tests of its own (AnalyticsReadCacheTest).
+    config(['analytics.read_cache_minutes' => 0]);
     $this->actingAs(User::factory()->admin()->create());
     $this->game = Game::factory()->status(GameStatus::Live)->create(['title' => 'Trust Your Taste']);
     $this->exo = TrafficSource::factory()->create(['name' => 'ExoClick tests']);
