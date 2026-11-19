@@ -13,11 +13,14 @@ outside lookup service, and a visitor's page never waits on one.
 | `dbip_city_lite` | DB-IP City Lite, CC BY 4.0 | the 1st of every month | download.db-ip.com, then the npm package `dbip-city-lite` |
 
 The administrator picks the edition on Traffic sources → Sources (Tracking).
-The other one stands in, by itself, while the chosen one has no usable
-database: never installed yet, failing, or — for GeoLite2 — taken out of
-service because its build is older than 30 days, which MaxMind's licence does
-not allow to keep using. Once the chosen one serves again, the other one's
-files are deleted.
+The other one stands in, by itself, while the chosen one has no database file
+(`current.mmdb`): not installed yet, its downloads still failing, or — for
+GeoLite2 — taken out of service because its build is older than 30 days, which
+MaxMind's licence does not allow to keep using. A chosen file that is there but
+cannot be read is not replaced by the other one: lookups answer unknown until
+the edition's next check finds that it no longer matches the size and SHA-256
+recorded when it was installed, and installs it again. Once the chosen one
+serves again, the other one's files are deleted.
 
 Attribution, shown wherever the data is shown in the admin: “This product
 includes GeoLite Data created by MaxMind, available from

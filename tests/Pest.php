@@ -14506,7 +14506,7 @@ function demoGameWithMembers(int $members = 200): User
         gamePost($up, $down);
     }
 
-    foreach (range(1, $members) as $n) {
+    for ($n = 1; $n <= $members; $n++) {
         User::factory()->create(['email' => "fill{$n}@demo.test"]);
     }
 
@@ -14685,7 +14685,7 @@ function assignVisitors(GameTrafficPeriod $period, int $number, int $count, call
 {
     $version = $period->versions->firstWhere('number', $number);
 
-    foreach (range(1, $count) as $n) {
+    for ($n = 1; $n <= $count; $n++) {
         periodVisitor($period, $version, $did($n));
     }
 }

@@ -34,6 +34,7 @@ use App\Models\TrafficSpendDay;
 use App\Models\TrafficVisit;
 use App\Models\User;
 use App\Queries\Users\UnconfirmedAccountsQuery;
+use App\Support\Analytics\LandingRoute;
 use App\Support\Games\Flow\GameFlowTemplate;
 use Carbon\CarbonImmutable;
 use Database\Seeders\Support\DemoPlaythrough;
@@ -68,9 +69,9 @@ use SplPriorityQueue;
  * TrafficDemoSeeder's clicks are kept and played through like the rest: what
  * it had made up about how far each got — and the conversions and postbacks
  * it had written for that — gives way to what playing them did. At the end
- * the unconfirmed accounts past their week are removed, as the nightly
- * cleanup does, the banners' spend is shared out over their visits, and what
- * each step is worth is worked out again.
+ * the accounts the history signed up and never confirmed within the week
+ * are removed, as the nightly cleanup does, the banners' spend is shared
+ * out over their visits, and what each step is worth is worked out again.
  *
  * Needs the large demo dataset, the demo game and the traffic demo, in this
  * order; this one takes a few minutes on a local PostgreSQL:
@@ -242,7 +243,7 @@ class GameAnalyticsDemoSeeder extends Seeder
 
         $this->command?->newLine();
         DemoPlaythrough::clock($until);
-        $this->purgeUnconfirmed();
+        $this->purgeUnconfirmed($play);
         $this->shareOutFixedSpend($until);
         app(WorkOutChancesAction::class)->handle('demo', $until);
         app(RevalueOpenVisitsAction::class)->handle($until);
@@ -326,8 +327,9 @@ class GameAnalyticsDemoSeeder extends Seeder
 
     /**
      * TrafficDemoSeeder's visits of the game, back to what their click or
-     * arrival recorded — no step taken, no version, no worth, no
-     * conversions — to be played through at the moment each came.
+     * arrival recorded — no step taken, no version on the visit or its
+     * landing, no worth, no conversions — to be played through at the
+     * moment each came, each on its own row.
      *
      * @return list<array{0: CarbonImmutable, 1: DemoVisitor, 2: array<string, mixed>}>
      */
@@ -344,12 +346,17 @@ class GameAnalyticsDemoSeeder extends Seeder
         $clicks = [];
 
         foreach ($visits as $visit) {
+            $landing = LandingRoute::parts((string) $visit->landing_key);
             $visit->forceFill([
                 ...$untouched,
                 // An unpaid visit is recorded when its page runs.
                 'opened_at' => $visit->source_id === null ? $visit->arrived_at : null,
                 'last_seen_at' => $visit->arrived_at,
                 'version_id' => null,
+                // A session that began on the game's page: its landing learns again the version the page shows, as opening it writes it.
+                'landing_key' => $visit->entry_visit_id === $visit->id && $landing['route'] === 'games.play' && $landing['gameId'] === (int) $game->id
+                    ? LandingRoute::key('games.play', (int) $game->id, null)
+                    : $visit->landing_key,
                 'known' => false,
                 'known_reason' => null,
                 'rounds_answered' => 0,
@@ -367,14 +374,20 @@ class GameAnalyticsDemoSeeder extends Seeder
         return $clicks;
     }
 
-    /** The demo's accounts that never confirmed their address within the week, removed as the nightly cleanup removes them. */
-    private function purgeUnconfirmed(): void
+    /**
+     * The accounts the history signed up that never confirmed their address
+     * within the week, removed as the nightly cleanup removes them; no other
+     * account, whatever it is called.
+     */
+    private function purgeUnconfirmed(DemoPlaythrough $play): void
     {
         $cutoff = UnconfirmedAccountsQuery::cutoff();
         $purge = app(PurgeUnconfirmedAccountAction::class);
 
-        foreach (app(UnconfirmedAccountsQuery::class)->expired($cutoff)->where('username', 'like', 'player\_%')->orderBy('id')->pluck('id') as $id) {
-            $purge->handle((int) $id, $cutoff);
+        foreach (array_chunk($play->created, 500) as $created) {
+            foreach (app(UnconfirmedAccountsQuery::class)->expired($cutoff)->whereIn('id', $created)->orderBy('id')->pluck('id') as $id) {
+                $purge->handle((int) $id, $cutoff);
+            }
         }
     }
 

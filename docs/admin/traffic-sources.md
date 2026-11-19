@@ -6,12 +6,13 @@ Growth → Traffic sources (`/admin/traffic-sources`), for active administrators
 
 1. Sources → Tracking: check the IP database says what it serves (Update now
    fetches one within a minute). GeoLite2 City is the default; DB-IP City Lite
-   stands in by itself while GeoLite2 has no usable file.
+   stands in by itself while GeoLite2 has no database file.
 2. Switch on **Record visits** and save. Unpaid visits appear under Logs →
    Clicks, with their country and device. **Record site visits**, right under
    it, records the feed, posts, profiles, the static pages, signing in and up
-   and saved posts too — one visit a browser every 30 minutes, with the
-   visitor cookie on every such page and the posts it opens kept for 90 days,
+   and saved posts too — one visit a session (a new one each time the browser
+   comes from outside the site or after 30 minutes away), with the visitor
+   cookie on every such page and the posts it opens kept for 90 days,
    so update the privacy page first (below). It ships switched off. Those
    visits are for Growth → Analytics (docs/admin/analytics.md): nothing on
    Traffic sources, no worth and no postback changes with them. It can only be

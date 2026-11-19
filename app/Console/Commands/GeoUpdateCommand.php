@@ -15,10 +15,14 @@ use Illuminate\Console\Command;
  * Keeps the local IP location database current (docs/architecture/geo.md).
  * Scheduled every minute and done at once when there is nothing to do: an
  * edition is checked once a day, sooner after a failure or when the
- * administrator asks for a refresh. When the chosen edition has no usable
- * database — never installed, failing, or taken out of service by its licence
- * age — the other edition is installed and serves meanwhile; once the chosen
- * one serves again, the other one's files are deleted.
+ * administrator asks for a refresh. When the chosen edition has no database
+ * file (current.mmdb) — not installed yet, its downloads still failing, or
+ * taken out of service by its licence age — the other edition is installed and
+ * serves meanwhile; once the chosen one serves again, the other one's files are
+ * deleted. A chosen file that is there but cannot be read is not replaced by
+ * the other edition: lookups answer unknown until the edition's next check
+ * finds that it no longer matches its recorded size and SHA-256 and installs
+ * it again.
  */
 final class GeoUpdateCommand extends Command
 {

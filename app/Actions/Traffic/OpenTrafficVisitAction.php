@@ -354,13 +354,14 @@ final class OpenTrafficVisitAction
     }
 
     /**
-     * A visit the page's steps go to, seen now, and given the game and
-     * version it now shows when it had none: only while it still has none, so
-     * a game another tab gave it since it was read is never replaced.
+     * A visit the page's steps go to, seen now unless it was seen later
+     * already, and given the game and version it now shows when it had none:
+     * only while it still has none, so a game another tab gave it since it
+     * was read is never replaced.
      */
     private function touch(TrafficVisit $visit, ?int $gameId, ?int $versionId, CarbonImmutable $now): int
     {
-        TrafficVisit::query()->whereKey($visit->id)->update(['last_seen_at' => $now]);
+        TrafficVisit::query()->whereKey($visit->id)->where('last_seen_at', '<', $now)->update(['last_seen_at' => $now]);
 
         if ($visit->game_id === null && $gameId !== null) {
             TrafficVisit::query()->whereKey($visit->id)->whereNull('game_id')->update(['game_id' => $gameId]);

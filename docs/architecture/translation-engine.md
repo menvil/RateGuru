@@ -136,8 +136,8 @@ Translation engine  ≠  translation storage  ≠  draft storage
   so a job delivered twice sends nothing the second time — then checks that whoever started the batch may still
   manage project settings, that the provider and its limits are the ones planned for, and that each item is still
   listed, still has the English it was planned from (`ProjectTranslationSourceFingerprint`, SHA-256 of the unit id
-  and its English text) and is still missing. An item that fails is skipped and never sent. What is sent is the
-  item as it was snapshotted when the batch was planned, so the request and the plan cannot drift.
+  and its English text) and is still missing or still outdated. An item that fails is skipped and never sent. What
+  is sent is the item as it was snapshotted when the batch was planned, so the request and the plan cannot drift.
 - **Drafts are temporary workflow state, never project content.** A batch lives in the cache store
   `translation.bulk.cache_store` (Redis on a deployed target) under keys that carry no text —
   `translation-generation:active:{user}:{locale}`, `translation-generation:running:{locale}`,
@@ -162,11 +162,13 @@ Translation engine  ≠  translation storage  ≠  draft storage
   generated names — exactly the rows the page shows untouched, never a suggestion that became ready after the page
   last looked — with the text read from the store — never from the browser — each through
   `UpdateProjectTranslationAction` on its own, with no transaction around them. A suggestion whose English changed
-  since it was generated, or for a translation someone saved meanwhile, is skipped and never overwrites anything.
-  That is decided on the unit's locked row: `UpdateProjectTranslationAction::handleGuarded()` hands the unit, as the
-  row it has just locked holds it, to the caller's guard before anything is written, and the guard checks the
-  source fingerprint and that the language is still missing. An early read of every unit only spares writes bound to
-  be refused. The ordinary `handle()` has no guard and still replaces a stored translation, as a manual save must.
+  since it was generated, or for a translation someone saved meanwhile for the current English, is skipped and
+  never overwrites anything. That is decided on the unit's locked row:
+  `UpdateProjectTranslationAction::handleGuarded()` hands the unit, as the row it has just locked holds it, to the
+  caller's guard before anything is written, and the guard checks the source fingerprint and that the language is
+  still missing, or its stored translation still outdated, on the locked row. An early read of every unit only
+  spares writes bound to be refused. The ordinary `handle()` has no guard and still replaces a stored translation,
+  as a manual save must.
 - **Discard names one ready suggestion, or all.** `DiscardProjectTranslationGenerationAction` lets suggestions go
   on the server: a unit of `null`, and nothing else, means every ready one. Any other unit must name one ready
   suggestion of the batch; one that is not text, unknown, or saved, failed, skipped or discarded already is refused

@@ -31,6 +31,7 @@ use App\Support\Analytics\LandingRoute;
 use App\Support\Traffic\Presets\SourceDefaults;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Seeder;
+use Illuminate\Support\Facades\DB;
 
 /**
  * Traffic sources to look at locally: PopAds and ExoClick from their presets
@@ -44,7 +45,8 @@ use Illuminate\Database\Seeder;
  *
  *     php artisan db:seed --class=TrafficDemoSeeder
  *
- * Safe to run again: once the PopAds source exists, nothing is added.
+ * Safe to run again: once the PopAds source exists, nothing is added; a run
+ * that fails adds nothing at all. Local and testing environments only.
  */
 final class TrafficDemoSeeder extends Seeder
 {
@@ -52,6 +54,12 @@ final class TrafficDemoSeeder extends Seeder
 
     public function run(): void
     {
+        if (! app()->environment(['local', 'testing'])) {
+            $this->command?->warn('Local and testing environments only; nothing was added.');
+
+            return;
+        }
+
         $admin = User::query()->where('email', 'admin@rateguru.test')->first();
 
         if ($admin === null) {
@@ -66,6 +74,14 @@ final class TrafficDemoSeeder extends Seeder
             return;
         }
 
+        // All of it or nothing: a run that failed half way leaves no PopAds source to stop the next.
+        DB::transaction(fn () => $this->addDemo($admin));
+        $this->command?->info('Traffic demo seeded: 3 sources, 3 campaigns, 900 visits.');
+    }
+
+    /** The demo itself: the sources the administrator saves, their campaigns, visits and spend, and the chances. */
+    private function addDemo(User $admin): void
+    {
         mt_srand(7);
         $settings = TrafficSetting::query()->find(1) ?? (new TrafficSetting)->forceFill(['id' => 1]);
         $settings->forceFill(['capture_enabled' => true, 'postbacks_enabled' => false])->save();
@@ -166,6 +182,5 @@ final class TrafficDemoSeeder extends Seeder
         }
 
         app(WorkOutChancesAction::class)->handle('demo', CarbonImmutable::now());
-        $this->command?->info('Traffic demo seeded: 3 sources, 3 campaigns, 900 visits.');
     }
 }

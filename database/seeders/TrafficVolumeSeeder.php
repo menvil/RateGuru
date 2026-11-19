@@ -3,6 +3,7 @@
 namespace Database\Seeders;
 
 use App\Enums\TrafficChannel;
+use App\Enums\TrafficSourceType;
 use App\Enums\TrafficSpendBasis;
 use App\Models\TrafficPriceSet;
 use App\Models\TrafficSource;
@@ -16,7 +17,7 @@ use Illuminate\Database\Seeder;
  * Load for the traffic reports: 1.5 million visits over 30 days across the
  * existing sources, inserted in chunks, so a level of the tree and Sites &
  * zones can be timed on a local PostgreSQL. Never in DatabaseSeeder, never on
- * a shared database:
+ * a shared database; local and testing environments only:
  *
  *     php artisan db:seed --class=TrafficVolumeSeeder
  */
@@ -29,7 +30,13 @@ final class TrafficVolumeSeeder extends Seeder
 
     public function run(): void
     {
-        $sources = TrafficSource::query()->pluck('id')->all();
+        if (! app()->environment(['local', 'testing'])) {
+            $this->command?->warn('Local and testing environments only; nothing was added.');
+
+            return;
+        }
+
+        $sources = TrafficSource::query()->get(['id', 'type'])->all();
         $prices = TrafficPriceSet::current()->id;
 
         if ($sources === []) {
@@ -48,14 +55,17 @@ final class TrafficVolumeSeeder extends Seeder
                 $arrived = $now->subSeconds(mt_rand(0, 30 * 86400));
                 $opened = mt_rand(1, 100) <= 70;
                 $source = $sources[mt_rand(0, count($sources) - 1)];
+                // A banner's or link's click is a placement's, without the sites and zones of a network.
+                $network = $source->type === TrafficSourceType::Network;
+                $channel = $network ? TrafficChannel::Network : TrafficChannel::Placement;
                 $rows[] = [
-                    'channel' => TrafficChannel::Network->value,
-                    'source_id' => $source,
+                    'channel' => $channel->value,
+                    'source_id' => $source->id,
                     // Keyed as capture keys a click, which reports read; the entry id, which only a visitor's journey reads, stays unset.
-                    'source_key' => AnalyticsSource::keyFor(TrafficChannel::Network, (int) $source, null),
+                    'source_key' => AnalyticsSource::keyFor($channel, (int) $source->id, null),
                     'landing_key' => LandingRoute::key(null, null, null),
-                    'site_ref' => (string) mt_rand(1, 3000),
-                    'zone_ref' => (string) mt_rand(1, 20000),
+                    'site_ref' => $network ? (string) mt_rand(1, 3000) : null,
+                    'zone_ref' => $network ? (string) mt_rand(1, 20000) : null,
                     'visitor_hash' => hash('sha256', 'volume-'.$done.'-'.$i),
                     'known' => false,
                     'device' => mt_rand(0, 1) === 1 ? 'mobile' : 'desktop',

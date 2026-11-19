@@ -1,5 +1,6 @@
 <?php
 
+use App\Actions\Analytics\RecordVisitPostAction;
 use App\Actions\Traffic\MarkTrafficVisitAction;
 use App\Actions\Traffic\RevalueOpenVisitsAction;
 use App\Enums\GameFlowStepType;
@@ -350,6 +351,22 @@ it('takes the same page from the same place again — a reload — as the same v
     pageRuns('/games/'.$this->game->slug, ['Referer' => 'https://www.google.com/']);
 
     expect(TrafficVisit::query()->sole()->last_seen_at->toDateTimeString())->toBe('2026-11-17 12:05:00');
+});
+
+it('never moves the moment a visit was seen back, when a page that ran earlier is handed back after a later step', function () {
+    recordTraffic(site: true);
+    $post = Post::factory()->published()->create();
+    pageRuns('/');
+    // A post read in the overlay at 12:10 is recorded first …
+    CarbonImmutable::setTestNow('2026-11-17 12:10:00');
+    app(RecordVisitPostAction::class)->viewed(browserHashOf(OPEN_TOKEN), (int) $post->id, CarbonImmutable::now());
+    // … then the feed opened again at 12:05 hands its arrival back.
+    CarbonImmutable::setTestNow('2026-11-17 12:05:00');
+    pageRuns('/');
+
+    $visit = TrafficVisit::query()->sole();
+
+    expect($visit->last_seen_at->toDateTimeString())->toBe('2026-11-17 12:10:00');
 });
 
 it('keeps the page’s own path and referrer in a visit’s details, never the address its script called', function () {
