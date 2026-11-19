@@ -1,0 +1,25 @@
+docs/architecture/traffic.md
+  s_4b9dc6ab6b25d3::t_6986531192b1ad 77-78
+docs/admin/traffic-sources.md
+  s_4b9dc6ab6b25d3::t_c9800aa7633521 13-17
+tests/Feature/Seeders/GameAnalyticsDemoSeederTest.php
+  s_4b9dc6ab6b25d3::t_2f43c1f154a3ca 91-92,94-95
+tests/Feature/Traffic/AccountAttributionTest.php
+  s_4b9dc6ab6b25d3::t_af8233ae912406 273,277-284,288-290,292-295
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "910a2d8258737cc0fc4970f988b554d3c2f1b043",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
