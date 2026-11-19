@@ -4,11 +4,13 @@ use App\Actions\Translations\UpdateProjectTranslationAction;
 use App\Exceptions\Translations\CannotSaveTranslationException;
 use App\Models\Category;
 use App\Models\ProjectSettings;
+use App\Models\ProjectTranslationSource;
 use App\Models\RatingGroup;
 use App\Models\RatingOption;
 use App\Models\Tag;
 use App\Models\User;
 use App\Support\Settings\ProjectSettingsManager;
+use App\Support\Translations\Generation\ProjectTranslationSourceFingerprint;
 use App\Support\Translations\ProjectTranslationCatalog;
 use App\Support\Translations\ProjectTranslationUnit;
 use App\Support\Translations\TranslatableField;
@@ -257,6 +259,110 @@ it('still replaces a stored translation without a guard: only a guarded save ins
     saveTranslation($unit, $target, 'Zweite Fassung');
 
     expect($category->fresh()->name_translations)->toBe([$target => 'Zweite Fassung']);
+});
+
+// The English a translation was made from ---------------------------------------------
+
+it('remembers, beside each saved translation, the English it was made from', function () {
+    [$target, $other] = twoTranslatedLocales();
+    $category = untranslatedCategory('Welcome');
+    $unit = "categories:{$category->id}:name";
+
+    $saved = saveTranslation($unit, $target, 'Willkommen');
+    saveTranslation($unit, $other, 'Добре дошли');
+
+    expect(translationSourceOf($unit, $target))->toBe(['fingerprint' => ProjectTranslationSourceFingerprint::of($saved), 'reference' => 'Welcome'])
+        ->and(translationSourceOf($unit, $other)['reference'])->toBe('Welcome')
+        ->and(ProjectTranslationSource::query()->count())->toBe(2);
+});
+
+it('records the English the unit has when the translation is saved again, changed or as it was', function () {
+    [$target] = twoTranslatedLocales();
+    $category = outdatedCategory($target, 'Willkommen', 'Welcome', 'Hello');
+    $unit = "categories:{$category->id}:name";
+
+    expect(translationSourceOf($unit, $target)['reference'])->toBe('Welcome');
+
+    $saved = saveTranslation($unit, $target, 'Willkommen');
+
+    expect(translationSourceOf($unit, $target))->toBe(['fingerprint' => ProjectTranslationSourceFingerprint::of($saved), 'reference' => 'Hello'])
+        ->and(ProjectTranslationSource::query()->count())->toBe(1);
+
+    $category->update(['name' => 'Hi']);
+    saveTranslation($unit, $target, 'Hallo');
+
+    expect(translationSourceOf($unit, $target)['reference'])->toBe('Hi')
+        ->and(ProjectTranslationSource::query()->count())->toBe(1);
+});
+
+it('forgets the English with the translation: a blank save removes both', function (string $blank) {
+    [$target, $other] = twoTranslatedLocales();
+    $category = untranslatedCategory('Welcome');
+    $unit = "categories:{$category->id}:name";
+    saveTranslation($unit, $target, 'Willkommen');
+    saveTranslation($unit, $other, 'Добре дошли');
+
+    saveTranslation($unit, $target, $blank);
+    // A translation that was never recorded is removed all the same.
+    $unrecorded = Category::factory()->create(['name' => 'Cats', 'name_translations' => [$target => 'Katzen'], 'is_active' => true]);
+    saveTranslation("categories:{$unrecorded->id}:name", $target, $blank);
+
+    expect(translationSourceOf($unit, $target))->toBeNull()
+        ->and(translationSourceOf($unit, $other))->not->toBeNull()
+        ->and($unrecorded->fresh()->name_translations)->toBeNull()
+        ->and(ProjectTranslationSource::query()->count())->toBe(1);
+})->with(['empty' => [''], 'spaces' => ['   ']]);
+
+it('records nothing for a save that is refused, keeping what it had recorded', function () {
+    [$target] = twoTranslatedLocales();
+    $category = outdatedCategory($target);
+    $unit = "categories:{$category->id}:name";
+    $before = translationSourceOf($unit, $target);
+    $fresh = untranslatedCategory('Cats');
+
+    expect(refusalOf(fn () => saveTranslation($unit, $target, str_repeat('x', 81))))->toStartWith('too_long')
+        ->and(refusalOf(fn () => saveTranslation("categories:{$fresh->id}:name", $target, "Two\nlines")))->toStartWith('line_break');
+
+    try {
+        app(UpdateProjectTranslationAction::class)->handleGuarded(User::factory()->admin()->create(), $unit, $target, 'Hallo', function (): void {
+            throw new RuntimeException('Refused.');
+        });
+    } catch (RuntimeException) {
+        // The guard's refusal reaches the caller; nothing is written.
+    }
+
+    expect(translationSourceOf($unit, $target))->toBe($before)
+        ->and(translationSourceOf("categories:{$fresh->id}:name", $target))->toBeNull()
+        ->and(ProjectTranslationSource::query()->count())->toBe(1);
+});
+
+it('records a project setting and a static page by their unit ids, from the English the row holds', function () {
+    [$target] = twoTranslatedLocales();
+    $pages = ProjectSettings::findOrFail(1)->static_pages;
+
+    saveTranslation('project_settings:site_tagline', $target, 'Оценивайте всё');
+    saveTranslation('static_pages:about:title', $target, 'О нас');
+
+    expect(translationSourceOf('project_settings:site_tagline', $target)['reference'])->toBe(ProjectSettings::findOrFail(1)->site_tagline)
+        ->and(translationSourceOf('static_pages:about:title', $target)['reference'])->toBe($pages['about']['en']['title']);
+});
+
+it('records the English inside the save\'s own transaction', function () {
+    [$target] = twoTranslatedLocales();
+    $category = untranslatedCategory();
+    $outside = DB::transactionLevel();
+    $levels = [];
+    DB::listen(function ($query) use (&$levels): void {
+        if (str_contains($query->sql, 'project_translation_sources')) {
+            $levels[] = DB::transactionLevel();
+        }
+    });
+
+    saveTranslation("categories:{$category->id}:name", $target, 'Text');
+    saveTranslation("categories:{$category->id}:name", $target, '');
+
+    expect($levels)->toHaveCount(2)
+        ->and(array_filter($levels, fn (int $level): bool => $level <= $outside))->toBe([]);
 });
 
 it('knows nothing of background generation: what a guard checks is its caller\'s', function () {

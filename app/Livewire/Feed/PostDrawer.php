@@ -5,6 +5,7 @@ namespace App\Livewire\Feed;
 use App\Actions\Posts\DeletePostAction;
 use App\Enums\PostStatus;
 use App\Exceptions\Posts\CannotDeletePostException;
+use App\Livewire\Concerns\CountsPostViews;
 use App\Models\Post;
 use App\Queries\Posts\PublishedPostDetailsQuery;
 use App\Support\Rating\RatingConfigurationManager;
@@ -15,6 +16,8 @@ use Livewire\Component;
 
 final class PostDrawer extends Component
 {
+    use CountsPostViews;
+
     public ?int $postId = null;
 
     public ?string $deleteError = null;
@@ -51,11 +54,14 @@ final class PostDrawer extends Component
 
     // Lets an overlay track the selected post without being re-mounted by a
     // parent component, since it isn't fed :post-id as a reactive prop like
-    // the feed's inline drawer.
+    // the feed's inline drawer. Every overlay — the site-wide one and the
+    // split view's phone panel — opens a post through here, so here it is
+    // counted opened.
     public function setSelectedPost(int $postId, ?string $focus = null): void
     {
         $this->postId = $postId;
         $this->isOpen = true;
+        $this->countPostView($postId);
         // A failed deletion is said about the post it was for, not the next.
         $this->deleteError = null;
 

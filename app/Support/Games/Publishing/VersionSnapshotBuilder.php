@@ -10,6 +10,7 @@ use App\Models\GameResultProfile;
 use App\Models\GameRound;
 use App\Models\GameRoundOption;
 use App\Support\Games\Drafts\ContentSetReport;
+use App\Support\Games\Flow\FlowGoalRules;
 use App\Support\Games\Snapshot\GameVersionSnapshot;
 use App\Support\Games\Snapshot\LocalizedText;
 use App\Support\Games\Snapshot\SnapshotOption;
@@ -130,6 +131,7 @@ final class VersionSnapshotBuilder
             flowName: $flow->name,
             steps: $steps,
             locales: array_keys($locales),
+            flowGoal: $flow->goal ?? FlowGoalRules::defaultFor(array_map(fn (SnapshotStep $step) => $step->draft(), $steps)),
         );
     }
 }

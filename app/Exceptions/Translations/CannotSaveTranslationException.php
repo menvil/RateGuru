@@ -32,6 +32,8 @@ final class CannotSaveTranslationException extends DomainException
 
     public const REASON_LINE_BREAK = 'line_break';
 
+    public const REASON_SOURCE_CHANGED = 'source_changed';
+
     private const ABOUT_THE_TEXT = [self::REASON_TOO_LONG, self::REASON_PLACEHOLDER_MISSING, self::REASON_LINE_BREAK];
 
     private function __construct(string $message, public readonly string $reason)
@@ -83,6 +85,15 @@ final class CannotSaveTranslationException extends DomainException
     public static function becauseItSpansLines(): self
     {
         return new self('Remove the line break: this text is a single line', self::REASON_LINE_BREAK);
+    }
+
+    /**
+     * The English changed after the page was drawn: a save from it would mark
+     * the translation current for English the administrator never saw.
+     */
+    public static function becauseTheEnglishChanged(): self
+    {
+        return new self('The English text changed since this page opened. Reload the page to translate the current text.', self::REASON_SOURCE_CHANGED);
     }
 
     /** Whether the reason is the text itself, to be shown next to the field. */

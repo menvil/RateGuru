@@ -10,6 +10,7 @@ use App\Models\User;
 use App\Support\TranslationEngine\Data\TranslationProviderLimits;
 use App\Support\TranslationEngine\Enums\TranslationErrorCode;
 use App\Support\Translations\Generation\ProjectTranslationGenerationStore;
+use App\Support\Translations\Generation\ProjectTranslationSourceFingerprint;
 use App\Support\Translations\ProjectTranslationCatalog;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
@@ -68,6 +69,39 @@ it('includes only translations that are missing: not saved ones, not blank Engli
         ->and($units)->toBe(missingTranslationUnits($this->target));
 });
 
+it('takes outdated translations as well: not current ones, and not ones with nothing recorded of their English', function () {
+    $outdated = outdatedCategory($this->target, 'Willkommen', 'Welcome', 'Hello');
+    $current = untranslatedCategory('Cats');
+    app(UpdateProjectTranslationAction::class)->handle($this->admin, "categories:{$current->id}:name", $this->target, 'Katzen');
+    $unknown = Category::factory()->create(['name' => 'Dogs', 'name_translations' => [$this->target => 'Hunde'], 'is_active' => true]);
+    $unknown->update(['name' => 'Puppies']);
+    $wanted = [...missingTranslationUnits($this->target), "categories:{$outdated->id}:name"];
+
+    $generation = startTranslationGeneration($this->admin, $this->target);
+    $units = array_column($generation['items'], 'unit');
+
+    expect($units)->toContain("categories:{$outdated->id}:name")
+        ->not->toContain("categories:{$current->id}:name")
+        ->not->toContain("categories:{$unknown->id}:name")
+        // In the catalog's order, missing and outdated alike.
+        ->and($units)->toBe(array_values(array_filter(
+            array_map(fn ($unit): string => $unit->id, app(ProjectTranslationCatalog::class)->units()),
+            fn (string $id): bool => in_array($id, $wanted, true),
+        )))
+        // Planned from the English the unit has now; the outdated translation stays stored meanwhile.
+        ->and(translationGenerationItem($generation, "categories:{$outdated->id}:name")['fingerprint'])->toBe(ProjectTranslationSourceFingerprint::for("categories:{$outdated->id}:name", 'Hello'))
+        ->and($outdated->fresh()->name_translations)->toBe([$this->target => 'Willkommen']);
+});
+
+it('generates for outdated translations alone once nothing is missing', function () {
+    foreach (missingTranslationUnits($this->target) as $unit) {
+        app(UpdateProjectTranslationAction::class)->handle($this->admin, $unit, $this->target, 'Übersetzt');
+    }
+    $outdated = outdatedCategory($this->target);
+
+    expect(array_column(startTranslationGeneration($this->admin, $this->target)['items'], 'unit'))->toBe(["categories:{$outdated->id}:name"]);
+});
+
 it('cuts the work into one provider request per job, with the configured provider\'s own limits', function () {
     useScriptedTranslationProvider(ScriptedTranslationProvider::translating(new TranslationProviderLimits(4, 60_000)));
     Category::factory()->count(9)->create(['name_translations' => null, 'is_active' => true]);
@@ -113,7 +147,7 @@ it('does nothing when nothing is missing', function () {
     }
 
     expect(generationRefusal(fn () => startTranslationGeneration($this->admin, $this->target), withMessage: true))
-        ->toBe('nothing_missing: Nothing is missing for this language.');
+        ->toBe('nothing_missing: Nothing is missing or outdated for this language.');
 
     Queue::assertNothingPushed();
 });

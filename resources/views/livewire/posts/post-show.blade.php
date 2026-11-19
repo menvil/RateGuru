@@ -125,7 +125,7 @@
             @if($activeRatingGroups->isNotEmpty())
             <section class="mt-5 space-y-5" data-testid="post-show-rating-controls">
                 @foreach($activeRatingGroups as $ratingGroup)
-                    <div wire:click.stop wire:keydown.stop>
+                    <div wire:click.stop wire:keydown.stop @class(['rg-post-ask' => in_array($ratingGroup->key, $askGroups, true)]) @if (in_array($ratingGroup->key, $askGroups, true)) data-testid="post-show-ask-{{ $ratingGroup->key }}" x-init="$el.scrollIntoView({ block: 'center' })" @endif>
                         <livewire:voting.rating-voting
                             :post="$post"
                             :group-key="$ratingGroup->key"
@@ -140,7 +140,7 @@
 
             <footer class="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-rg-border pt-4" data-testid="post-show-footer">
                 <div class="flex flex-wrap items-center gap-4">
-                    <div data-testid="post-show-voting">
+                    <div data-testid="post-show-voting" @class(['rg-post-ask' => $askVote]) @if ($askVote && $askGroups === []) x-init="$el.scrollIntoView({ block: 'center' })" @endif>
                         <livewire:posts.post-voting
                             :post-id="$post->id"
                             variant="pill"

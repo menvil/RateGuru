@@ -5,17 +5,20 @@ namespace App\Support\Games\Play;
 use App\Enums\GameAnswerOutcome;
 use App\Enums\GameAttemptStatus;
 use App\Enums\GameFlowStepType;
+use App\Enums\GamePageDestination;
 use App\Enums\GameRoundMode;
-use App\Enums\GameSignupMode;
 use App\Enums\GameStatus;
 use App\Enums\ImageOrientation;
+use App\Enums\MediaVariantName;
 use App\Enums\PostImageContext;
 use App\Enums\ShareProvider;
 use App\Enums\SocialProvider;
 use App\Models\Game;
 use App\Models\GameAttempt;
 use App\Models\MediaAsset;
+use App\Models\MediaVariant;
 use App\Models\User;
+use App\Queries\Games\GameOnwardQuery;
 use App\Queries\Games\GameTrafficQuery;
 use App\Support\Auth\SocialProviderAvailability;
 use App\Support\Games\Scoring\GameScorer;
@@ -40,7 +43,8 @@ use App\Support\Urls\DisplayHost;
 final readonly class GamePlayView
 {
     /** Pictures of a pair sit side by side from the smallest screens up. */
-    private const PAIR_SIZES = '(max-width: 639px) 50vw, 420px';
+    // A pair's pictures take half the round on a phone and up to about half the screen above it.
+    private const PAIR_SIZES = '(max-width: 639px) 50vw, 45vw';
 
     /**
      * @param  array<string, mixed>  $data
@@ -82,16 +86,18 @@ final readonly class GamePlayView
             ]);
         }
 
-        $result = $attempt !== null && $attempt->status === GameAttemptStatus::Completed ? self::result($game, $versionId, $snapshot, $attempt, $visitor, $locale) : null;
+        $result = $attempt !== null && $attempt->status === GameAttemptStatus::Completed ? self::result($game, $versionId, $snapshot, $attempt, $visitor, $locale, $preview) : null;
+        $texts = self::texts($step, $locale, $result, $title);
 
         return new self('step', $title, [
             'game' => $gameData,
             'type' => $step->type->value,
-            'texts' => self::texts($step, $locale, $result, $title),
+            'texts' => $texts,
             'settings' => $step->settings,
             'round' => $step->type === GameFlowStepType::Game ? self::round($snapshot, $attempt, $reveal, $locale, $shape, $pictures) : null,
             'result' => $result,
             'signup' => self::signup($game, $step, $visitor),
+            'onward' => self::onward($game, $step, $texts, $snapshot, $attempt, $visitor, $preview),
             'preview' => $preview,
             'authenticated' => ! $visitor->isAnonymous(),
             'nextGame' => $nextGame === null ? null : ['title' => $nextGame->title, 'slug' => $nextGame->slug],
@@ -99,6 +105,79 @@ final readonly class GamePlayView
             'stepKey' => $step->key,
             'hasNext' => $hasNext,
         ]);
+    }
+
+    /**
+     * Where the step sends the visitor on into the site, when it does — Go to
+     * Post, Go to Page, Go to Feed, or Full Result going on to a post or the
+     * feed: the prompt's texts, with the player's numbers put in as in every
+     * step's (the site's own when the flow left them empty, as a version
+     * published before they existed did), the post it leads to, whether it
+     * opens by itself, and another site's address when it opens in a tab of
+     * its own.
+     *
+     * @param  array<string, string>  $texts  the step's texts in the visitor's language, the player's numbers put in
+     * @return array{kind: string, title: string, text: string, button: string, post: array{title: string, image: ResponsiveImage|null, author: string|null, votes: int|null, likes: int|null, comments: int|null}|null, autoOpen: bool, newTab: bool, href: string|null}|null
+     */
+    private static function onward(Game $game, SnapshotStep $step, array $texts, GameVersionSnapshot $snapshot, ?GameAttempt $attempt, GameVisitor $visitor, bool $preview): ?array
+    {
+        $draft = $step->draft();
+        $kind = match (true) {
+            $draft->sendsToPage() => 'page',
+            $draft->sendsToPost() => 'post',
+            $draft->sendsToFeed() => 'feed',
+            default => null,
+        };
+
+        if ($kind === null) {
+            return null;
+        }
+
+        $result = $step->type === GameFlowStepType::FullResult;
+        $text = fn (string $column, string $fallback): string => ($value = trim($texts[$column] ?? '')) !== '' ? $value : $fallback;
+        $site = app(ProjectSettingsManager::class)->current()->siteName();
+        [$title, $body, $button] = match ($kind) {
+            'post' => [
+                $text($result ? 'secondary_label' : 'title', __('games.play.onward_post_title')),
+                $text($result ? 'notice' : 'body', __('games.play.onward_post_text')),
+                $text('button_label', __('games.play.onward_post_button')),
+            ],
+            'feed' => [
+                $text($result ? 'secondary_label' : 'title', __('games.play.onward_feed_title')),
+                $text($result ? 'notice' : 'body', __('games.play.onward_feed_text')),
+                $text('button_label', __('games.play.onward_feed_button', ['site' => $site])),
+            ],
+            default => [$text($result ? 'secondary_label' : 'title', ''), $result ? $text('notice', '') : '', $text('button_label', __('games.play.continue'))],
+        };
+
+        $post = null;
+
+        if ($kind === 'post') {
+            $found = app(GameOnwardQuery::class)->post($draft, $snapshot, $attempt, $visitor->userId);
+            $asset = $found?->image_asset_id === null ? null : MediaAsset::query()->with('variants')->find($found->image_asset_id);
+            $show = fn (string $key): bool => (bool) $draft->setting($key);
+            $post = $found === null ? null : [
+                'title' => (string) $found->title,
+                'image' => self::image($asset, '(max-width: 767px) 100vw, 640px'),
+                'author' => $show('post_author') ? $found->user?->username : null,
+                'votes' => $show('post_votes') ? (int) $found->upvotes_count + (int) $found->downvotes_count : null,
+                'likes' => $show('post_likes') ? (int) $found->upvotes_count : null,
+                'comments' => $show('post_comments') && (int) $found->comments_count > 0 ? (int) $found->comments_count : null,
+            ];
+        }
+
+        $newTab = $kind === 'page' && $draft->destination() === GamePageDestination::Url && (bool) $draft->setting('new_tab');
+
+        return [
+            'kind' => $kind,
+            'title' => $title,
+            'text' => $body,
+            'button' => $button,
+            'post' => $post,
+            'autoOpen' => $kind === 'post' && $post !== null && ! $preview && (bool) $draft->setting('auto_open') && $attempt?->onward_at === null,
+            'newTab' => $newTab,
+            'href' => $newTab ? app(GameOnwardQuery::class)->externalAddress((string) $draft->setting('url'), $game, $attempt) : null,
+        ];
     }
 
     /**
@@ -111,13 +190,8 @@ final readonly class GamePlayView
      */
     private static function signup(Game $game, SnapshotStep $step, GameVisitor $visitor): ?array
     {
-        $asks = match ($step->type) {
-            GameFlowStepType::Registration => true,
-            GameFlowStepType::FullResult => (GameSignupMode::tryFrom((string) $step->setting('signup')) ?? GameSignupMode::Inline) === GameSignupMode::Inline,
-            default => false,
-        };
-
-        if (! $asks || ! $visitor->isAnonymous()) {
+        // Sent on into the site, Full Result asks for no sign-up: voting there does.
+        if (! $step->draft()->asksForAccount() || ! $visitor->isAnonymous()) {
             return null;
         }
 
@@ -200,13 +274,16 @@ final readonly class GamePlayView
             };
         }
 
+        $pairShape = $shape ?? self::pairShape($round === null ? [] : array_map(fn ($option): ?ImageOrientation => self::pictureOrientation($pictures[$index.':'.$option->position] ?? null) ?? self::orientation($assets->get((int) $option->assetId)), $round->options));
+
         return [
             'index' => $index,
             'total' => $snapshot->roundCount(),
             'question' => $round?->question->in($locale) ?? '',
             'description' => $round?->description->in($locale) ?? '',
             'scored' => $round === null || $round->scored,
-            'shape' => ($shape ?? self::pairShape($round === null ? [] : array_map(fn ($option): ?ImageOrientation => self::pictureOrientation($pictures[$index.':'.$option->position] ?? null) ?? self::orientation($assets->get((int) $option->assetId)), $round->options)))->value,
+            'shape' => $pairShape->value,
+            'widest' => $round === null ? null : self::widest($pairShape, array_map(fn ($option): ?array => self::largest($assets->get((int) $option->assetId), $pictures[$index.':'.$option->position] ?? null), $round->options)),
             'options' => $round === null ? [] : array_map(fn ($option): array => [
                 'position' => $option->position,
                 'label' => $option->label->in($locale),
@@ -260,7 +337,7 @@ final readonly class GamePlayView
     }
 
     /** @return array<string, mixed> */
-    private static function result(Game $game, int $versionId, GameVersionSnapshot $snapshot, GameAttempt $attempt, GameVisitor $visitor, string $locale): array
+    private static function result(Game $game, int $versionId, GameVersionSnapshot $snapshot, GameAttempt $attempt, GameVisitor $visitor, string $locale, bool $preview): array
     {
         $outcomes = $attempt->answers->sortBy('round_index')->pluck('outcome')->values()->all();
         $result = GameScorer::result($snapshot, $outcomes);
@@ -308,15 +385,21 @@ final readonly class GamePlayView
                 // What the card names after the score: the player, or the site.
                 'byline' => $player ?? DisplayHost::of($shareUrl),
                 'text' => $shareText,
-                'links' => self::shareLinks($game, $versionNumber, $profile?->key, $played ? $attempt->public_id : null, $shareUrl, $shareText, $title, $site),
+                'links' => self::shareLinks($game, $versionNumber, $profile?->key, $played ? $attempt->public_id : null, $shareUrl, $shareText, $title, $site, $preview),
             ],
             // Signed up or in from this attempt: the name is on the card now.
             'named' => $player !== null && $attempt->account_outcome !== null ? $player : null,
         ];
     }
 
-    /** @return list<array{provider: string, label: string, url: string|null}> */
-    private static function shareLinks(Game $game, int $versionNumber, ?string $profileKey, ?string $attemptId, string $url, string $text, string $title, string $site): array
+    /**
+     * Each provider's link: through the share counter while the share is of a
+     * played result; straight to the provider in a preview — the admin's or a
+     * test link's — which counts nothing.
+     *
+     * @return list<array{provider: string, label: string, url: string|null}>
+     */
+    private static function shareLinks(Game $game, int $versionNumber, ?string $profileKey, ?string $attemptId, string $url, string $text, string $title, string $site, bool $preview): array
     {
         $links = [];
         $metadata = new ShareMetadata(title: $title, shareText: $text, description: $text, url: $url, imageUrl: null, siteName: $site);
@@ -330,7 +413,7 @@ final readonly class GamePlayView
                 'provider' => $provider->value,
                 'label' => __('games.play.share_'.$provider->value),
                 'url' => match (true) {
-                    ! $provider->sharesThroughRedirect() => app(ShareUrlBuilder::class)->build($provider, $metadata),
+                    $preview || ! $provider->sharesThroughRedirect() => app(ShareUrlBuilder::class)->build($provider, $metadata),
                     $attemptId !== null => route('games.player-share', ['slug' => $game->slug, 'attempt' => $attemptId, 'provider' => $provider->value]),
                     $profileKey !== null && $versionNumber > 0 => route('games.share', ['slug' => $game->slug, 'version' => $versionNumber, 'profile' => $profileKey, 'provider' => $provider->value]),
                     default => app(ShareUrlBuilder::class)->build($provider, $metadata),
@@ -377,6 +460,58 @@ final readonly class GamePlayView
         $height = (int) $asset->height;
 
         return $width > 0 && $height > 0 ? app(ImageOrientationClassifier::class)->classify($width, $height) : null;
+    }
+
+    /**
+     * How wide, in CSS pixels, the pair's frames may grow before the smaller
+     * of its pictures is drawn past its own pixels: the frames are one size,
+     * so the pair stops where its smaller picture would. Null when a picture's
+     * size isn't known, and nothing holds the frames back but the screen.
+     *
+     * @param  list<array{0: int, 1: int}|null>  $sizes  each picture's largest file, width and height
+     */
+    private static function widest(ImageOrientation $shape, array $sizes): ?int
+    {
+        if ($sizes === [] || in_array(null, $sizes, true)) {
+            return null;
+        }
+
+        $ratio = match ($shape) {
+            ImageOrientation::Landscape => 4 / 3,
+            ImageOrientation::Portrait => 3 / 4,
+            default => 1.0,
+        };
+
+        // A picture fills its frame by cropping: at full size the frame is as wide as the picture, or as its height allows.
+        return (int) min(array_map(fn (array $size): float => min($size[0], $size[1] * $ratio), $sizes));
+    }
+
+    /**
+     * The largest file of an option's picture a pair can draw — the widest
+     * feed file, else the original — by its width and height; a picture
+     * chosen in the editor by its own.
+     *
+     * @param  array{src: string, width: int|null, height: int|null}|null  $picture
+     * @return array{0: int, 1: int}|null
+     */
+    private static function largest(?MediaAsset $asset, ?array $picture): ?array
+    {
+        if ($picture !== null) {
+            return ($picture['width'] ?? 0) > 0 && ($picture['height'] ?? 0) > 0 ? [(int) $picture['width'], (int) $picture['height']] : null;
+        }
+
+        if ($asset === null) {
+            return null;
+        }
+
+        $widest = $asset->variants
+            ->filter(fn (MediaVariant $variant): bool => in_array($variant->name, [MediaVariantName::PostFeed640, MediaVariantName::PostFeed1280], true) && (int) $variant->width > 0 && (int) $variant->height > 0)
+            ->sortByDesc('width')
+            ->first();
+        $width = (int) ($widest->width ?? $asset->width ?? 0);
+        $height = (int) ($widest->height ?? $asset->height ?? 0);
+
+        return $width > 0 && $height > 0 ? [$width, $height] : null;
     }
 
     private static function image(?MediaAsset $asset, string $sizes): ?ResponsiveImage

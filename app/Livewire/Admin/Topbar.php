@@ -3,6 +3,7 @@
 namespace App\Livewire\Admin;
 
 use App\Filament\Support\AdminShellNavigation;
+use App\Filament\Support\ShowsItemsInPlace;
 use Filament\Resources\Pages\Page as ResourcePage;
 use Illuminate\Contracts\View\View;
 use Livewire\Attributes\On;
@@ -29,9 +30,18 @@ final class Topbar extends Component
             'breadcrumb' => AdminShellNavigation::breadcrumb(
                 AdminShellNavigation::sections(),
                 original_request()->url(),
+                $this->showsItem(),
             ),
             'renderHookScopes' => $this->pageScopes(),
         ]);
+    }
+
+    /** Whether the page being shown opens one of its items in place, at its own address. */
+    private function showsItem(): bool
+    {
+        $page = original_request()->route()?->getControllerClass();
+
+        return $page !== null && is_subclass_of($page, ShowsItemsInPlace::class) && $page::showsItem(original_request());
     }
 
     /**

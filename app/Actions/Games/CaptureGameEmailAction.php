@@ -4,6 +4,7 @@ namespace App\Actions\Games;
 
 use App\Enums\GameEventType;
 use App\Enums\GameFlowStepType;
+use App\Enums\GameMilestone;
 use App\Exceptions\Games\CannotPlayGameException;
 use App\Models\GameAttempt;
 use App\Models\GameEmailCapture;
@@ -27,6 +28,7 @@ final class CaptureGameEmailAction
     public function __construct(
         private readonly ActionRateLimiter $limiter,
         private readonly GameEventRecorder $events,
+        private readonly GameMilestoneRecorder $milestones,
     ) {}
 
     /** @throws CannotPlayGameException */
@@ -63,6 +65,7 @@ final class CaptureGameEmailAction
             ])->save();
 
             $this->events->record(GameEventType::EmailCaptured, (int) $locked->game_id, $visitor, attempt: $locked);
+            $this->milestones->reach(GameMilestone::Email, $locked, $visitor);
         });
     }
 }

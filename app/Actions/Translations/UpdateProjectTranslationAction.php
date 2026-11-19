@@ -38,8 +38,13 @@ use Illuminate\Support\Facades\Gate;
  *
  * A save replaces whatever the language stored. A caller that chose its text
  * from an earlier read — a background AI suggestion, made for a translation
- * that was missing, from English as it was then — saves with handleGuarded()
- * instead, which checks that read again on the locked row.
+ * that was missing or outdated, from English as it was then — saves with
+ * handleGuarded() instead, which checks that read again on the locked row.
+ *
+ * In the same transaction, the English a saved translation was made from is
+ * remembered beside it (RecordProjectTranslationSourceAction) — the unit's
+ * English as the locked row holds it — and forgotten with a removed one, so
+ * a translation is outdated exactly when that English has changed since.
  */
 final class UpdateProjectTranslationAction
 {
@@ -47,6 +52,7 @@ final class UpdateProjectTranslationAction
         private readonly ProjectTranslationCatalog $catalog,
         private readonly LocaleManager $locales,
         private readonly ProjectSettingsManager $settings,
+        private readonly RecordProjectTranslationSourceAction $sources,
     ) {}
 
     /**
@@ -104,18 +110,26 @@ final class UpdateProjectTranslationAction
 
         $text = trim(str_replace(["\r\n", "\r"], "\n", $text));
 
-        $unit = DB::transaction(fn (): ?ProjectTranslationUnit => $this->catalog->write(
-            $unitId,
-            $locale,
-            $text,
-            function (ProjectTranslationUnit $unit) use ($guard, $text): void {
-                if ($guard !== null) {
-                    $guard($unit);
-                }
+        $unit = DB::transaction(function () use ($unitId, $locale, $text, $guard): ?ProjectTranslationUnit {
+            $written = $this->catalog->write(
+                $unitId,
+                $locale,
+                $text,
+                function (ProjectTranslationUnit $unit) use ($guard, $text): void {
+                    if ($guard !== null) {
+                        $guard($unit);
+                    }
 
-                $this->check($unit, $text);
-            },
-        ));
+                    $this->check($unit, $text);
+                },
+            );
+
+            if ($written !== null) {
+                $this->sources->handle($written, $locale);
+            }
+
+            return $written;
+        });
 
         if ($unit === null) {
             throw CannotSaveTranslationException::becauseUnitIsUnknown();
