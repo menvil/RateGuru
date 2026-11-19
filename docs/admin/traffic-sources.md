@@ -47,7 +47,12 @@ Growth → Traffic sources (`/admin/traffic-sources`), for active administrators
    accounts came, and says so.
 8. On each game's Value tab, set the other steps by hand while the data is
    thin; then add a postback rule, **Send test**, and switch on **Send
-   postbacks**. Send a network one event per click on each of its goals: two
+   postbacks**. Send test calls the address with a made-up click ID and says
+   what the network answered (its body, or the header a rule reads). PopAds
+   refuses every click ID it did not issue, so its test always comes back
+   rejected — with `X-PopAds-EC: InvalidEnvironmentException…`, even with a
+   wrong aid: check a PopAds rule with a real click's postback in Logs →
+   Postbacks. Send a network one event per click on each of its goals: two
    rules on one goal are counted as two conversions and their worth added up,
    and the editor says so.
    For a network that learns from conversions, choose the step its campaigns
