@@ -59,7 +59,7 @@ final class CannotGenerateTranslationsException extends DomainException
 
     public static function becauseNothingIsMissing(): self
     {
-        return new self('Nothing is missing for this language.', self::REASON_NOTHING_MISSING);
+        return new self('Nothing is missing or outdated for this language.', self::REASON_NOTHING_MISSING);
     }
 
     public static function becauseAnotherAdministratorIsGenerating(string $language): self

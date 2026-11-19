@@ -7,6 +7,7 @@ use App\Exceptions\Translations\CannotGenerateTranslationsException;
 use App\Exceptions\Translations\CannotSaveTranslationException;
 use App\Exceptions\Translations\GeneratedSuggestionOutdatedException;
 use App\Models\User;
+use App\Queries\Translations\ProjectTranslationSourcesQuery;
 use App\Support\Translations\Generation\ProjectTranslationGenerationIssue;
 use App\Support\Translations\Generation\ProjectTranslationGenerationItemStatus;
 use App\Support\Translations\Generation\ProjectTranslationGenerationStore;
@@ -24,8 +25,10 @@ use Carbon\CarbonImmutable;
  * The text saved is the suggestion as the store holds it, never anything the
  * browser sends. A suggestion is saved only while its unit is still listed,
  * still has the English it was generated from (by source fingerprint) and is
- * still missing: one for English that changed is skipped, and so is one for
- * a translation someone else saved meanwhile, which is never overwritten.
+ * still missing — or still outdated: its stored translation was made from
+ * English the unit no longer has, and is replaced. One for English that
+ * changed is skipped, and so is one for a translation someone else saved
+ * meanwhile, which is current and never overwritten.
  *
  * That is decided on the unit's locked row, by the guard of
  * UpdateProjectTranslationAction::handleGuarded() — the one writer of project
@@ -44,6 +47,7 @@ final class SaveProjectTranslationGenerationAction
         private readonly ProjectTranslationGenerationStore $store,
         private readonly ProjectTranslationCatalog $catalog,
         private readonly UpdateProjectTranslationAction $translations,
+        private readonly ProjectTranslationSourcesQuery $sources,
     ) {}
 
     /**
@@ -71,8 +75,12 @@ final class SaveProjectTranslationGenerationAction
             throw CannotGenerateTranslationsException::becauseTheSuggestionIsNotReady();
         }
 
-        // The early read: what is bound to be refused is not even tried.
-        $units = $this->catalog->findMany(array_map(fn (array $item): string => $item['id'], $ready));
+        // The early read: what is bound to be refused is not even tried. What was recorded is read before
+        // the units, so a translation saved in between is seen with the record from before it — as still
+        // outdated, and tried — never as current with the text it replaced.
+        $ids = array_map(fn (array $item): string => $item['id'], $ready);
+        $recorded = $this->sources->fingerprints($locale, $ids);
+        $units = $this->catalog->findMany($ids);
         $outcomes = [];
         $results = [];
 
@@ -84,7 +92,7 @@ final class SaveProjectTranslationGenerationAction
 
         foreach ($ready as $item) {
             $unit = $units[$item['id']] ?? null;
-            $issue = self::issueOf($unit, $item['fingerprint'], $locale);
+            $issue = self::issueOf($unit, $item['fingerprint'], $locale, $recorded[$item['id']] ?? null);
 
             if ($issue !== null) {
                 $skip($item['id'], $issue, $unit?->translation($locale));
@@ -94,7 +102,8 @@ final class SaveProjectTranslationGenerationAction
 
             try {
                 $saved = $this->translations->handleGuarded($actor, $item['id'], $locale, (string) $item['text'], function (ProjectTranslationUnit $locked) use ($item, $locale): void {
-                    $issue = self::issueOf($locked, $item['fingerprint'], $locale);
+                    // Read again under the unit's row lock, which every save of the record holds too.
+                    $issue = self::issueOf($locked, $item['fingerprint'], $locale, $this->sources->fingerprints($locale, [$locked->id])[$locked->id] ?? null);
 
                     if ($issue !== null) {
                         throw new GeneratedSuggestionOutdatedException($issue, $locked->translation($locale));
@@ -132,15 +141,17 @@ final class SaveProjectTranslationGenerationAction
     /**
      * Why a suggestion made from the English with this fingerprint may not be
      * saved into the unit as it is, or null when it may: the unit is gone,
-     * has no English, has other English now, or has a translation already.
+     * has no English, has other English now, or has a translation already
+     * that is current — not made from older English, by the fingerprint
+     * $recorded with it.
      */
-    private static function issueOf(?ProjectTranslationUnit $unit, string $fingerprint, string $locale): ?ProjectTranslationGenerationIssue
+    private static function issueOf(?ProjectTranslationUnit $unit, string $fingerprint, string $locale, ?string $recorded): ?ProjectTranslationGenerationIssue
     {
         return match (true) {
             $unit === null => ProjectTranslationGenerationIssue::UnitUnavailable,
             ! $unit->requiresTranslation() => ProjectTranslationGenerationIssue::NothingToTranslate,
             ProjectTranslationSourceFingerprint::of($unit) !== $fingerprint => ProjectTranslationGenerationIssue::SourceChanged,
-            $unit->translation($locale) !== null => ProjectTranslationGenerationIssue::AlreadyTranslated,
+            $unit->translation($locale) !== null && ! ProjectTranslationSourceFingerprint::isOutdated($unit, $locale, $recorded) => ProjectTranslationGenerationIssue::AlreadyTranslated,
             default => null,
         };
     }

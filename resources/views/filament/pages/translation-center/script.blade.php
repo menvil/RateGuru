@@ -3,8 +3,8 @@
     language as the server drew them, the drafts, the filters and the URL.
 
     Filtering never asks the server: the search, the section and Missing only /
-    All run over the units already on the page and are kept in the URL with
-    replaceState. A draft lives here only — typing sends nothing, and visitors
+    Needs update / All run over the units already on the page and are kept in
+    the URL with replaceState. A draft lives here only — typing sends nothing, and visitors
     keep the stored translation until Save sends that one unit. An AI
     suggestion is a draft too: AI translate asks the server for one missing
     unit, Suggest alternative for another version of a saved one, and what
@@ -12,12 +12,18 @@
     edited into an ordinary draft, or discarded — the saved version stays
     stored meanwhile.
 
-    Generate missing is different: the server generates every missing
-    translation of the language in the background and keeps the suggestions,
-    so they are persisted drafts rather than volatile ones. The page restores
-    them when it opens, polls while generation runs — never from a hidden tab
-    — and puts each one into its row only while the row is still missing,
-    untouched and showing the English it was generated from. Saving or
+    An outdated unit is a stored translation made from English the unit no
+    longer has. It stays stored, and what visitors see, until the row is
+    saved — changed, or as it is — which makes it current; nothing else here
+    changes whether a unit is outdated.
+
+    Generate missing is different: the server generates every missing and
+    every outdated translation of the language in the background and keeps
+    the suggestions, so they are persisted drafts rather than volatile ones.
+    The page restores them when it opens, polls while generation runs — never
+    from a hidden tab — and puts each one into its row only while the row is
+    still missing or outdated, untouched and showing the English it was
+    generated from. Saving or
     discarding one goes through the server, which holds the text; typing in
     one makes it an ordinary, volatile edit. Only volatile drafts are lost by
     leaving or switching language, so only they make the page ask.
@@ -87,9 +93,11 @@
                 const params = new URLSearchParams(location.search)
                 const section = params.get('section') ?? ''
 
+                const mode = params.get('mode') ?? ''
+
                 this.query = (params.get('q') ?? '').trim().slice(0, config.queryLimit)
                 this.section = config.sections.includes(section) ? section : ''
-                this.mode = params.get('mode') === 'missing' ? 'missing' : 'all'
+                this.mode = config.modes.includes(mode) ? mode : 'all'
 
                 this.$watch('query', () => this.remember())
                 this.$watch('section', () => this.remember())
@@ -125,6 +133,10 @@
             get missing() {
                 return this.total - this.translated
             },
+            // Stored, and made from English the unit no longer has: counted among the translated, too.
+            get outdated() {
+                return this.order.filter((id) => this.units[id].outdated).length
+            },
             get percentage() {
                 return this.total === 0 ? 100 : Math.floor(this.translated * 100 / this.total)
             },
@@ -141,17 +153,23 @@
                 return this.units[id].value !== this.units[id].stored
             },
             // One answer per row, in this order: a draft is an AI suggestion or an edit, and
-            // without one the row is what is stored. An AI suggestion is therefore always unsaved.
+            // without one the row is what is stored — missing, outdated or saved. An AI suggestion
+            // is therefore always unsaved.
             state(id) {
                 if (this.isDirty(id)) {
                     return this.units[id].ai ? 'ai' : 'edited'
                 }
 
-                return this.units[id].stored === '' ? 'missing' : 'saved'
+                if (this.units[id].stored === '') {
+                    return 'missing'
+                }
+
+                return this.units[id].outdated ? 'outdated' : 'saved'
             },
             note(id) {
                 return {
                     saved: 'Stored translation',
+                    outdated: 'Made from older English. Visitors see it until you save.',
                     missing: 'Visitors see the English text',
                     ai: this.units[id].stored === ''
                         ? `Generated ${this.generatedTime(id)} · AI suggestions are drafts until saved.`
@@ -201,19 +219,20 @@
             error(id) {
                 return this.units[id].error ?? this.check(id)
             },
+            // A draft, or an outdated translation as it is: saved unchanged, it is kept for the new English.
             canSave(id) {
                 const unit = this.units[id]
 
-                return this.isDirty(id) && ! this.held(id) && this.check(id) === null && ! (unit.value.trim() === '' && unit.stored === '')
+                return (this.isDirty(id) || this.state(id) === 'outdated') && ! this.held(id) && this.check(id) === null && ! (unit.value.trim() === '' && unit.stored === '')
             },
             // AI translate fills a missing translation, Suggest alternative offers another version of a
-            // saved one, Regenerate replaces an AI suggestion. None is offered for a draft someone typed,
-            // which a suggestion would overwrite.
+            // saved one, Update with AI one for the new English of an outdated one, Regenerate replaces an
+            // AI suggestion. None is offered for a draft someone typed, which a suggestion would overwrite.
             offersAi(id) {
-                return ['missing', 'saved', 'ai'].includes(this.state(id))
+                return ['missing', 'saved', 'outdated', 'ai'].includes(this.state(id))
             },
             aiLabel(id) {
-                return { missing: 'AI translate', saved: 'Suggest alternative', ai: 'Regenerate' }[this.state(id)] ?? 'AI translate'
+                return { missing: 'AI translate', saved: 'Suggest alternative', outdated: 'Update with AI', ai: 'Regenerate' }[this.state(id)] ?? 'AI translate'
             },
             canSuggest(id) {
                 return this.offersAi(id) && ! this.held(id)
@@ -243,6 +262,11 @@
 
                 // A draft stays in Missing only until it is saved.
                 if (this.mode === 'missing' && unit.stored !== '' && ! this.isDirty(id)) {
+                    return false
+                }
+
+                // An outdated row stays in Needs update, its draft included, until it is saved.
+                if (this.mode === 'outdated' && ! unit.outdated) {
                     return false
                 }
 
@@ -431,7 +455,7 @@
                 unit.saving++
 
                 try {
-                    result = await this.server().save(id, this.locale, unit.value)
+                    result = await this.server().save(id, this.locale, unit.value, unit.fingerprint)
                 } catch (failure) {
                     result = null
                 }
@@ -456,10 +480,12 @@
                 this.moveOn(id, next, after)
             },
             // The row holds what is stored now, and nothing else: its draft and where it came from are done.
+            // Whatever the server stored was recorded with the English the row shows: it is current.
             stored(id, value) {
                 const unit = this.units[id]
 
                 unit.stored = value
+                unit.outdated = false
                 unit.value = value
                 unit.error = null
                 unit.ai = false
@@ -553,12 +579,32 @@
                 return this.generation?.counts.ready ?? 0
             },
             // What Save all saves: the rows showing their untouched background suggestion. Rows edited
-            // since, or whose suggestion the page did not put in — outdated, overtaken — are left out.
+            // since, or whose suggestion the page did not put in — made from other English, overtaken —
+            // are left out.
             get saveAllUnits() {
                 return this.order.filter((id) => this.units[id].persisted && this.units[id].bulk === this.generation?.batch)
             },
             get offersGenerate() {
                 return ! this.generationRunning && this.readyCount === 0
+            },
+            // “Generate missing (3)”, with the outdated translations counted beside them once there are any.
+            get generateLabel() {
+                if (this.outdated === 0) {
+                    return `Generate missing (${this.figure(this.missing)})`
+                }
+
+                return this.missing === 0
+                    ? `Generate outdated (${this.figure(this.outdated)})`
+                    : `Generate missing (${this.figure(this.missing)}) & outdated (${this.figure(this.outdated)})`
+            },
+            // What Generate missing's dialog says it translates: “AI translates 3 missing items and 2 outdated ones”.
+            get generateScope() {
+                const parts = []
+
+                this.missing > 0 && parts.push(`${this.figure(this.missing)} missing ${this.missing === 1 ? 'item' : 'items'}`)
+                this.outdated > 0 && parts.push(`${this.figure(this.outdated)} outdated ${this.missing > 0 ? (this.outdated === 1 ? 'one' : 'ones') : (this.outdated === 1 ? 'item' : 'items')}`)
+
+                return `AI translates ${parts.join(' and ')}`
             },
             get generationText() {
                 const counts = this.generation?.counts
@@ -592,8 +638,9 @@
             },
 
             // What the server says of the batch, applied to the rows. A suggestion goes into its row only
-            // while the row is still missing, has no draft of the page's own and shows the English the
-            // suggestion was made from: nothing typed is ever overwritten, and nothing outdated shown.
+            // while the row is still missing or outdated, has no draft of the page's own and shows the
+            // English the suggestion was made from: nothing typed is ever overwritten, no current
+            // translation replaced, and no suggestion for other English shown.
             applyGeneration(generation) {
                 if (generation?.unchanged && this.generation?.batch === generation.batch) {
                     this.generation = { ...this.generation, status: generation.status, counts: generation.counts, version: generation.version }
@@ -610,6 +657,8 @@
                     const unit = this.units[id]
                     const item = items[id] ?? null
                     const mine = unit.persisted && unit.bulk === batch
+                    // What a background suggestion may fill: a missing translation or an outdated one.
+                    const wanted = unit.stored === '' || unit.outdated
 
                     unit.bulkPending = false
                     unit.bulkIssue = null
@@ -620,7 +669,7 @@
                             this.reset(id)
                         }
 
-                        if (item !== null && ['failed', 'skipped'].includes(item.status) && unit.stored === '' && ! this.isDirty(id)) {
+                        if (item !== null && ['failed', 'skipped'].includes(item.status) && wanted && ! this.isDirty(id)) {
                             unit.bulkIssue = item.message ?? null
                         }
 
@@ -628,12 +677,12 @@
                     }
 
                     if (item.status === 'pending') {
-                        unit.bulkPending = unit.stored === '' && ! this.isDirty(id)
+                        unit.bulkPending = wanted && ! this.isDirty(id)
 
                         continue
                     }
 
-                    if (mine || unit.stored !== '' || this.isDirty(id) || unit.generating) {
+                    if (mine || ! wanted || this.isDirty(id) || unit.generating) {
                         continue
                     }
 
@@ -641,6 +690,11 @@
                         unit.bulkIssue = 'English changed after this suggestion was generated. Generate a new translation.'
 
                         continue
+                    }
+
+                    // The AI kept an outdated translation as it was: nothing new to read, but saving confirms it for the new English.
+                    if (unit.outdated && item.text === unit.stored) {
+                        unit.bulkIssue = 'AI kept the saved translation for the new English. Save to mark it current.'
                     }
 
                     unit.value = item.text
@@ -697,7 +751,7 @@
                 this.schedulePoll()
             },
             askToGenerate() {
-                if (this.missing > 0 && this.offersGenerate && ! this.generationBusy) {
+                if (this.missing + this.outdated > 0 && this.offersGenerate && ! this.generationBusy) {
                     this.pendingGenerate = true
                 }
             },
@@ -761,11 +815,12 @@
 
                 this.applySaved(result)
 
-                const outdated = result.results.filter((item) => item.outcome === 'source_changed').length
+                // Made from English that has changed since: each such row says so, and Generate makes them again.
+                const regenerate = result.results.filter((item) => item.outcome === 'source_changed').length
                 const parts = [`${this.figure(result.count)} ${result.count === 1 ? 'translation' : 'translations'} saved`]
 
-                outdated > 0 && parts.push(`${this.figure(outdated)} outdated`)
-                result.skipped - outdated > 0 && parts.push(`${this.figure(result.skipped - outdated)} skipped`)
+                regenerate > 0 && parts.push(`${this.figure(regenerate)} to generate again`)
+                result.skipped - regenerate > 0 && parts.push(`${this.figure(result.skipped - regenerate)} skipped`)
 
                 this.toast(parts.join(' · '), result.skipped > 0 ? 'info' : 'success')
                 this.announce(parts.join(', '))
