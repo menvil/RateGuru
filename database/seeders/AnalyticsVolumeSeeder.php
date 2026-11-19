@@ -887,6 +887,14 @@ class AnalyticsVolumeSeeder extends Seeder
         $completed = mt_rand(1, 100) <= 64;
         $answered = $completed ? $rounds : mt_rand(0, $rounds - 1);
         $finished = $started + $rounds * mt_rand(4, 14);
+
+        // A play that would end after now is still going: no result seen yet,
+        // so it is neither completed nor written a result event.
+        if ($completed && $finished + 1 > $this->now) {
+            $completed = false;
+            $answered = $rounds - 1;
+        }
+
         $attemptId = $assignment === null ? null : $this->nextAttempt++;
         $row['started_at'] = self::moment($started);
         $row['rounds_answered'] = $answered;
