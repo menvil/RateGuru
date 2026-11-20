@@ -237,6 +237,7 @@ final class JourneyQuery
             'emails' => $emails->map(fn (GameEmailCapture $email): array => ['attempt' => (int) $email->attempt_id, 'at' => $email->captured_at->utc()])->values()->all(),
             'attribution' => $attribution === null ? null : [
                 'signedUp' => $attribution->signed_up_at->utc(),
+                'browser' => $attribution->visitor_hash,
                 'confirmed' => $attribution->confirmed_at?->utc(),
                 'method' => $attribution->signup_method?->value,
                 'place' => $attribution->signup_place?->value,

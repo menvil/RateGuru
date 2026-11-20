@@ -385,6 +385,48 @@ it('draws votes of an old visit no earlier than a sign-in during the session, an
     ]);
 });
 
+it('bounds a browser’s votes by its own sign-in, and by the sign-up only when that browser signed up', function () {
+    $phone = str_repeat('a', 64);
+    // Opened a post as a guest at 10:01, the account signed up at 10:05 in one of the browsers, this one signed in at 10:10, then voted.
+    $voted = fn (string $signedUpIn): array => collect((new JourneyTimeline([
+        'kind' => 'user', 'browsers' => [JOURNEY_BROWSER, $phone], 'user' => 12, 'account' => true,
+        'visits' => [
+            journeyVisitRecord(1, '2026-10-01 10:00:00'),
+            journeyVisitRecord(2, '2026-10-01 10:09:00', ['entry' => 1, 'login' => CarbonImmutable::parse('2026-10-01 10:10:00', 'UTC'), 'votes' => 1]),
+        ],
+        'posts' => [['visit' => 1, 'post' => 12, 'views' => 1, 'shared' => false, 'voted' => true, 'commented' => false, 'at' => CarbonImmutable::parse('2026-10-01 10:01:00', 'UTC')]],
+        'attempts' => [], 'assignments' => [], 'periods' => [], 'events' => [], 'emails' => [], 'days' => [], 'first' => null, 'credited' => [], 'cut' => false,
+        'attribution' => ['signedUp' => CarbonImmutable::parse('2026-10-01 10:05:00', 'UTC'), 'browser' => $signedUpIn, 'confirmed' => null, 'method' => 'email', 'place' => 'post', 'visit' => null, 'attempt' => null, 'expired' => null, 'activated' => null],
+        'games' => [], 'versions' => [],
+    ]))->view()['entries'])->firstWhere('title', 'Voted');
+
+    // Signed up on the phone: this browser could vote only once it signed in.
+    expect($voted($phone)['time'])->toBe('01 Oct 10:10')
+        ->and($voted($phone)['body'])->toBe('Voted on 1 post. Visits this old didn’t keep when: drawn at the sign-in, since a guest can’t vote or comment.')
+        // Signed up in this browser: signed in from the sign-up on, whatever sign-in came after.
+        ->and($voted(JOURNEY_BROWSER)['time'])->toBe('01 Oct 10:05')
+        ->and($voted(JOURNEY_BROWSER)['body'])->toBe('Voted on 1 post. Visits this old didn’t keep when: drawn at the sign-up, since a guest can’t vote or comment.');
+});
+
+it('never takes a later visit’s kept moment for the first act of a session whose earlier visit didn’t keep its own', function () {
+    $steps = fn (array $later): array => array_map(
+        fn (array $entry): string => $entry['time'].' '.$entry['title'].': '.$entry['body'],
+        array_values(array_filter(journeyOf([
+            'user' => 9,
+            'visits' => [
+                // Voted before visits kept the moment, then again on a later page of the session, which kept it.
+                journeyVisitRecord(1, '2026-10-01 10:00:00', ['votes' => 1]),
+                journeyVisitRecord(2, '2026-10-01 10:20:00', ['entry' => 1, 'votes' => 1, 'acted' => CarbonImmutable::parse('2026-10-01 10:21:00', 'UTC'), ...$later]),
+            ],
+            'posts' => [['visit' => 1, 'post' => 12, 'views' => 0, 'shared' => false, 'voted' => true, 'commented' => false, 'at' => CarbonImmutable::parse('2026-10-01 10:02:00', 'UTC')]],
+        ])['entries'], fn (array $entry): bool => $entry['title'] === 'Voted')),
+    );
+
+    expect($steps([]))->toBe(['01 Oct 10:02 Voted: Voted on 1 post · 2 votes. Visits this old didn’t keep when: drawn at the first post of the session.'])
+        // A sign-in read after the moment kept: never drawn later than that moment.
+        ->and($steps(['login' => CarbonImmutable::parse('2026-10-01 10:30:00', 'UTC')]))->toBe(['01 Oct 10:21 Voted: Voted on 1 post · 2 votes. Earlier visits of the session didn’t keep when: drawn at the first moment one kept.']);
+});
+
 it('keeps a confirmation of its own when Google or Facebook confirmed the account later, and one by email always', function () {
     $account = fn (string $method, string $confirmed): array => journeyOf([
         'kind' => 'user', 'user' => 12, 'account' => true,

@@ -349,7 +349,7 @@ final class JourneyTimeline
         }
 
         $blank = fn (CarbonImmutable $at): array => ['at' => $at, 'opened' => [], 'openedAt' => null, 'views' => 0, 'shared' => [], 'sharedAt' => null,
-            'voted' => [], 'commented' => [], 'actedOn' => [], 'votes' => 0, 'comments' => 0, 'made' => 0, 'acted' => null];
+            'voted' => [], 'commented' => [], 'actedOn' => [], 'votes' => 0, 'comments' => 0, 'made' => 0, 'acted' => null, 'untimed' => false];
         $earliest = fn (?CarbonImmutable $kept, CarbonImmutable $at): CarbonImmutable => $kept === null || $at < $kept ? $at : $kept;
         $sessions = [];
 
@@ -395,8 +395,11 @@ final class JourneyTimeline
             $session['made'] += $visit['posts'];
             $acted = $visit['acted'] ?? null;
 
+            // A visit that acted without keeping when acted before any that kept it: the moment kept is then not the first.
             if ($acted !== null) {
                 $session['acted'] = $earliest($session['acted'], $acted);
+            } else {
+                $session['untimed'] = true;
             }
 
             $sessions[$visit['entry']] = $session;
@@ -473,20 +476,41 @@ final class JourneyTimeline
      * When a session's member first voted, commented or made a post: the
      * moment its visits kept. Visits from before that moment was kept say
      * only how many: then the earliest it can have been, and a note that
-     * says so. A guest can neither vote nor comment, so when the member
-     * signed up or signed in during the session — between its start and the
-     * next session of the same browser — no earlier than the first of those;
-     * otherwise the first post of the session, or its start.
+     * says so — also when a later visit of the session kept its own, which
+     * came after theirs. A guest can neither vote nor comment, so when the
+     * member signed up or signed in during the session — between its start
+     * and the next session of the same browser — no earlier than when this
+     * browser was signed in: its first sign-in, or the sign-up when it was
+     * this browser's, or, with no sign-in of its own, the sign-up anywhere,
+     * before which there was no account; otherwise the first post of the
+     * session, or its start.
      *
      * @param  array<string, mixed>  $session
      * @return array{0: CarbonImmutable, 1: string} the moment, and the note to add to the step
      */
     private function actedAt(int $entry, array $session): array
     {
-        if ($session['acted'] !== null) {
+        if ($session['acted'] !== null && ! $session['untimed']) {
             return [$session['acted'], ''];
         }
 
+        [$at, $note] = $this->earliestActed($entry, $session);
+
+        // Never later than a moment a visit of the session did keep.
+        return $session['acted'] !== null && $session['acted'] < $at
+            ? [$session['acted'], ' Earlier visits of the session didn’t keep when: drawn at the first moment one kept.']
+            : [$at, $note];
+    }
+
+    /**
+     * The earliest a session's member can have first acted, when its visits
+     * didn't keep the moment (actedAt()).
+     *
+     * @param  array<string, mixed>  $session
+     * @return array{0: CarbonImmutable, 1: string}
+     */
+    private function earliestActed(int $entry, array $session): array
+    {
         $start = $this->sessionStart($entry, $session['at']);
         $hash = null;
         $next = null;
@@ -509,9 +533,12 @@ final class JourneyTimeline
             }
         }
 
-        $signedUp = $this->account()['signedUp'] ?? null;
+        $account = $this->account();
+        $signedUp = $account['signedUp'] ?? null;
 
-        if ($signedUp instanceof CarbonImmutable && $signedUp >= $start && ($next === null || $signedUp < $next) && ($bound === null || $signedUp < $bound[0])) {
+        // The browser that signed up was signed in from then on; another one only from its own sign-in, and none before the account was.
+        if ($signedUp instanceof CarbonImmutable && $signedUp >= $start && ($next === null || $signedUp < $next)
+            && ($bound === null || (($account['browser'] ?? null) === $hash && $signedUp < $bound[0]))) {
             $bound = [$signedUp, 'sign-up'];
         }
 

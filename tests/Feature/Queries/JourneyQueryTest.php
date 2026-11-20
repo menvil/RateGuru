@@ -129,7 +129,7 @@ it('offers the latest browsers that visited the site while nobody signed up or p
 it('reads a long journey as its latest steps, with its very first visit and the visit its sign-up is credited to', function () {
     $member = User::factory()->create();
     $elsewhere = analyticsVisit('another-browser', ['source_key' => 'google:organic']);
-    retentionAccount('2026-11-10 10:00:00', [], ['credited_visit_id' => $elsewhere->id], $member);
+    retentionAccount('2026-11-10 10:00:00', [], ['credited_visit_id' => $elsewhere->id, 'visitor_hash' => hash('sha256', 'another-browser')], $member);
 
     foreach (range(0, JourneyTimeline::MOST_STEPS) as $n) {
         analyticsVisit('long-journey', ['arrived_at' => CarbonImmutable::parse('2026-11-01 00:00:00')->addMinutes($n * 10), 'network_day' => '2026-11-01']);
@@ -143,7 +143,9 @@ it('reads a long journey as its latest steps, with its very first visit and the 
         ->and($journey['visits'][JourneyTimeline::MOST_STEPS - 1]['at']->toDateTimeString())->toBe('2026-11-01 00:10:00')
         ->and(array_column($journey['credited'], 'id'))->toBe([$elsewhere->id])
         ->and($journey['credited'][0]['source'])->toBe('google:organic')
-        ->and($journey['attribution']['visit'])->toBe($elsewhere->id);
+        ->and($journey['attribution']['visit'])->toBe($elsewhere->id)
+        // The browser the account was signed up in.
+        ->and($journey['attribution']['browser'])->toBe(hash('sha256', 'another-browser'));
 });
 
 it('reads the attempt a sign-up is credited to, with its game and version, though it is older than the latest attempts', function () {

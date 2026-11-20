@@ -399,10 +399,14 @@ and returns. Beside them, the first, converting and last non-direct touch.
 A session's posts are one step at the first opened; what its member voted,
 commented and made is another, at the moment the visit kept for the first
 (`acted_at`). A visit from before that moment was kept says only how many, so
-the step is drawn at the earliest it can have been — the sign-up, when the
-account signed up during the session, since a guest can neither vote nor
-comment; otherwise the first post the session opened, or the session's start —
-and says so. A sign-up Google or Facebook confirmed within a minute is one step
+the step is drawn at the earliest it can have been, and says so. A guest can
+neither vote nor comment, so that is when the browser came to be signed in
+during the session: its first sign-in, or the sign-up when the account was
+signed up in that browser (the sign-up's `visitor_hash`), or the sign-up
+anywhere when the browser has no sign-in of its own. Otherwise it is the first
+post the session opened, or the session's start. If a later visit of the same
+session did keep its moment, that moment isn't taken for the first, and the
+step is never drawn later than it. A sign-up Google or Facebook confirmed within a minute is one step
 with its confirmation.
 
 Every lookup is written down (`LogJourneyLookupAction`, `analytics.journey.lookup`:
