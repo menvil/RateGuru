@@ -5,7 +5,8 @@
     milestones, clicks and blocking, newest first, fifty to a page. A click,
     a milestone and a postback name their visitor by its journey ID, a link
     to its journey in Growth → Analytics (journey-link), and a postback's
-    path ends with it too.
+    path ends with it too. A click's spend says on hovering where it comes
+    from, with the exact amounts.
 --}}
 @php
     $logs = ['postbacks' => 'Postbacks'.($failing > 0 ? ' · '.$failing.' failing' : ''), 'milestones' => 'Milestones', 'clicks' => 'Clicks', 'blocks' => 'Blocks'];
@@ -127,7 +128,8 @@
                                 <span role="cell">{{ ucfirst($row->device->value) }} · {{ $row->country ?? '—' }}{{ $row->city !== null ? ', '.$row->city : '' }}</span>
                                 <span role="cell" class="rg-admin-traffic__mono rg-admin-traffic__log-request">{{ $row->detail?->landing_path ?? '—' }}</span>
                                 <span role="cell" class="rg-admin-traffic__note">{{ implode(' · ', array_filter([$row->opened_at !== null ? 'Opened' : 'Not opened', $row->started_at !== null ? 'played' : null, $row->account_at !== null ? 'account' : null, $row->known ? 'known' : null, $row->blocked_hit ? 'from a blocked place' : null])) }}</span>
-                                <span role="cell" class="rg-admin-traffic__fig">{{ \App\Support\Traffic\Money\TrafficMoney::fine($row->spend) }}</span>
+                                @php($spendHint = $spendHints[$row->id] ?? '')
+                                <span role="cell" class="rg-admin-traffic__fig" title="{{ $spendHint }}" data-testid="traffic-log-click-spend">{{ \App\Support\Traffic\Money\TrafficMoney::fine($row->spend) }}<span class="rg-admin-sr-only">, {{ $spendHint }}</span></span>
                             </div>
                         @endforeach
                 @endswitch

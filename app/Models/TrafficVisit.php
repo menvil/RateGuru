@@ -106,6 +106,7 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
  * @property int $votes
  * @property int $comments
  * @property int $posts_created
+ * @property CarbonImmutable|null $acted_at
  */
 class TrafficVisit extends Model
 {
@@ -158,6 +159,7 @@ class TrafficVisit extends Model
             'signup_at' => 'immutable_datetime',
             'account_at' => 'immutable_datetime',
             'login_at' => 'immutable_datetime',
+            'acted_at' => 'immutable_datetime',
             'post_published_at' => 'immutable_datetime',
             'returned_at' => 'immutable_datetime',
             'settled_at' => 'immutable_datetime',

@@ -6,7 +6,24 @@
 --}}
 <div
     class="rg-admin-settings__preset"
-    x-data="{ open: false }"
+    x-data="{
+        open: false,
+        upward: false,
+        {{-- Under the trigger, or over it when the room under it is too short and the room over it longer; never taller than the room it opens into, scrolling inside instead, whatever it comes to hold while open. --}}
+        place(trigger, panel) {
+            const box = trigger.getBoundingClientRect()
+            const ceiling = Math.max(0, ...[...document.querySelectorAll('[data-admin-ceiling]')].map((bar) => bar.getBoundingClientRect().bottom))
+            const floor = Math.min(window.innerHeight, ...[...document.querySelectorAll('[data-admin-floor]')].map((bar) => bar.getBoundingClientRect().top))
+            const below = floor - box.bottom - 16
+            const above = box.top - ceiling - 16
+
+            panel.style.maxHeight = ''
+            {{-- Its own most height, where its stylesheet sets one. --}}
+            const most = parseFloat(getComputedStyle(panel).maxHeight) || Infinity
+            this.upward = panel.offsetHeight > below && above > below
+            panel.style.maxHeight = `${Math.max(0, Math.min(most, this.upward ? above : below))}px`
+        },
+    }"
     x-on:click.outside="open = false"
     x-on:keydown.escape.stop="open = false; $refs.trigger.focus()"
 >
@@ -17,7 +34,7 @@
         aria-controls="rg-admin-settings-preset"
         x-ref="trigger"
         x-bind:aria-expanded="open ? 'true' : 'false'"
-        x-on:click="open = ! open"
+        x-on:click="open = ! open; if (open) $nextTick(() => place($refs.trigger, $refs.panel))"
     >
         <span class="rg-admin-settings__preset-text">
             <span class="rg-admin-overline">{{ __('admin.project_settings.preset_status_title') }}</span>
@@ -32,7 +49,7 @@
         <x-admin.ui.icon name="chevron-down" :size="16" />
     </button>
 
-    <div id="rg-admin-settings-preset" class="rg-admin-settings__preset-panel" x-cloak x-show="open">
+    <div id="rg-admin-settings-preset" class="rg-admin-settings__preset-panel" x-ref="panel" x-cloak x-show="open" x-bind:class="{ 'rg-admin-settings__preset-panel--up': upward }">
         <div class="rg-admin-settings__preset-head">
             <p class="rg-admin-settings__preset-title">{{ $preset['status'] }}</p>
             <p class="rg-admin-hint">{{ __('admin.project_settings.preset_status_description') }}</p>

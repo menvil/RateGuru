@@ -107,8 +107,8 @@ voted on or commented on there. A browser's post history is kept 90 days from
 its first row — the same as a click's path and referrer — so a period reaching
 further back shows no post figure at all rather than a part of one ("Post views
 are kept for 90 days"). Each new vote, comment or reply and post also counts on
-the visit (`traffic_visits.votes`, `comments`, `posts_created`), which lives as
-long as the visit. Where a post is counted opened and how a share is counted is
+the visit (`traffic_visits.votes`, `comments`, `posts_created`, and the moment
+of the first in `acted_at`), which lives as long as the visit. Where a post is counted opened and how a share is counted is
 in docs/architecture/traffic.md, "Capture".
 
 ### Activity, activation and retention
@@ -395,6 +395,19 @@ kept, the posts each session opened, versions assigned with the period's
 shares, attempts, sign-up and share buttons pressed, the moment an email was
 left — never the address — and the account's sign-up, confirmation, activation
 and returns. Beside them, the first, converting and last non-direct touch.
+
+A session's posts are one step at the first opened; what its member voted,
+commented and made is another, at the moment the visit kept for the first
+(`acted_at`). A visit from before that moment was kept says only how many, so
+the step is drawn at the earliest it can have been, and says so. A guest can
+neither vote nor comment, so that is when the browser came to be signed in
+during the session: its first sign-in, or the sign-up when the account was
+signed up in that browser (the sign-up's `visitor_hash`), or the sign-up
+anywhere when the browser has no sign-in of its own. Otherwise it is the first
+post the session opened, or the session's start. If a later visit of the same
+session did keep its moment, that moment isn't taken for the first, and the
+step is never drawn later than it. A sign-up Google or Facebook confirmed within a minute is one step
+with its confirmation.
 
 Every lookup is written down (`LogJourneyLookupAction`, `analytics.journey.lookup`:
 who looked, the ID, and whether it was typed, picked or opened from an

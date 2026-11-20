@@ -113,8 +113,8 @@ it('tells every step of a member’s way, in order, with what the sign-up is cre
             '10 Nov 18:12 Clicked “Sign up”',
             '10 Nov 18:13 Signed up with Google',
             '10 Nov 18:13 Result claimed',
-            '10 Nov 18:13 Confirmed the account',
             '10 Nov 18:20 Opened 2 posts',
+            '10 Nov 18:22 Voted',
             '13 Nov 10:00 Came back on day 3 and voted — activation rule met',
             '15 Nov 09:00 Came back on day 5',
         ]);
@@ -126,9 +126,12 @@ it('tells every step of a member’s way, in order, with what the sign-up is cre
         ->and($entries['Returned from ExoClick tests']['body'])->toBe('Paid click · Versus October Launch · video_03. The Reddit first touch is kept.')
         ->and($entries['Returned from ExoClick tests']['meta'])->toBe('session_'.$click->id.' · /games/trust-your-taste · Desktop · Berlin, Germany')
         ->and($entries['Assigned to Trust Your Taste']['body'])->toBe('Assigned V7 in the period from 07 Nov (V7 80% · V8 20%). The version stays the same when they come back.')
-        ->and($entries['Opened 2 posts']['body'])->toBe('3 views · voted on 1 post.')
+        ->and($entries['Opened 2 posts']['body'])->toBe('3 views.')
         ->and($entries['Opened 2 posts']['meta'])->toBe('session_'.$click->id.' · #12, #15')
-        ->and($entries['Signed up with Google']['body'])->toBe('Account user_'.$member['user']->id.' created in the game. Conversion touch: ExoClick tests.')
+        // What the member did, at the moment the visit kept: the post voted on, not every post opened.
+        ->and($entries['Voted']['body'])->toBe('Voted on 1 post.')
+        ->and($entries['Voted']['meta'])->toBe('session_'.$click->id.' · #12')
+        ->and($entries['Signed up with Google']['body'])->toBe('Account user_'.$member['user']->id.' created in the game and confirmed at once by Google: the new account counts from here. Conversion touch: ExoClick tests.')
         ->and($entries['Result claimed']['body'])->toBe('attempt_'.$member['attempt']->id.' is linked to the new account, user_'.$member['user']->id.'.')
         ->and($entries['Came back on day 5']['body'])->toBe('Commented.')
         ->and(collect($journey['touches'])->map(fn (array $touch): string => $touch['label'].': '.$touch['value'])->all())->toBe([

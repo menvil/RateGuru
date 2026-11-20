@@ -364,6 +364,23 @@ it('narrows every figure by the type of traffic, the game and the device', funct
         ->and($visits(['device' => 'desktop']))->toBe(1);
 });
 
+it('names the spend still estimated under the Spend tile, says so when all of it is counted, and when nothing was spent', function () {
+    $tile = fn (array $query = []) => Livewire::withQueryParams($query)->test(TrafficSourcesPage::class)->call('load');
+
+    TrafficVisit::factory()->unpaid(TrafficChannel::Direct)->create(['arrived_at' => '2026-11-16 10:00:00', 'network_day' => '2026-11-16', 'opened_at' => now()]);
+
+    $tile()->assertSee('Nothing spent on these filters')->assertDontSee('estimated, not synced yet');
+
+    siteClicks($this->source, '40123', 2, 2);
+
+    $tile()->assertSeeInOrder(['Spend', '$0.02', 'All counted, none estimated'])->assertDontSee('estimated, not synced yet');
+
+    siteClicks($this->source, '40124', 3, 3, ['spend_estimated' => true]);
+
+    $tile()->assertSeeInOrder(['Spend', '$0.05', 'incl. $0.03 estimated, not synced yet'])->assertDontSee('All counted, none estimated');
+    $tile(['type' => 'unpaid'])->assertSee('Nothing spent on these filters');
+});
+
 it('shows on the way here the impressions a network billed against those that reached RateGuru, opened the page and started the game, today marked as not closed', function () {
     $campaign = TrafficCampaign::factory()->create(['source_id' => $this->source->id, 'name' => 'US popunder']);
     paidImpressions($this->source, '2026-11-17', 746, '1.38', ['campaign_id' => $campaign->id, 'site_ref' => '40123']);
@@ -683,8 +700,8 @@ it('shows on Spend each day’s impressions and how many of them reached RateGur
 
     $page = Livewire::withQueryParams(['tab' => 'spend'])->test(TrafficSourcesPage::class)->call('load')
         ->set('spendSource', (string) $this->source->id)
-        ->assertSeeInOrder(['Day', 'Clicks', 'Impressions', 'Reached', 'From click costs', 'From the network', 'In reports'])
-        ->assertSeeInOrder(['Yesterday', '30', '40', '30', '75.0%']);
+        ->assertSeeInOrder(['Day', 'Impressions', 'Clicks', 'Reached', 'From click costs', 'From the network', 'In reports'])
+        ->assertSeeInOrder(['Yesterday', '40', '30', '30', '75.0%']);
     $days = collect($page->viewData('dayRows'))->keyBy('date');
 
     expect($days['2026-11-16']['reach']->impressions)->toBe(40)
@@ -849,6 +866,30 @@ it('lays out Logs: postbacks first, with the milestone, the click, the exact req
         ->assertSee('Resend')
         ->set('logFilter', 'failed')->assertSee('tag-81442')
         ->set('log', 'clicks')->assertSee('/games/x');
+});
+
+it('shows a click’s spend under a cent in full, and says on hovering where it comes from', function () {
+    $api = TrafficSource::factory()->create(['name' => 'ExoClick API', 'link_key' => 'exo', 'spend_mode' => 'api']);
+    $click = fn (TrafficSource $source, array $spend): TrafficVisit => TrafficVisit::factory()->create(['source_id' => $source->id, 'arrived_at' => now()->subHour(), ...$spend]);
+    $priced = $click($this->source, ['cost' => '0.000759', 'spend' => '0.000759', 'spend_basis' => 'click_cost']);
+    $counted = $click($api, ['cost' => '0.000759', 'spend' => '0.00079123', 'spend_basis' => 'api']);
+    $estimated = $click($api, ['cost' => '0.000759', 'spend' => '0.000759', 'spend_basis' => 'click_cost', 'spend_estimated' => true]);
+    $free = $click($this->source, ['spend' => '0', 'spend_basis' => 'none']);
+    $cell = fn (string $shown, string $hint): string => 'title="'.e($hint).'" data-testid="traffic-log-click-spend">'.$shown.'<span class="rg-admin-sr-only">, '.e($hint).'</span>';
+
+    $page = Livewire::withQueryParams(['tab' => 'logs', 'log' => 'clicks'])->test(TrafficSourcesPage::class)->call('load')
+        ->assertSeeHtml($cell('$0.000759', 'Price in the click $0.000759'))
+        ->assertSeeHtml($cell('$0.000791', 'Price in the click $0.000759 · counted $0.00079123, the network’s bill shared out'))
+        ->assertSeeHtml($cell('$0.000759', 'Price in the click $0.000759 · estimate until the network’s bill is shared out'))
+        ->assertSeeHtml($cell('$0.0000', 'Not counted'))
+        ->assertDontSee('$0.0008');
+
+    expect($page->viewData('spendHints'))->toBe([
+        $free->id => 'Not counted',
+        $estimated->id => 'Price in the click $0.000759 · estimate until the network’s bill is shared out',
+        $counted->id => 'Price in the click $0.000759 · counted $0.00079123, the network’s bill shared out',
+        $priced->id => 'Price in the click $0.000759',
+    ]);
 });
 
 it('leads an empty later page of a log back to the newest entries, as an address kept from before may open one', function () {

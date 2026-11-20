@@ -19,7 +19,11 @@
         ['Visits', number_format($total->visits), number_format($total->opened).' opened the page · '.$percent($total->openRate()), null],
         ['Started', number_format($total->started), $percent($total->startRate()).' of opened', null],
         ['New accounts', number_format($total->accounts), 'Confirmed · '.number_format($total->posted).' posted · '.number_format($total->knownOpened).' visitors already known', null],
-        ['Spend', $money($total->spend), 'incl. '.$money($total->spendEstimated).' estimated, not synced yet', null],
+        ['Spend', $money($total->spend), match (true) {
+            \App\Support\Traffic\Money\TrafficMoney::of($total->spendEstimated)->isPositive() => 'incl. '.$money($total->spendEstimated).' estimated, not synced yet',
+            \App\Support\Traffic\Money\TrafficMoney::of($total->spend)->isZero() => 'Nothing spent on these filters',
+            default => 'All counted, none estimated',
+        }, null],
         ['Value', $money($total->value()), $money($total->valueReal).' so far · '.$money($total->valueExpected).' expected', null],
         ['Profit', $signed($paidProfit), 'Paid traffic: value − spend', $paidProfit->isNegative() ? 'bad' : ($paidProfit->isPositive() ? 'good' : null)],
         ['ROI', $paid->roi() === null ? '—' : ($paid->roi() > 0 ? '+' : '').number_format($paid->roi(), 0).'%', 'Paid only · '.($paid->costPerAccount() === null ? '—' : $money($paid->costPerAccount())).' per account', ($paid->roi() ?? 0) < 0 ? 'bad' : (($paid->roi() ?? 0) > 0 ? 'good' : null)],

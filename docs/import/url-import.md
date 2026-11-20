@@ -219,13 +219,13 @@ test suite never performs a live DNS lookup.
 
 1. **`on_headers`** rejects immediately once an honest, oversized
    `Content-Length` is seen — before any body byte is read.
-2. **curl's transfer-info callback** (`CURLOPT_XFERINFOFUNCTION`) stops a
-   body that passes the cap within a curl-buffer-sized margin of it, without
-   waiting for the server to finish sending or to close the connection.
-   Guzzle's own `progress` option cannot do this: its wrapper discards the
-   callback's return value, and an exception thrown from it only surfaces
-   once curl has finished, so a server that kept the connection open was read
-   until the timeout first.
+2. **Guzzle's `progress` callback** stops a body that passes the cap within a
+   curl-buffer-sized margin of it, without waiting for the server to finish
+   sending or to close the connection: returning true makes curl abort on the
+   spot. Only Guzzle 8 honours that return value, and it refuses the raw curl
+   progress options (`CURLOPT_NOPROGRESS`, `CURLOPT_XFERINFOFUNCTION`), so
+   `composer.json` requires Guzzle 8 directly. Postbacks cap their answer the
+   same way.
 3. **An exact `strlen()` check** on the completed body is the byte-precise
    source of truth, and is what actually catches a missing, lying-small, or
    chunked `Content-Length` once the (already-bounded) transfer completes.

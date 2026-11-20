@@ -27,6 +27,7 @@ use function Pest\Laravel\actingAs;
  * said to be made only once the clipboard took them; a source switched
  * between the general block rule and its own thresholds; a click's
  * visitor in Logs, a link that opens its journey, the page no wider for it;
+ * a new visitor's worth under a cent whole in its columns on Value;
  * and on the way here under the tiles, with the impressions a network billed
  * in Sites & zones beside each site's visits, at a phone's width as at a
  * desktop's.
@@ -380,8 +381,8 @@ it('switches a source between the general block rule and its own thresholds on i
     $page->assertNoJavaScriptErrors();
 });
 
-it('names a click’s visitor in Logs by a link that opens its journey in Analytics, the page no wider at any width', function (int $width) {
-    $visit = TrafficVisit::factory()->create(['visitor_hash' => hash('sha256', 'log-visitor'), 'arrived_at' => now()->subHour(), 'opened_at' => now()->subHour()]);
+it('names a click’s visitor in Logs by a link that opens its journey in Analytics, its spend whole in its column, the page no wider at any width', function (int $width) {
+    $visit = TrafficVisit::factory()->create(['visitor_hash' => hash('sha256', 'log-visitor'), 'arrived_at' => now()->subHour(), 'opened_at' => now()->subHour(), 'cost' => '0.00000012', 'spend' => '0.00000012', 'spend_basis' => 'click_cost']);
     [$id, $who] = [JourneyTimeline::visitorId($visit->visitor_hash), JourneyTimeline::visitorId($visit->visitor_hash, JourneyTimeline::LONG_DIGITS)];
     $link = '[data-testid="traffic-log-journey"]';
     $page = visitAdminEditor('/admin/traffic-sources?tab=logs&log=clicks', $width);
@@ -393,6 +394,10 @@ it('names a click’s visitor in Logs by a link that opens its journey in Analyt
         (() => {
             const link = document.querySelector('{$link}')
             const query = new URL(link.href).searchParams
+            // The amount to its eighth decimal fits the Spend column, and hovering it says where it comes from.
+            const spend = document.querySelector('[data-testid="traffic-log-click-spend"]')
+            const amount = document.createRange()
+            amount.selectNode(spend.firstChild)
 
             return {
                 overflow: document.documentElement.scrollWidth > window.innerWidth,
@@ -400,14 +405,49 @@ it('names a click’s visitor in Logs by a link that opens its journey in Analyt
                 tab: query.get('tab'),
                 who: query.get('who'),
                 target: link.target,
+                spend: spend.firstChild.textContent,
+                hint: spend.title,
+                fits: amount.getBoundingClientRect().width <= spend.getBoundingClientRect().width,
             }
         })()
-    JS))->toBe(['overflow' => false, 'scrolled' => true, 'tab' => 'journeys', 'who' => $who, 'target' => '']);
+    JS))->toBe(['overflow' => false, 'scrolled' => true, 'tab' => 'journeys', 'who' => $who, 'target' => '', 'spend' => '$0.00000012', 'hint' => 'Price in the click $0.00000012', 'fits' => true]);
 
     // Followed, it leaves Traffic sources for the visitor's journey itself, not the first example.
     $page->click($link);
     waitForScript($page, "location.pathname + ' ' + new URLSearchParams(location.search).get('who')", '/admin/analytics '.$who, 10.0);
     waitForScript($page, "document.querySelector('[data-testid=\"analytics-journey-label\"]')?.textContent.trim() ?? null", $id.' · not registered', 10.0);
+    $page->assertNoJavaScriptErrors();
+})->with([1440, 390]);
+
+it('keeps a new visitor’s worth under a cent whole on Value, Mobile clear of Desktop, the page no wider at any width', function (int $width) {
+    // An account at the site's $0.50: opening a game is worth $0.000759, starting it $0.00000012 — the eighth decimal, the longest an amount runs.
+    finishedChanceRun(['*' => ['opened' => ['chance' => 0.001518], 'started' => ['chance' => 0.00000024]]]);
+    $page = visitAdminEditor('/admin/traffic-sources?tab=value', $width);
+
+    waitForScript($page, "document.querySelectorAll('[data-testid=\"traffic-value-visitor\"] [role=\"row\"]').length", 8, 10.0);
+
+    // Each amount within its own cell and its row, Mobile ending before Desktop begins, every row's columns in line with the head's.
+    expect($page->script(<<<'JS'
+        (() => {
+            const rows = [...document.querySelectorAll('[data-testid="traffic-value-visitor"] [role="row"]')]
+            const box = (node) => {
+                const range = document.createRange()
+                range.selectNodeContents(node)
+
+                return range.getBoundingClientRect()
+            }
+            const steps = rows.slice(1, 3)
+
+            return {
+                overflow: document.documentElement.scrollWidth > window.innerWidth,
+                worth: steps.map((row) => [...row.children].slice(1).map((cell) => cell.textContent.trim())),
+                whole: steps.every((row) => [...row.children].slice(1).every((cell) => box(cell).width <= cell.getBoundingClientRect().width + 0.5)),
+                apart: steps.every((row) => box(row.children[1]).right < box(row.children[2]).left && box(row.children[2]).right <= row.getBoundingClientRect().right + 0.5),
+                aligned: rows.every((row) => [1, 2].every((n) => row.children[n].getBoundingClientRect().left === rows[0].children[n].getBoundingClientRect().left)),
+            }
+        })()
+    JS))->toBe(['overflow' => false, 'worth' => [['$0.000759', '$0.000759'], ['$0.00000012', '$0.00000012']], 'whole' => true, 'apart' => true, 'aligned' => true]);
+
     $page->assertNoJavaScriptErrors();
 })->with([1440, 390]);
 

@@ -8,6 +8,7 @@ use App\Support\Traffic\Spend\ClickSpend;
 use App\Support\Traffic\Spend\FixedPriceSchedule;
 use App\Support\Traffic\Spend\SpendAllocator;
 use App\Support\Traffic\Spend\SpendCsv;
+use App\Support\Traffic\Spend\SpendHint;
 use Brick\Math\BigDecimal;
 
 it('takes a click to cost what its campaign or source counts', function (TrafficSpendMode $mode, ?string $cost, ?string $rate, ?array $price, ?string $estimate, array $expected) {
@@ -113,3 +114,24 @@ it('adds up only rows of the same day, campaign, site and zone, as they are kept
     ])
         ->and($cut['rows'])->toBe([['day' => '2026-11-15', 'campaign' => '', 'site' => $long, 'zone' => '', 'amount' => '3.00000000', 'clicks' => null, 'impressions' => null]]);
 });
+
+it('says where a click’s spend comes from, with the amounts exactly as kept', function (TrafficSpendBasis $basis, bool $estimated, ?string $cost, string $spend, ?TrafficSpendMode $mode, string $expected) {
+    expect(SpendHint::of($basis, $estimated, $cost, $spend, $mode))->toBe($expected);
+})->with([
+    'the link’s price' => [TrafficSpendBasis::ClickCost, false, '0.00075900', '0.00075900', TrafficSpendMode::ClickCost, 'Price in the click $0.000759'],
+    'the network’s bill shared out' => [TrafficSpendBasis::Api, false, '0.00075900', '0.00079123', TrafficSpendMode::Api, 'Price in the click $0.000759 · counted $0.00079123, the network’s bill shared out'],
+    'the link’s price until the bill' => [TrafficSpendBasis::ClickCost, true, '0.00075900', '0.00075900', TrafficSpendMode::Api, 'Price in the click $0.000759 · estimate until the network’s bill is shared out'],
+    'the link’s price until a typed total' => [TrafficSpendBasis::ClickCost, true, '0.00075900', '0.00075900', TrafficSpendMode::Manual, 'Price in the click $0.000759 · estimate until a typed-in or imported figure is shared out'],
+    'the rate until the bill' => [TrafficSpendBasis::Rate, true, null, '0.00150000', TrafficSpendMode::Api, 'Counted $0.0015, the rate you set · estimate until the network’s bill is shared out'],
+    'the rate you set' => [TrafficSpendBasis::Rate, false, null, '0.00150000', TrafficSpendMode::Rate, 'Counted $0.0015, the rate you set'],
+    'the campaign’s price' => [TrafficSpendBasis::CampaignPrice, false, '0.00040000', '0.02000000', TrafficSpendMode::ClickCost, 'Price in the click $0.0004 · counted $0.02, the campaign’s price'],
+    'a fixed price, its day not over' => [TrafficSpendBasis::Fixed, true, null, '0.01234567', TrafficSpendMode::Fixed, 'Counted $0.01234567, the placement’s fixed price shared out · estimate until the day is over'],
+    'a fixed price' => [TrafficSpendBasis::Fixed, false, null, '0.01234567', TrafficSpendMode::Fixed, 'Counted $0.01234567, the placement’s fixed price shared out'],
+    'a fixed price not yet shared out' => [TrafficSpendBasis::Fixed, true, null, '0.00000000', TrafficSpendMode::Fixed, 'Not counted until the placement’s fixed price is shared out'],
+    'a fixed price shared out to nothing' => [TrafficSpendBasis::Fixed, false, null, '0.00000000', TrafficSpendMode::Fixed, 'Counted $0.00, the placement’s fixed price shared out'],
+    'a CSV figure' => [TrafficSpendBasis::Csv, false, null, '0.00300000', TrafficSpendMode::Manual, 'Counted $0.003, an imported CSV figure shared out'],
+    'a typed-in figure' => [TrafficSpendBasis::Manual, false, '0.00075900', '0.00100000', TrafficSpendMode::Api, 'Price in the click $0.000759 · counted $0.001, a typed-in figure shared out'],
+    'nothing' => [TrafficSpendBasis::None, false, null, '0.00000000', TrafficSpendMode::ClickCost, 'Not counted'],
+    'nothing yet' => [TrafficSpendBasis::None, true, null, '0.00000000', TrafficSpendMode::Api, 'Not counted until the network’s bill is shared out'],
+    'unpaid' => [TrafficSpendBasis::None, false, null, '0.00000000', null, 'Not counted'],
+]);

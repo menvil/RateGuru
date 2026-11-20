@@ -15,12 +15,31 @@
     data-testid="game-flow-goal"
     x-data="{
         open: false,
+        upward: false,
+        {{-- Under the trigger, or over it when the room under it is too short and the room over it longer; never taller than the room it opens into, scrolling inside instead, whatever it comes to hold while open. --}}
+        place(trigger, panel) {
+            const box = trigger.getBoundingClientRect()
+            const ceiling = Math.max(0, ...[...document.querySelectorAll('[data-admin-ceiling]')].map((bar) => bar.getBoundingClientRect().bottom))
+            const floor = Math.min(window.innerHeight, ...[...document.querySelectorAll('[data-admin-floor]')].map((bar) => bar.getBoundingClientRect().top))
+            const below = floor - box.bottom - 16
+            const above = box.top - ceiling - 16
+
+            panel.style.maxHeight = ''
+            {{-- Its own most height, where its stylesheet sets one. --}}
+            const most = parseFloat(getComputedStyle(panel).maxHeight) || Infinity
+            this.upward = panel.offsetHeight > below && above > below
+            panel.style.maxHeight = `${Math.max(0, Math.min(most, this.upward ? above : below))}px`
+        },
         options() {
             return [...this.$refs.menu.querySelectorAll('[role=option]')]
         },
         show() {
             this.open = true
-            this.$nextTick(() => (this.options().find((option) => option.getAttribute('aria-selected') === 'true') ?? this.options()[0])?.focus())
+            // Focused once it is drawn where it was placed: focused sooner, the window scrolls to where it is leaving.
+            this.$nextTick(() => {
+                this.place(this.$refs.trigger, this.$refs.menu)
+                requestAnimationFrame(() => (this.options().find((option) => option.getAttribute('aria-selected') === 'true') ?? this.options()[0])?.focus())
+            })
         },
         close(returnFocus) {
             if (! this.open) {
@@ -61,6 +80,7 @@
                 x-cloak
                 x-show="open"
                 x-transition.opacity
+                x-bind:class="{ 'rg-admin-games__goal-menu--up': upward }"
                 x-on:keydown.arrow-down.prevent="step(1)"
                 x-on:keydown.arrow-up.prevent="step(-1)"
                 x-on:keydown.home.prevent="options()[0]?.focus()"
