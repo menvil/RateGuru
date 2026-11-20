@@ -436,7 +436,7 @@ behaviour its ARIA role promises and its value exposed to `x-model` (`x-modelabl
 - **`x-admin.ui.filter-dropdown` (FRM-10):** a menu button (“Section: All”, `aria-haspopup="menu"`) over a 240 wide
   menu of `menuitemradio` items with a check and an optional count, which may be an Alpine expression kept live
   by the screen. Enter, Space or Down open it on the checked item; Up, Down, Home and End move; Escape returns to
-  the button; a choice, Tab or a click outside closes it.
+  the button; a choice, Tab or a click outside closes it. It opens the way the combobox's list does.
 - **`x-admin.ui.combobox` (FRM-11):** an option leads with a flag, or, for a list of things rather than languages,
   with an icon in a sunken square (28; 32 in the trigger), and an identifier such as a model name is set in mono.
   The trigger (`aria-haspopup="listbox"`) opens the list with focus in its
@@ -446,7 +446,16 @@ behaviour its ARIA role promises and its value exposed to `x-model` (`x-modelabl
   taken, so a screen can ask first or make the change on the server instead. The list opens under the trigger,
   or over it when there is more room there — measured between the bars kept at the window's top and foot
   (`data-admin-ceiling` on the top bar, `data-admin-floor` on the Content Studio editor's footer) — and is never
-  taller than its room, so all of it can be reached. The Post step's author panel opens the same way.
+  taller than its room, so all of it can be reached. The Post step's author panel opens the same way, and so do
+  the report pages' period picker, the game editor's flow, content-set and goal menus, the project settings'
+  preset panel and the Content Studio comment dialog's Replies to list — each under its trigger while all of it
+  fits there. The steps a flow's + offers rise beside it as far as they must, or open over it on a phone.
+
+A plain choice from a short list on Growth → Games and Traffic sources (`.rg-admin-games__select`,
+`.rg-admin-traffic__select`) stays a native `select`. Where the browser lets the page draw its list
+(`appearance: base-select`, Chromium) it is the admin's menu: under the field, over it when the window has no room
+under it, shorter and scrolling when all of it fits on neither side — never moved to set the chosen option over the
+field, as a Mac's own menu is. Other browsers keep their own menu.
 
 ## Status
 

@@ -363,14 +363,34 @@
                         @enderror
                     </div>
 
-                    <div class="rg-admin-field" x-data="{ open: false }" x-on:click.outside="open = false">
+                    <div
+                        class="rg-admin-field"
+                        x-data="{
+                            open: false,
+                            upward: false,
+                            {{-- Under the trigger, or over it when the room under it is too short and the room over it longer; never taller than the room it opens into, scrolling inside instead, whatever it comes to hold while open. --}}
+                            place(trigger, panel) {
+                                const box = trigger.getBoundingClientRect()
+                                {{-- The window's own edges: the dialog covers the page's bars. --}}
+                                const below = window.innerHeight - box.bottom - 16
+                                const above = box.top - 16
+
+                                panel.style.maxHeight = ''
+                                {{-- Its own most height, where its stylesheet sets one. --}}
+                                const most = parseFloat(getComputedStyle(panel).maxHeight) || Infinity
+                                this.upward = panel.offsetHeight > below && above > below
+                                panel.style.maxHeight = `${Math.max(0, Math.min(most, this.upward ? above : below))}px`
+                            },
+                        }"
+                        x-on:click.outside="open = false"
+                    >
                         <span class="rg-admin-label" id="rg-admin-discussion-dialog-parent">Replies to</span>
                         <div class="rg-admin-studio__parent">
-                            <button type="button" class="rg-admin-studio__parent-trigger" aria-haspopup="listbox" aria-labelledby="rg-admin-discussion-dialog-parent" x-bind:aria-expanded="open" x-on:click="open = ! open" @disabled($dialogData['hasReplies'])>
+                            <button type="button" class="rg-admin-studio__parent-trigger" aria-haspopup="listbox" aria-labelledby="rg-admin-discussion-dialog-parent" x-ref="trigger" x-bind:aria-expanded="open" x-on:click="open = ! open; if (open) $nextTick(() => place($refs.trigger, $refs.menu))" @disabled($dialogData['hasReplies'])>
                                 <span class="rg-admin-studio__parent-label">{{ $dialogData['parentLabel'] }}</span>
                                 <x-admin.ui.icon name="chevron-down" :size="16" />
                             </button>
-                            <div class="rg-admin-studio__parent-menu" role="listbox" x-show="open" x-cloak>
+                            <div class="rg-admin-studio__parent-menu" role="listbox" x-ref="menu" x-show="open" x-cloak x-bind:class="{ 'rg-admin-studio__parent-menu--up': upward }">
                                 <button type="button" role="option" aria-selected="{{ $dialogData['parentRef'] === null ? 'true' : 'false' }}" class="rg-admin-studio__parent-option" x-on:click="open = false; $wire.chooseParent(null)">
                                     <span class="rg-admin-studio__parent-option-label">No parent</span>
                                     <span class="rg-admin-studio__parent-option-sub">Top-level comment</span>

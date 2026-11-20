@@ -21,7 +21,11 @@
      * (x-modelable): x-model="section". A menu button: Enter, Space or Down
      * opens it on the checked value, Up and Down, Home and End move through
      * it, Enter or Space chooses, Escape closes it back to the button, and
-     * Tab or a click outside closes it.
+     * Tab or a click outside closes it. The menu opens under the button, or
+     * over it when the room under it is too short and the room over it
+     * longer — measured between the bars kept at the window's top and foot
+     * (`data-admin-ceiling`, `data-admin-floor`) — and is never taller than
+     * the room it opens into, scrolling inside instead.
      */
     $values = array_map(fn (array $option): string => (string) $option['value'], $options);
     $value = in_array((string) $value, $values, true) ? (string) $value : ($values[0] ?? '');
@@ -33,13 +37,32 @@
     x-data="{
         selected: @js($value),
         expanded: false,
+        upward: false,
         triggers: @js($triggers),
         items() {
             return [...this.$refs.menu.querySelectorAll('[role=menuitemradio]')]
         },
         show() {
             this.expanded = true
-            this.$nextTick(() => (this.items().find((item) => item.getAttribute('aria-checked') === 'true') ?? this.items()[0])?.focus())
+            // Focused once it is drawn where it was placed: focused sooner, the window scrolls to where it is leaving.
+            this.$nextTick(() => {
+                this.place(this.$refs.trigger, this.$refs.menu)
+                requestAnimationFrame(() => (this.items().find((item) => item.getAttribute('aria-checked') === 'true') ?? this.items()[0])?.focus())
+            })
+        },
+        {{-- Under the trigger, or over it when the room under it is too short and the room over it longer; never taller than the room it opens into, scrolling inside instead, whatever it comes to hold while open. --}}
+        place(trigger, panel) {
+            const box = trigger.getBoundingClientRect()
+            const ceiling = Math.max(0, ...[...document.querySelectorAll('[data-admin-ceiling]')].map((bar) => bar.getBoundingClientRect().bottom))
+            const floor = Math.min(window.innerHeight, ...[...document.querySelectorAll('[data-admin-floor]')].map((bar) => bar.getBoundingClientRect().top))
+            const below = floor - box.bottom - 16
+            const above = box.top - ceiling - 16
+
+            panel.style.maxHeight = ''
+            {{-- Its own most height, where its stylesheet sets one. --}}
+            const most = parseFloat(getComputedStyle(panel).maxHeight) || Infinity
+            this.upward = panel.offsetHeight > below && above > below
+            panel.style.maxHeight = `${Math.max(0, Math.min(most, this.upward ? above : below))}px`
         },
         close(returnFocus) {
             if (! this.expanded) {
@@ -90,6 +113,7 @@
         x-ref="menu"
         x-cloak
         x-show="expanded"
+        x-bind:class="{ 'rg-admin-filter-dropdown__menu--up': upward }"
         x-on:keydown.arrow-down.prevent="step(1)"
         x-on:keydown.arrow-up.prevent="step(-1)"
         x-on:keydown.home.prevent="items()[0]?.focus()"
