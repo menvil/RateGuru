@@ -129,7 +129,7 @@ it('offers the latest browsers that visited the site while nobody signed up or p
 it('reads a long journey as its latest steps, with its very first visit and the visit its sign-up is credited to', function () {
     $member = User::factory()->create();
     $elsewhere = analyticsVisit('another-browser', ['source_key' => 'google:organic']);
-    retentionAccount('2026-11-10 10:00:00', [], ['credited_visit_id' => $elsewhere->id], $member);
+    retentionAccount('2026-11-10 10:00:00', [], ['credited_visit_id' => $elsewhere->id, 'visitor_hash' => hash('sha256', 'another-browser')], $member);
 
     foreach (range(0, JourneyTimeline::MOST_STEPS) as $n) {
         analyticsVisit('long-journey', ['arrived_at' => CarbonImmutable::parse('2026-11-01 00:00:00')->addMinutes($n * 10), 'network_day' => '2026-11-01']);
@@ -143,7 +143,9 @@ it('reads a long journey as its latest steps, with its very first visit and the 
         ->and($journey['visits'][JourneyTimeline::MOST_STEPS - 1]['at']->toDateTimeString())->toBe('2026-11-01 00:10:00')
         ->and(array_column($journey['credited'], 'id'))->toBe([$elsewhere->id])
         ->and($journey['credited'][0]['source'])->toBe('google:organic')
-        ->and($journey['attribution']['visit'])->toBe($elsewhere->id);
+        ->and($journey['attribution']['visit'])->toBe($elsewhere->id)
+        // The browser the account was signed up in.
+        ->and($journey['attribution']['browser'])->toBe(hash('sha256', 'another-browser'));
 });
 
 it('reads the attempt a sign-up is credited to, with its game and version, though it is older than the latest attempts', function () {
@@ -171,6 +173,15 @@ it('reads the attempt a sign-up is credited to, with its game and version, thoug
 
     expect(array_column($journey['attempts'], 'id'))->toBe([$attempt->id])
         ->and($journey['creditedAttempt'])->toBeNull();
+});
+
+it('reads when a visit’s member first voted, commented or made a post, and nothing for a visit they did nothing on', function () {
+    analyticsVisit('active-reader', ['network_day' => '2026-11-10', 'arrived_at' => '2026-11-10 10:00:00']);
+    analyticsVisit('active-reader', ['network_day' => '2026-11-15', 'arrived_at' => '2026-11-15 10:00:00', 'votes' => 2, 'acted_at' => '2026-11-15 10:04:00']);
+
+    $visits = $this->journeys->journey([hash('sha256', 'active-reader')], null, null)['visits'];
+
+    expect(array_map(fn (array $visit): ?string => $visit['acted']?->toDateTimeString(), $visits))->toEqualCanonicalizing([null, '2026-11-15 10:04:00']);
 });
 
 it('reads the latest rows of the posts a journey’s sessions opened, oldest first, and says the older were left out', function () {

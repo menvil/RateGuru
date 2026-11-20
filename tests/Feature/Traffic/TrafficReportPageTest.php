@@ -683,8 +683,8 @@ it('shows on Spend each day’s impressions and how many of them reached RateGur
 
     $page = Livewire::withQueryParams(['tab' => 'spend'])->test(TrafficSourcesPage::class)->call('load')
         ->set('spendSource', (string) $this->source->id)
-        ->assertSeeInOrder(['Day', 'Clicks', 'Impressions', 'Reached', 'From click costs', 'From the network', 'In reports'])
-        ->assertSeeInOrder(['Yesterday', '30', '40', '30', '75.0%']);
+        ->assertSeeInOrder(['Day', 'Impressions', 'Clicks', 'Reached', 'From click costs', 'From the network', 'In reports'])
+        ->assertSeeInOrder(['Yesterday', '40', '30', '30', '75.0%']);
     $days = collect($page->viewData('dayRows'))->keyBy('date');
 
     expect($days['2026-11-16']['reach']->impressions)->toBe(40)

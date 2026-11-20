@@ -69,7 +69,11 @@ it('writes a week of visits and the week before as capture records them, once', 
         // Browsers came back.
         ->and($visits->pluck('visitor_hash')->unique()->count())->toBeLessThan($visits->count())
         ->and($visits->where('known', true))->not->toBeEmpty()
-        ->and($visits->whereNotNull('city'))->not->toBeEmpty();
+        ->and($visits->whereNotNull('city'))->not->toBeEmpty()
+        // A member's votes, comments and posts keep the moment of the first, inside the visit; a visit with none keeps none.
+        ->and($visits->filter(fn (TrafficVisit $visit): bool => $visit->votes + $visit->comments + $visit->posts_created > 0))->not->toBeEmpty()
+        ->and($visits->filter(fn (TrafficVisit $visit): bool => ($visit->votes + $visit->comments + $visit->posts_created > 0) !== ($visit->acted_at !== null)))->toBeEmpty()
+        ->and($visits->whereNotNull('acted_at')->filter(fn (TrafficVisit $visit): bool => $visit->acted_at->lessThan($visit->arrived_at) || $visit->acted_at->greaterThan($visit->last_seen_at)))->toBeEmpty();
 
     // The game: a second version, the traffic split between them by period, and for the first ad network — on the pages that ran.
     $game = $visits->whereNotNull('game_id')->whereNotNull('opened_at');

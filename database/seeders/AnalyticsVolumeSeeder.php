@@ -587,7 +587,7 @@ class AnalyticsVolumeSeeder extends Seeder
             'post_opened_at', 'feed_at', 'signup_form_at', 'signup_at', 'account_at', 'returned_at', 'settled_at', 'signup_place', 'signup_method',
             'signup_after_seconds', 'account_after_seconds', 'rounds_answered', 'cost', 'spend', 'spend_basis', 'spend_estimated', 'value_real',
             'value_expected', 'activated_at', 'entry_visit_id', 'source_key', 'campaign_key', 'creative_key', 'landing_key', 'utm_source', 'utm_medium',
-            'utm_campaign', 'utm_content', 'utm_term', 'votes', 'comments', 'posts_created',
+            'utm_campaign', 'utm_content', 'utm_term', 'votes', 'comments', 'posts_created', 'acted_at',
         ], null);
         $this->blank = [...$this->blank, 'price_set_id' => $this->priceSet, 'bot_flags' => 0, 'known' => false, 'rounds_answered' => 0, 'spend' => '0',
             'spend_basis' => TrafficSpendBasis::None->value, 'spend_estimated' => false, 'value_real' => '0', 'value_expected' => '0', 'votes' => 0, 'comments' => 0, 'posts_created' => 0];
@@ -826,7 +826,7 @@ class AnalyticsVolumeSeeder extends Seeder
             ...$row,
             ...array_intersect_key($this->blank, array_flip(['game_id', 'version_id', 'started_at', 'halfway_at', 'completed_at', 'goal_at', 'shared_at', 'replayed_at',
                 'post_opened_at', 'feed_at', 'signup_form_at', 'signup_at', 'account_at', 'returned_at', 'signup_place', 'signup_method', 'signup_after_seconds',
-                'account_after_seconds', 'rounds_answered', 'activated_at', 'votes', 'comments', 'posts_created'])),
+                'account_after_seconds', 'rounds_answered', 'activated_at', 'votes', 'comments', 'posts_created', 'acted_at'])),
             'channel' => TrafficChannel::Internal->value,
             'origin' => $game ? 'game' : 'feed',
             'arrived_at' => self::moment($next),
@@ -979,6 +979,8 @@ class AnalyticsVolumeSeeder extends Seeder
         $moment = $at;
         $votes = 0;
         $comments = 0;
+        // When the member first voted or commented, as live capture keeps it: three seconds into the post, before the visit is last seen.
+        $acted = null;
 
         for ($read = 0; $read < $reads; $read++) {
             $post = $this->posts[(int) (count($this->posts) * (mt_rand() / (mt_getrandmax() + 1)) ** 2)];
@@ -992,6 +994,7 @@ class AnalyticsVolumeSeeder extends Seeder
             $commented = $userId !== null && mt_rand(1, 100) <= 10;
             $votes += $voted ? 1 : 0;
             $comments += $commented ? 1 : 0;
+            $acted ??= $voted || $commented ? min($this->now, $moment + 3) : null;
             $seen[$post] = true;
 
             if ($at >= $this->postsFrom) {
@@ -1011,6 +1014,8 @@ class AnalyticsVolumeSeeder extends Seeder
         $row['votes'] = $votes;
         $row['comments'] = $comments;
         $row['posts_created'] = $userId !== null && mt_rand(1, 100) <= 3 ? 1 : 0;
+        $acted ??= $row['posts_created'] > 0 ? min($this->now, $moment) : null;
+        $row['acted_at'] = $acted === null ? null : self::moment($acted);
         $row['last_seen_at'] = self::moment(min($this->now, $moment + mt_rand(5, 60)));
 
         if ($new && mt_rand(1, 1000) <= 22) {
