@@ -291,6 +291,144 @@ function bindFakeHostResolver(array $extraHostToIps = []): void
 }
 
 /**
+ * A loopback HTTP server (PHP's built-in one on 127.0.0.1, a free port) whose
+ * router answers by `?mode=`: echo the Host header, stream without end, send
+ * past a cap and then hold the connection, start a short answer and then hold
+ * the connection, send an oversized Content-Length, or sleep. The only way to exercise real curl end to end — the pin, on_headers
+ * and the progress abort — which Http::fake() bypasses entirely: the import
+ * transport and the postback deliverer both test against it.
+ *
+ * @return array{0: resource, 1: int, 2: string} process handle, port, docroot
+ */
+function startLoopbackFixtureServer(): array
+{
+    $docroot = sys_get_temp_dir().'/import-transport-fixture-'.uniqid('', true);
+    mkdir($docroot, 0o755, true);
+
+    file_put_contents($docroot.'/router.php', <<<'PHP'
+<?php
+$mode = $_GET['mode'] ?? 'echo';
+
+switch ($mode) {
+    case 'echo':
+        header('Content-Type: text/plain');
+        echo 'Host header seen: ' . ($_SERVER['HTTP_HOST'] ?? '(none)');
+        break;
+
+    case 'big-stream':
+        header('Content-Type: application/octet-stream');
+        $chunk = str_repeat('A', 65536);
+        for ($i = 0; $i < 100000; $i++) { // ~6.5 GB if never aborted
+            echo $chunk;
+            if (connection_aborted()) {
+                exit;
+            }
+            flush();
+        }
+        break;
+
+    case 'stalled-oversized-stream':
+        header('Content-Type: application/octet-stream');
+        echo str_repeat('A', 300000);
+        flush();
+        sleep(20);
+        break;
+
+    case 'stalled-short-answer':
+        header('Content-Type: text/plain');
+        header('Content-Length: 100');
+        echo 'OK';
+        flush();
+        sleep(20);
+        break;
+
+    case 'oversized-content-length':
+        header('Content-Length: 999999999');
+        header('Content-Type: application/octet-stream');
+        echo str_repeat('A', 1024);
+        flush();
+        sleep(20);
+        break;
+
+    case 'oversized-content-length-error':
+        http_response_code(500);
+        header('Content-Length: 999999999');
+        header('Content-Type: text/html');
+        echo str_repeat('A', 1024);
+        flush();
+        sleep(20);
+        break;
+
+    case 'sleep-forever':
+        sleep(30);
+        echo 'done';
+        break;
+
+    default:
+        http_response_code(404);
+}
+PHP);
+
+    // Binding a probe socket to port 0 asks the OS to hand back a genuinely
+    // free ephemeral port, closed immediately after -- unlike random_int()
+    // over a fixed range, this can't collide with something else already
+    // listening on the machine (another test worker, a local dev service).
+    $probe = stream_socket_server('tcp://127.0.0.1:0', $errno, $errstr);
+
+    if ($probe === false) {
+        throw new RuntimeException("Failed to reserve a loopback port: {$errstr}");
+    }
+
+    $port = (int) explode(':', stream_socket_get_name($probe, false))[1];
+    fclose($probe);
+
+    // stdout/stderr redirected to /dev/null rather than pipes: nothing in
+    // this fixture ever reads from $pipes, and the built-in server writes
+    // an access-log line per request to stderr -- left as pipes, that
+    // output would sit in the OS pipe buffer until it fills and the child
+    // process blocks trying to write more, hanging the fixture instead of
+    // just discarding output nothing needs.
+    $process = proc_open(
+        [PHP_BINARY, '-S', "127.0.0.1:{$port}", '-t', $docroot],
+        [1 => ['file', '/dev/null', 'w'], 2 => ['file', '/dev/null', 'w']],
+        $pipes,
+    );
+
+    if ($process === false) {
+        throw new RuntimeException('Failed to start the loopback fixture server.');
+    }
+
+    // Give the built-in server a moment to bind before the first request.
+    $deadline = microtime(true) + 3.0;
+
+    while (microtime(true) < $deadline) {
+        $conn = @fsockopen('127.0.0.1', $port, $errno, $errstr, 0.1);
+
+        if ($conn !== false) {
+            fclose($conn);
+
+            return [$process, $port, $docroot];
+        }
+
+        usleep(50_000);
+    }
+
+    throw new RuntimeException('Loopback fixture server never started listening.');
+}
+
+function stopLoopbackFixtureServer(array $server): void
+{
+    [$process, , $docroot] = $server;
+
+    proc_terminate($process);
+    proc_close($process);
+
+    // Best-effort — this is a throwaway temp docroot, not user data.
+    @unlink($docroot.'/router.php');
+    @rmdir($docroot);
+}
+
+/**
  * An ImportHttpTransport test double that returns a scripted sequence of
  * responses (one per call to get()) and records every ResolvedImportTarget
  * it was actually invoked with — shared by every SafeImportHttpClient-level

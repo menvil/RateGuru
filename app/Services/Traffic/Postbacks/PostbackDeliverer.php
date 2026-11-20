@@ -100,10 +100,10 @@ final class PostbackDeliverer
             'decode_content' => false,
             // No ambient proxy: a proxy resolves the host itself, and the pin below would not hold.
             'proxy' => '',
+            // An answer past the cap stops being read: true makes curl abort, and what came so far is the answer.
+            'progress' => fn (int $total, int $downloaded): bool => $downloaded > self::MAX_BYTES,
             'curl' => [
                 CURLOPT_RESOLVE => ["{$target->host}:{$target->port}:{$target->ip}"],
-                CURLOPT_NOPROGRESS => false,
-                CURLOPT_XFERINFOFUNCTION => fn ($handle, int $total, int $downloaded): int => $downloaded > self::MAX_BYTES ? 1 : 0,
             ],
         ];
     }
@@ -112,6 +112,12 @@ final class PostbackDeliverer
     private function attempt(mixed $response, ?array $rules, int $latency): PostbackAttempt
     {
         if ($response instanceof Response) {
+            // An answer whose status and headers came but whose body never finished arriving still comes back as a
+            // response: it timed out all the same, and is tried again like any other timeout.
+            if ($response->transferStats?->getHandlerErrorData() === CURLE_OPERATION_TIMEDOUT) {
+                return new PostbackAttempt(TrafficPostbackOutcome::Timeout, null, $latency, null);
+            }
+
             $body = mb_strcut($response->body(), 0, self::MAX_BYTES);
 
             $headers = [];
