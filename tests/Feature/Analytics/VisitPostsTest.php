@@ -339,6 +339,23 @@ it('counts a member’s posts on the visit, without a row for the new post', fun
         ->and(TrafficVisitPost::query()->exists())->toBeFalse();
 });
 
+it('keeps on the visit when its member first voted, commented or made a post, and only the first', function () {
+    $member = User::factory()->create();
+    $visit = feedVisitOf($this->hash);
+    $first = CarbonImmutable::now()->subMinutes(2)->startOfSecond();
+
+    // A game played is none of them.
+    app(RecordUserActivityAction::class)->handle($member, UserActivity::Played, null, $this->hash, $first->subMinute());
+
+    expect($visit->fresh()->acted_at)->toBeNull();
+
+    app(RecordUserActivityAction::class)->handle($member, UserActivity::Commented, $this->post->id, $this->hash, $first);
+    app(RecordUserActivityAction::class)->handle($member, UserActivity::Voted, $this->post->id, $this->hash, $first->addMinute());
+
+    expect($visit->fresh())->acted_at->toDateTimeString()->toBe($first->utc()->toDateTimeString())
+        ->comments->toBe(1)->votes->toBe(1);
+});
+
 it('writes nothing on a visit while visits are not recorded, the member’s day staying', function () {
     $member = User::factory()->create();
     AccountAttribution::factory()->create(['user_id' => $member->id, 'signed_up_at' => now()->subDay()]);

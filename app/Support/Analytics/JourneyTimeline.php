@@ -12,10 +12,12 @@ use Carbon\CarbonImmutable;
  * Journeys draws it from what JourneyQuery read: every step recorded of the
  * browsers it is read for — each visit, a session's first with where it came
  * from (its source, campaign tags, page and place), the posts each session
- * opened, shared, voted and commented on in one line, the versions the games
+ * opened and shared in one line, and what its member voted, commented and
+ * made in another, at the moment they first did, the versions the games
  * gave, the attempts and how far each got, the sign-up and share buttons
  * pressed, an email left (never the address), signing in, and for an account
- * its sign-up, confirmation, activation and the later days it came back —
+ * its sign-up, confirmation (with the sign-up, when Google or Facebook
+ * confirmed it at once), activation and the later days it came back —
  * oldest first, at most the latest MOST_STEPS. Then what brought the browser
  * and what the account is credited to (Attribution) and who it is
  * (Identity).
@@ -55,8 +57,15 @@ final class JourneyTimeline
     /** The hex digits a browser is named by where several share an ID's digits. */
     public const int LONG_DIGITS = 16;
 
-    /** How a step ranks against another of the same moment: the arrival first, a goal after what reached it, the activation last. */
-    private const array RANK = ['visit' => 0, 'assigned' => 1, 'started' => 2, 'posts' => 3, 'done' => 4, 'pressed' => 5, 'signin' => 6, 'signup' => 6, 'claimed' => 7, 'confirmed' => 8, 'goal' => 9, 'activated' => 10, 'returned' => 10];
+    /**
+     * How a step ranks against another of the same moment: the arrival first,
+     * what a member did once the account they did it with existed, a goal
+     * after what reached it, the activation last.
+     */
+    private const array RANK = ['visit' => 0, 'assigned' => 1, 'started' => 2, 'posts' => 3, 'done' => 4, 'pressed' => 5, 'signin' => 6, 'signup' => 6, 'claimed' => 7, 'confirmed' => 8, 'acted' => 9, 'goal' => 10, 'activated' => 11, 'returned' => 11];
+
+    /** How long after signing up with Google or Facebook a confirmation still counts as part of it: drawn as one step. */
+    private const int AT_ONCE_SECONDS = 60;
 
     /** @var list<array<string, mixed>> the visits read and any the attribution names, oldest first */
     private readonly array $visits;
@@ -323,10 +332,10 @@ final class JourneyTimeline
     }
 
     /**
-     * The posts each session opened, shared, voted and commented on — each
-     * post once, however many of the session's visits did so — and the
-     * votes, comments and posts its member made on its visits: one line a
-     * session.
+     * The posts each session opened and shared — each post once, however
+     * many of the session's visits did so — in one line at the first of
+     * them; and the votes, comments and posts its member made on its visits
+     * in another, at the moment of the first (actedAt()).
      */
     private function postSteps(callable $add): void
     {
@@ -336,6 +345,7 @@ final class JourneyTimeline
             $visits[$visit['id']] = $visit;
         }
 
+        $blank = fn (CarbonImmutable $at): array => ['at' => $at, 'posts' => [], 'views' => 0, 'shared' => [], 'voted' => [], 'commented' => [], 'actedOn' => [], 'votes' => 0, 'comments' => 0, 'made' => 0, 'acted' => null];
         $sessions = [];
 
         foreach ($this->journey['posts'] as $row) {
@@ -345,7 +355,7 @@ final class JourneyTimeline
                 continue;
             }
 
-            $session = $sessions[$entry] ?? ['at' => $row['at'], 'posts' => [], 'views' => 0, 'shared' => [], 'voted' => [], 'commented' => [], 'votes' => 0, 'comments' => 0, 'made' => 0];
+            $session = $sessions[$entry] ?? $blank($row['at']);
             $session['at'] = $row['at'] < $session['at'] ? $row['at'] : $session['at'];
             $session['posts'][$row['post']] = true;
             $session['views'] += $row['views'];
@@ -356,6 +366,10 @@ final class JourneyTimeline
                 }
             }
 
+            if ($row['voted'] || $row['commented']) {
+                $session['actedOn'][$row['post']] = true;
+            }
+
             $sessions[$entry] = $session;
         }
 
@@ -364,22 +378,56 @@ final class JourneyTimeline
                 continue;
             }
 
-            $session = $sessions[$visit['entry']] ?? ['at' => $visit['seen'], 'posts' => [], 'views' => 0, 'shared' => [], 'voted' => [], 'commented' => [], 'votes' => 0, 'comments' => 0, 'made' => 0];
+            $session = $sessions[$visit['entry']] ?? $blank($this->sessionStart($visit['entry'], $visit['at']));
             $session['votes'] += $visit['votes'];
             $session['comments'] += $visit['comments'];
             $session['made'] += $visit['posts'];
+            $acted = $visit['acted'] ?? null;
+
+            if ($acted !== null && ($session['acted'] === null || $acted < $session['acted'])) {
+                $session['acted'] = $acted;
+            }
+
             $sessions[$visit['entry']] = $session;
         }
 
         foreach ($sessions as $entry => $session) {
             $opened = count($session['posts']);
-            $ids = array_keys($session['posts']);
-            $shared = count($session['shared']);
+
+            if ($opened > 0) {
+                $shared = count($session['shared']);
+                $parts = array_filter([
+                    $session['views'] > $opened ? self::count($session['views'], 'view') : null,
+                    $shared > 0 ? 'shared '.$shared : null,
+                ]);
+
+                $add(
+                    $session['at'],
+                    'posts',
+                    'eye',
+                    'Opened '.self::count($opened, 'post'),
+                    match (true) {
+                        $parts !== [] => ucfirst(implode(' · ', $parts)).'.',
+                        $opened === 1 => 'One view.',
+                        default => 'One view each.',
+                    },
+                    self::sessionMeta($entry, array_keys($session['posts'])),
+                );
+            }
+
             $voted = count($session['voted']);
             $commented = count($session['commented']);
+            $did = array_keys(array_filter([
+                'voted' => $voted > 0 || $session['votes'] > 0,
+                'commented' => $commented > 0 || $session['comments'] > 0,
+                'published '.self::count($session['made'], 'post') => $session['made'] > 0,
+            ]));
+
+            if ($did === []) {
+                continue;
+            }
+
             $parts = array_filter([
-                $session['views'] > $opened ? self::count($session['views'], 'view') : null,
-                $shared > 0 ? 'shared '.$shared : null,
                 $voted > 0 ? 'voted on '.self::count($voted, 'post') : null,
                 $commented > 0 ? 'commented on '.self::count($commented, 'post') : null,
                 // The member's own counts, where they say more than the posts voted and commented on.
@@ -387,23 +435,87 @@ final class JourneyTimeline
                 $session['comments'] > $commented ? self::count($session['comments'], 'comment') : null,
                 $session['made'] > 0 ? self::count($session['made'], 'post', 'posts').' published' : null,
             ]);
+            [$at, $when] = $this->actedAt($entry, $session);
 
             $add(
-                $session['at'],
-                'posts',
-                $opened > 0 ? 'eye' : 'message-square',
-                $opened > 0 ? 'Opened '.self::count($opened, 'post') : 'Took part on the site',
+                $at,
+                'acted',
                 match (true) {
-                    $parts !== [] => ucfirst(implode(' · ', $parts)).'.',
-                    $opened === 1 => 'One view.',
-                    default => 'One view each.',
+                    $voted > 0 || $session['votes'] > 0 => 'thumbs-up',
+                    $commented > 0 || $session['comments'] > 0 => 'message-square',
+                    default => 'pencil',
                 },
-                implode(' · ', array_filter([
-                    'session_'.$entry,
-                    $ids === [] ? null : implode(', ', array_map(fn (int $id): string => '#'.$id, array_slice($ids, 0, 5))).(count($ids) > 5 ? ' +'.(count($ids) - 5) : ''),
-                ])),
+                ucfirst(match (count($did)) {
+                    1 => $did[0],
+                    default => implode(', ', array_slice($did, 0, -1)).' and '.$did[count($did) - 1],
+                }),
+                ucfirst(implode(' · ', $parts)).'.'.$when,
+                self::sessionMeta($entry, array_keys($session['actedOn'])),
             );
         }
+    }
+
+    /**
+     * When a session's member first voted, commented or made a post: the
+     * moment its visits kept. Visits from before that moment was kept say
+     * only how many: then the earliest it can have been — the sign-up, when
+     * the account signed up during the session, since a guest can neither
+     * vote nor comment; otherwise the first post the session opened, or the
+     * session's start — and a note that says so.
+     *
+     * @param  array<string, mixed>  $session
+     * @return array{0: CarbonImmutable, 1: string} the moment, and the note to add to the step
+     */
+    private function actedAt(int $entry, array $session): array
+    {
+        if ($session['acted'] !== null) {
+            return [$session['acted'], ''];
+        }
+
+        $signedUp = $this->account()['signedUp'] ?? null;
+        $start = $this->sessionStart($entry, $session['at']);
+        $next = null;
+
+        foreach ($this->visits as $visit) {
+            if ($visit['entry'] !== $entry && $visit['at'] > $start && ($next === null || $visit['at'] < $next)) {
+                $next = $visit['at'];
+            }
+        }
+
+        if ($signedUp instanceof CarbonImmutable && $signedUp > $session['at'] && $signedUp >= $start && ($next === null || $signedUp < $next)) {
+            return [$signedUp, ' Visits this old didn’t keep when: drawn at the sign-up, since a guest can’t vote or comment.'];
+        }
+
+        return [$session['at'], $session['posts'] === []
+            ? ' Visits this old didn’t keep when: drawn at the start of the session.'
+            : ' Visits this old didn’t keep when: drawn with the first post the session opened.'];
+    }
+
+    /** When a session began: the earliest of its visits read, or the moment given when none of them was. */
+    private function sessionStart(int $entry, CarbonImmutable $otherwise): CarbonImmutable
+    {
+        $start = null;
+
+        foreach ($this->visits as $visit) {
+            if ($visit['entry'] === $entry && ($start === null || $visit['at'] < $start)) {
+                $start = $visit['at'];
+            }
+        }
+
+        return $start ?? $otherwise;
+    }
+
+    /**
+     * A session's line's meta: the session, and the posts it names — five at most.
+     *
+     * @param  list<int>  $ids
+     */
+    private static function sessionMeta(int $entry, array $ids): string
+    {
+        return implode(' · ', array_filter([
+            'session_'.$entry,
+            $ids === [] ? null : implode(', ', array_map(fn (int $id): string => '#'.$id, array_slice($ids, 0, 5))).(count($ids) > 5 ? ' +'.(count($ids) - 5) : ''),
+        ]));
     }
 
     /** The versions games gave, each attempt and how far it got, and what was pressed or left on the way. */
@@ -492,14 +604,19 @@ final class JourneyTimeline
 
         $user = self::userId((int) $this->journey['user']);
         $credited = $attribution['visit'] === null ? null : $this->visit($attribution['visit']);
+        $social = in_array($attribution['method'], ['google', 'facebook'], true);
+        // Google and Facebook confirm the address with the sign-up itself: one step, not two of the same moment.
+        $atOnce = $social && $attribution['confirmed'] !== null
+            && abs($attribution['confirmed']->getTimestamp() - $attribution['signedUp']->getTimestamp()) <= self::AT_ONCE_SECONDS;
         $add($attribution['signedUp'], 'signup', 'user-plus', 'Signed up with '.self::method($attribution['method']),
-            'Account '.$user.' created'.(AccountSignupPlace::tryFrom((string) $attribution['place']) === null ? '' : ' '.lcfirst(AccountSignupPlace::from((string) $attribution['place'])->label())).'.'
+            'Account '.$user.' created'.(AccountSignupPlace::tryFrom((string) $attribution['place']) === null ? '' : ' '.lcfirst(AccountSignupPlace::from((string) $attribution['place'])->label()))
+            .($atOnce ? ' and confirmed at once by '.self::method($attribution['method']).': the new account counts from here' : '').'.'
             .($credited === null ? '' : ' Conversion touch: '.AnalyticsSource::label($credited['source'], $this->sourceNames).'.'), $user);
 
-        if ($attribution['confirmed'] !== null) {
-            $add($attribution['confirmed'], 'confirmed', 'circle-check', 'Confirmed the account', $attribution['method'] === null || $attribution['method'] === 'email'
-                ? 'The email address was confirmed: the new account counts from here.'
-                : 'Confirmed at once by '.self::method($attribution['method']).': the new account counts from here.');
+        if ($attribution['confirmed'] !== null && ! $atOnce) {
+            $add($attribution['confirmed'], 'confirmed', 'circle-check', 'Confirmed the account', $social
+                ? 'Confirmed by '.self::method($attribution['method']).': the new account counts from here.'
+                : 'The email address was confirmed: the new account counts from here.');
         }
 
         $signedUpDay = $attribution['signedUp']->startOfDay();

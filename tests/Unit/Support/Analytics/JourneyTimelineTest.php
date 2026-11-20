@@ -31,7 +31,7 @@ function journeyVisitRecord(int $id, string $at, array $attributes = []): array
         'id' => $id, 'entry' => $id, 'hash' => JOURNEY_BROWSER, 'at' => $moment, 'seen' => $moment, 'opened' => true,
         'source' => 'direct', 'campaign' => null, 'creative' => null, 'landing' => null, 'tags' => [], 'origin' => null,
         'path' => null, 'referrer' => null, 'device' => 'mobile', 'country' => null, 'city' => null, 'game' => null,
-        'login' => null, 'votes' => 0, 'comments' => 0, 'posts' => 0,
+        'login' => null, 'votes' => 0, 'comments' => 0, 'posts' => 0, 'acted' => null,
         ...$attributes,
     ];
 }
@@ -86,7 +86,7 @@ it('tells a member’s way from the first visit to the days they came back, with
         'visits' => [
             journeyVisitRecord(10, '2026-10-01 19:42:00', ['source' => 'reddit:organic', 'referrer' => 'old.reddit.com', 'landing' => 'games.play:7:70', 'game' => 7, 'country' => 'DE', 'city' => 'Hamburg']),
             journeyVisitRecord(20, '2026-10-03 18:10:00', ['source' => 'paid:4', 'campaign' => 'paid:9', 'creative' => 'video_03', 'path' => '/games/trust-your-taste', 'game' => 7, 'device' => 'desktop', 'country' => 'DE']),
-            journeyVisitRecord(21, '2026-10-03 18:15:00', ['entry' => 20, 'source' => 'paid:4', 'campaign' => 'paid:9', 'path' => '/posts/12']),
+            journeyVisitRecord(21, '2026-10-03 18:15:00', ['entry' => 20, 'source' => 'paid:4', 'campaign' => 'paid:9', 'path' => '/posts/12', 'votes' => 1, 'comments' => 1, 'acted' => CarbonImmutable::parse('2026-10-03 18:16:00', 'UTC')]),
             journeyVisitRecord(30, '2026-10-07 08:31:00', ['source' => 'email:email', 'tags' => ['utm_source' => 'newsletter', 'utm_medium' => 'email', 'utm_campaign' => 'weekly-40'], 'login' => CarbonImmutable::parse('2026-10-07 08:32:00', 'UTC')]),
         ],
         'posts' => [
@@ -131,9 +131,9 @@ it('tells a member’s way from the first visit to the days they came back, with
             '03 Oct 18:12 Clicked “Sign up”',
             '03 Oct 18:13 Signed up with Google',
             '03 Oct 18:13 Result claimed',
-            '03 Oct 18:13 Confirmed the account',
             '03 Oct 18:15 Went on to /posts/12',
             '03 Oct 18:15 Opened 2 posts',
+            '03 Oct 18:16 Voted and commented',
             '06 Oct 10:00 Came back on day 3 and voted — activation rule met',
             '07 Oct 08:31 Returned from Email',
             '07 Oct 08:32 Signed in',
@@ -149,12 +149,15 @@ it('tells a member’s way from the first visit to the days they came back, with
         ->and($entries['Assigned to Trust Your Taste']['body'])->toBe('Assigned V7 in the period from 02 Oct (V7 80% · V8 20%). The version stays the same when they come back.')
         ->and($entries['Assigned to Trust Your Taste']['meta'])->toBe('assignment_931')
         ->and($entries['Reached the goal']['body'])->toBe('New account confirmed: the goal of its flow.')
-        ->and($entries['Signed up with Google']['body'])->toBe('Account user_3814 created in the game. Conversion touch: Instagram tests.')
+        // Google confirmed the address with the sign-up: one step, not a second of the same moment.
+        ->and($entries['Signed up with Google']['body'])->toBe('Account user_3814 created in the game and confirmed at once by Google: the new account counts from here. Conversion touch: Instagram tests.')
+        ->and($entries->has('Confirmed the account'))->toBeFalse()
         ->and($entries['Result claimed']['body'])->toBe('attempt_5893 is linked to the new account, user_3814.')
-        ->and($entries['Confirmed the account']['body'])->toBe('Confirmed at once by Google: the new account counts from here.')
-        // The session's posts, in one line.
-        ->and($entries['Opened 2 posts']['body'])->toBe('3 views · shared 1 · voted on 1 post · commented on 1 post.')
+        // The session's posts in one line, and what the member did on them in another, when they first did.
+        ->and($entries['Opened 2 posts']['body'])->toBe('3 views · shared 1.')
         ->and($entries['Opened 2 posts']['meta'])->toBe('session_20 · #12, #15')
+        ->and($entries['Voted and commented']['body'])->toBe('Voted on 1 post · commented on 1 post.')
+        ->and($entries['Voted and commented']['meta'])->toBe('session_20 · #12, #15')
         ->and($entries['Returned from Email']['body'])->toBe('Campaign tags: utm_source=newsletter · utm_medium=email · utm_campaign=weekly-40. The Reddit first touch is kept.')
         ->and($entries['Came back on day 4']['body'])->toBe('Voted and commented.')
         ->and($view['touches'])->toBe([
@@ -250,8 +253,8 @@ it('shows the latest two hundred steps of a longer journey, and says the earlier
 it('counts a session’s votes and comments once: by the posts, and by the member’s own count only where it says more', function () {
     $view = journeyOf([
         'visits' => [
-            journeyVisitRecord(1, '2026-10-01 10:00:00', ['votes' => 1, 'comments' => 1]),
-            journeyVisitRecord(2, '2026-10-02 10:00:00', ['votes' => 3]),
+            journeyVisitRecord(1, '2026-10-01 10:00:00', ['votes' => 1, 'comments' => 1, 'acted' => CarbonImmutable::parse('2026-10-01 10:02:00', 'UTC')]),
+            journeyVisitRecord(2, '2026-10-02 10:00:00', ['votes' => 3, 'acted' => CarbonImmutable::parse('2026-10-02 10:02:00', 'UTC')]),
         ],
         'posts' => [
             ['visit' => 1, 'post' => 12, 'views' => 1, 'shared' => false, 'voted' => true, 'commented' => true, 'at' => CarbonImmutable::parse('2026-10-01 10:01:00', 'UTC')],
@@ -259,11 +262,80 @@ it('counts a session’s votes and comments once: by the posts, and by the membe
         ],
     ]);
 
-    expect(collect($view['entries'])->where('title', 'Opened 1 post')->pluck('body')->values()->all())->toBe([
-        'Voted on 1 post · commented on 1 post.',
+    expect(array_map(fn (array $entry): string => $entry['time'].' '.$entry['title'].': '.$entry['body'], array_slice($view['entries'], 1, 2)))->toBe([
+        '01 Oct 10:01 Opened 1 post: One view.',
+        '01 Oct 10:02 Voted and commented: Voted on 1 post · commented on 1 post.',
+    ])
         // Three answers on one post: the post once, and the votes.
-        'Voted on 1 post · 3 votes.',
+        ->and(collect($view['entries'])->firstWhere('title', 'Voted')['body'])->toBe('Voted on 1 post · 3 votes.');
+});
+
+it('draws what a guest did on a post after the sign-up it took, when the visit didn’t keep the moment', function () {
+    // A paid click, a game, the post it sent them to; voting and commenting there took an account: Google, at once.
+    $view = (new JourneyTimeline([
+        'kind' => 'user', 'browsers' => [JOURNEY_BROWSER], 'user' => 490, 'account' => true,
+        'visits' => [journeyVisitRecord(1725, '2026-11-20 04:06:00', ['source' => 'paid:4', 'game' => 7, 'votes' => 2, 'comments' => 1])],
+        'posts' => [['visit' => 1725, 'post' => 9, 'views' => 6, 'shared' => false, 'voted' => true, 'commented' => true, 'at' => CarbonImmutable::parse('2026-11-20 04:09:30', 'UTC')]],
+        'attempts' => [journeyAttemptRecord(64, '2026-11-20 04:08:00', ['score' => 5, 'goal' => CarbonImmutable::parse('2026-11-20 04:10:12', 'UTC'), 'outcome' => 'registered', 'outcomeAt' => CarbonImmutable::parse('2026-11-20 04:10:12', 'UTC')])],
+        'assignments' => [], 'periods' => [], 'events' => [], 'emails' => [], 'days' => [], 'first' => null, 'credited' => [], 'cut' => false,
+        'attribution' => [
+            'signedUp' => CarbonImmutable::parse('2026-11-20 04:10:12', 'UTC'), 'confirmed' => CarbonImmutable::parse('2026-11-20 04:10:12', 'UTC'),
+            'method' => 'google', 'place' => 'post', 'visit' => 1725, 'attempt' => 64, 'expired' => null, 'activated' => null,
+        ],
+        'games' => [7 => ['title' => 'Eagle Eye', 'slug' => 'eagle-eye']],
+        'versions' => [70 => ['number' => 2, 'flow' => 'Result First', 'goal' => 'New account confirmed', 'rounds' => 5]],
+    ], [4 => 'PopAds']))->view();
+
+    expect(array_map(fn (array $entry): string => $entry['time'].' '.$entry['title'], $view['entries']))->toBe([
+        '20 Nov 04:06 Arrived from PopAds',
+        '20 Nov 04:08 Started Eagle Eye',
+        '20 Nov 04:09 Completed the game',
+        '20 Nov 04:09 Opened 1 post',
+        '20 Nov 04:10 Signed up with Google',
+        '20 Nov 04:10 Result claimed',
+        '20 Nov 04:10 Voted and commented',
+        '20 Nov 04:10 Reached the goal',
     ]);
+
+    $entries = collect($view['entries'])->keyBy('title');
+
+    expect($entries['Opened 1 post']['body'])->toBe('6 views.')
+        ->and($entries['Voted and commented']['body'])->toBe('Voted on 1 post · commented on 1 post · 2 votes. Visits this old didn’t keep when: drawn at the sign-up, since a guest can’t vote or comment.')
+        ->and($entries['Voted and commented']['meta'])->toBe('session_1725 · #9')
+        ->and($entries['Signed up with Google']['body'])->toBe('Account user_490 created on a post and confirmed at once by Google: the new account counts from here. Conversion touch: PopAds.');
+});
+
+it('draws a member’s votes of a session no account was signed up in no later than the session allows', function () {
+    $view = journeyOf([
+        'visits' => [
+            // A member signed in from the start, and a session with no post opened: its start, as the earliest it can have been.
+            journeyVisitRecord(1, '2026-10-01 10:00:00', ['votes' => 1]),
+            journeyVisitRecord(2, '2026-10-02 10:00:00', ['comments' => 2, 'posts' => 1]),
+        ],
+        'posts' => [['visit' => 1, 'post' => 12, 'views' => 1, 'shared' => false, 'voted' => true, 'commented' => false, 'at' => CarbonImmutable::parse('2026-10-01 10:05:00', 'UTC')]],
+    ]);
+
+    expect(array_map(fn (array $entry): string => $entry['time'].' '.$entry['title'].': '.$entry['body'], array_values(array_filter($view['entries'], fn (array $entry): bool => $entry['icon'] !== 'eye' && ! str_starts_with($entry['title'], 'Arrived') && ! str_starts_with($entry['title'], 'Returned')))))->toBe([
+        '01 Oct 10:05 Voted: Voted on 1 post. Visits this old didn’t keep when: drawn with the first post the session opened.',
+        '02 Oct 10:00 Commented and published 1 post: 2 comments · 1 post published. Visits this old didn’t keep when: drawn at the start of the session.',
+    ]);
+});
+
+it('keeps a confirmation of its own when Google or Facebook confirmed the account later, and one by email always', function () {
+    $account = fn (string $method, string $confirmed): array => journeyOf([
+        'kind' => 'user', 'user' => 12, 'account' => true,
+        'attribution' => ['signedUp' => CarbonImmutable::parse('2026-10-02 10:00:00', 'UTC'), 'confirmed' => CarbonImmutable::parse($confirmed, 'UTC'), 'method' => $method, 'place' => 'feed', 'visit' => null, 'attempt' => null, 'expired' => null, 'activated' => null],
+    ]);
+
+    expect(collect($account('facebook', '2026-10-02 10:00:59')['entries'])->pluck('title')->all())->toBe(['Signed up with Facebook'])
+        ->and(collect($account('google', '2026-10-02 10:05:00')['entries'])->pluck('body', 'title')->all())->toBe([
+            'Signed up with Google' => 'Account user_12 created in the feed.',
+            'Confirmed the account' => 'Confirmed by Google: the new account counts from here.',
+        ])
+        ->and(collect($account('email', '2026-10-02 10:00:00')['entries'])->pluck('body', 'title')->all())->toBe([
+            'Signed up with email' => 'Account user_12 created in the feed.',
+            'Confirmed the account' => 'The email address was confirmed: the new account counts from here.',
+        ]);
 });
 
 it('counts a post once in a session however many of its visits shared, voted and commented on it', function () {
@@ -276,7 +348,8 @@ it('counts a post once in a session however many of its visits shared, voted and
         'posts' => [$row(1, '2026-10-01 10:01:00'), $row(2, '2026-10-01 10:06:00')],
     ]);
 
-    expect(collect($view['entries'])->firstWhere('title', 'Opened 1 post')['body'])->toBe('2 views · shared 1 · voted on 1 post · commented on 1 post.');
+    expect(collect($view['entries'])->firstWhere('title', 'Opened 1 post')['body'])->toBe('2 views · shared 1.')
+        ->and(collect($view['entries'])->firstWhere('title', 'Voted and commented')['body'])->toStartWith('Voted on 1 post · commented on 1 post.');
 });
 
 it('names the last non-direct touch of a longer journey from before the visits read, and says when only those were read', function () {

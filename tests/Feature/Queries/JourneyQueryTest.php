@@ -173,6 +173,15 @@ it('reads the attempt a sign-up is credited to, with its game and version, thoug
         ->and($journey['creditedAttempt'])->toBeNull();
 });
 
+it('reads when a visit’s member first voted, commented or made a post, and nothing for a visit they did nothing on', function () {
+    analyticsVisit('active-reader', ['network_day' => '2026-11-10', 'arrived_at' => '2026-11-10 10:00:00']);
+    analyticsVisit('active-reader', ['network_day' => '2026-11-15', 'arrived_at' => '2026-11-15 10:00:00', 'votes' => 2, 'acted_at' => '2026-11-15 10:04:00']);
+
+    $visits = $this->journeys->journey([hash('sha256', 'active-reader')], null, null)['visits'];
+
+    expect(array_map(fn (array $visit): ?string => $visit['acted']?->toDateTimeString(), $visits))->toEqualCanonicalizing([null, '2026-11-15 10:04:00']);
+});
+
 it('reads the latest rows of the posts a journey’s sessions opened, oldest first, and says the older were left out', function () {
     $older = analyticsVisit('busy-reader', ['network_day' => '2026-11-10', 'arrived_at' => '2026-11-10 10:00:00']);
     $newer = analyticsVisit('busy-reader', ['network_day' => '2026-11-15', 'arrived_at' => '2026-11-15 10:00:00']);

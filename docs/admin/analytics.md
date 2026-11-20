@@ -286,10 +286,14 @@ Look up one visitor's or member's way through the site:
 - Without a lookup, the first example's journey is shown; **Examples** offers
   the latest accounts and players without one.
 - The timeline: each visit with where its session came from, the posts it
-  opened, shared, voted or commented on, the versions the games gave, attempts
-  and how far they got, the sign-up and share buttons pressed, an email left
-  (never the address), signing in, and for an account its sign-up,
-  confirmation, activation and the days it came back.
+  opened and shared, what its member voted, commented on and published (when
+  they first did), the versions the games gave, attempts and how far they got,
+  the sign-up and share buttons pressed, an email left (never the address),
+  signing in, and for an account its sign-up, confirmation, activation and the
+  days it came back. A sign-up with Google or Facebook is confirmed at once, so
+  it is one step. Older visits didn't keep when votes and comments happened:
+  those are drawn at the earliest moment they can have been, and the step says
+  so.
 - **Attribution**: the first touch, the touch the account is credited to and
   the last touch that wasn't direct. **Identity**: the visitor ID or browsers,
   the user ID, how many sessions and attempts, and where the latest visit came

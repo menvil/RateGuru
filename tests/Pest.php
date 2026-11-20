@@ -15111,7 +15111,8 @@ function journeyAccount(CarbonImmutable $start, string $browser = 'journey-membe
     $first->forceFill(['entry_visit_id' => $first->id])->save();
     $click = analyticsClick($browser, $campaign, ['network_day' => $at(2, '18:10')->toDateString(), 'arrived_at' => $at(2, '18:10'), 'creative_key' => 'video_03',
         'landing_key' => 'games.play:'.$game->id.':'.$version->id, 'game_id' => $game->id, 'version_id' => $version->id, 'device' => 'desktop', 'country' => 'DE', 'city' => 'Berlin']);
-    $click->forceFill(['entry_visit_id' => $click->id])->save();
+    // Opened #12 at 18:20 and voted on it at 18:22: the visit keeps the vote's moment.
+    $click->forceFill(['entry_visit_id' => $click->id, 'votes' => 1, 'acted_at' => $at(2, '18:22')])->save();
     analyticsVisitPost($click, 12, ['views' => 2, 'voted' => true, 'first_at' => $at(2, '18:20')]);
     analyticsVisitPost($click, 15, ['first_at' => $at(2, '18:21')]);
 
