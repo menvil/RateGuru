@@ -889,6 +889,11 @@
             box-shadow var(--rg-admin-transition-fast);
     }
 
+    /* A search typed straight into the field keeps the browser's own clear button: a button, so it points. */
+    .rg-admin-input[type='search']::-webkit-search-cancel-button {
+        cursor: pointer;
+    }
+
     .rg-admin-input__icon {
         color: var(--rg-admin-text-tertiary);
     }
@@ -2107,6 +2112,12 @@
         z-index: 50;
         width: 240px;
         max-width: calc(100vw - 32px);
+        overflow-y: auto;
+    }
+
+    .rg-admin-filter-dropdown__menu--up {
+        top: auto;
+        bottom: calc(100% + 6px);
     }
 
     .rg-admin-filter-dropdown__item {
@@ -5178,10 +5189,16 @@
         z-index: 60;
         width: 420px;
         max-width: calc(100vw - 32px);
+        overflow-y: auto;
         border: 1px solid var(--rg-admin-border-default);
         border-radius: var(--rg-admin-radius-popover);
         background: var(--rg-admin-surface-card);
         box-shadow: var(--rg-admin-shadow-popover);
+    }
+
+    .rg-admin-settings__preset-panel--up {
+        top: auto;
+        bottom: calc(100% + 8px);
     }
 
     .rg-admin-settings__preset-head {
@@ -7776,6 +7793,11 @@
         border-radius: var(--rg-admin-radius-lg);
         background: var(--rg-admin-surface-card);
         box-shadow: var(--rg-admin-shadow-popover);
+    }
+
+    .rg-admin-studio__parent-menu--up {
+        top: auto;
+        bottom: calc(100% + 4px);
     }
 
     .rg-admin-studio__parent-option {
@@ -11959,11 +11981,17 @@
         left: 0;
         width: 440px;
         max-width: calc(100vw - 32px);
+        overflow-y: auto;
         padding: 6px;
         border: 1px solid var(--rg-admin-border-default);
         border-radius: var(--rg-admin-radius-lg);
         background: var(--rg-admin-surface-card);
         box-shadow: var(--rg-admin-shadow-popover);
+    }
+
+    .rg-admin-games__set-panel--up {
+        top: auto;
+        bottom: calc(100% + 6px);
     }
 
     .rg-admin-games__set-list {
@@ -12772,6 +12800,104 @@
     }
 
     /*
+     * Its list, where the browser lets the page draw one: under the field,
+     * over it only when the window has no room under it and has room over —
+     * never moved to set the chosen option over the field, as a Mac's own
+     * menu is. A browser that can't keeps its own menu.
+     */
+    @supports (appearance: base-select) {
+        .rg-admin-games__select,
+        .rg-admin-traffic__select,
+        .rg-admin-games__select::picker(select),
+        .rg-admin-traffic__select::picker(select) {
+            appearance: base-select;
+        }
+
+        /* The chosen option on one line in the middle of the field, cut off before the chevron. */
+        .rg-admin-games__select,
+        .rg-admin-traffic__select {
+            align-items: center;
+            overflow: clip;
+            overflow-clip-margin: content-box;
+            white-space: nowrap;
+        }
+
+        /* The field draws its own chevron. */
+        .rg-admin-games__select::picker-icon,
+        .rg-admin-traffic__select::picker-icon {
+            display: none;
+        }
+
+        .rg-admin-games__select::picker(select),
+        .rg-admin-traffic__select::picker(select) {
+            /* A fixed most height, so a list without room under the field overflows there and flips over it. */
+            max-block-size: 320px;
+            min-inline-size: anchor-size(self-inline);
+            margin-block: 6px;
+            padding: 6px;
+            border: 1px solid var(--rg-admin-border-default);
+            border-radius: var(--rg-admin-radius-popover);
+            background: var(--rg-admin-surface-card);
+            box-shadow: var(--rg-admin-shadow-popover);
+            color: var(--rg-admin-text-strong);
+            position-area: block-end span-inline-end;
+            position-try-order: normal;
+            /* Without room for all of it on either side: shorter, scrolling inside — under the field if 160 fit there, else over it. */
+            position-try-fallbacks: flip-block, --rg-admin-picker-below, --rg-admin-picker-above;
+        }
+
+        .rg-admin-games__select option,
+        .rg-admin-traffic__select option {
+            gap: 10px;
+            min-block-size: var(--rg-admin-menu-item-height);
+            padding: 0 10px;
+            border-radius: var(--rg-admin-radius-item);
+            font-family: var(--rg-admin-font-sans);
+            font-size: var(--rg-admin-text-body);
+            line-height: 20px;
+            cursor: pointer;
+        }
+
+        .rg-admin-games__select option:hover,
+        .rg-admin-games__select option:focus-visible,
+        .rg-admin-traffic__select option:hover,
+        .rg-admin-traffic__select option:focus-visible {
+            outline: none;
+            background: var(--rg-admin-surface-hover);
+        }
+
+        .rg-admin-games__select option:checked,
+        .rg-admin-traffic__select option:checked {
+            font-weight: var(--rg-admin-weight-medium);
+        }
+
+        /* The chosen option's check sits at the end, as in the admin's other menus. */
+        .rg-admin-games__select option::checkmark,
+        .rg-admin-traffic__select option::checkmark {
+            order: 1;
+            margin-inline-start: auto;
+        }
+
+        .rg-admin-games__select option:disabled,
+        .rg-admin-traffic__select option:disabled {
+            color: var(--rg-admin-text-tertiary);
+            cursor: not-allowed;
+        }
+    }
+
+    @position-try --rg-admin-picker-below {
+        position-area: block-end span-inline-end;
+        min-block-size: 160px;
+        max-block-size: calc(100% - 12px);
+    }
+
+    @position-try --rg-admin-picker-above {
+        position-area: block-start span-inline-end;
+        min-block-size: 160px;
+        max-block-size: calc(100% - 12px);
+    }
+
+    /*
      * Growth → Games · Flow, as the reference draws it: a band with the flow, its menu, Copy flow and Preview; then
      * three panes running the page's height — the step library (250), the flow down the middle (up to 520, centred,
      * on the app ground) and the selected step (360) — the side ones in view under the top bar.
@@ -13270,6 +13396,11 @@
         overflow-y: auto;
     }
 
+    .rg-admin-games__goal-menu--up {
+        top: auto;
+        bottom: calc(100% + 6px);
+    }
+
     .rg-admin-games__goal-option {
         display: flex;
         align-items: flex-start;
@@ -13674,6 +13805,12 @@
             left: 50%;
             width: min(260px, calc(100vw - 32px));
             transform: translateX(-50%);
+        }
+
+        /* Too near the window's foot for the steps under the +: they open over it. */
+        .rg-admin-games__connector-panel--up {
+            top: auto;
+            bottom: calc(50% + 16px);
         }
     }
 
@@ -14432,7 +14569,7 @@
         /* Room for the presets beside two months of the range's calendar. */
         width: 680px;
         max-width: calc(100vw - 32px);
-        overflow: hidden;
+        overflow: hidden auto;
         border: 1px solid var(--rg-admin-border-default);
         border-radius: var(--rg-admin-radius-popover);
         background: var(--rg-admin-surface-card);
@@ -14442,6 +14579,11 @@
     .rg-admin-period--end .rg-admin-period__panel {
         right: 0;
         left: auto;
+    }
+
+    .rg-admin-period__panel--up {
+        top: auto;
+        bottom: calc(100% + 6px);
     }
 
     .rg-admin-period__presets {

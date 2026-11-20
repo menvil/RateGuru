@@ -13,11 +13,29 @@
 @endphp
 <div
     class="rg-admin-games__sets"
-    x-data="{ open: false, archived: false }"
+    x-data="{
+        open: false,
+        archived: false,
+        upward: false,
+        {{-- Under the trigger, or over it when the room under it is too short and the room over it longer; never taller than the room it opens into, scrolling inside instead. --}}
+        place(trigger, panel) {
+            const box = trigger.getBoundingClientRect()
+            const ceiling = Math.max(0, ...[...document.querySelectorAll('[data-admin-ceiling]')].map((bar) => bar.getBoundingClientRect().bottom))
+            const floor = Math.min(window.innerHeight, ...[...document.querySelectorAll('[data-admin-floor]')].map((bar) => bar.getBoundingClientRect().top))
+            const below = floor - box.bottom - 16
+            const above = box.top - ceiling - 16
+
+            panel.style.maxHeight = ''
+            const height = panel.offsetHeight
+            this.upward = height > below && above > below
+            const room = this.upward ? above : below
+            panel.style.maxHeight = height > room ? `${Math.max(160, room)}px` : ''
+        },
+    }"
     x-on:keydown.escape="open = false"
     x-on:click.outside="open = false"
 >
-    <button type="button" class="rg-admin-games__set-trigger" x-on:click="open = ! open; archived = false" x-bind:aria-expanded="open" aria-haspopup="true" aria-controls="rg-admin-game-set-menu">
+    <button type="button" class="rg-admin-games__set-trigger" x-ref="trigger" x-on:click="open = ! open; archived = false; if (open) $nextTick(() => place($refs.trigger, $refs.panel))" x-bind:aria-expanded="open" aria-haspopup="true" aria-controls="rg-admin-game-set-menu">
         <x-admin.ui.icon name="layers" :size="16" />
         <span class="rg-admin-games__set-text">
             <span class="rg-admin-games__eyebrow">Content set</span>
@@ -27,7 +45,7 @@
         <x-admin.ui.icon name="chevrons-up-down" :size="16" />
     </button>
 
-    <div id="rg-admin-game-set-menu" class="rg-admin-games__set-panel" x-cloak x-show="open" x-transition.opacity.duration.100ms>
+    <div id="rg-admin-game-set-menu" class="rg-admin-games__set-panel" x-ref="panel" x-cloak x-show="open" x-transition.opacity.duration.100ms x-bind:class="{ 'rg-admin-games__set-panel--up': upward }">
         <ul class="rg-admin-games__set-list" aria-label="Content sets">
             @foreach ($live as $item)
                 <li>

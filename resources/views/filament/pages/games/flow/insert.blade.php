@@ -9,7 +9,33 @@
     </button>
     <span class="rg-admin-games__connector-line" aria-hidden="true"></span>
     @if ($open)
-        <div class="rg-admin-games__connector-panel" x-data x-on:click.outside="$wire.closeInsert()">
+        {{--
+            Never past the window's foot: beside the + it rises just as far as it must, never over the top bar; under the
+            + on a phone it opens over it instead.
+        --}}
+        <div
+            class="rg-admin-games__connector-panel"
+            x-data="{
+                fit() {
+                    const box = this.$el.getBoundingClientRect()
+                    const ceiling = Math.max(0, ...[...document.querySelectorAll('[data-admin-ceiling]')].map((bar) => bar.getBoundingClientRect().bottom)) + 8
+                    const floor = Math.min(window.innerHeight, ...[...document.querySelectorAll('[data-admin-floor]')].map((bar) => bar.getBoundingClientRect().top)) - 8
+                    const over = box.bottom - floor
+
+                    if (over <= 0) {
+                        return
+                    }
+
+                    if (window.matchMedia('(max-width: 639.98px)').matches) {
+                        this.$el.classList.add('rg-admin-games__connector-panel--up')
+                    } else {
+                        this.$el.style.translate = `0 ${-Math.max(0, Math.min(over, box.top - ceiling))}px`
+                    }
+                },
+            }"
+            x-init="$nextTick(() => fit())"
+            x-on:click.outside="$wire.closeInsert()"
+        >
             <p class="rg-admin-games__note rg-admin-games__connector-title">{{ $types === [] ? ($last ? 'No step fits after the last one.' : 'No step fits between these two.') : 'Steps that fit here' }}</p>
             @foreach ($types as $type)
                 <button type="button" class="rg-admin-games__connector-option" wire:click="insertStep('{{ $type['type'] }}', {{ $position }})">

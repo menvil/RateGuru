@@ -11,11 +11,33 @@
 @endphp
 <div
     class="rg-admin-games__sets rg-admin-games__flows"
-    x-data="{ open: false, archived: false, query: '', shows(text) { return this.query.trim() === '' || text.toLowerCase().includes(this.query.trim().toLowerCase()) } }"
+    x-data="{
+        open: false,
+        archived: false,
+        query: '',
+        upward: false,
+        shows(text) {
+            return this.query.trim() === '' || text.toLowerCase().includes(this.query.trim().toLowerCase())
+        },
+        {{-- Under the trigger, or over it when the room under it is too short and the room over it longer; never taller than the room it opens into, scrolling inside instead. --}}
+        place(trigger, panel) {
+            const box = trigger.getBoundingClientRect()
+            const ceiling = Math.max(0, ...[...document.querySelectorAll('[data-admin-ceiling]')].map((bar) => bar.getBoundingClientRect().bottom))
+            const floor = Math.min(window.innerHeight, ...[...document.querySelectorAll('[data-admin-floor]')].map((bar) => bar.getBoundingClientRect().top))
+            const below = floor - box.bottom - 16
+            const above = box.top - ceiling - 16
+
+            panel.style.maxHeight = ''
+            const height = panel.offsetHeight
+            this.upward = height > below && above > below
+            const room = this.upward ? above : below
+            panel.style.maxHeight = height > room ? `${Math.max(160, room)}px` : ''
+        },
+    }"
     x-on:keydown.escape="open = false"
     x-on:click.outside="open = false"
 >
-    <button type="button" class="rg-admin-games__flow-trigger" x-on:click="open = ! open; if (open) $nextTick(() => $refs.search.focus())" x-bind:aria-expanded="open" aria-haspopup="true" aria-controls="rg-admin-game-flow-list">
+    <button type="button" class="rg-admin-games__flow-trigger" x-ref="trigger" x-on:click="open = ! open; if (open) $nextTick(() => { place($refs.trigger, $refs.panel); requestAnimationFrame(() => $refs.search.focus()) })" x-bind:aria-expanded="open" aria-haspopup="true" aria-controls="rg-admin-game-flow-list">
         <x-admin.ui.icon name="workflow" :size="16" />
         <span class="rg-admin-games__set-text">
             <span class="rg-admin-games__eyebrow">Flow</span>
@@ -25,7 +47,7 @@
         <x-admin.ui.icon name="chevrons-up-down" :size="16" />
     </button>
 
-    <div id="rg-admin-game-flow-list" class="rg-admin-games__set-panel rg-admin-games__flow-panel" x-cloak x-show="open" x-transition.opacity.duration.100ms>
+    <div id="rg-admin-game-flow-list" class="rg-admin-games__set-panel rg-admin-games__flow-panel" x-ref="panel" x-cloak x-show="open" x-transition.opacity.duration.100ms x-bind:class="{ 'rg-admin-games__set-panel--up': upward }">
         <div class="rg-admin-games__flow-search">
             <x-admin.ui.search-field label="Search flows or steps" placeholder="Search flows or steps" x-ref="search" x-model="query" />
         </div>
