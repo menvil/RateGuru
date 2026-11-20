@@ -1,0 +1,32 @@
+database/seeders/AnalyticsVolumeSeeder.php
+  s_4b9dc6ab6b25d3::t_f4cdab6296a2f1 590,829,983,1017-1018
+  s_4b9dc6ab6b25d3::t_a4c4a96a1b0a70 982,997
+tests/Feature/Seeders/AnalyticsVolumeSeederTest.php
+  s_4b9dc6ab6b25d3::t_dd3a539075ffe6 72-76
+tests/Unit/Support/Analytics/JourneyTimelineTest.php
+  s_4b9dc6ab6b25d3::t_03a789f00b866c 354
+  s_4b9dc6ab6b25d3::t_45f3fa400971d3 319,324-353,355-381,383-384
+  s_4b9dc6ab6b25d3::t_c5dbe130da93e5 382
+tests/Feature/Analytics/VisitPostsTest.php
+  s_4b9dc6ab6b25d3::t_cc8e9a71867a8e 357-363
+app/Support/Analytics/JourneyTimeline.php
+  s_4b9dc6ab6b25d3::t_6fa7fc24bb471c 335-341,351-353,364,367-377,380,398-399,406-407,416,425,427-429,475-479,491,493-494,497-507,512-519,522,524
+app/Actions/Analytics/RecordUserActivityAction.php
+  s_4b9dc6ab6b25d3::t_5b5ac013cc254b 137-141
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "99527de95bfc4a64ec1ec7ac922476b09b7d0dd2",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
