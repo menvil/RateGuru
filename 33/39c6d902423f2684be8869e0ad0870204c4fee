@@ -1,0 +1,59 @@
+tests/Feature/Analytics/AnalyticsJourneysTabTest.php
+  s_4b9dc6ab6b25d3::t_71c0ff319a44f2 117
+  s_4b9dc6ab6b25d3::t_ff1916b69af5f2 129,131-134
+tests/Feature/Analytics/VisitPostsTest.php
+  s_4b9dc6ab6b25d3::t_8687a57ca5938b 342-358
+app/Models/TrafficVisit.php
+  s_4b9dc6ab6b25d3::t_1811f372a1c14a 162
+  s_4b9dc6ab6b25d3::t_f76f874e4d10d4 109
+docs/admin/analytics.md
+  s_4b9dc6ab6b25d3::t_2987fe1e852d7d 294-296
+  s_4b9dc6ab6b25d3::t_bfb6bde0bd1962 289-293
+tests/Unit/Support/Analytics/JourneyTimelineTest.php
+  s_4b9dc6ab6b25d3::t_dd720b407b956d 152-154,156-157,159-160
+  s_4b9dc6ab6b25d3::t_630fb15bc259c7 256-257,265-268,270-297,299-338
+  s_4b9dc6ab6b25d3::t_b4cd51a28cb508 136
+  s_4b9dc6ab6b25d3::t_e8aac6f08f71a6 351-352
+  s_4b9dc6ab6b25d3::t_b6772457567171 34
+  s_4b9dc6ab6b25d3::t_1e4fdd79948b1e 89
+docs/architecture/traffic.md
+  s_4b9dc6ab6b25d3::t_5d7013c02c681e 156-157
+tests/Feature/Database/TrafficVisitActedAtColumnTest.php
+  s_4b9dc6ab6b25d3::t_e16b1d787181fc 1-28
+database/migrations/2026_11_20_100000_add_acted_at_to_traffic_visits_table.php
+  s_4b9dc6ab6b25d3::t_46ee84df6b6f2b 1-34
+app/Actions/Analytics/RecordUserActivityAction.php
+  s_4b9dc6ab6b25d3::t_becaf5c27be592 35-37
+  s_4b9dc6ab6b25d3::t_97b794a9922f17 138-139
+app/Queries/Analytics/JourneyQuery.php
+  s_4b9dc6ab6b25d3::t_852c58418d471d 396
+  s_4b9dc6ab6b25d3::t_1ce125be87c6b8 64
+app/Support/Analytics/JourneyTimeline.php
+  s_4b9dc6ab6b25d3::t_5ffd50cd4e9eef 60-68
+  s_4b9dc6ab6b25d3::t_de3b5c1fde91c8 15-16,19-20
+  s_4b9dc6ab6b25d3::t_6069e5e29bb5e6 335-338,348,358,369-372,385-390,396-417,420-429,438,441-442,444-446,448-453,458-475,477-493,496-504,506-518
+  s_4b9dc6ab6b25d3::t_d4562d29c0c467 381,476,494-495,505,607-610,612-613,616-619
+tests/Feature/Queries/JourneyQueryTest.php
+  s_4b9dc6ab6b25d3::t_b7d79a5e8d6012 176-184
+tests/Pest.php
+  s_4b9dc6ab6b25d3::t_179b706f81e5cf 15114-15115
+docs/architecture/analytics.md
+  s_4b9dc6ab6b25d3::t_536caad4363ed3 110-111
+  s_4b9dc6ab6b25d3::t_f300122a513c3a 399-407
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "3339c6d902423f2684be8869e0ad0870204c4fee",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
