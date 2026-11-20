@@ -134,9 +134,12 @@ final class RecordUserActivityAction
             return;
         }
 
+        // The moment of the first, kept — a journey draws what the member did then — and only of the first: a visit
+        // that counted some before the moment was kept keeps none rather than the moment of a later one.
+        TrafficVisit::query()->whereKey($visit->id)->whereNull('acted_at')
+            ->where('votes', 0)->where('comments', 0)->where('posts_created', 0)
+            ->update(['acted_at' => $at->utc()]);
         TrafficVisit::query()->whereKey($visit->id)->where($counter, '<', RecordVisitPostAction::MOST)->increment($counter);
-        // The moment of the first, kept: a journey draws what the member did then.
-        TrafficVisit::query()->whereKey($visit->id)->whereNull('acted_at')->update(['acted_at' => $at->utc()]);
 
         if ($postId !== null) {
             $this->posts->actedOn((int) $visit->id, $postId, $activity, $at);

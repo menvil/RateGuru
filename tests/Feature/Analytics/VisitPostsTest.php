@@ -354,6 +354,13 @@ it('keeps on the visit when its member first voted, commented or made a post, an
 
     expect($visit->fresh())->acted_at->toDateTimeString()->toBe($first->utc()->toDateTimeString())
         ->comments->toBe(1)->votes->toBe(1);
+
+    // A visit that counted votes before their moment was kept keeps none, rather than the moment of a later one.
+    $older = feedVisitOf(hash('sha256', 'older-reader'));
+    $older->forceFill(['votes' => 2])->save();
+    app(RecordUserActivityAction::class)->handle($member, UserActivity::Voted, $this->post->id, $older->visitor_hash, $first);
+
+    expect($older->fresh())->votes->toBe(3)->acted_at->toBeNull();
 });
 
 it('writes nothing on a visit while visits are not recorded, the member’s day staying', function () {

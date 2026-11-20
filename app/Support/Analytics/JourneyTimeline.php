@@ -332,10 +332,13 @@ final class JourneyTimeline
     }
 
     /**
-     * The posts each session opened and shared — each post once, however
-     * many of the session's visits did so — in one line at the first of
-     * them; and the votes, comments and posts its member made on its visits
-     * in another, at the moment of the first (actedAt()).
+     * The posts each session opened — each post once, however many of the
+     * session's visits did so — with how often and how many were shared, in
+     * one line at the first opened (or, when it opened none, the posts it
+     * shared without opening them); and the votes, comments and posts its
+     * member made on its visits in another, at the moment of the first
+     * (actedAt()). A post voted on or commented on from the feed has a row
+     * with no view: it is in the second line, never counted opened.
      */
     private function postSteps(callable $add): void
     {
@@ -345,7 +348,9 @@ final class JourneyTimeline
             $visits[$visit['id']] = $visit;
         }
 
-        $blank = fn (CarbonImmutable $at): array => ['at' => $at, 'posts' => [], 'views' => 0, 'shared' => [], 'voted' => [], 'commented' => [], 'actedOn' => [], 'votes' => 0, 'comments' => 0, 'made' => 0, 'acted' => null];
+        $blank = fn (CarbonImmutable $at): array => ['at' => $at, 'opened' => [], 'openedAt' => null, 'views' => 0, 'shared' => [], 'sharedAt' => null,
+            'voted' => [], 'commented' => [], 'actedOn' => [], 'votes' => 0, 'comments' => 0, 'made' => 0, 'acted' => null];
+        $earliest = fn (?CarbonImmutable $kept, CarbonImmutable $at): CarbonImmutable => $kept === null || $at < $kept ? $at : $kept;
         $sessions = [];
 
         foreach ($this->journey['posts'] as $row) {
@@ -356,18 +361,24 @@ final class JourneyTimeline
             }
 
             $session = $sessions[$entry] ?? $blank($row['at']);
-            $session['at'] = $row['at'] < $session['at'] ? $row['at'] : $session['at'];
-            $session['posts'][$row['post']] = true;
+            $session['at'] = $earliest($session['at'], $row['at']);
             $session['views'] += $row['views'];
 
-            foreach (['shared', 'voted', 'commented'] as $did) {
-                if ($row[$did]) {
-                    $session[$did][$row['post']] = true;
-                }
+            if ($row['views'] > 0) {
+                $session['opened'][$row['post']] = true;
+                $session['openedAt'] = $earliest($session['openedAt'], $row['at']);
             }
 
-            if ($row['voted'] || $row['commented']) {
-                $session['actedOn'][$row['post']] = true;
+            if ($row['shared']) {
+                $session['shared'][$row['post']] = true;
+                $session['sharedAt'] = $earliest($session['sharedAt'], $row['at']);
+            }
+
+            foreach (['voted', 'commented'] as $did) {
+                if ($row[$did]) {
+                    $session[$did][$row['post']] = true;
+                    $session['actedOn'][$row['post']] = true;
+                }
             }
 
             $sessions[$entry] = $session;
@@ -384,25 +395,25 @@ final class JourneyTimeline
             $session['made'] += $visit['posts'];
             $acted = $visit['acted'] ?? null;
 
-            if ($acted !== null && ($session['acted'] === null || $acted < $session['acted'])) {
-                $session['acted'] = $acted;
+            if ($acted !== null) {
+                $session['acted'] = $earliest($session['acted'], $acted);
             }
 
             $sessions[$visit['entry']] = $session;
         }
 
         foreach ($sessions as $entry => $session) {
-            $opened = count($session['posts']);
+            $opened = count($session['opened']);
+            $shared = count($session['shared']);
 
             if ($opened > 0) {
-                $shared = count($session['shared']);
                 $parts = array_filter([
                     $session['views'] > $opened ? self::count($session['views'], 'view') : null,
                     $shared > 0 ? 'shared '.$shared : null,
                 ]);
 
                 $add(
-                    $session['at'],
+                    $session['openedAt'],
                     'posts',
                     'eye',
                     'Opened '.self::count($opened, 'post'),
@@ -411,8 +422,11 @@ final class JourneyTimeline
                         $opened === 1 => 'One view.',
                         default => 'One view each.',
                     },
-                    self::sessionMeta($entry, array_keys($session['posts'])),
+                    self::sessionMeta($entry, array_keys($session['opened'])),
                 );
+            } elseif ($shared > 0) {
+                $add($session['sharedAt'], 'posts', 'share-2', 'Shared '.self::count($shared, 'post'), 'Without opening '.($shared === 1 ? 'it' : 'them').'.',
+                    self::sessionMeta($entry, array_keys($session['shared'])));
             }
 
             $voted = count($session['voted']);
@@ -458,10 +472,11 @@ final class JourneyTimeline
     /**
      * When a session's member first voted, commented or made a post: the
      * moment its visits kept. Visits from before that moment was kept say
-     * only how many: then the earliest it can have been — the sign-up, when
-     * the account signed up during the session, since a guest can neither
-     * vote nor comment; otherwise the first post the session opened, or the
-     * session's start — and a note that says so.
+     * only how many: then the earliest it can have been, and a note that
+     * says so. A guest can neither vote nor comment, so when the member
+     * signed up or signed in during the session — between its start and the
+     * next session of the same browser — no earlier than the first of those;
+     * otherwise the first post of the session, or its start.
      *
      * @param  array<string, mixed>  $session
      * @return array{0: CarbonImmutable, 1: string} the moment, and the note to add to the step
@@ -472,23 +487,41 @@ final class JourneyTimeline
             return [$session['acted'], ''];
         }
 
-        $signedUp = $this->account()['signedUp'] ?? null;
         $start = $this->sessionStart($entry, $session['at']);
+        $hash = null;
         $next = null;
+        // When the member came to be signed in during the session, and how.
+        $bound = null;
 
         foreach ($this->visits as $visit) {
-            if ($visit['entry'] !== $entry && $visit['at'] > $start && ($next === null || $visit['at'] < $next)) {
+            if ($visit['entry'] === $entry) {
+                $hash = $visit['hash'];
+
+                if ($visit['login'] !== null && ($bound === null || $visit['login'] < $bound[0])) {
+                    $bound = [$visit['login'], 'sign-in'];
+                }
+            }
+        }
+
+        foreach ($this->visits as $visit) {
+            if ($visit['hash'] === $hash && $visit['entry'] !== $entry && $visit['at'] > $start && ($next === null || $visit['at'] < $next)) {
                 $next = $visit['at'];
             }
         }
 
-        if ($signedUp instanceof CarbonImmutable && $signedUp > $session['at'] && $signedUp >= $start && ($next === null || $signedUp < $next)) {
-            return [$signedUp, ' Visits this old didn’t keep when: drawn at the sign-up, since a guest can’t vote or comment.'];
+        $signedUp = $this->account()['signedUp'] ?? null;
+
+        if ($signedUp instanceof CarbonImmutable && $signedUp >= $start && ($next === null || $signedUp < $next) && ($bound === null || $signedUp < $bound[0])) {
+            $bound = [$signedUp, 'sign-up'];
         }
 
-        return [$session['at'], $session['posts'] === []
+        if ($bound !== null && $bound[0] > $session['at']) {
+            return [$bound[0], ' Visits this old didn’t keep when: drawn at the '.$bound[1].', since a guest can’t vote or comment.'];
+        }
+
+        return [$session['at'], $session['opened'] === [] && $session['actedOn'] === [] && $session['shared'] === []
             ? ' Visits this old didn’t keep when: drawn at the start of the session.'
-            : ' Visits this old didn’t keep when: drawn with the first post the session opened.'];
+            : ' Visits this old didn’t keep when: drawn at the first post of the session.'];
     }
 
     /** When a session began: the earliest of its visits read, or the moment given when none of them was. */

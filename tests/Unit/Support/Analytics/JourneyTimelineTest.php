@@ -316,8 +316,72 @@ it('draws a member’s votes of a session no account was signed up in no later t
     ]);
 
     expect(array_map(fn (array $entry): string => $entry['time'].' '.$entry['title'].': '.$entry['body'], array_values(array_filter($view['entries'], fn (array $entry): bool => $entry['icon'] !== 'eye' && ! str_starts_with($entry['title'], 'Arrived') && ! str_starts_with($entry['title'], 'Returned')))))->toBe([
-        '01 Oct 10:05 Voted: Voted on 1 post. Visits this old didn’t keep when: drawn with the first post the session opened.',
+        '01 Oct 10:05 Voted: Voted on 1 post. Visits this old didn’t keep when: drawn at the first post of the session.',
         '02 Oct 10:00 Commented and published 1 post: 2 comments · 1 post published. Visits this old didn’t keep when: drawn at the start of the session.',
+    ]);
+});
+
+it('never counts a post voted on or shared from the feed as opened', function () {
+    $row = fn (int $post, string $at, array $did): array => ['visit' => 1, 'post' => $post, 'views' => 0, 'shared' => false, 'voted' => false, 'commented' => false, 'at' => CarbonImmutable::parse($at, 'UTC'), ...$did];
+    $steps = fn (array $posts, array $visit = []): array => array_map(
+        fn (array $entry): string => $entry['time'].' '.$entry['title'].': '.$entry['body'].' ['.$entry['meta'].']',
+        array_slice(journeyOf(['visits' => [journeyVisitRecord(1, '2026-10-01 10:00:00', $visit)], 'posts' => $posts])['entries'], 1),
+    );
+
+    // Three cards voted on in the feed, none opened: no post opened, three voted on.
+    expect($steps([$row(11, '2026-10-01 10:02:00', ['voted' => true]), $row(12, '2026-10-01 10:03:00', ['voted' => true]), $row(13, '2026-10-01 10:04:00', ['voted' => true])],
+        ['votes' => 3, 'acted' => CarbonImmutable::parse('2026-10-01 10:02:00', 'UTC')]))->toBe([
+            '01 Oct 10:02 Voted: Voted on 3 posts. [session_1 · #11, #12, #13]',
+        ])
+        // A card voted on, then another post opened: the opened one alone, at its own moment.
+        ->and($steps([$row(11, '2026-10-01 10:02:00', ['voted' => true]), $row(14, '2026-10-01 10:05:00', ['views' => 1])],
+            ['votes' => 1, 'acted' => CarbonImmutable::parse('2026-10-01 10:02:00', 'UTC')]))->toBe([
+                '01 Oct 10:02 Voted: Voted on 1 post. [session_1 · #11]',
+                '01 Oct 10:05 Opened 1 post: One view. [session_1 · #14]',
+            ])
+        // A card shared without opening it.
+        ->and($steps([$row(15, '2026-10-01 10:06:00', ['shared' => true])]))->toBe([
+            '01 Oct 10:06 Shared 1 post: Without opening it. [session_1 · #15]',
+        ]);
+});
+
+it('draws votes of an old visit no earlier than a sign-in during the session, and keeps a session to its own browser', function () {
+    // Opened as a guest at 10:01, signed in at 10:05 on a later page of the session, then voted.
+    $signedIn = journeyOf([
+        'user' => 9,
+        'visits' => [
+            journeyVisitRecord(1, '2026-10-01 10:00:00'),
+            journeyVisitRecord(2, '2026-10-01 10:04:00', ['entry' => 1, 'path' => '/posts/12', 'login' => CarbonImmutable::parse('2026-10-01 10:05:00', 'UTC'), 'votes' => 1]),
+        ],
+        'posts' => [['visit' => 1, 'post' => 12, 'views' => 1, 'shared' => false, 'voted' => true, 'commented' => false, 'at' => CarbonImmutable::parse('2026-10-01 10:01:00', 'UTC')]],
+    ]);
+
+    expect(collect($signedIn['entries'])->map(fn (array $entry): string => $entry['time'].' '.$entry['title'])->all())->toBe([
+        '01 Oct 10:00 Arrived with no attribution',
+        '01 Oct 10:01 Opened 1 post',
+        '01 Oct 10:04 Went on to /posts/12',
+        '01 Oct 10:05 Signed in',
+        '01 Oct 10:05 Voted',
+    ])
+        ->and(collect($signedIn['entries'])->firstWhere('title', 'Voted')['body'])->toBe('Voted on 1 post. Visits this old didn’t keep when: drawn at the sign-in, since a guest can’t vote or comment.');
+
+    // A member's other browser came by during the session: the session goes on, and the sign-up in it still bounds the vote.
+    $phone = str_repeat('a', 64);
+    $twoBrowsers = (new JourneyTimeline([
+        'kind' => 'user', 'browsers' => [JOURNEY_BROWSER, $phone], 'user' => 12, 'account' => true,
+        'visits' => [journeyVisitRecord(1, '2026-10-01 10:00:00', ['votes' => 1]), journeyVisitRecord(2, '2026-10-01 10:03:00', ['hash' => $phone])],
+        'posts' => [['visit' => 1, 'post' => 12, 'views' => 1, 'shared' => false, 'voted' => true, 'commented' => false, 'at' => CarbonImmutable::parse('2026-10-01 10:01:00', 'UTC')]],
+        'attempts' => [], 'assignments' => [], 'periods' => [], 'events' => [], 'emails' => [], 'days' => [], 'first' => null, 'credited' => [], 'cut' => false,
+        'attribution' => ['signedUp' => CarbonImmutable::parse('2026-10-01 10:05:00', 'UTC'), 'confirmed' => null, 'method' => 'email', 'place' => 'post', 'visit' => null, 'attempt' => null, 'expired' => null, 'activated' => null],
+        'games' => [], 'versions' => [],
+    ]))->view();
+
+    expect(collect($twoBrowsers['entries'])->map(fn (array $entry): string => $entry['time'].' '.$entry['title'])->all())->toBe([
+        '01 Oct 10:00 Arrived with no attribution',
+        '01 Oct 10:01 Opened 1 post',
+        '01 Oct 10:03 Returned with no attribution',
+        '01 Oct 10:05 Signed up with email',
+        '01 Oct 10:05 Voted',
     ]);
 });
 
