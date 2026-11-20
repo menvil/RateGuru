@@ -1,0 +1,30 @@
+app/Support/Import/PinnedImportHttpTransport.php
+  s_4b9dc6ab6b25d3::t_9887faf3f57be0 150-154
+  s_4b9dc6ab6b25d3::t_b5dad3665ed692 108-117,119-120,122-124
+  s_4b9dc6ab6b25d3::t_c8a5a5682996ec 23
+tests/Feature/Traffic/PostbackDelivererTransportTest.php
+  s_4b9dc6ab6b25d3::t_5bb954a3b4cab8 1-69
+app/Services/Traffic/Postbacks/PostbackDeliverer.php
+  s_4b9dc6ab6b25d3::t_ea122236d97b0e 103-104
+tests/Feature/Import/PinnedImportHttpTransportTest.php
+  s_4b9dc6ab6b25d3::t_8dd18662c78f28 36-54
+  s_4b9dc6ab6b25d3::t_785c7bb1e7bd28 248
+docs/import/url-import.md
+  s_4b9dc6ab6b25d3::t_d0454c9edb6115 222-228
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "403628dc5b659fa28de9d0b3d3419a8334a3cedf",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
