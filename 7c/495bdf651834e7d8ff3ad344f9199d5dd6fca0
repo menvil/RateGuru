@@ -1,0 +1,24 @@
+tests/Feature/Traffic/PostbackDelivererTransportTest.php
+  s_4b9dc6ab6b25d3::t_6c3c2f8f4e2c80 48-65
+app/Services/Traffic/Postbacks/PostbackDeliverer.php
+  s_4b9dc6ab6b25d3::t_1583a6605c97e5 115-120
+tests/Pest.php
+  s_4b9dc6ab6b25d3::t_bac801ac7dce65 296-297
+  s_4b9dc6ab6b25d3::t_a77d26f94f4e88 337-344
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "7c495bdf651834e7d8ff3ad344f9199d5dd6fca0",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
