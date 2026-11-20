@@ -12842,8 +12842,17 @@
             color: var(--rg-admin-text-strong);
             position-area: block-end span-inline-end;
             position-try-order: normal;
-            /* Without room for all of it on either side: shorter, scrolling inside — under the field if 160 fit there, else over it. */
-            position-try-fallbacks: flip-block, --rg-admin-picker-below, --rg-admin-picker-above;
+            /*
+             * Without room for all of it on either side: shorter, scrolling inside — under the field where 160 fit,
+             * else over it; then where 80 fit; and in a window shorter still, under it in whatever room there is.
+             */
+            position-try-fallbacks:
+                flip-block,
+                --rg-admin-picker-below,
+                --rg-admin-picker-above,
+                --rg-admin-picker-below-short,
+                --rg-admin-picker-above-short,
+                --rg-admin-picker-below-any;
         }
 
         .rg-admin-games__select option,
@@ -12894,6 +12903,23 @@
     @position-try --rg-admin-picker-above {
         position-area: block-start span-inline-end;
         min-block-size: 160px;
+        max-block-size: calc(100% - 12px);
+    }
+
+    @position-try --rg-admin-picker-below-short {
+        position-area: block-end span-inline-end;
+        min-block-size: 80px;
+        max-block-size: calc(100% - 12px);
+    }
+
+    @position-try --rg-admin-picker-above-short {
+        position-area: block-start span-inline-end;
+        min-block-size: 80px;
+        max-block-size: calc(100% - 12px);
+    }
+
+    @position-try --rg-admin-picker-below-any {
+        position-area: block-end span-inline-end;
         max-block-size: calc(100% - 12px);
     }
 
@@ -13796,6 +13822,7 @@
         background: var(--rg-admin-surface-card);
         box-shadow: var(--rg-admin-shadow-popover);
         transform: translateY(-50%);
+        overflow-y: auto;
     }
 
     /* A phone has no room beside the +: the steps open under it, centred, never wider than the screen. */

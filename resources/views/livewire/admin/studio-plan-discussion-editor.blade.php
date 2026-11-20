@@ -368,7 +368,7 @@
                         x-data="{
                             open: false,
                             upward: false,
-                            {{-- Under the trigger, or over it when the room under it is too short and the room over it longer; never taller than the room it opens into, scrolling inside instead. --}}
+                            {{-- Under the trigger, or over it when the room under it is too short and the room over it longer; never taller than the room it opens into, scrolling inside instead, whatever it comes to hold while open. --}}
                             place(trigger, panel) {
                                 const box = trigger.getBoundingClientRect()
                                 {{-- The window's own edges: the dialog covers the page's bars. --}}
@@ -376,10 +376,10 @@
                                 const above = box.top - 16
 
                                 panel.style.maxHeight = ''
-                                const height = panel.offsetHeight
-                                this.upward = height > below && above > below
-                                const room = this.upward ? above : below
-                                panel.style.maxHeight = height > room ? `${Math.max(160, room)}px` : ''
+                                {{-- Its own most height, where its stylesheet sets one. --}}
+                                const most = parseFloat(getComputedStyle(panel).maxHeight) || Infinity
+                                this.upward = panel.offsetHeight > below && above > below
+                                panel.style.maxHeight = `${Math.max(0, Math.min(most, this.upward ? above : below))}px`
                             },
                         }"
                         x-on:click.outside="open = false"

@@ -10,27 +10,36 @@
     <span class="rg-admin-games__connector-line" aria-hidden="true"></span>
     @if ($open)
         {{--
-            Never past the window's foot: beside the + it rises just as far as it must, never over the top bar; under the
-            + on a phone it opens over it instead.
+            Always between the bars kept at the window's top and foot, scrolling inside when it is taller than the room it
+            has: beside the + it moves up or down just as far as it must; under the + on a phone, it opens over it when the
+            room under it is too short and the room over it longer.
         --}}
         <div
             class="rg-admin-games__connector-panel"
             x-data="{
                 fit() {
-                    const box = this.$el.getBoundingClientRect()
+                    const panel = this.$el
                     const ceiling = Math.max(0, ...[...document.querySelectorAll('[data-admin-ceiling]')].map((bar) => bar.getBoundingClientRect().bottom)) + 8
                     const floor = Math.min(window.innerHeight, ...[...document.querySelectorAll('[data-admin-floor]')].map((bar) => bar.getBoundingClientRect().top)) - 8
-                    const over = box.bottom - floor
 
-                    if (over <= 0) {
+                    if (window.matchMedia('(max-width: 639.98px)').matches) {
+                        {{-- Under the + its top is 16 below the +'s middle; over it, its foot is 16 above. --}}
+                        const top = panel.getBoundingClientRect().top
+                        const below = floor - top
+                        const above = top - 32 - ceiling
+                        const up = panel.offsetHeight > below && above > below
+
+                        panel.classList.toggle('rg-admin-games__connector-panel--up', up)
+                        panel.style.maxHeight = `${Math.max(0, up ? above : below)}px`
+
                         return
                     }
 
-                    if (window.matchMedia('(max-width: 639.98px)').matches) {
-                        this.$el.classList.add('rg-admin-games__connector-panel--up')
-                    } else {
-                        this.$el.style.translate = `0 ${-Math.max(0, Math.min(over, box.top - ceiling))}px`
-                    }
+                    panel.style.maxHeight = `${Math.max(0, floor - ceiling)}px`
+                    const box = panel.getBoundingClientRect()
+                    const shift = box.bottom > floor ? floor - box.bottom : (box.top < ceiling ? ceiling - box.top : 0)
+
+                    panel.style.translate = shift === 0 ? '' : `0 ${Math.round(shift)}px`
                 },
             }"
             x-init="$nextTick(() => fit())"

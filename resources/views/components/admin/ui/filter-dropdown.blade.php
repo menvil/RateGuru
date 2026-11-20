@@ -50,7 +50,7 @@
                 requestAnimationFrame(() => (this.items().find((item) => item.getAttribute('aria-checked') === 'true') ?? this.items()[0])?.focus())
             })
         },
-        {{-- Under the trigger, or over it when the room under it is too short and the room over it longer; never taller than the room it opens into, scrolling inside instead. --}}
+        {{-- Under the trigger, or over it when the room under it is too short and the room over it longer; never taller than the room it opens into, scrolling inside instead, whatever it comes to hold while open. --}}
         place(trigger, panel) {
             const box = trigger.getBoundingClientRect()
             const ceiling = Math.max(0, ...[...document.querySelectorAll('[data-admin-ceiling]')].map((bar) => bar.getBoundingClientRect().bottom))
@@ -59,10 +59,10 @@
             const above = box.top - ceiling - 16
 
             panel.style.maxHeight = ''
-            const height = panel.offsetHeight
-            this.upward = height > below && above > below
-            const room = this.upward ? above : below
-            panel.style.maxHeight = height > room ? `${Math.max(160, room)}px` : ''
+            {{-- Its own most height, where its stylesheet sets one. --}}
+            const most = parseFloat(getComputedStyle(panel).maxHeight) || Infinity
+            this.upward = panel.offsetHeight > below && above > below
+            panel.style.maxHeight = `${Math.max(0, Math.min(most, this.upward ? above : below))}px`
         },
         close(returnFocus) {
             if (! this.expanded) {
