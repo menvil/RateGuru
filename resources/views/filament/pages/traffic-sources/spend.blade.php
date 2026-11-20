@@ -2,9 +2,9 @@
     Spend, as the reference draws it: the ways a source's spend is known and
     the sources using each; spend by source — how it is worked out, what
     reports count, what the network itself says and how the source stands —
-    each opening its campaigns; then, for the source chosen, day by day: its
-    clicks, the impressions the network billed and how many of them reached
-    RateGuru, what their links said they cost, the network's own figure and
+    each opening its campaigns; then, for the source chosen, day by day: the
+    impressions the network billed, its clicks and how many of the impressions
+    reached RateGuru, what the links said they cost, the network's own figure and
     what reports count, with a day corrected or the network's file taken.
 --}}
 @php
@@ -102,15 +102,15 @@
         <div class="rg-admin-traffic__perf rg-admin-table__scroll">
             <div class="rg-admin-traffic__perf-grid rg-admin-traffic__perf-grid--days" role="table" aria-label="Day by day">
                 <div class="rg-admin-traffic__day-row rg-admin-traffic__perf-row--head" role="row">
-                    @foreach (['Day', 'Clicks', 'Impressions', 'Reached', 'From click costs', 'From the network', 'In reports'] as $heading)
+                    @foreach (['Day', 'Impressions', 'Clicks', 'Reached', 'From click costs', 'From the network', 'In reports'] as $heading)
                         <span role="columnheader">{{ $heading }}</span>
                     @endforeach
                 </div>
                 @forelse ($dayRows as $row)
                     <div class="rg-admin-traffic__day-row" role="row">
                         <span role="cell"><strong>{{ $row['day'] }}</strong></span>
-                        <span role="cell" class="rg-admin-traffic__fig">{{ number_format($row['clicks']) }}</span>
                         <span role="cell" class="rg-admin-traffic__fig">{{ $row['reach'] === null ? '—' : number_format($row['reach']->impressions) }}</span>
+                        <span role="cell" class="rg-admin-traffic__fig">{{ number_format($row['clicks']) }}</span>
                         <span role="cell" class="rg-admin-traffic__fig">
                             @if ($row['reach'] === null)
                                 —

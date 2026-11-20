@@ -153,7 +153,8 @@ account is confirmed its credited visit gets the Activated mark — counted, nev
 told to a network. The day it signed up never activates it. Each new vote,
 comment or reply and post also counts on the visit of the browser it came from,
 found as for a post opened (`traffic_visits.votes`, `comments`,
-`posts_created`), and a vote or a comment marks that visit's row of the post.
+`posts_created`), the first of them keeps its moment there (`acted_at`), and a
+vote or a comment marks that visit's row of the post.
 
 ## Presets
 

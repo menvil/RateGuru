@@ -61,7 +61,7 @@ final class JourneyQuery
     private const array VISIT_COLUMNS = [
         'id', 'entry_visit_id', 'visitor_hash', 'channel', 'source_id', 'source_key', 'campaign_key', 'creative_key', 'landing_key', 'origin',
         'utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term', 'device', 'country', 'city', 'game_id',
-        'arrived_at', 'last_seen_at', 'opened_at', 'login_at', 'votes', 'comments', 'posts_created',
+        'arrived_at', 'last_seen_at', 'opened_at', 'login_at', 'votes', 'comments', 'posts_created', 'acted_at',
     ];
 
     /** @var list<string> the columns of an attempt a journey reads */
@@ -237,6 +237,7 @@ final class JourneyQuery
             'emails' => $emails->map(fn (GameEmailCapture $email): array => ['attempt' => (int) $email->attempt_id, 'at' => $email->captured_at->utc()])->values()->all(),
             'attribution' => $attribution === null ? null : [
                 'signedUp' => $attribution->signed_up_at->utc(),
+                'browser' => $attribution->visitor_hash,
                 'confirmed' => $attribution->confirmed_at?->utc(),
                 'method' => $attribution->signup_method?->value,
                 'place' => $attribution->signup_place?->value,
@@ -393,6 +394,7 @@ final class JourneyQuery
             'votes' => (int) $visit->votes,
             'comments' => (int) $visit->comments,
             'posts' => (int) $visit->posts_created,
+            'acted' => $visit->acted_at?->utc(),
         ];
     }
 

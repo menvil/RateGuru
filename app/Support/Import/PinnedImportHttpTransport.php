@@ -20,7 +20,7 @@ use RuntimeException;
  * relying on one mechanism:
  *  - on_headers rejects immediately once an honest, oversized Content-Length
  *    is seen — before any body byte is read.
- *  - curl's transfer-info callback stops the transfer itself within a
+ *  - Guzzle's progress callback stops the transfer itself within a
  *    curl-buffer-sized margin of the cap, without waiting for the server to
  *    finish or to close the connection. This is the real defense against an
  *    oversized/adversarial response.
@@ -105,27 +105,23 @@ final class PinnedImportHttpTransport implements ImportHttpTransport
                         throw new RuntimeException('Content-Length exceeds the configured cap.');
                     }
                 },
+                // Stops the transfer itself once the body passes the cap: a
+                // progress callback that returns true makes curl abort on the
+                // spot, so a server that keeps sending, or holds the
+                // connection open, is never read to the end or to the
+                // timeout. Guzzle refuses the raw curl progress options in
+                // favour of this one, and composer.json requires the major
+                // version of Guzzle whose callback can abort.
+                'progress' => function (int $downloadTotal, int $downloaded) use ($policy, &$bodyCapExceeded): bool {
+                    if ($downloaded > $policy->maxBytes) {
+                        $bodyCapExceeded = true;
+
+                        return true;
+                    }
+
+                    return false;
+                },
                 'curl' => [
-                    // Stops the transfer itself once the body passes the
-                    // cap: a transfer-info callback that returns non-zero
-                    // makes curl abort on the spot. Guzzle's own "progress"
-                    // option cannot do this. Its wrapper discards the
-                    // callback's return value, and an exception thrown from
-                    // it only surfaces after curl has finished, so a server
-                    // that kept sending, or held the connection open, was
-                    // read to the end or to the timeout first. Guzzle marks
-                    // these raw options as superseded by "progress" for
-                    // that reason alone; nothing else here uses them.
-                    CURLOPT_NOPROGRESS => false,
-                    CURLOPT_XFERINFOFUNCTION => function ($handle, int $downloadTotal, int $downloaded) use ($policy, &$bodyCapExceeded): int {
-                        if ($downloaded > $policy->maxBytes) {
-                            $bodyCapExceeded = true;
-
-                            return 1;
-                        }
-
-                        return 0;
-                    },
                     // Connects to the exact IP UrlImportValidator already
                     // resolved and validated for this hop, instead of
                     // letting curl perform its own uncontrolled DNS lookup
@@ -151,11 +147,11 @@ final class PinnedImportHttpTransport implements ImportHttpTransport
         } catch (ConnectionException $e) {
             if ($contentLengthExceeded || $bodyCapExceeded) {
                 // Both caps end the transfer the way a network failure does:
-                // a throw from on_headers is caught by Guzzle's own
-                // CurlFactory, and a transfer the callback aborted fails
-                // with curl's "aborted by callback", and either surfaces as
-                // the same ConnectionException a real network failure would
-                // produce. The flags set above are what tell them apart.
+                // a throw from on_headers and a transfer the progress callback
+                // aborted both reject with the response received so far, and
+                // for a 2xx response that surfaces as the same
+                // ConnectionException a real network failure would produce.
+                // The flags set above are what tell them apart.
                 throw ImportFetchException::responseTooLarge($target->url, $policy->maxBytes);
             }
 

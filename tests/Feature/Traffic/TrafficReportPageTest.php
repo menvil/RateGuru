@@ -364,6 +364,23 @@ it('narrows every figure by the type of traffic, the game and the device', funct
         ->and($visits(['device' => 'desktop']))->toBe(1);
 });
 
+it('names the spend still estimated under the Spend tile, says so when all of it is counted, and when nothing was spent', function () {
+    $tile = fn (array $query = []) => Livewire::withQueryParams($query)->test(TrafficSourcesPage::class)->call('load');
+
+    TrafficVisit::factory()->unpaid(TrafficChannel::Direct)->create(['arrived_at' => '2026-11-16 10:00:00', 'network_day' => '2026-11-16', 'opened_at' => now()]);
+
+    $tile()->assertSee('Nothing spent on these filters')->assertDontSee('estimated, not synced yet');
+
+    siteClicks($this->source, '40123', 2, 2);
+
+    $tile()->assertSeeInOrder(['Spend', '$0.02', 'All counted, none estimated'])->assertDontSee('estimated, not synced yet');
+
+    siteClicks($this->source, '40124', 3, 3, ['spend_estimated' => true]);
+
+    $tile()->assertSeeInOrder(['Spend', '$0.05', 'incl. $0.03 estimated, not synced yet'])->assertDontSee('All counted, none estimated');
+    $tile(['type' => 'unpaid'])->assertSee('Nothing spent on these filters');
+});
+
 it('shows on the way here the impressions a network billed against those that reached RateGuru, opened the page and started the game, today marked as not closed', function () {
     $campaign = TrafficCampaign::factory()->create(['source_id' => $this->source->id, 'name' => 'US popunder']);
     paidImpressions($this->source, '2026-11-17', 746, '1.38', ['campaign_id' => $campaign->id, 'site_ref' => '40123']);
@@ -683,8 +700,8 @@ it('shows on Spend each day’s impressions and how many of them reached RateGur
 
     $page = Livewire::withQueryParams(['tab' => 'spend'])->test(TrafficSourcesPage::class)->call('load')
         ->set('spendSource', (string) $this->source->id)
-        ->assertSeeInOrder(['Day', 'Clicks', 'Impressions', 'Reached', 'From click costs', 'From the network', 'In reports'])
-        ->assertSeeInOrder(['Yesterday', '30', '40', '30', '75.0%']);
+        ->assertSeeInOrder(['Day', 'Impressions', 'Clicks', 'Reached', 'From click costs', 'From the network', 'In reports'])
+        ->assertSeeInOrder(['Yesterday', '40', '30', '30', '75.0%']);
     $days = collect($page->viewData('dayRows'))->keyBy('date');
 
     expect($days['2026-11-16']['reach']->impressions)->toBe(40)

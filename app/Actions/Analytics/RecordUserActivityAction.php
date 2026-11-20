@@ -32,8 +32,9 @@ use Throwable;
  *
  * Each new vote, comment and post also counts on the visit of the browser
  * it was done from, while visits are recorded (RecordVisitPostAction::
- * visitFor()) — every one, not once a day — and a vote or a comment sets
- * its flag on that visit's row of the post. The screens call this only for
+ * visitFor()) — every one, not once a day — the first of them on the visit
+ * keeps its moment there, and a vote or a comment sets its flag on that
+ * visit's row of the post. The screens call this only for
  * a new vote: one taken back or turned the other way is none.
  */
 final class RecordUserActivityAction
@@ -133,6 +134,11 @@ final class RecordUserActivityAction
             return;
         }
 
+        // The moment of the first, kept — a journey draws what the member did then — and only of the first: a visit
+        // that counted some before the moment was kept keeps none rather than the moment of a later one.
+        TrafficVisit::query()->whereKey($visit->id)->whereNull('acted_at')
+            ->where('votes', 0)->where('comments', 0)->where('posts_created', 0)
+            ->update(['acted_at' => $at->utc()]);
         TrafficVisit::query()->whereKey($visit->id)->where($counter, '<', RecordVisitPostAction::MOST)->increment($counter);
 
         if ($postId !== null) {
