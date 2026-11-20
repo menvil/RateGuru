@@ -1,0 +1,25 @@
+resources/views/filament/pages/traffic-sources/spend.blade.php
+  s_4b9dc6ab6b25d3::t_a1129dca8f5959 5-7
+  s_4b9dc6ab6b25d3::t_bafd29c0a547a6 105
+  s_4b9dc6ab6b25d3::t_50a85edd08e52f 113
+resources/css/filament/admin/components.css
+  s_4b9dc6ab6b25d3::t_c0497d68f9f519 16972
+tests/Feature/Traffic/TrafficReportPageTest.php
+  s_4b9dc6ab6b25d3::t_f5eb2d3a9e5e04 686-687
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "6b74ae72f00d076142a65e504e18a10ce28720cb",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
