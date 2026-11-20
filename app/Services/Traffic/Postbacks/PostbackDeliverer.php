@@ -112,6 +112,12 @@ final class PostbackDeliverer
     private function attempt(mixed $response, ?array $rules, int $latency): PostbackAttempt
     {
         if ($response instanceof Response) {
+            // An answer whose status and headers came but whose body never finished arriving still comes back as a
+            // response: it timed out all the same, and is tried again like any other timeout.
+            if ($response->transferStats?->getHandlerErrorData() === CURLE_OPERATION_TIMEDOUT) {
+                return new PostbackAttempt(TrafficPostbackOutcome::Timeout, null, $latency, null);
+            }
+
             $body = mb_strcut($response->body(), 0, self::MAX_BYTES);
 
             $headers = [];

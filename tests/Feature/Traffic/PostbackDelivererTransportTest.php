@@ -45,6 +45,24 @@ it('connects to the IP checked for a host that has no DNS at all, and keeps what
     }
 });
 
+it('counts an answer that began and then stopped coming as a timeout, to be tried again, not as the network’s answer', function () {
+    $server = startLoopbackFixtureServer();
+    [, $port] = $server;
+
+    try {
+        // The status line and the headers come, then 2 of the 100 bytes promised, then nothing until the 8-second timeout.
+        $sent = loopbackPostbackDeliverer($port)->send([
+            7 => ['url' => "http://postback-network.invalid:{$port}/router.php?mode=stalled-short-answer", 'rules' => null],
+        ]);
+
+        expect($sent[7]->outcome)->toBe(TrafficPostbackOutcome::Timeout)
+            ->and($sent[7]->httpStatus)->toBeNull()
+            ->and($sent[7]->excerpt)->toBeNull();
+    } finally {
+        stopLoopbackFixtureServer($server);
+    }
+});
+
 it('stops reading an answer past 16 KB at once, instead of waiting for the network to finish sending it', function () {
     $server = startLoopbackFixtureServer();
     [, $port] = $server;

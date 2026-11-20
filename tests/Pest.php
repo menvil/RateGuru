@@ -293,8 +293,8 @@ function bindFakeHostResolver(array $extraHostToIps = []): void
 /**
  * A loopback HTTP server (PHP's built-in one on 127.0.0.1, a free port) whose
  * router answers by `?mode=`: echo the Host header, stream without end, send
- * past a cap and then hold the connection, send an oversized Content-Length,
- * or sleep. The only way to exercise real curl end to end — the pin, on_headers
+ * past a cap and then hold the connection, start a short answer and then hold
+ * the connection, send an oversized Content-Length, or sleep. The only way to exercise real curl end to end — the pin, on_headers
  * and the progress abort — which Http::fake() bypasses entirely: the import
  * transport and the postback deliverer both test against it.
  *
@@ -330,6 +330,14 @@ switch ($mode) {
     case 'stalled-oversized-stream':
         header('Content-Type: application/octet-stream');
         echo str_repeat('A', 300000);
+        flush();
+        sleep(20);
+        break;
+
+    case 'stalled-short-answer':
+        header('Content-Type: text/plain');
+        header('Content-Length: 100');
+        echo 'OK';
         flush();
         sleep(20);
         break;
