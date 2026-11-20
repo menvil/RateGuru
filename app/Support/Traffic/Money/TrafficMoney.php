@@ -53,16 +53,35 @@ final class TrafficMoney
         return self::format($amount, abs((float) (string) self::of($amount)) >= 0.1 ? 2 : 3);
     }
 
-    /** A worth in a table, finer the smaller it is: $1.20, $0.172, $0.0257. */
+    /**
+     * A worth in a table, finer the smaller it is: $1.20, $0.172, $0.0257,
+     * and under a cent three significant digits, to the eight decimals money
+     * is kept to, trailing zeros dropped down to four — $0.000759, $0.0050,
+     * $0.00000012 — so a click on a CPM campaign does not read as $0.0008.
+     */
     public static function fine(mixed $amount): string
     {
-        $size = abs((float) (string) self::of($amount));
+        $value = self::of($amount)->toScale(self::SCALE, RoundingMode::HalfUp);
+        $size = $value->abs();
 
-        return self::format($amount, match (true) {
-            $size >= 1 => 2,
-            $size >= 0.1 => 3,
-            default => 4,
-        });
+        if ($size->isZero() || $size->isGreaterThanOrEqualTo('0.01')) {
+            return self::format($value, match (true) {
+                $size->isGreaterThanOrEqualTo(1) => 2,
+                $size->isGreaterThanOrEqualTo('0.1') => 3,
+                default => 4,
+            });
+        }
+
+        // The decimal the first significant digit stands at: 4 for 0.00075900, whose unscaled 75900 has five digits.
+        $first = self::SCALE - strlen((string) $size->getUnscaledValue()) + 1;
+
+        return self::trimmed($value, min(self::SCALE, max(4, $first + 2)), 4);
+    }
+
+    /** Every decimal it is kept to, for a hover: trailing zeros dropped down to cents — $0.00079123, $1.50. */
+    public static function exact(mixed $amount): string
+    {
+        return self::trimmed(self::of($amount)->toScale(self::SCALE, RoundingMode::HalfUp), self::SCALE, 2);
     }
 
     public static function format(mixed $amount, int $decimals = 2): string
@@ -71,5 +90,13 @@ final class TrafficMoney
         $sign = $value->isNegative() ? '−' : '';
 
         return $sign.'$'.number_format(abs((float) (string) $value), $decimals, '.', ',');
+    }
+
+    /** Rounded to so many decimals, trailing zeros dropped down to the least kept, with a true minus. */
+    private static function trimmed(BigDecimal $value, int $decimals, int $least): string
+    {
+        [$whole, $fraction] = explode('.', (string) $value->abs()->toScale($decimals, RoundingMode::HalfUp));
+
+        return ($value->isNegative() ? '−' : '').'$'.number_format((int) $whole, 0, '.', ',').'.'.str_pad(rtrim($fraction, '0'), $least, '0');
     }
 }

@@ -15569,14 +15569,22 @@
         color: var(--rg-admin-text-strong);
     }
 
+    /*
+     * The rows share one set of columns: Finished prints a worth to its first
+     * significant digits, "$0.000759" and longer under a cent, so every column
+     * after the source widens to its longest figure and the source's name,
+     * cut short with an ellipsis, gives up the room.
+     */
     .rg-admin-games__value-sources {
-        display: flex;
-        flex-direction: column;
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(56px, auto) minmax(64px, auto) minmax(52px, auto);
+        column-gap: 6px;
     }
 
     .rg-admin-games__value-source-row {
         display: grid;
-        grid-template-columns: minmax(0, 1fr) 56px 64px 52px;
+        grid-column: 1 / -1;
+        grid-template-columns: subgrid;
         gap: 6px;
         align-items: center;
         width: 100%;
@@ -16710,6 +16718,24 @@
         line-height: var(--rg-admin-leading-caption);
     }
 
+    /*
+     * A new visitor's worth prints a step to its first significant digits, so
+     * one worth under a cent runs to "$0.00000012": Mobile and Desktop share
+     * one set of columns that widen to the longest amount in them, never
+     * narrower than the game flow's 58px, and the steps' names keep the rest.
+     */
+    .rg-admin-traffic .rg-admin-games__worth-grid {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(58px, auto) minmax(58px, auto);
+        column-gap: 8px;
+        row-gap: 4px;
+    }
+
+    .rg-admin-traffic .rg-admin-games__worth-row {
+        grid-column: 1 / -1;
+        grid-template-columns: subgrid;
+    }
+
     /* Traffic sources → Value: outcomes and their prices, accounts by source, who counts, country groups. */
     .rg-admin-traffic__outcomes {
         display: flex;
@@ -17345,8 +17371,9 @@
         grid-template-columns: 70px 140px minmax(240px, 1.6fr) 180px minmax(220px, 1.4fr);
     }
 
+    /* Spend is wide enough for an amount under a cent to its eighth decimal, "$0.00000012". */
     .rg-admin-traffic__log-line--clicks {
-        grid-template-columns: 70px 140px 136px 140px 180px minmax(180px, 1.2fr) minmax(180px, 1.2fr) 80px;
+        grid-template-columns: 70px 140px 136px 140px 180px minmax(180px, 1.2fr) minmax(180px, 1.2fr) 100px;
     }
 
     .rg-admin-traffic__log-line--failed {
