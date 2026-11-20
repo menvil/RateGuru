@@ -1,0 +1,31 @@
+app/Support/Analytics/JourneyTimeline.php
+  s_4b9dc6ab6b25d3::t_16a7d66e9b0470 479-486,493,497-513
+  s_4b9dc6ab6b25d3::t_534d7b802e75c0 352
+  s_4b9dc6ab6b25d3::t_9b284916fc2198 398,401-402
+  s_4b9dc6ab6b25d3::t_b28e7f2e4797d3 536-537,539-541
+tests/Unit/Support/Analytics/JourneyTimelineTest.php
+  s_4b9dc6ab6b25d3::t_c2adbe4ccea926 388-429
+tests/Feature/Queries/JourneyQueryTest.php
+  s_4b9dc6ab6b25d3::t_84f677e4423cd9 132
+  s_4b9dc6ab6b25d3::t_9998441c3dbe5a 146-148
+app/Queries/Analytics/JourneyQuery.php
+  s_4b9dc6ab6b25d3::t_2a68062e15f8b9 240
+docs/architecture/analytics.md
+  s_4b9dc6ab6b25d3::t_1e7c40da73535d 402-409
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "0c40554e91ce26f579b6d9dbba15fb141648556b",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
