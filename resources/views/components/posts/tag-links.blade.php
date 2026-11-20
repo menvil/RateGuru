@@ -6,9 +6,11 @@
 {{-- A post's tags, each opening the feed filtered by it, with the rest of the
      feed the visitor is on kept (resources/js/feed-links.js). Named by slug, as
      the sidebar's top tags and the feed's tag filter name them, so a tag reads
-     the same wherever it appears. --}}
+     the same wherever it appears — and listed by it: the database keeps no
+     order of its own for a post's tags, so they read the same order on every
+     load, in the feed, the drawer and the post's page. --}}
 <ul @if($testId) data-testid="{{ $testId }}" @endif class="flex flex-wrap gap-2">
-    @foreach ($tags as $tag)
+    @foreach ($tags->sortBy('slug', SORT_NATURAL) as $tag)
         <li>
             <a
                 href="{{ route('feed', ['tag' => $tag->slug]) }}"

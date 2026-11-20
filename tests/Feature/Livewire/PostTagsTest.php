@@ -75,3 +75,13 @@ it('leaves the tag row out of a post that has no tags', function () {
     $this->get(route('posts.show', $post))->assertOk()->assertDontSee('data-testid="post-show-tags"', false);
     Livewire::test(PostDrawer::class, ['postId' => $post->id])->assertDontSee('data-testid="post-drawer-tags"', false);
 });
+
+it('lists a post’s tags by their slug wherever they show, whatever order they were added in', function () {
+    $post = Post::factory()->published()->withImage()->create();
+    $post->tags()->attach(Tag::factory()->create(['name' => 'Street food', 'slug' => 'street-food'])->id);
+    $post->tags()->attach(Tag::factory()->create(['name' => 'Pasta', 'slug' => 'pasta'])->id);
+
+    $this->get(route('feed'))->assertSeeInOrder(['data-testid="post-card-tags"', '#pasta', '#street-food'], false);
+    $this->get(route('posts.show', $post))->assertSeeInOrder(['data-testid="post-show-tags"', '#pasta', '#street-food'], false);
+    Livewire::test(PostDrawer::class, ['postId' => $post->id])->assertSeeInOrder(['data-testid="post-drawer-tags"', '#pasta', '#street-food'], false);
+});
