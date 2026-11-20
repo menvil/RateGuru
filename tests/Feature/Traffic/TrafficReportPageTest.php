@@ -868,6 +868,30 @@ it('lays out Logs: postbacks first, with the milestone, the click, the exact req
         ->set('log', 'clicks')->assertSee('/games/x');
 });
 
+it('shows a click’s spend under a cent in full, and says on hovering where it comes from', function () {
+    $api = TrafficSource::factory()->create(['name' => 'ExoClick API', 'link_key' => 'exo', 'spend_mode' => 'api']);
+    $click = fn (TrafficSource $source, array $spend): TrafficVisit => TrafficVisit::factory()->create(['source_id' => $source->id, 'arrived_at' => now()->subHour(), ...$spend]);
+    $priced = $click($this->source, ['cost' => '0.000759', 'spend' => '0.000759', 'spend_basis' => 'click_cost']);
+    $counted = $click($api, ['cost' => '0.000759', 'spend' => '0.00079123', 'spend_basis' => 'api']);
+    $estimated = $click($api, ['cost' => '0.000759', 'spend' => '0.000759', 'spend_basis' => 'click_cost', 'spend_estimated' => true]);
+    $free = $click($this->source, ['spend' => '0', 'spend_basis' => 'none']);
+    $cell = fn (string $shown, string $hint): string => 'title="'.e($hint).'" data-testid="traffic-log-click-spend">'.$shown.'<span class="rg-admin-sr-only">, '.e($hint).'</span>';
+
+    $page = Livewire::withQueryParams(['tab' => 'logs', 'log' => 'clicks'])->test(TrafficSourcesPage::class)->call('load')
+        ->assertSeeHtml($cell('$0.000759', 'Price in the click $0.000759'))
+        ->assertSeeHtml($cell('$0.000791', 'Price in the click $0.000759 · counted $0.00079123, the network’s bill shared out'))
+        ->assertSeeHtml($cell('$0.000759', 'Price in the click $0.000759 · estimate until the network’s bill is shared out'))
+        ->assertSeeHtml($cell('$0.0000', 'Not counted'))
+        ->assertDontSee('$0.0008');
+
+    expect($page->viewData('spendHints'))->toBe([
+        $free->id => 'Not counted',
+        $estimated->id => 'Price in the click $0.000759 · estimate until the network’s bill is shared out',
+        $counted->id => 'Price in the click $0.000759 · counted $0.00079123, the network’s bill shared out',
+        $priced->id => 'Price in the click $0.000759',
+    ]);
+});
+
 it('leads an empty later page of a log back to the newest entries, as an address kept from before may open one', function () {
     $milestone = TrafficConversion::factory()->create(['source_id' => $this->source->id]);
 

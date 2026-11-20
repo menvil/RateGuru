@@ -249,6 +249,14 @@ visitor ID, a link that opens every step of that visitor in Growth → Analytics
 as every lookup is). The link names the visitor by the first 16 characters, so
 it opens that visitor's journey even when another browser's ID starts the same.
 
+A click's **Spend** in Logs → Clicks shows an amount under a cent to three
+significant digits ($0.000759, not $0.0008), and hovering it says, with the
+exact amounts, where the figure comes from: the price in the click, and what
+was counted when that is not it — the rate you set, the campaign's price, or a
+fixed price, a typed-in or CSV figure or the network's bill shared out over the
+day — whether it is still an estimate, or that it is not counted (yet: a click
+on a fixed price is not counted until that price is first shared out).
+
 ## Privacy page
 
 The visitor cookie (`rg_game_visitor`, one year, first-party) now links an ad
