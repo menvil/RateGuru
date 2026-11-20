@@ -33,8 +33,25 @@ it('pins the connection via CURLOPT_RESOLVE to host:port:ip, never touches TLS v
         // (true) is what's in effect here.
         ->and($seenOptions['verify'] ?? true)->toBeTrue()
         ->and(isset($seenOptions['on_headers']))->toBeTrue()
-        ->and($seenOptions['curl'][CURLOPT_NOPROGRESS])->toBeFalse()
-        ->and($seenOptions['curl'][CURLOPT_XFERINFOFUNCTION])->toBeCallable();
+        // The pin is the only raw curl option: Guzzle refuses the raw progress options, so the cap goes through its own.
+        ->and(array_keys($seenOptions['curl']))->toBe([CURLOPT_RESOLVE])
+        ->and($seenOptions['progress'])->toBeCallable();
+});
+
+it('asks for the transfer to stop the moment the body passes the cap, and not before', function () {
+    $seenOptions = null;
+
+    Http::fake(function ($request, $options) use (&$seenOptions) {
+        $seenOptions = $options;
+
+        return Http::response('ok', 200);
+    });
+
+    $target = new ResolvedImportTarget(url: 'https://example.com/page', scheme: 'https', host: 'example.com', port: 443, ip: '93.184.216.34');
+    (new PinnedImportHttpTransport)->get($target, new ImportFetchPolicy(maxBytes: 1000, timeoutSeconds: 5, connectTimeoutSeconds: 2));
+
+    expect(($seenOptions['progress'])(0, 1000, 0, 0))->toBeFalse()
+        ->and(($seenOptions['progress'])(0, 1001, 0, 0))->toBeTrue();
 });
 
 it('explicitly disables proxying, so an ambient http_proxy/https_proxy environment variable can never route the request through a proxy', function () {
@@ -228,134 +245,11 @@ it('rejects a chunked-style oversized body with no Content-Length header', funct
 // ---------------------------------------------------------------------
 // Part 3: real local-loopback HTTP server — the only way to genuinely
 // exercise curl's own CURLOPT_RESOLVE pinning, on_headers, and the
-// transfer-info callback's mid-stream abort (all bypassed entirely by
+// progress callback's mid-stream abort (all bypassed entirely by
 // Http::fake(), see PinnedImportHttpTransport's own docblock). Never touches the real
 // Internet or DNS: 127.0.0.1 only, and the pinned hostname doesn't exist
 // in DNS at all — the request only succeeds because of the pin.
 // ---------------------------------------------------------------------
-
-/**
- * @return array{0: resource, 1: int, 2: string} process handle, port, docroot
- */
-function startLoopbackFixtureServer(): array
-{
-    $docroot = sys_get_temp_dir().'/import-transport-fixture-'.uniqid('', true);
-    mkdir($docroot, 0o755, true);
-
-    file_put_contents($docroot.'/router.php', <<<'PHP'
-<?php
-$mode = $_GET['mode'] ?? 'echo';
-
-switch ($mode) {
-    case 'echo':
-        header('Content-Type: text/plain');
-        echo 'Host header seen: ' . ($_SERVER['HTTP_HOST'] ?? '(none)');
-        break;
-
-    case 'big-stream':
-        header('Content-Type: application/octet-stream');
-        $chunk = str_repeat('A', 65536);
-        for ($i = 0; $i < 100000; $i++) { // ~6.5 GB if never aborted
-            echo $chunk;
-            if (connection_aborted()) {
-                exit;
-            }
-            flush();
-        }
-        break;
-
-    case 'stalled-oversized-stream':
-        header('Content-Type: application/octet-stream');
-        echo str_repeat('A', 300000);
-        flush();
-        sleep(20);
-        break;
-
-    case 'oversized-content-length':
-        header('Content-Length: 999999999');
-        header('Content-Type: application/octet-stream');
-        echo str_repeat('A', 1024);
-        flush();
-        sleep(20);
-        break;
-
-    case 'oversized-content-length-error':
-        http_response_code(500);
-        header('Content-Length: 999999999');
-        header('Content-Type: text/html');
-        echo str_repeat('A', 1024);
-        flush();
-        sleep(20);
-        break;
-
-    case 'sleep-forever':
-        sleep(30);
-        echo 'done';
-        break;
-
-    default:
-        http_response_code(404);
-}
-PHP);
-
-    // Binding a probe socket to port 0 asks the OS to hand back a genuinely
-    // free ephemeral port, closed immediately after -- unlike random_int()
-    // over a fixed range, this can't collide with something else already
-    // listening on the machine (another test worker, a local dev service).
-    $probe = stream_socket_server('tcp://127.0.0.1:0', $errno, $errstr);
-
-    if ($probe === false) {
-        throw new RuntimeException("Failed to reserve a loopback port: {$errstr}");
-    }
-
-    $port = (int) explode(':', stream_socket_get_name($probe, false))[1];
-    fclose($probe);
-
-    // stdout/stderr redirected to /dev/null rather than pipes: nothing in
-    // this fixture ever reads from $pipes, and the built-in server writes
-    // an access-log line per request to stderr -- left as pipes, that
-    // output would sit in the OS pipe buffer until it fills and the child
-    // process blocks trying to write more, hanging the fixture instead of
-    // just discarding output nothing needs.
-    $process = proc_open(
-        [PHP_BINARY, '-S', "127.0.0.1:{$port}", '-t', $docroot],
-        [1 => ['file', '/dev/null', 'w'], 2 => ['file', '/dev/null', 'w']],
-        $pipes,
-    );
-
-    if ($process === false) {
-        throw new RuntimeException('Failed to start the loopback fixture server.');
-    }
-
-    // Give the built-in server a moment to bind before the first request.
-    $deadline = microtime(true) + 3.0;
-
-    while (microtime(true) < $deadline) {
-        $conn = @fsockopen('127.0.0.1', $port, $errno, $errstr, 0.1);
-
-        if ($conn !== false) {
-            fclose($conn);
-
-            return [$process, $port, $docroot];
-        }
-
-        usleep(50_000);
-    }
-
-    throw new RuntimeException('Loopback fixture server never started listening.');
-}
-
-function stopLoopbackFixtureServer(array $server): void
-{
-    [$process, , $docroot] = $server;
-
-    proc_terminate($process);
-    proc_close($process);
-
-    // Best-effort — this is a throwaway temp docroot, not user data.
-    @unlink($docroot.'/router.php');
-    @rmdir($docroot);
-}
 
 /**
  * A second, independent loopback server standing in for an

@@ -100,10 +100,10 @@ final class PostbackDeliverer
             'decode_content' => false,
             // No ambient proxy: a proxy resolves the host itself, and the pin below would not hold.
             'proxy' => '',
+            // An answer past the cap stops being read: true makes curl abort, and what came so far is the answer.
+            'progress' => fn (int $total, int $downloaded): bool => $downloaded > self::MAX_BYTES,
             'curl' => [
                 CURLOPT_RESOLVE => ["{$target->host}:{$target->port}:{$target->ip}"],
-                CURLOPT_NOPROGRESS => false,
-                CURLOPT_XFERINFOFUNCTION => fn ($handle, int $total, int $downloaded): int => $downloaded > self::MAX_BYTES ? 1 : 0,
             ],
         ];
     }
