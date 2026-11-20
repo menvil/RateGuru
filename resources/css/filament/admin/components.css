@@ -16969,7 +16969,7 @@
 
     .rg-admin-traffic__day-row {
         display: grid;
-        grid-template-columns: 110px 80px 100px 100px 120px 140px minmax(200px, 1fr);
+        grid-template-columns: 110px 100px 80px 100px 120px 140px minmax(200px, 1fr);
         gap: 12px;
         align-items: center;
         padding: 7px 16px;
