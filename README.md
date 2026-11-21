@@ -4,7 +4,7 @@ RateGuru is a Laravel application for community-driven ratings and decision supp
 
 ## Stack
 
-- PHP 8.5.12+
+- PHP 8.5.13+
 - Laravel
 - Livewire
 - Alpine.js
@@ -18,12 +18,15 @@ the development commands and the three-engine CI compatibility matrix.
 
 ## Local Setup
 
-Install PHP 8.5 (8.5.12 or later) and PostgreSQL 18.4 through Homebrew, then
+Install PHP 8.5.13 or later and PostgreSQL 18.4 through Homebrew, then
 start PostgreSQL. This comes first because `composer install` and every
 `php artisan` command below need PHP, and the role, database and migration steps
-need PostgreSQL running. Composer refuses a PHP below 8.5.12, the release that
-fixes CVE-2026-109618 and CVE-2026-109619; on a machine that already has an older
-8.5, run `brew update && brew upgrade php`, then `composer install` again.
+need PostgreSQL running. Composer refuses a PHP below 8.5.13, the release that
+fixes CVE-2026-129289 (request smuggling through PHP-FPM) after 8.5.12 fixed
+CVE-2026-109618 and CVE-2026-109619; on a machine that already has an older
+PHP, run `brew update && brew upgrade php` (Homebrew's `php` is 8.6 now, which
+the requirement allows; `php@8.5` keeps the production series), then reinstall
+the PECL extensions you use and run `composer install` again.
 
 ```bash
 brew install php
