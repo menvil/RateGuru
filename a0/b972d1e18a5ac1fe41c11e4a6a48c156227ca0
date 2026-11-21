@@ -1,0 +1,35 @@
+tests/Feature/Analytics/AnalyticsCellsTest.php
+  s_4b9dc6ab6b25d3::t_40de8f6885c1ef 152,176-185,205
+  s_4b9dc6ab6b25d3::t_8f17794772edd9 199
+  s_4b9dc6ab6b25d3::t_90aaf135a64b1b 16,153,186-190,196-198,200-204
+  s_4b9dc6ab6b25d3::t_20de1fdeec24e2 10,191-195
+docs/architecture/http-and-database-boundaries.md
+  ai_agent 90-92
+  s_4b9dc6ab6b25d3::t_4839ea9e6cf25a 95-96
+docs/architecture/analytics.md
+  ai_agent 274-276,288-296,304-308
+tools/phpstan/architecture.neon
+  ai_agent 172
+  s_4b9dc6ab6b25d3::t_40de8f6885c1ef 171
+  s_4b9dc6ab6b25d3::t_4839ea9e6cf25a 179
+app/Queries/Analytics/AnalyticsVisitsQuery.php
+  s_4b9dc6ab6b25d3::t_40de8f6885c1ef 294-299,1005-1014,1016-1020,1022-1028
+  s_4b9dc6ab6b25d3::t_b92500479f3a87 338,340-356,368,370-384
+  s_4b9dc6ab6b25d3::t_4839ea9e6cf25a 339,927-928,1015,1021
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "a0b972d1e18a5ac1fe41c11e4a6a48c156227ca0",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
