@@ -99,18 +99,26 @@ limits and `random_page_cost` — are sized for the machine the targets share
   touching the running server. `pg_file_settings` cannot serve: it reports a
   setting waiting for a restart exactly as it reports an invalid one.
 - **Apply.** A changed file is validated, then PostgreSQL reloads
-  (`pg_reload_conf()`). If PostgreSQL then reports a setting waiting for a
-  restart (`pg_settings.pending_restart`; `shared_buffers` is one), it is
-  restarted once — a short interruption of every target's database — and the
-  run waits until it answers again. An unchanged file costs neither. A setting
-  that a later file overrides (`postgresql.auto.conf`, written by
-  `ALTER SYSTEM`) fails the run with the way out: `ALTER SYSTEM RESET` it.
+  (`pg_reload_conf()`). An unchanged file reloads too when the running cluster
+  has not loaded a setting it holds (the running value did not come from the
+  file — a reload an earlier run never reached, or an `ALTER SYSTEM RESET` no
+  reload followed). If PostgreSQL then reports a setting waiting for a restart
+  (`pg_settings.pending_restart`; `shared_buffers` is one), the cluster's unit
+  `postgresql@18-main` is restarted once — a short interruption of every
+  target's database — and the run waits until it answers again. A file that is
+  unchanged and loaded, with no restart pending, costs neither a reload nor a
+  restart. A setting that a later file overrides (`postgresql.auto.conf`,
+  written by `ALTER SYSTEM`) fails the run with the way out:
+  `ALTER SYSTEM RESET` it.
 - **Rollback.** A failed run restores the previous file and puts PostgreSQL
-  back onto it: started again if the restart left it down, otherwise reloaded,
-  and restarted when a restart-only setting changed back.
+  back onto it: the cluster's unit started again if the restart left it down
+  (`postgresql.service` is an umbrella that stays active with the cluster
+  stopped, so it is never the question), otherwise reloaded, and restarted when
+  a restart-only setting changed back.
 - **Report.** `config-test:postgresql` is `PASS` when the files parse and the
-  running cluster applies every setting it read, `DRIFT` while a restart is
-  pending, `CONFLICT` when a later file overrides RateGuru's settings.
+  running cluster applies every setting it read, `DRIFT` while a setting is not
+  loaded yet or a restart is pending, `CONFLICT` when a later file overrides
+  RateGuru's settings.
 
 PostgreSQL's settings, like SSH's, belong to the host run: a target-scoped run
 neither reports, installs nor restarts them.

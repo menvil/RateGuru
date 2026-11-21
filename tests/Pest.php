@@ -9967,6 +9967,7 @@ function provisionWriteStubs(string $scratch): void
                 touch "${STUB_SVC_STATE}/${unit}.active"
                 if [[ "${unit}" == nginx ]]; then respawn_nginx_workers; fi
                 if [[ "${unit}" == *fpm* ]]; then sync_fpm_sockets; fi
+                if [[ "${unit}" == postgresql ]]; then touch "${STUB_SVC_STATE}/postgresql@18-main.active"; fi
                 ;;
             stop)
                 rm -f "${STUB_SVC_STATE}/${unit}.active"
@@ -10258,7 +10259,7 @@ function provisionFixture(string $scratch, array $options = []): array
 
     // Every base host service is already enabled and running: provisioning
     // runs on a prepared host and never starts one.
-    foreach (['ssh', 'cron', 'nginx', 'postgresql', 'redis-server', 'supervisor', 'php8.5-fpm'] as $unit) {
+    foreach (['ssh', 'cron', 'nginx', 'postgresql', 'postgresql@18-main', 'redis-server', 'supervisor', 'php8.5-fpm'] as $unit) {
         touch($scratch.'/svc/'.$unit.'.enabled');
         touch($scratch.'/svc/'.$unit.'.active');
     }
@@ -11709,9 +11710,16 @@ function bsvcWriteStubs(string $scratch): void
                 [[ -e "${STUB_TOGGLES}/${unit}-start-fail" ]] && exit 1
                 touch "${STUB_SVC_STATE}/${unit}.active"
                 if [[ "${unit}" == nginx ]]; then respawn_nginx_workers; fi
+                # The umbrella starts the cluster, as postgresql.service does.
+                if [[ "${unit}" == postgresql ]]; then touch "${STUB_SVC_STATE}/postgresql@18-main.active"; fi
                 ;;
             stop)    rm -f "${STUB_SVC_STATE}/${unit}.active" ;;
             reload|restart)
+                # A restart that fails leaves the unit stopped.
+                if [[ "${cmd}" == restart && -e "${STUB_TOGGLES}/${unit}-restart-fail" ]]; then
+                    rm -f "${STUB_SVC_STATE}/${unit}.active"
+                    exit 1
+                fi
                 [[ -e "${STUB_SVC_STATE}/${unit}.active" ]] || exit 1
                 if [[ "${unit}" == nginx ]]; then respawn_nginx_workers; fi
                 ;;
@@ -11823,9 +11831,10 @@ function bsvcWriteStubs(string $scratch): void
  * server binary's `postgres -C` parse (fails when the postgres-config-fail
  * toggle exists) and psql. psql reports shared_buffers waiting for a restart
  * while the postgres-pending toggle exists and systemctl has not restarted
- * postgresql, work_mem overridden by a later file while postgres-overridden
- * exists, and fails outright while postgres-unreachable exists. Every call
- * is logged to postgres.log.
+ * the cluster, work_mem not loaded while postgres-unloaded exists and no
+ * reload has run, work_mem overridden by a later file while
+ * postgres-overridden exists, and fails outright while postgres-unreachable
+ * exists. Every call is logged to postgres.log.
  */
 function writePostgresSettingsStubs(string $scratch): void
 {
@@ -11851,10 +11860,19 @@ function writePostgresSettingsStubs(string $scratch): void
             restarted=false
             if [[ -f "${STUB_LOG}/systemctl.log" ]]; then
                 while IFS= read -r line; do
-                    [[ "${line}" == "systemctl restart postgresql" ]] && restarted=true
+                    [[ "${line}" == "systemctl restart postgresql@18-main" ]] && restarted=true
                 done < "${STUB_LOG}/systemctl.log"
             fi
+            reloaded=false
+            if [[ -f "${STUB_LOG}/postgres.log" ]]; then
+                while IFS= read -r line; do
+                    [[ "${line}" == "psql SELECT pg_reload_conf();" ]] && reloaded=true
+                done < "${STUB_LOG}/postgres.log"
+            fi
             case "${cmd}" in
+                *"s.sourcefile"*)
+                    if [[ -e "${STUB_TOGGLES}/postgres-unloaded" && "${reloaded}" == false ]]; then printf 'work_mem\n'; else printf '\n'; fi
+                    ;;
                 *pending_restart*)
                     if [[ -e "${STUB_TOGGLES}/postgres-pending" && "${restarted}" == false ]]; then
                         printf 'shared_buffers\n'
@@ -12049,7 +12067,7 @@ function bsvcFixture(string $scratch, array $options = []): array
         bsvcOwnerTableAdd($scratch, $staging.'/shared/storage/logs', 'rateguru-staging', 'rateguru-staging');
 
         foreach ([
-            'ssh', 'cron', 'nginx', 'postgresql', 'redis-server', 'supervisor',
+            'ssh', 'cron', 'nginx', 'postgresql', 'postgresql@18-main', 'redis-server', 'supervisor',
             'php8.5-fpm', 'staging-mailpit', 'staging-mailtrap-local',
         ] as $unit) {
             touch($scratch.'/svc/'.$unit.'.enabled');

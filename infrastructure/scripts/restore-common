@@ -993,8 +993,11 @@ restore_superuser_statement() {
 RESTORE_ALLOWED_EXTENSIONS=(roaringbitmap)
 
 # restore_dump_extensions DUMP — the extensions DUMP creates, read from its
-# table of contents, space-separated into RESTORE_DUMP_EXTENSIONS. Fails on a
-# table of contents it cannot read and on an extension outside the allowed
+# table of contents, space-separated into RESTORE_DUMP_EXTENSIONS. pg_dump
+# writes an extension's entry as "<id>; <oid> <oid> EXTENSION - <name> " (no
+# owner); an entry with anything else after the name is not one this reads
+# with certainty, so it fails rather than guesses which part is the name. So
+# do a table of contents it cannot read and an extension outside the allowed
 # list. Called directly, never inside $(...), for the reason
 # restore_superuser_query gives.
 RESTORE_DUMP_EXTENSIONS=""
@@ -1007,8 +1010,15 @@ restore_dump_extensions() {
 
     RESTORE_DUMP_EXTENSIONS=""
 
-    while IFS= read -r name; do
-        [[ -n "${name}" ]] || continue
+    local entry
+
+    while IFS= read -r entry; do
+        [[ -n "${entry}" ]] || continue
+
+        [[ "${entry}" =~ ^[0-9]+\;\ [0-9]+\ [0-9]+\ EXTENSION\ -\ ([^ ]+)\ ?$ ]] \
+            || fail "the backup's table of contents has an extension entry this restore cannot read with certainty: ${entry} — nothing was created"
+
+        name="${BASH_REMATCH[1]}"
 
         restore_validate_identifier "${name}" "extension named by the backup"
 
@@ -1021,7 +1031,7 @@ restore_dump_extensions() {
             || fail "the backup creates the extension ${name}, which no RateGuru host provides (allowed: ${RESTORE_ALLOWED_EXTENSIONS[*]}) — nothing was created"
 
         RESTORE_DUMP_EXTENSIONS="${RESTORE_DUMP_EXTENSIONS:+${RESTORE_DUMP_EXTENSIONS} }${name}"
-    done < <(sed -n -E 's/^[0-9]+; [0-9]+ [0-9]+ EXTENSION - ([^ ]+).*$/\1/p' <<<"${toc}")
+    done < <(grep -E '^[0-9]+; [0-9]+ [0-9]+ EXTENSION ' <<<"${toc}" || true)
 }
 
 # restore_create_extensions DATABASE — CREATE EXTENSION IF NOT EXISTS for each
@@ -1053,7 +1063,7 @@ restore_write_list_without_extensions() {
     done
 
     "${PG_RESTORE_BIN}" --list "${dump}" \
-        | grep -v -E "^[0-9]+; [0-9]+ [0-9]+ (EXTENSION - |COMMENT - EXTENSION )(${names})( |$)" \
+        | grep -v -E "^[0-9]+; [0-9]+ [0-9]+ (EXTENSION - |COMMENT - EXTENSION )(${names}) ?$" \
         > "${list}" \
         || return 1
 }

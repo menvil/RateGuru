@@ -61,17 +61,20 @@ creates or needs it.
   and creates the extension in the test database and in `template1`, which a
   parallel run copies for each worker.
 - **Locally.** Homebrew has no package for it; build it once against the
-  Homebrew PostgreSQL, then create it in the test databases as your own
-  (superuser) role:
+  Homebrew PostgreSQL, then create it as your own (superuser) role in the test
+  database and in `template1`, which a parallel run copies for each worker:
 
   ```bash
   git clone --depth 1 --branch v1.3.0 https://github.com/ChenHuajun/pg_roaringbitmap.git
   make -C pg_roaringbitmap install PG_CONFIG="$(brew --prefix postgresql@18)/bin/pg_config"
   psql -d rateguru_test -c 'CREATE EXTENSION IF NOT EXISTS roaringbitmap'
+  psql -d template1 -c 'CREATE EXTENSION IF NOT EXISTS roaringbitmap'
   ```
 
-  `brew upgrade postgresql@18` removes the built files; build it again after
-  one.
+  Worker databases created before that (`rateguru_test_test_<token>`) keep
+  lacking it: run the suite once with `--recreate-databases`, or create the
+  extension in each. `brew upgrade postgresql@18` removes the built files;
+  build it again after one.
 
 ## Development and tests
 

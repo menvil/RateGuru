@@ -188,6 +188,10 @@ DST_SSH_RESTRICTION="${DST_SSHD_DIR}/70-rateguru-deploy.conf"
 # RateGuru's settings are one file there — the distribution's postgresql.conf
 # itself is never edited.
 POSTGRESQL_SERVICE="postgresql"
+# The cluster's own unit. postgresql.service is an umbrella that stays active
+# (a oneshot that has exited) while a cluster is stopped, so whether PostgreSQL
+# runs, and what restarts or starts it, is this unit.
+POSTGRESQL_CLUSTER_UNIT="postgresql@18-main"
 POSTGRESQL_CLUSTER_CONF="/etc/postgresql/18/main/postgresql.conf"
 DST_POSTGRESQL_CONF_D="/etc/postgresql/18/main/conf.d"
 DST_POSTGRESQL_SETTINGS="${DST_POSTGRESQL_CONF_D}/70-rateguru.conf"
@@ -1904,12 +1908,21 @@ postgresql_settings_overridden() {
     postgresql_query "SELECT coalesce(string_agg(name, ' ' ORDER BY name), '') FROM pg_file_settings WHERE sourcefile = '${DST_POSTGRESQL_SETTINGS}' AND NOT applied AND error IS NULL;"
 }
 
+# postgresql_settings_unloaded — RateGuru's settings the running cluster could
+# take but has not: the file holds them, nothing overrides them, no restart is
+# needed for them, yet the running value did not come from the file — a reload
+# that never happened, or one an ALTER SYSTEM RESET still waits for.
+postgresql_settings_unloaded() {
+    postgresql_query "SELECT coalesce(string_agg(f.name, ' ' ORDER BY f.name), '') FROM pg_file_settings f WHERE f.sourcefile = '${DST_POSTGRESQL_SETTINGS}' AND f.applied AND NOT EXISTS (SELECT 1 FROM pg_settings s WHERE s.name = f.name AND s.sourcefile = f.sourcefile);"
+}
+
 # report_postgresql_settings — whether the running cluster runs RateGuru's
-# settings: they parse, none waits for a restart, none is overridden.
+# settings: they parse, all are loaded, none waits for a restart, none is
+# overridden.
 report_postgresql_settings() {
-    if ! service_active "${POSTGRESQL_SERVICE}"; then
-        item MISSING "config-test:postgresql" "cannot read the settings — ${POSTGRESQL_SERVICE} is not running" \
-            "start ${POSTGRESQL_SERVICE} (--apply enables and starts it)"
+    if ! service_active "${POSTGRESQL_CLUSTER_UNIT}"; then
+        item MISSING "config-test:postgresql" "cannot read the settings — ${POSTGRESQL_CLUSTER_UNIT} is not running" \
+            "start ${POSTGRESQL_CLUSTER_UNIT}"
         return 0
     fi
 
@@ -1919,9 +1932,11 @@ report_postgresql_settings() {
         return 0
     fi
 
-    local pending overridden
+    local pending overridden unloaded
 
-    if ! pending="$(postgresql_pending_restart)" || ! overridden="$(postgresql_settings_overridden)"; then
+    if ! pending="$(postgresql_pending_restart)" \
+        || ! overridden="$(postgresql_settings_overridden)" \
+        || ! unloaded="$(postgresql_settings_unloaded)"; then
         item CONFLICT "config-test:postgresql" "cannot read pg_settings and pg_file_settings as postgres" \
             "investigate the cluster manually, then re-run --verify"
         return 0
@@ -1930,9 +1945,12 @@ report_postgresql_settings() {
     if [[ -n "${overridden}" ]]; then
         item CONFLICT "config-test:postgresql" "a later file overrides ${overridden} (postgresql.auto.conf, written by ALTER SYSTEM)" \
             "ALTER SYSTEM RESET each of them as postgres, then re-run --apply — RateGuru's settings live in ${DST_POSTGRESQL_SETTINGS} only"
+    elif [[ -n "${unloaded}" ]]; then
+        item DRIFT "config-test:postgresql" "not loaded yet: ${unloaded}" \
+            "reload PostgreSQL (--apply reloads it once the settings parse)"
     elif [[ -n "${pending}" ]]; then
         item DRIFT "config-test:postgresql" "waiting for a restart: ${pending}" \
-            "restart ${POSTGRESQL_SERVICE} (--apply restarts it once the settings parse)"
+            "restart ${POSTGRESQL_CLUSTER_UNIT} (--apply restarts it once the settings parse)"
     else
         item PASS "config-test:postgresql" "postgres -C passed, and the running cluster applies every setting it read"
     fi
@@ -2616,17 +2634,17 @@ restore_runtime_after_rollback() {
                 # and, if a restart-only setting changed back, restarted.
                 if ! postgresql_config_test; then
                     printf 'ROLLBACK ERROR: postgres -C rejects the restored PostgreSQL configuration — not reloaded\n' >&2
-                elif ! service_active "${POSTGRESQL_SERVICE}"; then
-                    "${SYSTEMCTL_BIN}" start "${POSTGRESQL_SERVICE}" >/dev/null 2>&1 \
-                        && action "rollback: ${POSTGRESQL_SERVICE} started with the restored settings" \
-                        || printf 'ROLLBACK ERROR: %s did not start with the restored settings\n' "${POSTGRESQL_SERVICE}" >&2
+                elif ! service_active "${POSTGRESQL_CLUSTER_UNIT}"; then
+                    "${SYSTEMCTL_BIN}" start "${POSTGRESQL_CLUSTER_UNIT}" >/dev/null 2>&1 \
+                        && action "rollback: ${POSTGRESQL_CLUSTER_UNIT} started with the restored settings" \
+                        || printf 'ROLLBACK ERROR: %s did not start with the restored settings\n' "${POSTGRESQL_CLUSTER_UNIT}" >&2
                 elif postgresql_query "SELECT pg_reload_conf();" >/dev/null; then
                     action "rollback: ${POSTGRESQL_SERVICE} reloaded with the restored settings"
 
                     if [[ -n "$(postgresql_pending_restart)" ]]; then
-                        "${SYSTEMCTL_BIN}" restart "${POSTGRESQL_SERVICE}" >/dev/null 2>&1 \
-                            && action "rollback: ${POSTGRESQL_SERVICE} restarted onto the restored settings" \
-                            || printf 'ROLLBACK ERROR: %s restart onto the restored settings failed\n' "${POSTGRESQL_SERVICE}" >&2
+                        "${SYSTEMCTL_BIN}" restart "${POSTGRESQL_CLUSTER_UNIT}" >/dev/null 2>&1 \
+                            && action "rollback: ${POSTGRESQL_CLUSTER_UNIT} restarted onto the restored settings" \
+                            || printf 'ROLLBACK ERROR: %s restart onto the restored settings failed\n' "${POSTGRESQL_CLUSTER_UNIT}" >&2
                     fi
                 else
                     printf 'ROLLBACK ERROR: %s reload with the restored settings failed\n' "${POSTGRESQL_SERVICE}" >&2
@@ -2940,12 +2958,12 @@ restart_postgresql_if_pending() {
 
     [[ -n "${pending}" ]] || return 0
 
-    action "service:${POSTGRESQL_SERVICE} restarting — only a restart applies: ${pending}"
+    action "service:${POSTGRESQL_CLUSTER_UNIT} restarting — only a restart applies: ${pending}"
     [[ " ${TXN_RELOADED_UNITS[*]:-} " == *" ${POSTGRESQL_SERVICE} "* ]] \
         || TXN_RELOADED_UNITS+=("${POSTGRESQL_SERVICE}")
 
-    "${SYSTEMCTL_BIN}" restart "${POSTGRESQL_SERVICE}" >/dev/null 2>&1 \
-        || fail "systemctl restart ${POSTGRESQL_SERVICE} failed"
+    "${SYSTEMCTL_BIN}" restart "${POSTGRESQL_CLUSTER_UNIT}" >/dev/null 2>&1 \
+        || fail "systemctl restart ${POSTGRESQL_CLUSTER_UNIT} failed"
 
     wait_for_postgresql \
         || fail "PostgreSQL did not accept connections within ${POSTGRESQL_START_WAIT_SECONDS}s of its restart"
@@ -2953,7 +2971,7 @@ restart_postgresql_if_pending() {
 
 converge_postgresql_settings() {
     install_managed_file_if_needed "${SRC_POSTGRESQL_SETTINGS}" "${DST_POSTGRESQL_SETTINGS}"
-    local changed="${FILE_CHANGED}" overridden
+    local changed="${FILE_CHANGED}" overridden unloaded=""
 
     # Validated before PostgreSQL sees it: a candidate the parser rejects
     # aborts the run, and the trap restores the previous file, so neither a
@@ -2961,14 +2979,28 @@ converge_postgresql_settings() {
     postgresql_config_test \
         || fail "postgres -C rejects the cluster's configuration with the candidate settings installed — restoring the previous file (PostgreSQL was neither reloaded nor restarted)"
 
-    if [[ "${changed}" == true ]]; then
-        action "service:${POSTGRESQL_SERVICE} reloading (validated settings changed)"
+    # Reloaded when the file changed, and also when the running cluster has
+    # not loaded settings the unchanged file holds (a reload an earlier run or
+    # an ALTER SYSTEM RESET never got): the file and the running server are
+    # two things to converge, not one.
+    if [[ "${changed}" == false ]]; then
+        unloaded="$(postgresql_settings_unloaded)" \
+            || fail "cannot read pg_file_settings and pg_settings as postgres"
+    fi
+
+    if [[ "${changed}" == true ]] || [[ -n "${unloaded}" ]]; then
+        if [[ "${changed}" == true ]]; then
+            action "service:${POSTGRESQL_SERVICE} reloading (validated settings changed)"
+        else
+            action "service:${POSTGRESQL_SERVICE} reloading (settings not loaded yet: ${unloaded})"
+        fi
+
         TXN_RELOADED_UNITS+=("${POSTGRESQL_SERVICE}")
 
         postgresql_query "SELECT pg_reload_conf();" >/dev/null \
             || fail "PostgreSQL did not reload its settings"
     else
-        action "postgresql settings already byte-identical — no reload needed"
+        action "postgresql settings already byte-identical and loaded — no reload needed"
     fi
 
     restart_postgresql_if_pending

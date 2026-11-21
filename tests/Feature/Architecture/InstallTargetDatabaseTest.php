@@ -48,6 +48,12 @@ function itdbWriteStubs(string $scratch): void
 
         payload="${args}"
 
+        # The database a statement runs in: extensions are a fact of one.
+        database=""
+        for arg in "$@"; do
+            case "${arg}" in --dbname=*) database="${arg#--dbname=}" ;; esac
+        done
+
         # Exactly one statement arrives on stdin — the one carrying the role
         # password, which is the whole point of sending it that way. Every other
         # call uses --command, and reading stdin for those would block forever
@@ -97,10 +103,10 @@ function itdbWriteStubs(string $scratch): void
                 [[ -e "${STUB_STATE}/extension-unavailable" ]] || echo 1
                 ;;
             *"FROM pg_extension WHERE extname = 'roaringbitmap'"*)
-                [[ -e "${STUB_STATE}/extension-roaringbitmap" ]] && echo 1
+                [[ -e "${STUB_STATE}/extension-roaringbitmap@${database}" ]] && echo 1
                 ;;
             *"CREATE EXTENSION IF NOT EXISTS roaringbitmap"*)
-                touch "${STUB_STATE}/extension-roaringbitmap"
+                touch "${STUB_STATE}/extension-roaringbitmap@${database}"
                 ;;
             *"CREATE ROLE"*)
                 touch "${STUB_STATE}/role-exists"
@@ -227,7 +233,7 @@ function itdbLog(string $scratch): string
 function itdbExistingDatabase(string $scratch): void
 {
     itdbDatabaseBeforeExtensions($scratch);
-    touch($scratch.'/state/extension-roaringbitmap');
+    touch($scratch.'/state/extension-roaringbitmap@rateguru_staging');
 }
 
 /** A database prepared before the installer created extensions. */
@@ -322,6 +328,27 @@ it('adds the extensions to a database prepared before them, and nothing else', f
 
         expect($exit)->toBe(0);
         expect(itdbLog($scratch))->not->toContain('CREATE EXTENSION');
+    } finally {
+        itdbCleanup($scratch);
+    }
+});
+
+it('looks for the extension in the target database, not in the one the catalogs are read from', function () {
+    $scratch = itdbScratchDir();
+
+    try {
+        itdbWriteStubs($scratch);
+        itdbWriteEnv($scratch);
+        itdbDatabaseBeforeExtensions($scratch);
+
+        // Present in postgres, absent where the application's tables are.
+        touch($scratch.'/state/extension-roaringbitmap@postgres');
+
+        [$exit, $output] = itdbRun($scratch, ['--check', '--target', 'staging-main']);
+
+        expect($exit)->toBe(1);
+        expect($output)->toContain('database rateguru_staging: lacks the extension(s) roaringbitmap');
+        expect(itdbLog($scratch))->toContain("--dbname=rateguru_staging --command=SELECT 1 FROM pg_extension WHERE extname = 'roaringbitmap';");
     } finally {
         itdbCleanup($scratch);
     }

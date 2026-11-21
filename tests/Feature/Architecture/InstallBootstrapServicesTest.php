@@ -2728,7 +2728,7 @@ it('installs the PostgreSQL settings, parses them before PostgreSQL reloads, and
         expect(file_get_contents($scratch.'/fs'.BSVC_POSTGRES_SETTINGS))
             ->toBe(file_get_contents(base_path('infrastructure/config/postgresql/70-rateguru.conf')));
         expect($output)->toContain('service:postgresql reloading (validated settings changed)');
-        expect($output)->toContain('service:postgresql restarting — only a restart applies: shared_buffers');
+        expect($output)->toContain('service:postgresql@18-main restarting — only a restart applies: shared_buffers');
 
         // The parse comes first, against the cluster's own postgresql.conf;
         // the reload after it; the restart once.
@@ -2738,7 +2738,7 @@ it('installs the PostgreSQL settings, parses them before PostgreSQL reloads, and
 
         expect($parse)->not->toBeFalse();
         expect($reload)->toBeGreaterThan($parse);
-        expect(substr_count(bsvcLog($scratch, 'systemctl.log'), "systemctl restart postgresql\n"))->toBe(1);
+        expect(substr_count(bsvcLog($scratch, 'systemctl.log'), "systemctl restart postgresql@18-main\n"))->toBe(1);
 
         [$exit, $output] = bsvcRun(['--verify'], $env);
 
@@ -2749,14 +2749,14 @@ it('installs the PostgreSQL settings, parses them before PostgreSQL reloads, and
         // A second apply finds nothing to do: no reload, no restart.
         unlink($scratch.'/toggles/postgres-pending');
         file_put_contents($scratch.'/log/postgres.log', '');
-        $restartsBefore = substr_count(bsvcLog($scratch, 'systemctl.log'), 'restart postgresql');
+        $restartsBefore = substr_count(bsvcLog($scratch, 'systemctl.log'), 'restart postgresql@18-main');
 
         [$exit, $output] = bsvcRun(['--apply'], $env);
 
         expect($exit)->toBe(0, $output);
-        expect($output)->toContain('postgresql settings already byte-identical — no reload needed');
+        expect($output)->toContain('postgresql settings already byte-identical and loaded — no reload needed');
         expect(bsvcLog($scratch, 'postgres.log'))->not->toContain('pg_reload_conf');
-        expect(substr_count(bsvcLog($scratch, 'systemctl.log'), 'restart postgresql'))->toBe($restartsBefore);
+        expect(substr_count(bsvcLog($scratch, 'systemctl.log'), 'restart postgresql@18-main'))->toBe($restartsBefore);
     } finally {
         bsvcCleanup($scratch);
     }
@@ -2778,7 +2778,7 @@ it('never reloads or restarts PostgreSQL onto settings its parser rejects, and r
         expect($output)->toContain('rollback complete');
         expect(file_get_contents($scratch.'/fs'.BSVC_POSTGRES_SETTINGS))->toBe($previous);
         expect(bsvcLog($scratch, 'postgres.log'))->not->toContain('pg_reload_conf');
-        expect(bsvcLog($scratch, 'systemctl.log'))->not->toContain('restart postgresql');
+        expect(bsvcLog($scratch, 'systemctl.log'))->not->toContain('restart postgresql@18-main');
     } finally {
         bsvcCleanup($scratch);
     }
@@ -2800,7 +2800,61 @@ it('reports a setting waiting for a restart as drift, and --apply restarts Postg
 
         expect($exit)->toBe(0, $output);
         expect(bsvcLog($scratch, 'postgres.log'))->not->toContain('pg_reload_conf');
-        expect(substr_count(bsvcLog($scratch, 'systemctl.log'), "systemctl restart postgresql\n"))->toBe(1);
+        expect(substr_count(bsvcLog($scratch, 'systemctl.log'), "systemctl restart postgresql@18-main\n"))->toBe(1);
+    } finally {
+        bsvcCleanup($scratch);
+    }
+});
+
+it('reloads PostgreSQL for settings the unchanged file holds but the running cluster has not loaded', function () {
+    $scratch = bsvcScratchDir();
+
+    try {
+        // The file is installed and byte-identical, but the running value of
+        // work_mem did not come from it — an ALTER SYSTEM RESET that no reload
+        // followed, or a reload an earlier run never reached.
+        $env = bsvcFixture($scratch, ['profile' => 'compliant']);
+        touch($scratch.'/toggles/postgres-unloaded');
+
+        [$exit, $output] = bsvcRun(['--verify'], $env);
+
+        expect($exit)->toBe(1, $output);
+        expect($output)->toContain('DRIFT    config-test:postgresql — not loaded yet: work_mem');
+
+        [$exit, $output] = bsvcRun(['--apply'], $env);
+
+        expect($exit)->toBe(0, $output);
+        expect($output)->toContain('service:postgresql reloading (settings not loaded yet: work_mem)');
+        expect(substr_count(bsvcLog($scratch, 'postgres.log'), 'psql SELECT pg_reload_conf();'))->toBe(1);
+        expect(bsvcLog($scratch, 'systemctl.log'))->not->toContain('restart postgresql@18-main');
+        expect($output)->toContain('PASS     config-test:postgresql');
+    } finally {
+        bsvcCleanup($scratch);
+    }
+});
+
+it('starts the stopped cluster again on rollback, even while the postgresql umbrella unit stays active', function () {
+    $scratch = bsvcScratchDir();
+
+    try {
+        $env = bsvcFixture($scratch, ['profile' => 'compliant']);
+        $previous = "# the settings installed before\nwork_mem = 16MB\n";
+        file_put_contents($scratch.'/fs'.BSVC_POSTGRES_SETTINGS, $previous);
+        touch($scratch.'/toggles/postgres-pending');
+        touch($scratch.'/toggles/postgresql@18-main-restart-fail');
+
+        [$exit, $output] = bsvcRun(['--apply'], $env);
+
+        expect($exit)->toBe(1, $output);
+        expect($output)->toContain('systemctl restart postgresql@18-main failed');
+        expect(file_get_contents($scratch.'/fs'.BSVC_POSTGRES_SETTINGS))->toBe($previous);
+
+        // postgresql.service is an exited oneshot that stays "active" with the
+        // cluster down; the rollback asks the cluster's own unit.
+        expect(file_exists($scratch.'/svc/postgresql.active'))->toBeTrue();
+        expect(bsvcLog($scratch, 'systemctl.log'))->toContain("systemctl start postgresql@18-main\n");
+        expect($output)->toContain('rollback: postgresql@18-main started with the restored settings');
+        expect(file_exists($scratch.'/svc/postgresql@18-main.active'))->toBeTrue();
     } finally {
         bsvcCleanup($scratch);
     }
@@ -2841,7 +2895,7 @@ it('leaves PostgreSQL to the host run: a target repair neither reports, installs
         expect($output)->not->toContain('config-test:postgresql');
         expect($output)->not->toContain('70-rateguru.conf');
         expect(bsvcLog($scratch, 'postgres.log'))->toBe('');
-        expect(bsvcLog($scratch, 'systemctl.log'))->not->toContain('restart postgresql');
+        expect(bsvcLog($scratch, 'systemctl.log'))->not->toContain('restart postgresql@18-main');
         expect(is_dir($scratch.'/fs/etc/postgresql'))->toBeFalse('a target repair created PostgreSQL configuration');
 
         // The host run still requires the cluster's conf.d.

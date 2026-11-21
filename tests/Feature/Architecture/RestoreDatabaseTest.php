@@ -212,6 +212,28 @@ it('refuses a dump naming an extension no host provides, before any database is 
     }
 });
 
+it('refuses an extension entry it cannot read with certainty, before any database is created', function () {
+    $scratch = restoreScratchDir();
+
+    try {
+        $operation = restoreDatabaseFixture($scratch);
+        $toc = $scratch.'/dump.toc';
+        file_put_contents($toc, ";\n2; 3079 82127149 EXTENSION - roaringbitmap extra\n215; 1259 16390 TABLE public migrations parity_app\n");
+
+        // pg_dump writes an extension's entry with nothing after its name;
+        // which part of "roaringbitmap extra" is the name is a guess, and a
+        // restore does not guess.
+        $result = restoreDatabaseRun($scratch, $operation, 'stage', ['RGTEST_DUMP_TOC' => $toc]);
+
+        expect($result['exit'])->not->toBe(0);
+        expect($result['output'])->toContain("the backup's table of contents has an extension entry this restore cannot read with certainty: 2; 3079 82127149 EXTENSION - roaringbitmap extra");
+        expect(File::get($scratch.'/createdb.log'))->toBe('');
+        expect(fakePostgresDatabases($scratch))->toBe(['parity_db']);
+    } finally {
+        removeScratchDir($scratch);
+    }
+});
+
 it('drops the temporary database when the dump\'s extension cannot be created, and never restores into it', function () {
     $scratch = restoreScratchDir();
 
