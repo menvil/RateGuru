@@ -976,6 +976,88 @@ restore_superuser_statement() {
             --command="$1"
 }
 
+# --- Extensions a backup carries ------------------------------------------------
+#
+# A dump of a database with an extension in it holds CREATE EXTENSION and
+# COMMENT ON EXTENSION. A restore runs as the application role, which may do
+# neither: an extension that is not marked trusted needs a superuser to
+# create, and only its owner may comment on it. So the superuser creates the
+# dump's extensions in the database restored into, and the restore skips
+# those two entries of the dump — everything else in it is restored exactly
+# as before, as the application role.
+#
+# The extensions a restore will create, as install-target-database creates
+# them in every target's database (its REQUIRED_EXTENSIONS; a test keeps the
+# two lists equal). A dump naming any other is refused before anything is
+# created: a backup is not a way to install an extension on a host.
+RESTORE_ALLOWED_EXTENSIONS=(roaringbitmap)
+
+# restore_dump_extensions DUMP — the extensions DUMP creates, read from its
+# table of contents, space-separated into RESTORE_DUMP_EXTENSIONS. Fails on a
+# table of contents it cannot read and on an extension outside the allowed
+# list. Called directly, never inside $(...), for the reason
+# restore_superuser_query gives.
+RESTORE_DUMP_EXTENSIONS=""
+
+restore_dump_extensions() {
+    local dump="$1" toc name allowed found
+
+    toc="$("${PG_RESTORE_BIN}" --list "${dump}")" \
+        || fail "could not read the table of contents of ${dump}"
+
+    RESTORE_DUMP_EXTENSIONS=""
+
+    while IFS= read -r name; do
+        [[ -n "${name}" ]] || continue
+
+        restore_validate_identifier "${name}" "extension named by the backup"
+
+        found=false
+        for allowed in "${RESTORE_ALLOWED_EXTENSIONS[@]}"; do
+            [[ "${name}" == "${allowed}" ]] && found=true
+        done
+
+        [[ "${found}" == true ]] \
+            || fail "the backup creates the extension ${name}, which no RateGuru host provides (allowed: ${RESTORE_ALLOWED_EXTENSIONS[*]}) — nothing was created"
+
+        RESTORE_DUMP_EXTENSIONS="${RESTORE_DUMP_EXTENSIONS:+${RESTORE_DUMP_EXTENSIONS} }${name}"
+    done < <(sed -n -E 's/^[0-9]+; [0-9]+ [0-9]+ EXTENSION - ([^ ]+).*$/\1/p' <<<"${toc}")
+}
+
+# restore_create_extensions DATABASE — CREATE EXTENSION IF NOT EXISTS for each
+# of RESTORE_DUMP_EXTENSIONS, as the superuser, in DATABASE. Returns the
+# status of the first that fails, so a stage can drop what it created.
+restore_create_extensions() {
+    local database="$1" name
+
+    for name in ${RESTORE_DUMP_EXTENSIONS}; do
+        "${RUNUSER_BIN}" -u "${POSTGRES_SUPERUSER}" -- \
+            "${PSQL_BIN}" \
+                --no-psqlrc \
+                --quiet \
+                --set=ON_ERROR_STOP=1 \
+                --dbname="${database}" \
+                --command="CREATE EXTENSION IF NOT EXISTS ${name} WITH SCHEMA public;" \
+            || return 1
+    done
+}
+
+# restore_write_list_without_extensions DUMP LIST — DUMP's table of contents
+# minus the CREATE EXTENSION and COMMENT ON EXTENSION entries of
+# RESTORE_DUMP_EXTENSIONS, written to LIST for pg_restore --use-list.
+restore_write_list_without_extensions() {
+    local dump="$1" list="$2" name names=""
+
+    for name in ${RESTORE_DUMP_EXTENSIONS}; do
+        names="${names:+${names}|}${name}"
+    done
+
+    "${PG_RESTORE_BIN}" --list "${dump}" \
+        | grep -v -E "^[0-9]+; [0-9]+ [0-9]+ (EXTENSION - |COMMENT - EXTENSION )(${names})( |$)" \
+        > "${list}" \
+        || return 1
+}
+
 restore_database_exists() {
     restore_superuser_query "SELECT 1 FROM pg_database WHERE datname = '$1';"
 

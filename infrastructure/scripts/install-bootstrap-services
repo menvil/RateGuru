@@ -161,6 +161,7 @@ SRC_PHP_FPM_DIR="${REPO_ROOT}/infrastructure/config/php-fpm"
 SRC_SUPERVISOR_DIR="${REPO_ROOT}/infrastructure/config/supervisor"
 SRC_CRON_DIR="${REPO_ROOT}/infrastructure/config/cron"
 SRC_SSH_RESTRICTION="${REPO_ROOT}/infrastructure/config/ssh/70-rateguru-deploy.conf"
+SRC_POSTGRESQL_SETTINGS="${REPO_ROOT}/infrastructure/config/postgresql/70-rateguru.conf"
 
 # The two shared mail-capture vhost sources — installed and owned by
 # install-mail-capture, but their external TLS/Basic Auth prerequisites are
@@ -181,6 +182,16 @@ DST_CRON_DIR="/etc/cron.d"
 DST_SSHD_DIR="/etc/ssh/sshd_config.d"
 DST_SSH_RESTRICTION="${DST_SSHD_DIR}/70-rateguru-deploy.conf"
 
+# The host's one PostgreSQL cluster, as the PGDG postgresql-18 package lays
+# it out (install-bootstrap-runtime installs major 18; a test keeps the two
+# majors equal). Its postgresql.conf includes every *.conf in conf.d, and
+# RateGuru's settings are one file there — the distribution's postgresql.conf
+# itself is never edited.
+POSTGRESQL_SERVICE="postgresql"
+POSTGRESQL_CLUSTER_CONF="/etc/postgresql/18/main/postgresql.conf"
+DST_POSTGRESQL_CONF_D="/etc/postgresql/18/main/conf.d"
+DST_POSTGRESQL_SETTINGS="${DST_POSTGRESQL_CONF_D}/70-rateguru.conf"
+
 # Every directly-owned service file is non-secret host configuration:
 SERVICE_FILE_OWNER="root"
 SERVICE_FILE_GROUP="root"
@@ -197,7 +208,9 @@ SERVICE_LOG_MODE="2770"
 # Base host services this slice ensures are enabled and running. PHP-FPM is
 # appended after the template-derived service name is known. PostgreSQL and
 # Redis only get service enablement — never databases, roles, passwords,
-# Pg_hba.conf or Redis auth/network changes (the production launch material).
+# Pg_hba.conf or Redis auth/network changes (the production launch material) —
+# plus, for PostgreSQL, the one settings file in its conf.d
+# (converge_postgresql_settings).
 # The host-global base services, enabled and active before any target exists.
 #
 # cron is one of them for a reason that was an accident until now: RateGuru
@@ -283,6 +296,9 @@ NGINX_BIN="$(gated_default RATEGURU_BOOTSTRAPSVC_NGINX_BIN nginx)"
 SSHD_BIN="$(gated_default RATEGURU_BOOTSTRAPSVC_SSHD_BIN /usr/sbin/sshd)"
 SUPERVISORCTL_BIN="$(gated_default RATEGURU_BOOTSTRAPSVC_SUPERVISORCTL_BIN supervisorctl)"
 PGREP_BIN="$(gated_default RATEGURU_BOOTSTRAPSVC_PGREP_BIN pgrep)"
+RUNUSER_BIN="$(gated_default RATEGURU_BOOTSTRAPSVC_RUNUSER_BIN runuser)"
+PSQL_BIN="$(gated_default RATEGURU_BOOTSTRAPSVC_PSQL_BIN psql)"
+POSTGRES_SERVER_BIN="$(gated_default RATEGURU_BOOTSTRAPSVC_POSTGRES_SERVER_BIN /usr/lib/postgresql/18/bin/postgres)"
 STAT_BIN="$(gated_default RATEGURU_BOOTSTRAPSVC_STAT_BIN stat)"
 INSTALL_BIN="$(gated_default RATEGURU_BOOTSTRAPSVC_INSTALL_BIN install)"
 CHOWN_BIN="$(gated_default RATEGURU_BOOTSTRAPSVC_CHOWN_BIN chown)"
@@ -1283,6 +1299,7 @@ validate_source_file() {
 # log directory, so a drifted commit fails here rather than on the host.
 validate_service_sources() {
     validate_source_file "${SRC_SSH_RESTRICTION}" "SSH deploy restriction"
+    validate_source_file "${SRC_POSTGRESQL_SETTINGS}" "PostgreSQL settings"
 
     local target_id
     for target_id in "${ACTIVE_TARGETS[@]}"; do
@@ -1789,6 +1806,7 @@ report_managed_files() {
     # target-scoped run neither reports it as its own nor rewrites it.
     if ! target_scoped; then
         report_managed_file "SSH deploy restriction" "${SRC_SSH_RESTRICTION}" "${DST_SSH_RESTRICTION}"
+        report_managed_file "PostgreSQL settings" "${SRC_POSTGRESQL_SETTINGS}" "${DST_POSTGRESQL_SETTINGS}"
     fi
 
     local target_id
@@ -1845,6 +1863,79 @@ sshd_config_test() {
 
 php_fpm_config_test() {
     "${PHP_FPM_TEST_BIN}" -t >/dev/null 2>&1
+}
+
+# postgresql_config_test — PostgreSQL's own parse of every configuration file
+# of the cluster, conf.d included: `postgres -C` reads them as a start would
+# and exits non-zero on a syntax error, an unknown setting or a value out of
+# range, without touching the running server. (pg_file_settings cannot tell
+# those apart from a setting merely waiting for a restart: it reports both
+# as "could not be applied".)
+postgresql_config_test() {
+    "${RUNUSER_BIN}" -u postgres -- \
+        "${POSTGRES_SERVER_BIN}" --config-file="${POSTGRESQL_CLUSTER_CONF}" -C shared_buffers \
+        >/dev/null 2>&1
+}
+
+# postgresql_query SQL — one value, asked of the running cluster as the
+# postgres superuser over the local socket. Non-zero when it cannot be asked.
+postgresql_query() {
+    "${RUNUSER_BIN}" -u postgres -- \
+        "${PSQL_BIN}" \
+            --no-psqlrc \
+            --no-align \
+            --tuples-only \
+            --set=ON_ERROR_STOP=1 \
+            --dbname=postgres \
+            --command="$1" \
+        2>/dev/null
+}
+
+# postgresql_pending_restart — the settings PostgreSQL has read but applies
+# only on a restart, space-separated; empty when there are none.
+postgresql_pending_restart() {
+    postgresql_query "SELECT coalesce(string_agg(name, ' ' ORDER BY name), '') FROM pg_settings WHERE pending_restart;"
+}
+
+# postgresql_settings_overridden — RateGuru's settings that a later file
+# overrides (postgresql.auto.conf, written by ALTER SYSTEM), space-separated:
+# not applied, with no error of their own.
+postgresql_settings_overridden() {
+    postgresql_query "SELECT coalesce(string_agg(name, ' ' ORDER BY name), '') FROM pg_file_settings WHERE sourcefile = '${DST_POSTGRESQL_SETTINGS}' AND NOT applied AND error IS NULL;"
+}
+
+# report_postgresql_settings — whether the running cluster runs RateGuru's
+# settings: they parse, none waits for a restart, none is overridden.
+report_postgresql_settings() {
+    if ! service_active "${POSTGRESQL_SERVICE}"; then
+        item MISSING "config-test:postgresql" "cannot read the settings — ${POSTGRESQL_SERVICE} is not running" \
+            "start ${POSTGRESQL_SERVICE} (--apply enables and starts it)"
+        return 0
+    fi
+
+    if ! postgresql_config_test; then
+        item CONFLICT "config-test:postgresql" "postgres -C rejects the cluster's configuration files" \
+            "fix the installed PostgreSQL configuration — it is never reloaded or restarted onto a configuration its parser rejects"
+        return 0
+    fi
+
+    local pending overridden
+
+    if ! pending="$(postgresql_pending_restart)" || ! overridden="$(postgresql_settings_overridden)"; then
+        item CONFLICT "config-test:postgresql" "cannot read pg_settings and pg_file_settings as postgres" \
+            "investigate the cluster manually, then re-run --verify"
+        return 0
+    fi
+
+    if [[ -n "${overridden}" ]]; then
+        item CONFLICT "config-test:postgresql" "a later file overrides ${overridden} (postgresql.auto.conf, written by ALTER SYSTEM)" \
+            "ALTER SYSTEM RESET each of them as postgres, then re-run --apply — RateGuru's settings live in ${DST_POSTGRESQL_SETTINGS} only"
+    elif [[ -n "${pending}" ]]; then
+        item DRIFT "config-test:postgresql" "waiting for a restart: ${pending}" \
+            "restart ${POSTGRESQL_SERVICE} (--apply restarts it once the settings parse)"
+    else
+        item PASS "config-test:postgresql" "postgres -C passed, and the running cluster applies every setting it read"
+    fi
 }
 
 # supervisor_reread_validation — `supervisorctl reread` parses every config
@@ -1932,6 +2023,10 @@ report_config_validation() {
             item CONFLICT "config-test:sshd" "sshd -t failed against the installed configuration" \
                 "fix the installed SSH configuration before any reload"
         fi
+
+        # PostgreSQL's settings belong to the host run for the same reason:
+        # every target's database lives in the one cluster.
+        report_postgresql_settings
     fi
 
     if php_fpm_config_test; then
@@ -2515,6 +2610,28 @@ restore_runtime_after_rollback() {
                         || printf 'ROLLBACK ERROR: %s reload with the restored configuration failed\n' "${PHP_FPM_SERVICE}" >&2
                 fi
                 ;;
+            "${POSTGRESQL_SERVICE}")
+                # Back onto the restored settings: started again when the
+                # restart onto the candidate left it down, otherwise reloaded
+                # and, if a restart-only setting changed back, restarted.
+                if ! postgresql_config_test; then
+                    printf 'ROLLBACK ERROR: postgres -C rejects the restored PostgreSQL configuration — not reloaded\n' >&2
+                elif ! service_active "${POSTGRESQL_SERVICE}"; then
+                    "${SYSTEMCTL_BIN}" start "${POSTGRESQL_SERVICE}" >/dev/null 2>&1 \
+                        && action "rollback: ${POSTGRESQL_SERVICE} started with the restored settings" \
+                        || printf 'ROLLBACK ERROR: %s did not start with the restored settings\n' "${POSTGRESQL_SERVICE}" >&2
+                elif postgresql_query "SELECT pg_reload_conf();" >/dev/null; then
+                    action "rollback: ${POSTGRESQL_SERVICE} reloaded with the restored settings"
+
+                    if [[ -n "$(postgresql_pending_restart)" ]]; then
+                        "${SYSTEMCTL_BIN}" restart "${POSTGRESQL_SERVICE}" >/dev/null 2>&1 \
+                            && action "rollback: ${POSTGRESQL_SERVICE} restarted onto the restored settings" \
+                            || printf 'ROLLBACK ERROR: %s restart onto the restored settings failed\n' "${POSTGRESQL_SERVICE}" >&2
+                    fi
+                else
+                    printf 'ROLLBACK ERROR: %s reload with the restored settings failed\n' "${POSTGRESQL_SERVICE}" >&2
+                fi
+                ;;
         esac
     done
 
@@ -2794,6 +2911,73 @@ converge_ssh_restriction() {
     else
         action "ssh restriction already byte-identical — no reload needed"
     fi
+}
+
+# wait_for_postgresql — after a restart, until the cluster answers again
+# (at most POSTGRESQL_START_WAIT_SECONDS).
+POSTGRESQL_START_WAIT_SECONDS=60
+
+wait_for_postgresql() {
+    local waited=0
+
+    until postgresql_query "SELECT 1;" >/dev/null; do
+        (( waited < POSTGRESQL_START_WAIT_SECONDS )) || return 1
+        sleep 1
+        waited=$((waited + 1))
+    done
+}
+
+# restart_postgresql_if_pending — the settings only a restart applies
+# (shared_buffers among RateGuru's) take effect: one restart of the cluster,
+# a short interruption of every target's database, and only when PostgreSQL
+# itself reports a setting waiting for it — so a run that changed nothing
+# never restarts it.
+restart_postgresql_if_pending() {
+    local pending
+
+    pending="$(postgresql_pending_restart)" \
+        || fail "cannot read pg_settings as postgres"
+
+    [[ -n "${pending}" ]] || return 0
+
+    action "service:${POSTGRESQL_SERVICE} restarting — only a restart applies: ${pending}"
+    [[ " ${TXN_RELOADED_UNITS[*]:-} " == *" ${POSTGRESQL_SERVICE} "* ]] \
+        || TXN_RELOADED_UNITS+=("${POSTGRESQL_SERVICE}")
+
+    "${SYSTEMCTL_BIN}" restart "${POSTGRESQL_SERVICE}" >/dev/null 2>&1 \
+        || fail "systemctl restart ${POSTGRESQL_SERVICE} failed"
+
+    wait_for_postgresql \
+        || fail "PostgreSQL did not accept connections within ${POSTGRESQL_START_WAIT_SECONDS}s of its restart"
+}
+
+converge_postgresql_settings() {
+    install_managed_file_if_needed "${SRC_POSTGRESQL_SETTINGS}" "${DST_POSTGRESQL_SETTINGS}"
+    local changed="${FILE_CHANGED}" overridden
+
+    # Validated before PostgreSQL sees it: a candidate the parser rejects
+    # aborts the run, and the trap restores the previous file, so neither a
+    # reload nor a restart ever reads it.
+    postgresql_config_test \
+        || fail "postgres -C rejects the cluster's configuration with the candidate settings installed — restoring the previous file (PostgreSQL was neither reloaded nor restarted)"
+
+    if [[ "${changed}" == true ]]; then
+        action "service:${POSTGRESQL_SERVICE} reloading (validated settings changed)"
+        TXN_RELOADED_UNITS+=("${POSTGRESQL_SERVICE}")
+
+        postgresql_query "SELECT pg_reload_conf();" >/dev/null \
+            || fail "PostgreSQL did not reload its settings"
+    else
+        action "postgresql settings already byte-identical — no reload needed"
+    fi
+
+    restart_postgresql_if_pending
+
+    overridden="$(postgresql_settings_overridden)" \
+        || fail "cannot read pg_file_settings as postgres"
+
+    [[ -z "${overridden}" ]] \
+        || fail "PostgreSQL runs ${overridden} from a later file, not from ${DST_POSTGRESQL_SETTINGS} — ALTER SYSTEM RESET each of them as postgres, then re-run --apply"
 }
 
 converge_php_fpm() {
@@ -3320,6 +3504,15 @@ apply_gate_destinations() {
         if [[ -e "${phys}" ]] && [[ ! -f "${phys}" ]]; then
             fail "destination exists but is not a regular file: ${DST_SSH_RESTRICTION} — resolve manually before --apply"
         fi
+
+        # conf.d comes with the postgresql-18 package (install-bootstrap-runtime).
+        require_real_directory "${DST_POSTGRESQL_CONF_D}" "PostgreSQL conf.d"
+
+        phys="$(physical "${DST_POSTGRESQL_SETTINGS}")"
+        [[ -L "${phys}" ]] && fail "destination is a symlink: ${DST_POSTGRESQL_SETTINGS} — resolve manually before --apply"
+        if [[ -e "${phys}" ]] && [[ ! -f "${phys}" ]]; then
+            fail "destination exists but is not a regular file: ${DST_POSTGRESQL_SETTINGS} — resolve manually before --apply"
+        fi
     fi
 
     for target_id in "${ACTIVE_TARGETS[@]}"; do
@@ -3465,6 +3658,7 @@ perform_apply() {
         converge_mail_gateway
 
         ensure_service_enabled_active postgresql
+        converge_postgresql_settings
         ensure_service_enabled_active redis-server
     fi
 

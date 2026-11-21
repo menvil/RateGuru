@@ -114,7 +114,7 @@ function bootstrapRuntimeRequiredPackages(): array
         ['cli', 'common', 'fpm', 'bcmath', 'curl', 'gd', 'intl', 'mbstring', 'pgsql', 'redis', 'xml', 'zip'],
     );
 
-    return array_merge($base, $php, ['postgresql-18', 'postgresql-client-18']);
+    return array_merge($base, $php, ['postgresql-18', 'postgresql-client-18', 'postgresql-18-roaringbitmap']);
 }
 
 /**

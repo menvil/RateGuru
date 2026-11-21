@@ -104,6 +104,145 @@ it('stages the backup into a new temporary database and leaves the live one unto
     }
 });
 
+// =============================================================================
+// Stage: a dump that carries an extension
+// =============================================================================
+
+/**
+ * A table of contents as `pg_restore --list` prints it for a dump of a
+ * database holding roaringbitmap (taken --no-owner --no-privileges, PostgreSQL
+ * 18.4) — the trailing spaces included — or naming the extensions given.
+ */
+function restoreDatabaseDumpToc(string $scratch, array $extensions = ['roaringbitmap']): string
+{
+    $lines = [';', '; Archive created at 2026-11-21 03:00:00 UTC', ';     dbname: parity_db', ';'];
+    $id = 2;
+
+    foreach ($extensions as $extension) {
+        $lines[] = ($id++)."; 3079 82127149 EXTENSION - {$extension} ";
+        $lines[] = ($id++ + 3950)."; 0 0 COMMENT - EXTENSION {$extension} ";
+    }
+
+    $lines[] = '215; 1259 16390 TABLE public migrations parity_app';
+    $lines[] = '216; 1259 16395 TABLE public analytics_day_people parity_app';
+    $lines[] = '4100; 0 16395 TABLE DATA public analytics_day_people parity_app';
+
+    $path = $scratch.'/dump.toc';
+    file_put_contents($path, implode("\n", $lines)."\n");
+
+    return $path;
+}
+
+it('creates the dump\'s extension as the superuser and restores everything else as the application role', function () {
+    $scratch = restoreScratchDir();
+
+    try {
+        $operation = restoreDatabaseFixture($scratch);
+        $staged = stagedDatabaseName($operation);
+
+        $result = restoreDatabaseRun($scratch, $operation, 'stage', [
+            'RGTEST_DUMP_TOC' => restoreDatabaseDumpToc($scratch),
+        ]);
+
+        expect($result['exit'])->toBe(0, $result['output']);
+        expect($result['output'])->toContain("creating the extension(s) roaringbitmap in {$staged} as postgres");
+
+        // The superuser, in the staged database — never the live one.
+        expect(File::get($scratch.'/psql.log'))
+            ->toContain("--dbname={$staged} --command=CREATE EXTENSION IF NOT EXISTS roaringbitmap WITH SCHEMA public;")
+            ->not->toContain('--dbname=parity_db --command=CREATE EXTENSION');
+
+        // The restore, still as the application role, reads a list without the
+        // two entries it could not run: CREATE EXTENSION needs a superuser and
+        // COMMENT ON EXTENSION the extension's owner.
+        $pgRestore = File::get($scratch.'/pg_restore.log');
+        expect($pgRestore)
+            ->toContain('--use-list=')
+            ->toContain('--username=parity_app')
+            ->toContain('--exit-on-error')
+            ->toContain('--single-transaction');
+
+        $list = File::get($scratch.'/pg_restore.log.list');
+        expect($list)
+            ->not->toContain('EXTENSION - roaringbitmap')
+            ->not->toContain('COMMENT - EXTENSION roaringbitmap')
+            ->toContain('TABLE public migrations parity_app')
+            ->toContain('TABLE public analytics_day_people parity_app')
+            ->toContain('TABLE DATA public analytics_day_people parity_app');
+
+        expect(restoreOperationState($scratch.'/run/restores/parity-target/'.$operation)['phase'])->toBe('database-staged');
+    } finally {
+        removeScratchDir($scratch);
+    }
+});
+
+it('restores a dump without extensions exactly as before, with no list and no extension statement', function () {
+    $scratch = restoreScratchDir();
+
+    try {
+        $operation = restoreDatabaseFixture($scratch);
+
+        $result = restoreDatabaseRun($scratch, $operation, 'stage');
+
+        expect($result['exit'])->toBe(0, $result['output']);
+        expect(File::get($scratch.'/pg_restore.log'))->not->toContain('--use-list');
+        expect(File::get($scratch.'/psql.log'))->not->toContain('CREATE EXTENSION');
+    } finally {
+        removeScratchDir($scratch);
+    }
+});
+
+it('refuses a dump naming an extension no host provides, before any database is created', function () {
+    $scratch = restoreScratchDir();
+
+    try {
+        $operation = restoreDatabaseFixture($scratch);
+
+        $result = restoreDatabaseRun($scratch, $operation, 'stage', [
+            'RGTEST_DUMP_TOC' => restoreDatabaseDumpToc($scratch, ['roaringbitmap', 'postgis']),
+        ]);
+
+        expect($result['exit'])->not->toBe(0);
+        expect($result['output'])->toContain('the backup creates the extension postgis, which no RateGuru host provides (allowed: roaringbitmap) — nothing was created');
+        expect(File::get($scratch.'/createdb.log'))->toBe('');
+        expect(File::get($scratch.'/psql.log'))->not->toContain('CREATE EXTENSION');
+        expect(fakePostgresDatabases($scratch))->toBe(['parity_db']);
+    } finally {
+        removeScratchDir($scratch);
+    }
+});
+
+it('drops the temporary database when the dump\'s extension cannot be created, and never restores into it', function () {
+    $scratch = restoreScratchDir();
+
+    try {
+        $operation = restoreDatabaseFixture($scratch);
+
+        $result = restoreDatabaseRun($scratch, $operation, 'stage', [
+            'RGTEST_DUMP_TOC' => restoreDatabaseDumpToc($scratch),
+            'RGTEST_CREATE_EXTENSION_EXIT' => '1',
+        ]);
+
+        expect($result['exit'])->not->toBe(0);
+        expect($result['output'])->toContain('could not create the extension(s) roaringbitmap in '.stagedDatabaseName($operation).' — their package must be installed');
+        expect($result['output'])->toContain('the live database parity_db was never touched');
+
+        expect(fakePostgresDatabases($scratch))->toBe(['parity_db']);
+        expect(File::get($scratch.'/dropdb.log'))->toContain(stagedDatabaseName($operation));
+        expect(File::get($scratch.'/pg_restore.log'))->not->toContain('--username=parity_app');
+    } finally {
+        removeScratchDir($scratch);
+    }
+});
+
+it('allows a restore exactly the extensions install-target-database creates', function () {
+    preg_match('/^RESTORE_ALLOWED_EXTENSIONS=\(([^)]*)\)$/m', File::get(base_path('infrastructure/scripts/restore-common')), $allowed);
+    preg_match('/^REQUIRED_EXTENSIONS=\(([^)]*)\)$/m', File::get(base_path('infrastructure/scripts/install-target-database')), $required);
+
+    expect($allowed[1] ?? null)->not->toBeNull();
+    expect($allowed[1])->toBe($required[1] ?? null);
+});
+
 it('leaves the live database untouched and drops the temporary one when pg_restore fails', function () {
     $scratch = restoreScratchDir();
 
