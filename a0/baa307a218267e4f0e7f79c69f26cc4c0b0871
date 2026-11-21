@@ -1,0 +1,21 @@
+infrastructure/scripts/install-bootstrap-runtime
+  s_4b9dc6ab6b25d3::t_ec1feafc071745 418-421
+  s_4b9dc6ab6b25d3::t_abf2fdaddffeaa 1076-1078
+  s_4b9dc6ab6b25d3::t_a7900cfbea1947 1040-1056
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "a0baa307a218267e4f0e7f79c69f26cc4c0b0871",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
