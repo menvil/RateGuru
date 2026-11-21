@@ -1,0 +1,33 @@
+app/Queries/Analytics/AnalyticsGameDaysQuery.php
+  s_4b9dc6ab6b25d3::t_61143009a68c9e 74-75
+app/Actions/Analytics/RefreshAnalyticsDayAction.php
+  s_4b9dc6ab6b25d3::t_61143009a68c9e 46-50
+tests/Feature/Analytics/AnalyticsGameDaysTest.php
+  s_4b9dc6ab6b25d3::t_8ceeed27a5a0d1 4,8,180-226
+app/Actions/Analytics/RefreshAnalyticsVisitsAction.php
+  s_4b9dc6ab6b25d3::t_61143009a68c9e 82-83
+app/Queries/Traffic/TrafficReportQuery.php
+  s_4b9dc6ab6b25d3::t_61143009a68c9e 315-316,359-360,385-386
+app/Queries/Analytics/AnalyticsVisitsQuery.php
+  s_4b9dc6ab6b25d3::t_61143009a68c9e 180-181,442,788,1050-1058
+app/Console/Commands/TrafficPurgeExpiredCommand.php
+  s_4b9dc6ab6b25d3::t_c1b5555c0bcb17 5,20,29-31,85,95-97,106-109,121-144
+docs/architecture/analytics.md
+  ai_agent 284-288,559,561
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "90d21074b94e0338a3057fe0be68c2a635fbe282",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
