@@ -1359,7 +1359,7 @@ it('upgrades an nginx below the floor during --apply, its packages only, then re
 
         // A fresh index first, then the nginx packages and nothing else.
         expect(explode("\n", trim(bootstrapRuntimeAptLog($scratch))))->toBe([
-            'apt-get update',
+            'apt-get update --allow-releaseinfo-change-label',
             bootstrapRuntimeNginxUpgradeCall(),
         ]);
 
@@ -1623,7 +1623,7 @@ it('bootstraps a clean host: pinned repositories, one apt update, one install, c
         ));
         $runtimeInstall = 'apt-get install -y --no-install-recommends -- '.implode(' ', $remaining);
         expect(bootstrapRuntimeAptLog($scratch))->toBe(
-            "apt-get update\n{$bootstrapInstall}\napt-get update\n{$runtimeInstall}\n",
+            "apt-get update --allow-releaseinfo-change-label\n{$bootstrapInstall}\napt-get update --allow-releaseinfo-change-label\n{$runtimeInstall}\n",
         );
 
         // The managed rclone runtime converged through the verified-download
@@ -1754,7 +1754,7 @@ it('leaves pre-existing operator-configured repositories untouched while install
         expect(is_file($scratch.'/log/curl.log'))->toBeFalse('installer fetched keys for repositories it does not own');
 
         expect(bootstrapRuntimeAptLog($scratch))->toBe(
-            "apt-get update\napt-get install -y --no-install-recommends -- php8.5-zip\n",
+            "apt-get update --allow-releaseinfo-change-label\napt-get install -y --no-install-recommends -- php8.5-zip\n",
         );
     } finally {
         bootstrapRuntimeCleanup($scratch);
@@ -1788,7 +1788,7 @@ it('fails closed when one repository key cannot be fetched: earlier repo intact,
         // Dependent package installation never started: only the bootstrap
         // repository tooling phase reached apt.
         expect(bootstrapRuntimeAptLog($scratch))->toBe(
-            "apt-get update\napt-get install -y --no-install-recommends -- ca-certificates curl gnupg\n",
+            "apt-get update --allow-releaseinfo-change-label\napt-get install -y --no-install-recommends -- ca-certificates curl gnupg\n",
         );
     } finally {
         bootstrapRuntimeCleanup($scratch);
@@ -1810,7 +1810,7 @@ it('refuses key material whose fingerprint does not match the pin and stops befo
         expect(glob($scratch.'/apt/sources.list.d/rateguru-*') ?: [])->toBe([]);
         expect(glob($scratch.'/keyrings/*') ?: [])->toBe([]);
         expect(bootstrapRuntimeAptLog($scratch))->toBe(
-            "apt-get update\napt-get install -y --no-install-recommends -- ca-certificates curl gnupg\n",
+            "apt-get update --allow-releaseinfo-change-label\napt-get install -y --no-install-recommends -- ca-certificates curl gnupg\n",
         );
     } finally {
         bootstrapRuntimeCleanup($scratch);
@@ -1828,7 +1828,7 @@ it('refuses key material that bundles extra keys beyond the pinned one', functio
         expect($output)->toContain('refusing to install it');
         expect(glob($scratch.'/keyrings/*') ?: [])->toBe([]);
         expect(bootstrapRuntimeAptLog($scratch))->toBe(
-            "apt-get update\napt-get install -y --no-install-recommends -- ca-certificates curl gnupg\n",
+            "apt-get update --allow-releaseinfo-change-label\napt-get install -y --no-install-recommends -- ca-certificates curl gnupg\n",
         );
     } finally {
         bootstrapRuntimeCleanup($scratch);
@@ -1868,7 +1868,7 @@ it('bootstraps a host that genuinely lacks curl and gpg: tooling first, external
         ));
         $runtimeInstall = 'apt-get install -y --no-install-recommends -- '.implode(' ', $remaining);
         expect(bootstrapRuntimeAptLog($scratch))->toBe(
-            "apt-get update\n{$bootstrapInstall}\napt-get update\n{$runtimeInstall}\n",
+            "apt-get update --allow-releaseinfo-change-label\n{$bootstrapInstall}\napt-get update --allow-releaseinfo-change-label\n{$runtimeInstall}\n",
         );
 
         // Both keys were fetched only after the tooling existed, and the
@@ -1897,7 +1897,7 @@ it('aborts before any external key fetch when the bootstrap-tooling apt update f
 
         expect($exit)->toBe(1);
         expect($output)->toContain('ERROR: apt-get update failed');
-        expect(bootstrapRuntimeAptLog($scratch))->toBe("apt-get update\n");
+        expect(bootstrapRuntimeAptLog($scratch))->toBe("apt-get update --allow-releaseinfo-change-label\n");
         expect(is_file($scratch.'/log/curl.log'))->toBeFalse('a key fetch happened before the tooling existed');
         expect(glob($scratch.'/apt/sources.list.d/rateguru-*') ?: [])->toBe([]);
         expect(glob($scratch.'/keyrings/*') ?: [])->toBe([]);
@@ -1919,7 +1919,7 @@ it('aborts before any external key fetch when the bootstrap-tooling apt install 
         expect($exit)->toBe(1);
         expect($output)->toContain('ERROR: apt-get install failed for the bootstrap repository tooling');
         expect(bootstrapRuntimeAptLog($scratch))->toBe(
-            "apt-get update\napt-get install -y --no-install-recommends -- ca-certificates curl gnupg\n",
+            "apt-get update --allow-releaseinfo-change-label\napt-get install -y --no-install-recommends -- ca-certificates curl gnupg\n",
         );
         expect(is_file($scratch.'/log/curl.log'))->toBeFalse('a key fetch happened before the tooling existed');
         expect(glob($scratch.'/apt/sources.list.d/rateguru-*') ?: [])->toBe([]);
@@ -1962,7 +1962,7 @@ it('aborts when apt-get update fails, before any package installation', function
 
         expect($exit)->toBe(1);
         expect($output)->toContain('ERROR: apt-get update failed');
-        expect(bootstrapRuntimeAptLog($scratch))->toBe("apt-get update\n");
+        expect(bootstrapRuntimeAptLog($scratch))->toBe("apt-get update --allow-releaseinfo-change-label\n");
     } finally {
         bootstrapRuntimeCleanup($scratch);
     }
@@ -2943,5 +2943,28 @@ it('installs cron through the generic package mechanism', function () {
     foreach (['systemctl enable cron', 'systemctl start cron', 'service cron'] as $adHoc) {
         expect(str_contains($executable, $adHoc))
             ->toBeFalse("the runtime installer must not manage the cron service itself: {$adHoc}");
+    }
+});
+
+it('lets apt accept a repository renaming itself, and nothing broader, in every installer that refreshes the indexes', function () {
+    // On 2026-11-21 the PHP PPA's Release Label became "PPA for PHP
+    // (deprecated)", and a non-interactive apt-get update refuses any changed
+    // Release field until it is accepted: every host's Prepare failed there.
+    foreach (['install-bootstrap-runtime', 'install-mail-gateway', 'install-mail-signing'] as $script) {
+        $source = File::get(base_path('infrastructure/scripts/'.$script));
+
+        preg_match_all('/"\$\{APT_GET_BIN\}" update\b[^\n]*/', $source, $updates);
+
+        expect($updates[0])->not->toBeEmpty("{$script} refreshes no index");
+
+        foreach ($updates[0] as $update) {
+            expect($update)->toContain('update --allow-releaseinfo-change-label');
+        }
+
+        // Only the Label: a changed Origin, Suite or Codename, or a repository
+        // without a valid signature, still stops the run.
+        foreach (['--allow-releaseinfo-change ', '--allow-releaseinfo-change-origin', '--allow-releaseinfo-change-suite', '--allow-releaseinfo-change-codename', '--allow-unauthenticated', '--allow-insecure-repositories', 'AllowReleaseInfoChange'] as $broader) {
+            expect(str_contains($source, $broader))->toBeFalse("{$script}: {$broader}");
+        }
     }
 });
