@@ -207,8 +207,12 @@ POSTGRES_MAJOR="18"
 # The lowest nginx the hosts may run. nginx comes from the Ubuntu 22.04
 # archive, which fixes a flaw without changing the upstream number — a
 # patched build and an exploitable one both report nginx/1.18.0 — so the
-# floor is the Ubuntu package revision, read from dpkg (NGINX_PACKAGE owns
-# /usr/sbin/nginx), never from `nginx -v`. 1.18.0-6ubuntu14.24 (USN-9182-1,
+# floor is the Ubuntu package revision, read from dpkg, never from
+# `nginx -v`. It is read from the nginx package REQUIRED_PACKAGES already
+# installs: on jammy that package requires its server (nginx-core, or another
+# flavour) at exactly its own version, so its version is the binary's — and
+# an nginx from nginx.org is itself a package named nginx, of the foreign
+# numbering below, so it is caught here rather than replaced by an install. 1.18.0-6ubuntu14.24 (USN-9182-1,
 # 2026-11-20) carries the fixes nginx 1.30.7 released on 2026-11-18 for the
 # flaws these hosts are exposed to: CVE-2026-123007, HTTP/2 flow-control
 # memory corruption that can run code (critical; needs nothing but HTTP/2,
@@ -218,12 +222,13 @@ POSTGRES_MAJOR="18"
 # source (nginx.org, a PPA) numbers its releases differently — 1.30.6 sorts
 # above every 1.18.0 build and is still exposed — so it is a CONFLICT, never
 # a pass. Raise it with the next Ubuntu nginx security update; never lower it.
-NGINX_PACKAGE="nginx-core"
+NGINX_PACKAGE="nginx"
 NGINX_PACKAGE_SERIES="1.18.0-6ubuntu"
 NGINX_MIN_PACKAGE_VERSION="1.18.0-6ubuntu14.24"
 # What one nginx release is on jammy, upgraded together when below the floor:
-# the metapackage, the binary and the files they share. apt brings the module
-# packages along, since nginx-core requires them at exactly its own version.
+# the package the floor is read from, the server and the files they share
+# (--only-upgrade skips any of them not installed). apt brings the module
+# packages along, since the server requires them at exactly its own version.
 NGINX_UPGRADE_PACKAGES=(nginx nginx-core nginx-common)
 
 # --- RateGuru-owned repositories ----------------------------------------------
@@ -288,9 +293,6 @@ BASE_PACKAGES=(
     libc-bin
     mawk
     nginx
-    # The nginx binary itself — the package the nginx security floor is read
-    # from. Ubuntu's nginx metapackage installs it by default.
-    nginx-core
     openssh-server
     openssl
     passwd
@@ -413,6 +415,10 @@ PG_RESTORE_BIN="$(gated_default RATEGURU_BOOTSTRAP_PG_RESTORE_BIN pg_restore)"
 # reconcile_nginx_security_floor).
 NGINX_BIN="$(gated_default RATEGURU_BOOTSTRAP_NGINX_BIN nginx)"
 SYSTEMCTL_BIN="$(gated_default RATEGURU_BOOTSTRAP_SYSTEMCTL_BIN systemctl)"
+# Where the running nginx master's PID and executable are read
+# (nginx_runs_replaced_binary).
+NGINX_PID_FILE="$(gated_default RATEGURU_BOOTSTRAP_NGINX_PID_FILE /run/nginx.pid)"
+PROC_ROOT="$(gated_default RATEGURU_BOOTSTRAP_PROC_ROOT /proc)"
 
 STAT_BIN="$(gated_default RATEGURU_BOOTSTRAP_STAT_BIN stat)"
 RCLONE_CONTRACT_FILE="$(gated_default RATEGURU_BOOTSTRAP_RCLONE_CONTRACT_FILE "${RCLONE_CONTRACT_FILE_DEFAULT}")"
@@ -1031,12 +1037,29 @@ nginx_version_meets_floor() {
     [[ "${have_rest}" != "~"* ]]
 }
 
+# nginx_runs_replaced_binary — the running nginx master still executes a binary
+# an upgrade has since replaced: the kernel shows its executable as deleted.
+# False when nginx is not running, or its PID or executable cannot be read (as
+# a non-root --check cannot read root's), so it only ever adds a restart that
+# is certainly due.
+nginx_runs_replaced_binary() {
+    local pid exe
+
+    [[ -r "${NGINX_PID_FILE}" ]] || return 1
+    read -r pid < "${NGINX_PID_FILE}" || return 1
+    [[ "${pid}" =~ ^[0-9]+$ ]] || return 1
+
+    exe="$(readlink -- "${PROC_ROOT}/${pid}/exe" 2>/dev/null)" || return 1
+
+    [[ "${exe}" == *" (deleted)" ]]
+}
+
 # report_nginx_package — the nginx security floor, by package revision.
 report_nginx_package() {
     local version
 
     if ! package_installed "${NGINX_PACKAGE}"; then
-        item MISSING "nginx-version" "${NGINX_PACKAGE} not installed (the package the nginx binary comes from)" \
+        item MISSING "nginx-version" "${NGINX_PACKAGE} not installed" \
             "apt-get install ${NGINX_PACKAGE}"
 
         return 0
@@ -1050,6 +1073,9 @@ report_nginx_package() {
     elif ! nginx_version_meets_floor "${version}"; then
         item CONFLICT "nginx-version" "${NGINX_PACKAGE} ${version}, below the security floor ${NGINX_MIN_PACKAGE_VERSION}" \
             "upgrade ${NGINX_UPGRADE_PACKAGES[*]} (apt-get install --only-upgrade) and restart nginx"
+    elif nginx_runs_replaced_binary; then
+        item CONFLICT "nginx-version" "${NGINX_PACKAGE} ${version} is installed, but the running nginx still executes the binary it replaced" \
+            "restart nginx once nginx -t passes"
     else
         item PASS "nginx-version" "${NGINX_PACKAGE} ${version} (security floor ${NGINX_MIN_PACKAGE_VERSION})"
     fi
@@ -1479,11 +1505,13 @@ reconcile_rclone() {
 # installs nothing new; the configuration files on the host are kept). An
 # exploitable web server is not left for an operator to notice, since the
 # hosts change only through these installers. The upgrade is finished here
-# too, the only service this slice ever touches: the configuration must pass
-# `nginx -t`, then nginx restarts onto the new binary — a moment's
-# interruption of every site on the host, once. An nginx of another series
-# is never replaced (its CONFLICT stands), and one already at the floor costs
-# no apt call at all.
+# too, the only service this slice ever touches: nginx moves onto the
+# installed binary (finish_nginx_upgrade) — after this run's upgrade, and
+# also whenever the running nginx still executes a binary an earlier upgrade
+# replaced, which is how a run whose nginx -t or restart failed is finished
+# by the next one without any state kept between them. An nginx of another
+# series is never replaced (its CONFLICT stands), and one at the floor and
+# running its installed binary costs no apt call and no restart.
 reconcile_nginx_security_floor() {
     local version
 
@@ -1494,7 +1522,12 @@ reconcile_nginx_security_floor() {
     [[ "${version}" == "${NGINX_PACKAGE_SERIES}"* ]] || return 0
 
     if nginx_version_meets_floor "${version}"; then
-        action "nginx: ${NGINX_PACKAGE} ${version} meets the security floor ${NGINX_MIN_PACKAGE_VERSION}"
+        if nginx_runs_replaced_binary; then
+            action "nginx: ${NGINX_PACKAGE} ${version} is installed, but the running nginx still executes the binary it replaced"
+            finish_nginx_upgrade "${version}"
+        else
+            action "nginx: ${NGINX_PACKAGE} ${version} meets the security floor ${NGINX_MIN_PACKAGE_VERSION}"
+        fi
 
         return 0
     fi
@@ -1517,17 +1550,31 @@ reconcile_nginx_security_floor() {
     nginx_version_meets_floor "${version}" \
         || fail "nginx is still ${NGINX_PACKAGE} ${version:-unknown} after the upgrade — the Ubuntu archive does not offer ${NGINX_MIN_PACKAGE_VERSION} yet"
 
-    if probe_exec "${SYSTEMCTL_BIN}" is-active --quiet nginx; then
-        probe_exec "${NGINX_BIN}" -t >/dev/null 2>&1 \
-            || fail "nginx was upgraded to ${version}, but its configuration does not pass nginx -t, so it was not restarted — fix the configuration, then re-run --apply"
+    finish_nginx_upgrade "${version}"
+}
 
-        probe_exec "${SYSTEMCTL_BIN}" restart nginx \
-            || fail "nginx was upgraded to ${version}, but did not restart"
+# finish_nginx_upgrade VERSION — a running nginx restarts onto the installed
+# binary once its configuration passes nginx -t; a configuration that fails
+# leaves the running nginx as it is and fails the run, and the next run, which
+# finds the replaced binary still running, tries again. An nginx that is not
+# running is not started here: install-bootstrap-services starts it as a base
+# service, on whatever binary is installed.
+finish_nginx_upgrade() {
+    local version="$1"
 
-        action "nginx: upgraded to ${NGINX_PACKAGE} ${version} and restarted onto the new binary"
-    else
-        action "nginx: upgraded to ${NGINX_PACKAGE} ${version}; it is not running, so it starts on the new binary"
+    if ! probe_exec "${SYSTEMCTL_BIN}" is-active --quiet nginx; then
+        action "nginx: ${NGINX_PACKAGE} ${version} installed; nginx is not running, so this run does not restart it"
+
+        return 0
     fi
+
+    probe_exec "${NGINX_BIN}" -t >/dev/null 2>&1 \
+        || fail "nginx ${version} is installed, but its configuration does not pass nginx -t, so nginx was not restarted — fix the configuration, then re-run --apply"
+
+    probe_exec "${SYSTEMCTL_BIN}" restart nginx \
+        || fail "nginx ${version} is installed, but nginx did not restart — re-run --apply once it can"
+
+    action "nginx: restarted onto the installed binary (${NGINX_PACKAGE} ${version})"
 }
 
 # perform_apply — root is enforced by run_apply; tests exercising failure
