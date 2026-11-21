@@ -595,13 +595,25 @@ final class AnalyticsVisitsQuery implements RawSqlPersistenceBoundary
             return [];
         }
 
-        return $this->visits($filter, openedOnly: false)
-            ->whereNotNull('source_id')
+        $level = $this->level($filter, $columns);
+        // The cells keep every paid click's spend, its page run or not: a group with a paid click is one the visits list too.
+        $read = $level === null
+            ? $this->visits($filter, openedOnly: false)
+                ->whereNotNull('source_id')
+                ->selectRaw('SUM(spend) AS spend, SUM(CASE WHEN spend_estimated THEN spend ELSE 0 END) AS spend_estimated', [])
+            : self::ofCells(AnalyticsCell::query(), $filter, $level)
+                ->selectRaw('SUM(paid_spend) AS spend, SUM(paid_spend_estimated) AS spend_estimated', [])
+                ->havingRaw('SUM(paid_clicks) > ?', [0]);
+
+        foreach ($columns as $column) {
+            $read->orderBy($column);
+        }
+
+        return $read
             ->whereNotNull($columns[0])
             ->when($firstValues !== null, fn (Builder $among) => $among->whereIn($columns[0], $firstValues))
             ->groupBy(...$columns)
-            ->select($columns)
-            ->selectRaw('SUM(spend) AS spend, SUM(CASE WHEN spend_estimated THEN spend ELSE 0 END) AS spend_estimated', [])
+            ->addSelect($columns)
             ->toBase()
             ->get()
             ->map(fn (object $row): array => [
@@ -631,13 +643,18 @@ final class AnalyticsVisitsQuery implements RawSqlPersistenceBoundary
         }
 
         $window = new TrafficReportFilter($fromDay, $toDay);
+        $level = $this->gate->readsCells() ? AnalyticsCellLevel::covering([$column]) : null;
         $days = [];
+        // Whole days whatever a filter narrows: the cells of the level holding the column, those with anyone whose page ran.
+        $read = $level !== null
+            ? AnalyticsCell::query()->where('level', $level->value)->whereBetween('network_day', [$fromDay, $toDay])->whereNotNull('visitors')
+            : $this->model()::query()
+                ->whereBetween('network_day', [$fromDay, $toDay])
+                ->where('arrived_at', '>=', $window->arrivedFrom())
+                ->where('arrived_at', '<', $window->arrivedBefore())
+                ->when($this->gate->reads(), fn (Builder $opened) => $opened->where('opened', true), fn (Builder $opened) => $opened->whereNotNull('opened_at'));
 
-        foreach ($this->model()::query()
-            ->whereBetween('network_day', [$fromDay, $toDay])
-            ->where('arrived_at', '>=', $window->arrivedFrom())
-            ->where('arrived_at', '<', $window->arrivedBefore())
-            ->when($this->gate->reads(), fn (Builder $opened) => $opened->where('opened', true), fn (Builder $opened) => $opened->whereNotNull('opened_at'))
+        foreach ($read
             ->whereIn($column, $values)
             ->groupBy($column)
             ->select($column)

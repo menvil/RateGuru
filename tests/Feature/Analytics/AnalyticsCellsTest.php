@@ -7,6 +7,7 @@ use App\Models\AnalyticsCell;
 use App\Models\AnalyticsCellAccount;
 use App\Models\AnalyticsPid;
 use App\Models\AnalyticsRollupState;
+use App\Models\Game;
 use App\Models\TrafficSource;
 use App\Models\TrafficVisit;
 use App\Queries\Analytics\AnalyticsRollupGate;
@@ -137,7 +138,7 @@ it('gives the people of each day and block of days, of values asked for, of grou
 });
 
 it('reads the cells, not the rows, for every read that fits a level', function () {
-    cellsFixture();
+    cellsDetailFixture();
     fillAnalyticsRollup();
     $week = analyticsFilter('7d');
     $query = app(AnalyticsVisitsQuery::class);
@@ -151,6 +152,13 @@ it('reads the cells, not the rows, for every read that fits a level', function (
         'top' => fn () => $query->top($week, AnalyticsDimension::Device, 10),
         'returning' => fn () => $query->returning($week),
         'quality' => fn () => $query->quality($week),
+        'by landing' => fn () => $query->by($week, AnalyticsDimension::Landing),
+        'among tags' => fn () => $query->among($week, AnalyticsDimension::Tags, ['spring']),
+        'by city in a country' => fn () => $query->by($week->within(AnalyticsDimension::Country, ['US']), AnalyticsDimension::City),
+        'by creative in a campaign' => fn () => $query->by(analyticsFilter('7d', null, 'paid:7', 'paid:3'), AnalyticsDimension::Creative),
+        'by game of no creative' => fn () => $query->by(analyticsFilter('7d', null, 'paid:7', 'paid:3')->within(AnalyticsDimension::Creative, [null]), AnalyticsDimension::Game),
+        'spend' => fn () => $query->spend($week, [AnalyticsDimension::Campaign, AnalyticsDimension::Creative]),
+        'first days' => fn () => $query->firstDays(AnalyticsDimension::Landing, ['game'], '2026-11-12', '2026-11-18'),
     ];
 
     foreach ($reads as $read => $call) {
@@ -164,10 +172,10 @@ it('reads the cells, not the rows, for every read that fits a level', function (
             ->and(str_contains($tables, 'analytics_visits'))->toBeFalse("{$read}() reads no row of the visits");
     }
 
-    // A column no level keeps — the landing — reads the rows.
+    // A column no level keeps — the game's version — reads the rows.
     DB::flushQueryLog();
     DB::enableQueryLog();
-    $query->by($week, AnalyticsDimension::Landing);
+    $query->by($week, AnalyticsDimension::Version);
 
     expect(collect(DB::getQueryLog())->pluck('query')->implode(' '))->toContain('analytics_visits');
     DB::disableQueryLog();
@@ -203,6 +211,67 @@ it('gives what the figures leave out the way the rows do: Direct, every paid cli
         ->and(readBothWays(AnalyticsVisitsQuery::class)->series(analyticsFilter('7d'), analyticsFilter('7d')->period->buckets()))->toHaveCount(7)
         ->and(readBothWays(AnalyticsVisitsQuery::class)->by(analyticsFilter('7d', TrafficDevice::Desktop), AnalyticsDimension::Source))->toBeArray()
         ->and(readBothWays(AnalyticsVisitsQuery::class)->returning(analyticsFilter('7d', TrafficDevice::Desktop)))->toBe(0);
+});
+
+/**
+ * The cells' finer levels: landings, the five campaign tags, cities in their
+ * countries, and a campaign's creatives and games — people on two days, in
+ * two cities, by two creatives, and visits of no value in each.
+ */
+function cellsDetailFixture(): Game
+{
+    cellsFixture();
+    $game = Game::factory()->create();
+    $paid = ['source_key' => 'paid:7', 'campaign_key' => 'paid:3'];
+    $visits = [
+        ['lea', '2026-11-13', [...$paid, 'creative_key' => 'cr:1', 'game_id' => $game->id, 'landing_key' => 'game', 'device' => 'mobile', 'country' => 'US', 'city' => 'Austin', 'utm_campaign' => 'spring', 'utm_source' => 'newsletter', 'utm_medium' => 'email', 'signup_at' => '2026-11-01 09:00:00', 'account_at' => '2026-11-01 09:00:00']],
+        ['lea', '2026-11-16', [...$paid, 'creative_key' => 'cr:2', 'game_id' => $game->id, 'landing_key' => 'post', 'device' => 'mobile', 'country' => 'US', 'city' => 'Boston', 'utm_campaign' => 'spring', 'utm_source' => 'newsletter', 'utm_medium' => 'email']],
+        ['max', '2026-11-16', [...$paid, 'creative_key' => 'cr:2', 'game_id' => $game->id, 'landing_key' => 'game', 'device' => 'desktop', 'country' => 'US', 'city' => 'Austin', 'utm_campaign' => 'spring', 'utm_source' => 'partner', 'utm_term' => 'cats']],
+        ['ned', '2026-11-17', [...$paid, 'creative_key' => null, 'game_id' => $game->id, 'landing_key' => null, 'device' => 'mobile', 'country' => 'DE', 'city' => 'Berlin']],
+        ['oli', '2026-11-17', [...$paid, 'creative_key' => null, 'game_id' => null, 'landing_key' => 'feed', 'device' => 'mobile', 'country' => 'US', 'city' => null, 'utm_campaign' => 'autumn']],
+    ];
+
+    foreach ($visits as [$browser, $day, $attributes]) {
+        analyticsVisit($browser, ['network_day' => $day, 'arrived_at' => $day.' 10:00:00', ...$attributes]);
+    }
+
+    return $game;
+}
+
+it('gives every landing, set of campaign tags, city, creative and game the rows give, from the cells of their own levels', function () {
+    $game = cellsDetailFixture();
+    $week = analyticsFilter('7d');
+    $inCampaign = analyticsFilter('7d', null, 'paid:7', 'paid:3');
+
+    expect(readBothWays(AnalyticsVisitsQuery::class)->by($week, AnalyticsDimension::Landing, 2, 1, AnalyticsVisitsQuery::UNNAMED_APART))->toBeArray()
+        ->and(readBothWays(AnalyticsVisitsQuery::class)->among($week, AnalyticsDimension::Tags, ['spring', 'autumn']))->toHaveCount(3)
+        ->and(readBothWays(AnalyticsVisitsQuery::class)->by($week->within(AnalyticsDimension::Country, ['US']), AnalyticsDimension::City, null, 1, AnalyticsVisitsQuery::UNNAMED_IN_REST))->toBeArray()
+        ->and(readBothWays(AnalyticsVisitsQuery::class)->by($week, AnalyticsDimension::City, 1))->toBeArray()
+        ->and(readBothWays(AnalyticsVisitsQuery::class)->by($inCampaign, AnalyticsDimension::Creative, null, 1, AnalyticsVisitsQuery::UNNAMED_APART))->toBeArray()
+        ->and(readBothWays(AnalyticsVisitsQuery::class)->by($inCampaign->within(AnalyticsDimension::Creative, [null]), AnalyticsDimension::Game))->toBeArray()
+        ->and(readBothWays(AnalyticsVisitsQuery::class)->of($inCampaign, AnalyticsDimension::Game, [$game->id])[$game->id]['figures']->visitors)->toBe(3)
+        ->and(readBothWays(AnalyticsVisitsQuery::class)->top($week, AnalyticsDimension::Landing, 10))->toHaveCount(4);
+});
+
+it('gives what the paid clicks cost and the first day of each value the rows give, from the cells', function () {
+    $game = cellsDetailFixture();
+    $source = TrafficSource::factory()->create();
+    // Paid clicks, one whose page never ran, with what they cost.
+    analyticsVisit('pat', ['network_day' => '2026-11-16', 'arrived_at' => '2026-11-16 10:00:00', 'source_id' => $source->id, 'source_key' => 'paid:7', 'campaign_key' => 'paid:3', 'creative_key' => 'cr:1', 'game_id' => $game->id, 'spend' => '0.04']);
+    analyticsVisit('qin', ['network_day' => '2026-11-17', 'arrived_at' => '2026-11-17 10:00:00', 'source_id' => $source->id, 'source_key' => 'paid:7', 'campaign_key' => 'paid:3', 'creative_key' => 'cr:2', 'opened_at' => null, 'spend' => '0.06', 'spend_estimated' => true]);
+    analyticsVisit('ray', ['network_day' => '2026-11-17', 'arrived_at' => '2026-11-17 10:00:00', 'source_id' => $source->id, 'source_key' => 'paid:7', 'campaign_key' => 'tag:spring', 'opened_at' => null, 'spend' => '0.01']);
+
+    $byCampaign = readBothWays(AnalyticsVisitsQuery::class)->spend(analyticsFilter('7d'), [AnalyticsDimension::Campaign]);
+
+    expect($byCampaign)->toBe([
+        ['keys' => ['campaign_key' => 'paid:3'], 'spend' => '0.10000000', 'estimated' => '0.06000000'],
+        ['keys' => ['campaign_key' => 'tag:spring'], 'spend' => '0.01000000', 'estimated' => '0.00000000'],
+    ])
+        ->and(readBothWays(AnalyticsVisitsQuery::class)->spend(analyticsFilter('7d'), [AnalyticsDimension::Campaign, AnalyticsDimension::Creative], ['paid:3']))->toHaveCount(2)
+        ->and(readBothWays(AnalyticsVisitsQuery::class)->spend(analyticsFilter('7d', TrafficDevice::Desktop), [AnalyticsDimension::Campaign, AnalyticsDimension::Creative, AnalyticsDimension::Game], ['paid:3']))->toBeArray()
+        ->and(readBothWays(AnalyticsVisitsQuery::class)->spend(analyticsFilter('7d'), [AnalyticsDimension::Source], [AnalyticsSource::DIRECT]))->toBe([])
+        ->and(readBothWays(AnalyticsVisitsQuery::class)->firstDays(AnalyticsDimension::Campaign, ['paid:3', 'tag:spring', 'tag:none'], '2026-11-12', '2026-11-18'))->toBe(['paid:3' => '2026-11-12', 'tag:spring' => '2026-11-15'])
+        ->and(readBothWays(AnalyticsVisitsQuery::class)->firstDays(AnalyticsDimension::Landing, ['post', 'feed'], '2026-11-14', '2026-11-18'))->toEqualCanonicalizing(['post' => '2026-11-16', 'feed' => '2026-11-17']);
 });
 
 it('writes a day’s cells again when one of its visits changes', function () {

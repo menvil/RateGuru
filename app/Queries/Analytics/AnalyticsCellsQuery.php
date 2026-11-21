@@ -91,7 +91,7 @@ final class AnalyticsCellsQuery implements RawSqlPersistenceBoundary
     /** @return Builder<AnalyticsVisit> the day's cells at every level, one row a cell with any visit (cellColumns()) */
     public function cells(string $day): Builder
     {
-        $columns = [$this->level(), '? AS network_day', 'v.device', 'v.source_key', 'v.campaign_key', 'v.country'];
+        $columns = [$this->level(), '? AS network_day', ...self::keys()];
 
         foreach (self::PEOPLE as $people => $test) {
             $columns[] = 'rb_build_agg(p.pid) FILTER (WHERE '.$test.')::bytea AS '.$people;
@@ -114,7 +114,7 @@ final class AnalyticsCellsQuery implements RawSqlPersistenceBoundary
             ->where('v.account', true)
             ->whereNotNull('v.signup_at')
             ->selectRaw(implode(', ', [
-                $this->level(), '? AS network_day', 'v.device', 'v.source_key', 'v.campaign_key', 'v.country',
+                $this->level(), '? AS network_day', ...self::keys(),
                 "TO_CHAR(v.signup_at, 'YYYY-MM-DD') AS signup_day",
                 'rb_build_agg(p.pid)::bytea AS accounts',
             ]), [...$this->levelBindings(), $day])
@@ -134,22 +134,25 @@ final class AnalyticsCellsQuery implements RawSqlPersistenceBoundary
             ->where('v.arrived_at', '<', $window->arrivedBefore());
     }
 
-    /** The level of a cell, by which of its columns it is split by (AnalyticsCellLevel::ofGrouping()). */
+    /** @return list<string> every key column of a cell, read from the day's rows, in KEY_COLUMNS' order */
+    private static function keys(): array
+    {
+        return array_map(fn (string $column): string => 'v.'.$column, AnalyticsCellLevel::KEY_COLUMNS);
+    }
+
+    /** The level of a cell, by which of its columns it is split by (AnalyticsCellLevel::groupingBits()). */
     private function level(): string
     {
-        $cases = [];
+        $cases = array_map(fn (AnalyticsCellLevel $level): string => 'WHEN '.$level->groupingBits().' THEN ?', AnalyticsCellLevel::cases());
+        $columns = array_map(fn (string $column): string => 'v.'.$column, AnalyticsCellLevel::GROUPING_COLUMNS);
 
-        foreach ([0b111, 0b011, 0b001, 0b110] as $bits) {
-            $cases[] = 'WHEN '.$bits.' THEN ?';
-        }
-
-        return 'CASE GROUPING(v.source_key, v.campaign_key, v.country) '.implode(' ', $cases).' END AS level';
+        return 'CASE GROUPING('.implode(', ', $columns).') '.implode(' ', $cases).' END AS level';
     }
 
     /** @return list<string> the level of each case of level() */
     private function levelBindings(): array
     {
-        return array_map(fn (int $bits): string => AnalyticsCellLevel::ofGrouping($bits)->value, [0b111, 0b011, 0b001, 0b110]);
+        return array_map(fn (AnalyticsCellLevel $level): string => $level->value, AnalyticsCellLevel::cases());
     }
 
     /** Every level's columns, and whatever else each set groups by. */

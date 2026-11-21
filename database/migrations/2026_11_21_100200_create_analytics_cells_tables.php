@@ -19,8 +19,9 @@ return new class extends Migration
         });
 
         // The people of a network day per level of detail (AnalyticsCellLevel):
-        // for every device, source and device, source, campaign and device,
-        // or country and device, the set of each step's people as a roaring
+        // by device, and with it by landing; by the five campaign tags; by
+        // country, and city and country; by source, and campaign, and
+        // creative, and game — the set of each step's people as a roaring
         // bitmap of their numbers, and the visits' sums. A period's people
         // are the union of its days' sets: no visit of it is read again. Only
         // the visits whose page ran count, as on the tabs — but for the paid
@@ -38,6 +39,15 @@ return new class extends Migration
             $table->string('source_key', 140)->nullable();
             $table->string('campaign_key', 140)->nullable();
             $table->char('country', 2)->nullable();
+            $table->string('landing_key', 60)->nullable();
+            $table->string('creative_key', 140)->nullable();
+            $table->unsignedBigInteger('game_id')->nullable();
+            $table->string('city', 80)->nullable();
+            $table->string('utm_campaign', 120)->nullable();
+            $table->string('utm_source', 120)->nullable();
+            $table->string('utm_medium', 120)->nullable();
+            $table->string('utm_content', 120)->nullable();
+            $table->string('utm_term', 120)->nullable();
 
             foreach (['visitors', 'new_visitors', 'starters', 'completers', 'goal', 'signup_form', 'signups', 'accounts', 'activated', 'voters', 'commenters'] as $people) {
                 $table->binary($people)->nullable();
@@ -71,6 +81,15 @@ return new class extends Migration
             $table->string('source_key', 140)->nullable();
             $table->string('campaign_key', 140)->nullable();
             $table->char('country', 2)->nullable();
+            $table->string('landing_key', 60)->nullable();
+            $table->string('creative_key', 140)->nullable();
+            $table->unsignedBigInteger('game_id')->nullable();
+            $table->string('city', 80)->nullable();
+            $table->string('utm_campaign', 120)->nullable();
+            $table->string('utm_source', 120)->nullable();
+            $table->string('utm_medium', 120)->nullable();
+            $table->string('utm_content', 120)->nullable();
+            $table->string('utm_term', 120)->nullable();
             $table->char('signup_day', 10);
             $table->binary('accounts')->nullable();
 
