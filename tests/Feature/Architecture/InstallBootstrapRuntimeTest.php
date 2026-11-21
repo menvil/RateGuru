@@ -337,6 +337,15 @@ function bootstrapRuntimeWriteHostFiles(string $scratch, array $options): void
     file_put_contents($scratch.'/fs/dpkg-installed.txt', implode("\n", $installed).($installed === [] ? '' : "\n"));
 
     bootstrapRuntimeWriteRcloneFixture($scratch, $options);
+
+    // The running nginx master: its PID file and its executable as the kernel
+    // shows it — the installed binary, or one an upgrade has replaced.
+    expect(@mkdir($scratch.'/fs/run', 0o755, true) || is_dir($scratch.'/fs/run'))->toBeTrue();
+    expect(@mkdir($scratch.'/fs/proc/4242', 0o755, true))->toBeTrue();
+    if ($options['nginxActive'] ?? true) {
+        file_put_contents($scratch.'/fs/run/nginx.pid', "4242\n");
+    }
+    symlink(($options['nginxRunsReplaced'] ?? false) ? '/usr/sbin/nginx (deleted)' : '/usr/sbin/nginx', $scratch.'/fs/proc/4242/exe');
 }
 
 /**
@@ -503,17 +512,53 @@ function bootstrapRuntimeWriteToolStubs(string $scratch, array $options): void
 
 function bootstrapRuntimeWriteMutationStubs(string $scratch, array $options): void
 {
-    // dpkg-query: reads the fixture package database; builtins only.
+    // dpkg-query: reads the fixture package database; builtins only. Asked
+    // for ${Version}, it answers nginx's — the version the test set, or the
+    // one an --only-upgrade wrote — and a fixed one for anything else.
     bootstrapRuntimeWriteStub($scratch.'/bin/dpkg-query', <<<'STUB'
         #!/bin/bash
         pkg="${!#}"
         while IFS= read -r line; do
             if [[ "${line}" == "${pkg}" ]]; then
-                printf 'installed'
+                if [[ "$*" == *'${Version}'* ]]; then
+                    version="1.0-1"
+                    if [[ "${pkg}" == "nginx" ]]; then
+                        version="${STUB_NGINX_VERSION}"
+                        if [[ -f "${STUB_LOG}/nginx.version" ]]; then
+                            read -r version < "${STUB_LOG}/nginx.version"
+                        fi
+                    fi
+                    printf '%s' "${version}"
+                else
+                    printf 'installed'
+                fi
                 exit 0
             fi
         done < "${STUB_DPKG_STATE}"
         exit 1
+        STUB);
+
+    // systemctl and nginx: log every call; nginx -t fails when the test asks,
+    // systemctl answers is-active from the test's choice, and a restart puts
+    // the running master on the installed binary — unless the test makes the
+    // restart fail.
+    bootstrapRuntimeWriteStub($scratch.'/bin/systemctl', <<<'STUB'
+        #!/bin/bash
+        printf 'systemctl %s\n' "$*" >> "${STUB_LOG}/service.log"
+        if [[ "$1" == "is-active" ]]; then
+            [[ "${STUB_NGINX_ACTIVE:-true}" == "true" ]]
+            exit
+        fi
+        if [[ "$1" == "restart" ]]; then
+            [[ "${STUB_NGINX_RESTART_FAIL:-}" == "true" ]] && exit 1
+            PATH="${STUB_REAL_PATH}" ln -sfn /usr/sbin/nginx "${STUB_PROC_ROOT}/4242/exe"
+        fi
+        exit 0
+        STUB);
+    bootstrapRuntimeWriteStub($scratch.'/bin/nginx', <<<'STUB'
+        #!/bin/bash
+        printf 'nginx %s\n' "$*" >> "${STUB_LOG}/service.log"
+        [[ "${STUB_NGINX_CONFIG_FAIL:-}" != "true" ]]
         STUB);
 
     // apt-get: logs every invocation; a successful install marks its
@@ -530,6 +575,15 @@ function bootstrapRuntimeWriteMutationStubs(string $scratch, array $options): vo
         if [[ "$1" == "install" ]]; then
             if [[ "${STUB_APT_INSTALL_FAIL:-}" == "true" ]]; then
                 exit 100
+            fi
+            if [[ "$*" == *"--only-upgrade"* ]]; then
+                printf '%s\n' "${NEEDRESTART_MODE:-unset}" > "${STUB_LOG}/apt-needrestart-mode"
+                if [[ "$*" == *" -- nginx "* ]]; then
+                    printf '%s\n' "${STUB_NGINX_UPGRADE_VERSION}" > "${STUB_LOG}/nginx.version"
+                    # dpkg replaced the binary under the running master.
+                    PATH="${STUB_REAL_PATH}" ln -sfn '/usr/sbin/nginx (deleted)' "${STUB_PROC_ROOT}/4242/exe"
+                fi
+                exit 0
             fi
             for arg in "$@"; do
                 case "${arg}" in
@@ -759,6 +813,10 @@ function bootstrapRuntimeFixture(string $scratch, array $options = []): array
         'RATEGURU_BOOTSTRAP_PSQL_BIN' => $scratch.'/tools/psql',
         'RATEGURU_BOOTSTRAP_PG_DUMP_BIN' => $scratch.'/tools/pg_dump',
         'RATEGURU_BOOTSTRAP_PG_RESTORE_BIN' => $scratch.'/tools/pg_restore',
+        'RATEGURU_BOOTSTRAP_NGINX_BIN' => $scratch.'/bin/nginx',
+        'RATEGURU_BOOTSTRAP_SYSTEMCTL_BIN' => $scratch.'/bin/systemctl',
+        'RATEGURU_BOOTSTRAP_NGINX_PID_FILE' => $scratch.'/fs/run/nginx.pid',
+        'RATEGURU_BOOTSTRAP_PROC_ROOT' => $scratch.'/fs/proc',
         'RATEGURU_BOOTSTRAP_STAT_BIN' => $scratch.'/bin/stat',
         'RATEGURU_BOOTSTRAP_RCLONE_CONTRACT_FILE' => $scratch.'/fs/external-runtimes.env',
         'RATEGURU_BOOTSTRAP_RCLONE_KEY_FILE' => $scratch.'/fs/rclone-release-signing-key.asc',
@@ -770,6 +828,10 @@ function bootstrapRuntimeFixture(string $scratch, array $options = []): array
         'STUB_PHP_VERSION' => $options['phpVersion'] ?? phpSecurityFloor(),
         'STUB_PHP_MODULES' => $options['phpModules'] ?? implode(' ', bootstrapRuntimeRequiredPhpModules()),
         'STUB_PG_VERSION' => $options['pgVersion'] ?? '18.4',
+        'STUB_NGINX_VERSION' => $options['nginxVersion'] ?? nginxSecurityFloor(),
+        'STUB_NGINX_UPGRADE_VERSION' => $options['nginxUpgradeVersion'] ?? nginxSecurityFloor(),
+        'STUB_NGINX_ACTIVE' => ($options['nginxActive'] ?? true) ? 'true' : 'false',
+        'STUB_PROC_ROOT' => $scratch.'/fs/proc',
         'STUB_FPR_PHP' => $options['fprPhp'] ?? bootstrapRuntimePhpPpaFingerprint(),
         'STUB_FPR_PGDG' => $options['fprPgdg'] ?? bootstrapRuntimePgdgFingerprint(),
         'STUB_FPR_RCLONE' => $options['fprRclone'] ?? bootstrapRuntimeRcloneFingerprint(),
@@ -798,6 +860,14 @@ function bootstrapRuntimeFixture(string $scratch, array $options = []): array
 
     if ($options['gpgExtraKey'] ?? false) {
         $env['STUB_GPG_EXTRA_KEY'] = 'true';
+    }
+
+    if ($options['nginxConfigFail'] ?? false) {
+        $env['STUB_NGINX_CONFIG_FAIL'] = 'true';
+    }
+
+    if ($options['nginxRestartFail'] ?? false) {
+        $env['STUB_NGINX_RESTART_FAIL'] = 'true';
     }
 
     return $env;
@@ -850,6 +920,20 @@ function bootstrapRuntimeAptLog(string $scratch): string
     $path = $scratch.'/log/apt.log';
 
     return is_file($path) ? (string) file_get_contents($path) : '';
+}
+
+/** What the systemctl and nginx stubs were asked, one call a line. */
+function bootstrapRuntimeServiceLog(string $scratch): string
+{
+    $path = $scratch.'/log/service.log';
+
+    return is_file($path) ? (string) file_get_contents($path) : '';
+}
+
+/** The exact apt call that upgrades nginx to its security floor. */
+function bootstrapRuntimeNginxUpgradeCall(): string
+{
+    return 'apt-get install -y --only-upgrade --no-install-recommends -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold -- nginx nginx-core nginx-common';
 }
 
 // =============================================================================
@@ -1164,6 +1248,279 @@ it('never upgrades a PHP below the security floor during --apply, and fails its 
         expect($exit)->not->toBe(0, "apply must not report success on a PHP below the floor:\n{$output}");
         expect($output)->toContain('CONFLICT php-cli — reports PHP 8.5.11, below the security floor '.phpSecurityFloor());
         expect(bootstrapRuntimeAptLog($scratch))->toBe('', 'apply ran apt-get on a host whose packages are all installed');
+    } finally {
+        bootstrapRuntimeCleanup($scratch);
+    }
+});
+
+// =============================================================================
+// The nginx security floor — an Ubuntu package revision, met by --apply
+// =============================================================================
+
+it('treats an Ubuntu nginx below the security floor as CONFLICT', function (string $version) {
+    $scratch = bootstrapRuntimeScratchDir();
+
+    try {
+        $env = bootstrapRuntimeFixture($scratch, ['nginxVersion' => $version]);
+        $floor = nginxSecurityFloor();
+
+        [$exit, $output] = bootstrapRuntimeRun(['--check'], $env);
+
+        expect($exit)->toBe(1, "nginx {$version} must not satisfy --check:\n{$output}");
+        expect($output)->toContain("CONFLICT nginx-version — nginx {$version}, below the security floor {$floor}");
+        expect($output)->toContain('-> apply: upgrade nginx nginx-core nginx-common (apt-get install --only-upgrade) and restart nginx');
+        expect($output)->toContain("CONFLICT: 1\n");
+
+        [$exit, $output] = bootstrapRuntimeRun(['--verify'], $env);
+
+        expect($exit)->toBe(1, "nginx {$version} must not satisfy --verify:\n{$output}");
+        expect($output)->toContain("CONFLICT nginx-version — nginx {$version}, below the security floor {$floor}");
+        expect(bootstrapRuntimeAptLog($scratch))->toBe('');
+        expect(bootstrapRuntimeServiceLog($scratch))->toBe('');
+    } finally {
+        bootstrapRuntimeCleanup($scratch);
+    }
+})->with([
+    'the revision that fixed the HTTP/2 flaws alone' => '1.18.0-6ubuntu14.23',
+    'a revision that sorts after the floor as text' => '1.18.0-6ubuntu14.3',
+    'a pre-release of the floor itself' => '1.18.0-6ubuntu14.24~rc1',
+    'a revision without a minor part' => '1.18.0-6ubuntu14',
+    'the first jammy build' => '1.18.0-6ubuntu1',
+]);
+
+it('accepts the nginx security floor and every later revision of the series', function (string $version) {
+    $scratch = bootstrapRuntimeScratchDir();
+
+    try {
+        $env = bootstrapRuntimeFixture($scratch, ['nginxVersion' => $version]);
+
+        [$exit, $output] = bootstrapRuntimeRun(['--verify'], $env);
+
+        expect($exit)->toBe(0, "nginx {$version} must satisfy --verify:\n{$output}");
+        expect($output)->toContain("PASS     nginx-version — nginx {$version} (security floor ".nginxSecurityFloor().')');
+    } finally {
+        bootstrapRuntimeCleanup($scratch);
+    }
+})->with([
+    'the floor' => '1.18.0-6ubuntu14.24',
+    'the next revision' => '1.18.0-6ubuntu14.25',
+    'a three-digit revision' => '1.18.0-6ubuntu14.100',
+    'a rebuild of the floor' => '1.18.0-6ubuntu14.24.1',
+    'a no-change rebuild' => '1.18.0-6ubuntu14.24build1',
+    'a later major revision' => '1.18.0-6ubuntu15.1',
+]);
+
+it('refuses an nginx from another source and never replaces it', function (string $version) {
+    $scratch = bootstrapRuntimeScratchDir();
+
+    try {
+        $env = bootstrapRuntimeFixture($scratch, ['nginxVersion' => $version]);
+
+        // nginx.org numbers its own releases: 1.30.6 sorts above every 1.18.0
+        // build and is still exposed, so a version comparison alone would
+        // call an exploitable server safe.
+        [$exit, $output] = bootstrapRuntimeRun(['--check'], $env);
+
+        expect($exit)->toBe(1);
+        expect($output)->toContain("CONFLICT nginx-version — nginx {$version} is not the Ubuntu jammy series 1.18.0-6ubuntu*");
+        expect($output)->toContain('never replaced by --apply');
+
+        [$exit, $output] = bootstrapRuntimeRun(['--apply'], $env);
+
+        expect($exit)->not->toBe(0);
+
+        // Nothing is installed in its place either: the floor reads the nginx
+        // package itself, so no server package is required that apt would
+        // install by replacing this one.
+        expect(bootstrapRuntimeAptLog($scratch))->toBe('');
+        expect(bootstrapRuntimeServiceLog($scratch))->toBe('');
+    } finally {
+        bootstrapRuntimeCleanup($scratch);
+    }
+})->with([
+    'nginx.org stable, one release short of the fix' => '1.30.6-1~jammy',
+    'the Ubuntu 24.04 package' => '1.24.0-2ubuntu7.21',
+]);
+
+it('upgrades an nginx below the floor during --apply, its packages only, then restarts it onto the new binary', function () {
+    $scratch = bootstrapRuntimeScratchDir();
+
+    try {
+        $env = bootstrapRuntimeFixture($scratch, ['nginxVersion' => '1.18.0-6ubuntu14.23']);
+        $floor = nginxSecurityFloor();
+
+        [$exit, $output] = bootstrapRuntimeRun(['--apply'], $env);
+
+        expect($exit)->toBe(0, $output);
+        expect($output)->toContain("nginx: upgrading nginx 1.18.0-6ubuntu14.23 to the security floor {$floor} or later (nginx nginx-core nginx-common)");
+        expect($output)->toContain("nginx: restarted onto the installed binary (nginx {$floor})");
+        expect($output)->toContain("PASS     nginx-version — nginx {$floor} (security floor {$floor})");
+        expect($output)->toContain('HOST RUNTIME CONTRACT: SATISFIED');
+
+        // A fresh index first, then the nginx packages and nothing else.
+        expect(explode("\n", trim(bootstrapRuntimeAptLog($scratch))))->toBe([
+            'apt-get update',
+            bootstrapRuntimeNginxUpgradeCall(),
+        ]);
+
+        // The configuration is proven before the restart, and the restart
+        // happens once.
+        expect(explode("\n", trim(bootstrapRuntimeServiceLog($scratch))))->toBe([
+            'systemctl is-active --quiet nginx',
+            'nginx -t',
+            'systemctl restart nginx',
+        ]);
+    } finally {
+        bootstrapRuntimeCleanup($scratch);
+    }
+});
+
+it('keeps needrestart from restarting other services after the nginx upgrade', function () {
+    $scratch = bootstrapRuntimeScratchDir();
+
+    try {
+        $env = bootstrapRuntimeFixture($scratch, ['nginxVersion' => '1.18.0-6ubuntu14.23']);
+
+        [$exit, $output] = bootstrapRuntimeRun(['--apply'], $env);
+
+        // Ubuntu runs needrestart after apt; left to itself it may restart
+        // PHP-FPM or PostgreSQL, which share the host with nginx. The upgrade
+        // reaches apt with it only listing.
+        expect($exit)->toBe(0, $output);
+        expect(trim((string) file_get_contents($scratch.'/log/apt-needrestart-mode')))->toBe('l');
+    } finally {
+        bootstrapRuntimeCleanup($scratch);
+    }
+});
+
+it('restarts an nginx at the floor that still runs the binary an upgrade replaced, with no apt call', function () {
+    $scratch = bootstrapRuntimeScratchDir();
+
+    try {
+        $env = bootstrapRuntimeFixture($scratch, ['nginxRunsReplaced' => true]);
+        $floor = nginxSecurityFloor();
+
+        // The package is at the floor, but the master predates it: the
+        // exploitable code is still the code that runs.
+        [$exit, $output] = bootstrapRuntimeRun(['--check'], $env);
+
+        expect($exit)->toBe(1, $output);
+        expect($output)->toContain("CONFLICT nginx-version — nginx {$floor} is installed, but the running nginx still executes the binary it replaced");
+
+        [$exit, $output] = bootstrapRuntimeRun(['--apply'], $env);
+
+        expect($exit)->toBe(0, $output);
+        expect(bootstrapRuntimeAptLog($scratch))->toBe('');
+        expect(explode("\n", trim(bootstrapRuntimeServiceLog($scratch))))->toBe([
+            'systemctl is-active --quiet nginx',
+            'nginx -t',
+            'systemctl restart nginx',
+        ]);
+        expect($output)->toContain("PASS     nginx-version — nginx {$floor} (security floor {$floor})");
+    } finally {
+        bootstrapRuntimeCleanup($scratch);
+    }
+});
+
+it('finishes an upgrade whose nginx -t or restart failed on the next --apply, without upgrading again', function (string $failure) {
+    $scratch = bootstrapRuntimeScratchDir();
+
+    try {
+        $env = bootstrapRuntimeFixture($scratch, ['nginxVersion' => '1.18.0-6ubuntu14.23', $failure => true]);
+
+        [$exit] = bootstrapRuntimeRun(['--apply'], $env);
+
+        expect($exit)->not->toBe(0);
+
+        // The package is upgraded; the running master is not.
+        unset($env['STUB_NGINX_CONFIG_FAIL'], $env['STUB_NGINX_RESTART_FAIL']);
+        file_put_contents($scratch.'/log/apt.log', '');
+        file_put_contents($scratch.'/log/service.log', '');
+
+        [$exit, $output] = bootstrapRuntimeRun(['--apply'], $env);
+
+        expect($exit)->toBe(0, $output);
+        expect($output)->toContain('the running nginx still executes the binary it replaced');
+        expect(bootstrapRuntimeAptLog($scratch))->toBe('');
+        expect(bootstrapRuntimeServiceLog($scratch))->toContain("nginx -t\nsystemctl restart nginx\n");
+        expect($output)->toContain('PASS     nginx-version — nginx '.nginxSecurityFloor());
+    } finally {
+        bootstrapRuntimeCleanup($scratch);
+    }
+})->with([
+    'nginx -t failed' => 'nginxConfigFail',
+    'the restart failed' => 'nginxRestartFail',
+]);
+
+it('never restarts an upgraded nginx whose configuration fails nginx -t', function () {
+    $scratch = bootstrapRuntimeScratchDir();
+
+    try {
+        $env = bootstrapRuntimeFixture($scratch, [
+            'nginxVersion' => '1.18.0-6ubuntu14.23',
+            'nginxConfigFail' => true,
+        ]);
+
+        [$exit, $output] = bootstrapRuntimeRun(['--apply'], $env);
+
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain('its configuration does not pass nginx -t, so nginx was not restarted');
+        expect(bootstrapRuntimeServiceLog($scratch))->not->toContain('restart');
+    } finally {
+        bootstrapRuntimeCleanup($scratch);
+    }
+});
+
+it('fails when the archive does not offer the nginx security floor yet', function () {
+    $scratch = bootstrapRuntimeScratchDir();
+
+    try {
+        $env = bootstrapRuntimeFixture($scratch, [
+            'nginxVersion' => '1.18.0-6ubuntu14.22',
+            'nginxUpgradeVersion' => '1.18.0-6ubuntu14.23',
+        ]);
+
+        [$exit, $output] = bootstrapRuntimeRun(['--apply'], $env);
+
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain('nginx is still nginx 1.18.0-6ubuntu14.23 after the upgrade — the Ubuntu archive does not offer '.nginxSecurityFloor().' yet');
+        expect(bootstrapRuntimeServiceLog($scratch))->not->toContain('restart');
+    } finally {
+        bootstrapRuntimeCleanup($scratch);
+    }
+});
+
+it('leaves an upgraded nginx that is not running stopped', function () {
+    $scratch = bootstrapRuntimeScratchDir();
+
+    try {
+        $env = bootstrapRuntimeFixture($scratch, [
+            'nginxVersion' => '1.18.0-6ubuntu14.23',
+            'nginxActive' => false,
+        ]);
+
+        [$exit, $output] = bootstrapRuntimeRun(['--apply'], $env);
+
+        expect($exit)->toBe(0, $output);
+        expect($output)->toContain('nginx is not running, so this run does not restart it');
+        expect(trim(bootstrapRuntimeServiceLog($scratch)))->toBe('systemctl is-active --quiet nginx');
+    } finally {
+        bootstrapRuntimeCleanup($scratch);
+    }
+});
+
+it('makes no apt call and touches no service when nginx already meets its floor', function () {
+    $scratch = bootstrapRuntimeScratchDir();
+
+    try {
+        $env = bootstrapRuntimeFixture($scratch);
+
+        [$exit, $output] = bootstrapRuntimeRun(['--apply'], $env);
+
+        expect($exit)->toBe(0, $output);
+        expect($output)->toContain('nginx: nginx '.nginxSecurityFloor().' meets the security floor');
+        expect(bootstrapRuntimeAptLog($scratch))->toBe('');
+        expect(bootstrapRuntimeServiceLog($scratch))->toBe('');
     } finally {
         bootstrapRuntimeCleanup($scratch);
     }
@@ -2286,6 +2643,23 @@ it('keeps the PHP security floor inside the series and never below the release t
     // releases; going back below it would let a host run an exploitable PHP
     // while every verification passes.
     expect(version_compare($floor, '8.5.12', '>='))->toBeTrue("the PHP security floor {$floor} is below 8.5.12");
+});
+
+it('keeps the nginx security floor inside the jammy series and never below the revision that fixes CVE-2026-123007', function () {
+    preg_match('/^NGINX_PACKAGE_SERIES="([^"]+)"$/m', bootstrapRuntimeSource(), $series);
+    $floor = nginxSecurityFloor();
+
+    expect($series[1] ?? null)->toBe('1.18.0-6ubuntu');
+    expect($floor)->toStartWith($series[1]);
+    expect($floor)->toMatch('/^1\.18\.0-6ubuntu\d+\.\d+$/');
+
+    // 1.18.0-6ubuntu14.24 (USN-9182-1, 2026-11-20) is the first jammy build
+    // with every fix nginx 1.30.7 brought for the flaws these hosts are
+    // exposed to — the critical HTTP/2 one and the TLS 1.3 loop. The floor
+    // moves up with later updates; below it, an exploitable server would
+    // pass every verification.
+    preg_match('/(\d+)\.(\d+)$/', $floor, $revision);
+    expect([(int) $revision[1], (int) $revision[2]] >= [14, 24])->toBeTrue("the nginx security floor {$floor} is below 1.18.0-6ubuntu14.24");
 });
 
 /**

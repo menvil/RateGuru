@@ -791,6 +791,24 @@ function phpSecurityFloor(): string
 }
 
 /**
+ * The lowest nginx package the hosts may run — NGINX_MIN_PACKAGE_VERSION, an
+ * Ubuntu package revision, as install-bootstrap-runtime declares it. Read from
+ * the script so the fixtures follow one number when it is raised.
+ */
+function nginxSecurityFloor(): string
+{
+    preg_match(
+        '/^NGINX_MIN_PACKAGE_VERSION="([^"]+)"$/m',
+        (string) file_get_contents(base_path('infrastructure/scripts/install-bootstrap-runtime')),
+        $floor,
+    );
+
+    expect($floor[1] ?? null)->not->toBeNull('install-bootstrap-runtime no longer declares NGINX_MIN_PACKAGE_VERSION');
+
+    return $floor[1];
+}
+
+/**
  * The sourced libraries under infrastructure/scripts: never executed
  * directly, so they must stay non-executable. Kept here beside
  * requiredCliManifestNames() so the CLI allowlist and the library exemption
