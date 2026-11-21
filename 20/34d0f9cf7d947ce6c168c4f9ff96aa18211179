@@ -1,0 +1,34 @@
+app/Queries/Analytics/TrackingLinksQuery.php
+  s_4b9dc6ab6b25d3::t_af5b1979e44520 52-65,114-125,325-340,342-357,360
+tests/Feature/Analytics/AnalyticsTrackingLinksTest.php
+  s_4b9dc6ab6b25d3::t_fe2aa319eec6ae 372-399
+database/migrations/2026_11_21_110000_add_tags_index_to_traffic_visits_table.php
+  s_4b9dc6ab6b25d3::t_6cc85d9c4e3611 15-17
+  s_4b9dc6ab6b25d3::t_93e2584efa6b45 1-14,18-33
+tests/Feature/Queries/TrackingLinksQueryTest.php
+  s_4b9dc6ab6b25d3::t_987ceac0815f1d 114-144,146-148
+  s_4b9dc6ab6b25d3::t_ea39ff2abce6cf 145
+tests/Pest.php
+  s_4b9dc6ab6b25d3::t_2ab3f60fb026f3 15263-15272
+tests/Feature/Database/TrafficVisitTagColumnsTest.php
+  s_4b9dc6ab6b25d3::t_9320649158ee07 42-43
+  s_4b9dc6ab6b25d3::t_fb4c0e6822c022 52
+tests/Feature/Database/TrafficVisitTagsIndexTest.php
+  s_4b9dc6ab6b25d3::t_2f2ef77c04dc2e 1-46
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "2034d0f9cf7d947ce6c168c4f9ff96aa18211179",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
