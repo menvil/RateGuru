@@ -8,12 +8,15 @@ use Illuminate\Database\Eloquent\Model;
 /**
  * How far the rows Growth → Analytics reads are (analytics_visits): the day
  * they were filled up to on the way to every day, when every day first was,
- * and when they were last brought up to date. One row, id 1.
+ * and when they were last brought up to date — and the same of the cells of
+ * people per day (analytics_cells). One row, id 1.
  *
  * @property int $id
  * @property string|null $filled_through
  * @property CarbonImmutable|null $filled_at
  * @property CarbonImmutable|null $refreshed_at
+ * @property string|null $cells_through
+ * @property CarbonImmutable|null $cells_filled_at
  */
 class AnalyticsRollupState extends Model
 {
@@ -35,6 +38,7 @@ class AnalyticsRollupState extends Model
             'id' => 'integer',
             'filled_at' => 'immutable_datetime',
             'refreshed_at' => 'immutable_datetime',
+            'cells_filled_at' => 'immutable_datetime',
         ];
     }
 

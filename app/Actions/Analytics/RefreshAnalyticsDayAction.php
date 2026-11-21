@@ -2,6 +2,7 @@
 
 namespace App\Actions\Analytics;
 
+use App\Models\AnalyticsCell;
 use App\Models\AnalyticsPerson;
 use App\Models\AnalyticsVisit;
 use App\Queries\Analytics\AnalyticsRollupQuery;
@@ -15,7 +16,9 @@ use Illuminate\Support\Facades\DB;
  * one written before, so only a row that changed — or is new — is written
  * again; and each browser whose page ran that day given that day as its
  * first, unless an earlier one is already known. Run again on the same day
- * it writes nothing. Called by analytics:refresh-visits only.
+ * it writes nothing. Then, where they are kept, the day's cells of people
+ * (RefreshAnalyticsCellsAction) — when anything of the day changed, when the
+ * day has none yet, or when asked. Called by analytics:refresh-visits only.
  */
 final class RefreshAnalyticsDayAction
 {
@@ -25,13 +28,20 @@ final class RefreshAnalyticsDayAction
     /** Rows written in one statement: well under every engine's limit on bound values. */
     private const int WRITE = 400;
 
-    public function __construct(private readonly AnalyticsRollupQuery $rollup) {}
+    public function __construct(
+        private readonly AnalyticsRollupQuery $rollup,
+        private readonly RefreshAnalyticsCellsAction $cells,
+    ) {}
 
-    /** @return int how many rows were written */
-    public function handle(string $day): int
+    /**
+     * @param  bool  $cells  whether to write the day's cells again even if nothing of the day changed
+     * @return int how many rows were written
+     */
+    public function handle(string $day, bool $cells = false): int
     {
         $written = 0;
         $afterId = 0;
+        $changedAny = false;
 
         do {
             $visits = $this->rollup->visits($day, $afterId, self::BLOCK);
@@ -56,6 +66,8 @@ final class RefreshAnalyticsDayAction
                 continue;
             }
 
+            $changedAny = true;
+
             DB::transaction(function () use ($changed, $firstDays): void {
                 foreach (array_chunk($changed, self::WRITE) as $block) {
                     AnalyticsVisit::query()->upsert($block, ['id'], array_values(array_diff(AnalyticsVisitRow::COLUMNS, ['id'])));
@@ -68,6 +80,10 @@ final class RefreshAnalyticsDayAction
 
             $written += count($changed);
         } while (count($visits) === self::BLOCK);
+
+        if ($cells || $changedAny || ! AnalyticsCell::query()->where('network_day', $day)->exists()) {
+            $this->cells->handle($day);
+        }
 
         return $written;
     }

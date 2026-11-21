@@ -262,6 +262,44 @@ visits themselves, slower but never behind. The same conditions on the same
 days and arrivals give the same figures either way, and its tests read every
 call both ways and compare them.
 
+#### The cells of each day's people
+
+Counting a period's people still sorts every row of it. Where the database
+can keep them — PostgreSQL with the `roaringbitmap` extension (installed and
+created by the host's bootstrap scripts, and by CI) — Analytics also keeps each
+network day's people at four levels of detail (`AnalyticsCellLevel`): by
+device; by source and device; by source, campaign and device; and by country
+and device. A cell (`analytics_cells`) holds, for every step, the set of its
+people as a roaring bitmap of short browser numbers (`analytics_pids`, given in
+turn and never given again), and the visits' sums; the accounts of the same
+cells are kept apart by the UTC day each signed up on
+(`analytics_cell_accounts`), what decides whether an account's days to
+activate are over. A period's people are the size of the union of its days'
+sets, so no row is read again: the figures of 90 days in tens of
+milliseconds.
+
+`RefreshAnalyticsCellsAction` writes a day's cells again from its rows, in one
+transaction, whenever `RefreshAnalyticsDayAction` changed a row of the day,
+when the day has none yet, and on the nightly recheck; until every day has
+cells the refresh fills them in turn after the rows (`cells_through`,
+`cells_filled_at`). `AnalyticsVisitsQuery` reads them for `figures()`, `by()`,
+`top()`, days and blocks of days of `series()`, `of()`, `among()` and
+`pairs()` when every column the read filters or splits by is in one level and
+it counts whole days (`AnalyticsFilter::countsWholeDays()`), taking the
+coarsest such level; a split by any other column — landing, creative, city,
+game, tags — hours, the people who came back and what the figures leave out
+read the rows. Only while the rows are read, once the cells are filled, and
+while `analytics.rollup.cells` allows it (`AnalyticsRollupGate::readsCells()`);
+without the extension nothing is written and every read takes the rows. The
+query tests read every call from the visits, from the rows and, where they are
+kept, from the cells, and compare them.
+
+Measured on 5.2 million visits (3.3 million browsers) with nothing kept from
+an earlier read, every tab of 90 days together: 286 seconds from the rows,
+84 from the cells where they fit — the Overview 64 seconds to 7, Campaigns 84
+to 10, Geo 27 to under 8. A day's cells take about 0.2 seconds to write; 90
+days of them about 120 MB, the numbers of 3.3 million browsers 300 MB.
+
 Everything else that keeps a tab quick is deliberate and kept together:
 
 - the session's keys and tags are columns of each visit, so no read joins the
@@ -316,7 +354,11 @@ docs/architecture/http-and-database-boundaries.md and a behaviour test:
 
 - `AnalyticsVisitsQuery` — the people of the period's visits, in all, per
   dimension with the rest counted together, per bucket, and who came back,
-  from Analytics' own rows of the visits or from the visits themselves;
+  from Analytics' own rows of the visits or from the visits themselves, and
+  where they fit from the cells of each day's people (`rb_or_agg`);
+- `RefreshAnalyticsCellsAction` — a day's cells, every level in one
+  `GROUPING SETS` pass, each step's people `rb_build_agg` of the browsers'
+  numbers;
 - `AnalyticsContentQuery` — the posts the period's visits opened, and the
   accounts whose session opened each first;
 - `TrafficSegmentsQuery` — a paid source's segments, each click's segment
@@ -332,7 +374,8 @@ docs/architecture/http-and-database-boundaries.md and a behaviour test:
 `AnalyticsRollupQuery` are Eloquent alone. Everywhere every value is bound, every grouping column comes
 from `AnalyticsDimension` or `SegmentParameter`, and there is neither date
 arithmetic nor a branch per engine, so each read means the same on PostgreSQL,
-SQLite and MariaDB.
+SQLite and MariaDB — the cells alone are PostgreSQL's, with the rows read
+everywhere else.
 
 ## Experiments
 
@@ -476,6 +519,8 @@ action. A moderator sees neither.
 | Hidden periods | for ever, as every period |
 | Analytics' own rows of the visits (`analytics_visits`) | as long as their visit |
 | Each browser's first day (`analytics_people`) | 400 days from that day, as the visits (`traffic:purge-expired`) |
+| The cells of each day's people and their accounts (`analytics_cells`, `analytics_cell_accounts`) | 400 days, as the visits of the day (`traffic:purge-expired`) |
+| A browser's number (`analytics_pids`) | until no row of Analytics names it, but the highest, which the next number counts on from |
 | A tab's figures and the filter options, per administrator (cache) | 10 minutes (`analytics.read_cache_minutes`), or until Refresh, a segment saved, deleted or restored, or a tracking link saved |
 
 The privacy page is the owner's to update before Record site visits is switched

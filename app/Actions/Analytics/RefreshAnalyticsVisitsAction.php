@@ -4,6 +4,7 @@ namespace App\Actions\Analytics;
 
 use App\Models\AnalyticsDirtyDay;
 use App\Models\AnalyticsRollupState;
+use App\Queries\Analytics\AnalyticsRollupGate;
 use App\Queries\Analytics\AnalyticsRollupQuery;
 use App\Queries\Analytics\AnalyticsVisitsQuery;
 use App\Support\Analytics\AnalyticsRollupWindow;
@@ -25,8 +26,13 @@ use Carbon\CarbonImmutable;
  *     from the first visit's — and once they reach the days of 1, and every
  *     day of 1 this run skipped has been read too, the rows count as filled,
  *     and Analytics reads them;
- *  4. when asked, the days given back from today again, a check that nothing
- *     was missed.
+ *  4. where the cells of each day's people are kept (analytics_cells), until
+ *     every day has them, the days without, the earliest first, from the
+ *     first visit's to the last day of 1 — then the cells count as filled,
+ *     and Analytics reads them; each day's cells are written again with its
+ *     rows from then on (RefreshAnalyticsDayAction);
+ *  5. when asked, the days given back from today again, their cells too, a
+ *     check that nothing was missed.
  */
 final class RefreshAnalyticsVisitsAction
 {
@@ -34,8 +40,10 @@ final class RefreshAnalyticsVisitsAction
 
     public function __construct(
         private readonly RefreshAnalyticsDayAction $day,
+        private readonly RefreshAnalyticsCellsAction $cells,
         private readonly AnalyticsRollupQuery $rollup,
         private readonly AnalyticsVisitsQuery $visits,
+        private readonly AnalyticsRollupGate $gate,
     ) {}
 
     /**
@@ -113,11 +121,29 @@ final class RefreshAnalyticsVisitsAction
             }
         }
 
+        if ($state->filled_at !== null && $state->cells_filled_at === null && $this->gate->cellsKept()) {
+            $last = $window[count($window) - 1];
+            $day = $state->cells_through === null ? $this->visits->firstDay() : CarbonImmutable::parse($state->cells_through, 'UTC')->addDay()->toDateString();
+
+            for (; $day !== null && $day <= $last; $day = CarbonImmutable::parse($day, 'UTC')->addDay()->toDateString()) {
+                if (microtime(true) >= $deadline) {
+                    break;
+                }
+
+                $this->cells->handle($day);
+                $state->forceFill(['cells_through' => $day])->save();
+            }
+
+            if ($day === null || $day > $last) {
+                $state->forceFill(['cells_filled_at' => $now])->save();
+            }
+        }
+
         for ($back = $recheckDays; $back > 0 && microtime(true) < $deadline; $back--) {
             $day = $now->subDays($back)->toDateString();
 
             if ($day < $window[0]) {
-                $written += $this->day->handle($day);
+                $written += $this->day->handle($day, cells: true);
                 $days++;
             }
         }

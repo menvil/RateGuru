@@ -1,5 +1,9 @@
 <?php
 
+use App\Models\AnalyticsCell;
+use App\Models\AnalyticsCellAccount;
+use App\Models\AnalyticsPid;
+use App\Models\AnalyticsVisit;
 use App\Models\TrafficChanceRun;
 use App\Models\TrafficConversion;
 use App\Models\TrafficPostback;
@@ -52,6 +56,24 @@ it('deletes what is past its retention and keeps the rest', function () {
         ->and(TrafficVisitDetail::query()->pluck('visit_id')->all())->toBe([$fresh->id])
         ->and(TrafficPostback::query()->find($oldPostback->id))->toBeNull()
         ->and(TrafficSpendDay::query()->pluck('id')->all())->toBe([$keptDay->id]);
+});
+
+it('deletes the cells of people with their days’ visits, and a browser’s number once no visit names it, never the highest', function () {
+    $cell = fn (string $day): array => ['level' => 'device', 'network_day' => $day, 'device' => 'mobile'];
+    AnalyticsCell::query()->insert([$cell('2025-10-01'), $cell('2026-11-01')]);
+    AnalyticsCellAccount::query()->insert([[...$cell('2025-10-01'), 'signup_day' => '2025-10-01'], [...$cell('2026-11-01'), 'signup_day' => '2026-11-01']]);
+    $kept = TrafficVisit::factory()->create(['arrived_at' => now()->subDays(100)]);
+    AnalyticsVisit::query()->forceCreate(['id' => $kept->id, 'visitor_key' => 11, 'network_day' => '2026-08-09', 'arrived_at' => $kept->arrived_at, 'last_seen_at' => $kept->arrived_at, 'channel' => 'direct', 'device' => 'mobile']);
+    // 12's visits are gone; 13 has none either, but the next number counts on from it.
+    AnalyticsPid::query()->insert([['visitor_key' => 11, 'pid' => 1], ['visitor_key' => 12, 'pid' => 2], ['visitor_key' => 13, 'pid' => 3]]);
+
+    $this->artisan('traffic:purge-expired', ['--chunk' => 1])->assertSuccessful()
+        ->expectsOutput('Deleted 1 cells of people.')
+        ->expectsOutput('Deleted 1 browser numbers.');
+
+    expect(AnalyticsCell::query()->pluck('network_day')->all())->toBe(['2026-11-01'])
+        ->and(AnalyticsCellAccount::query()->pluck('network_day')->all())->toBe(['2026-11-01'])
+        ->and(AnalyticsPid::query()->orderBy('pid')->pluck('pid')->all())->toBe([1, 3]);
 });
 
 it('deletes the posts a visit opened after 90 days from the first, the visit staying', function () {

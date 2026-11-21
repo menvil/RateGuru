@@ -83,6 +83,16 @@ The reviewed boundaries are:
   the browser; the sums of what the paid clicks cost, their pages run or not,
   per dimension or nested dimensions; the first day each value came on, as
   `MIN(network_day)`; and the result shares of the attempts played on the visits.
+  Where the cells of each day's people (`analytics_cells`) fit a read — its
+  whole days, every column it filters or splits by in one level — the same
+  figures, splits and lists come from them instead: each step's people as
+  `rb_cardinality(rb_or_agg(…))` over the cells' roaring bitmaps, the sums
+  summed (PostgreSQL with the roaringbitmap extension only).
+- `RefreshAnalyticsCellsAction` for writing those cells from a day's rows of
+  `analytics_visits`: one `INSERT … SELECT` with `GROUPING SETS` over every
+  level, each step's people `rb_build_agg(pid) FILTER (WHERE …)`, the sums
+  beside them, `HAVING` a visit whose page ran, and the next browser numbers
+  by `ROW_NUMBER()` — through `insertUsing`, never `DB::statement`.
 - `CommentListQuery` for arithmetic comment ranking.
 - `ComparisonPeriodsQuery` for literal LIKE searches over the titles, internal
   names and slugs of the games whose traffic periods Growth → Experiments lists.
