@@ -7,11 +7,13 @@ use App\Models\AnalyticsCell;
 use App\Models\AnalyticsCellAccount;
 use App\Models\AnalyticsPid;
 use App\Models\AnalyticsRollupState;
+use App\Models\TrafficSource;
 use App\Models\TrafficVisit;
 use App\Queries\Analytics\AnalyticsRollupGate;
 use App\Queries\Analytics\AnalyticsVisitsQuery;
 use App\Support\Analytics\AnalyticsCellLevel;
 use App\Support\Analytics\AnalyticsSource;
+use App\Support\Traffic\Capture\BotSignals;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 
@@ -147,6 +149,8 @@ it('reads the cells, not the rows, for every read that fits a level', function (
         'among' => fn () => $query->among($week, AnalyticsDimension::Campaign, ['paid:3']),
         'pairs' => fn () => $query->pairs($week, AnalyticsDimension::Campaign, AnalyticsDimension::Source, ['paid:3']),
         'top' => fn () => $query->top($week, AnalyticsDimension::Device, 10),
+        'returning' => fn () => $query->returning($week),
+        'quality' => fn () => $query->quality($week),
     ];
 
     foreach ($reads as $read => $call) {
@@ -167,6 +171,38 @@ it('reads the cells, not the rows, for every read that fits a level', function (
 
     expect(collect(DB::getQueryLog())->pluck('query')->implode(' '))->toContain('analytics_visits');
     DB::disableQueryLog();
+});
+
+it('counts the people who came back the way the rows do: on two days of the period, or seen on a day before it, whatever the filter', function () {
+    cellsFixture();
+    // hal came before the week, on a day the filter leaves out; ivy only before it.
+    analyticsVisit('hal', ['network_day' => '2026-11-02', 'arrived_at' => '2026-11-02 10:00:00', 'source_key' => AnalyticsSource::DIRECT, 'device' => 'desktop']);
+    analyticsVisit('hal', ['network_day' => '2026-11-16', 'arrived_at' => '2026-11-16 10:00:00', 'source_key' => 'paid:7', 'device' => 'mobile']);
+    analyticsVisit('ivy', ['network_day' => '2026-11-03', 'arrived_at' => '2026-11-03 10:00:00', 'device' => 'mobile']);
+
+    // ann on two days of the week, hal seen before it.
+    expect(readBothWays(AnalyticsVisitsQuery::class)->returning(analyticsFilter('7d')))->toBe(2)
+        ->and(readBothWays(AnalyticsVisitsQuery::class)->returning(analyticsFilter('7d', TrafficDevice::Mobile, 'paid:7')))->toBe(1)
+        ->and(readBothWays(AnalyticsVisitsQuery::class)->returning(analyticsFilter('7d', TrafficDevice::Desktop)))->toBe(0);
+});
+
+it('gives what the figures leave out the way the rows do: Direct, every paid click, those of crawlers and those whose page never ran, and their cost', function () {
+    cellsFixture();
+    $source = TrafficSource::factory()->create();
+    // A crawler's paid click on a day of its own, one whose page never ran on a day with people, and one that ran.
+    analyticsVisit('bot', ['network_day' => '2026-11-14', 'arrived_at' => '2026-11-14 10:00:00', 'source_id' => $source->id, 'source_key' => 'paid:7', 'device' => 'desktop', 'opened_at' => null, 'bot_flags' => BotSignals::CRAWLER, 'spend' => '0.05']);
+    analyticsVisit('jay', ['network_day' => '2026-11-16', 'arrived_at' => '2026-11-16 10:00:00', 'source_id' => $source->id, 'source_key' => 'paid:7', 'device' => 'mobile', 'opened_at' => null, 'spend' => '0.02', 'spend_estimated' => true]);
+    analyticsVisit('kim', ['network_day' => '2026-11-16', 'arrived_at' => '2026-11-16 10:00:00', 'source_id' => $source->id, 'source_key' => 'paid:7', 'device' => 'mobile', 'spend' => '0.03']);
+
+    $quality = readBothWays(AnalyticsVisitsQuery::class)->quality(analyticsFilter('7d'));
+
+    expect($quality)->toMatchArray(['paidClicks' => 3, 'crawlers' => 1, 'neverRan' => 1, 'spend' => '0.10000000', 'spendEstimated' => '0.02000000'])
+        ->and(readBothWays(AnalyticsVisitsQuery::class)->quality(analyticsFilter('7d', TrafficDevice::Desktop, 'paid:7')))->toBeArray()
+        ->and(readBothWays(AnalyticsVisitsQuery::class)->quality(analyticsFilter('7d', null, AnalyticsSource::DIRECT)))->toBeArray()
+        // A day only a crawler came on lists no one, and no split lists its cell.
+        ->and(readBothWays(AnalyticsVisitsQuery::class)->series(analyticsFilter('7d'), analyticsFilter('7d')->period->buckets()))->toHaveCount(7)
+        ->and(readBothWays(AnalyticsVisitsQuery::class)->by(analyticsFilter('7d', TrafficDevice::Desktop), AnalyticsDimension::Source))->toBeArray()
+        ->and(readBothWays(AnalyticsVisitsQuery::class)->returning(analyticsFilter('7d', TrafficDevice::Desktop)))->toBe(0);
 });
 
 it('writes a day’s cells again when one of its visits changes', function () {

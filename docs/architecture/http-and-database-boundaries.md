@@ -87,11 +87,13 @@ The reviewed boundaries are:
   whole days, every column it filters or splits by in one level — the same
   figures, splits and lists come from them instead: each step's people as
   `rb_cardinality(rb_or_agg(…))` over the cells' roaring bitmaps, the sums
-  summed (PostgreSQL with the roaringbitmap extension only).
+  summed, and the people who came back as a `WITH RECURSIVE` fold of the
+  period's days through `fromRaw` (PostgreSQL with the roaringbitmap
+  extension only).
 - `AnalyticsCellsQuery` for what those cells are written from, a day's rows of
   `analytics_visits`: one `SELECT` with `GROUPING SETS` over every level, each
-  step's people `rb_build_agg(pid) FILTER (WHERE …)`, the sums beside them,
-  `HAVING` a visit whose page ran, and the next browser numbers by
+  step's people `rb_build_agg(pid) FILTER (WHERE …)`, the sums beside them
+  and the paid clicks' own, and the next browser numbers by
   `ROW_NUMBER()` — inserted by `RefreshAnalyticsCellsAction` through
   `insertUsing`, never `DB::statement`.
 - `CommentListQuery` for arithmetic comment ranking.

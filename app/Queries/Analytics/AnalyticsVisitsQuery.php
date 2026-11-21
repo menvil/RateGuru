@@ -291,6 +291,12 @@ final class AnalyticsVisitsQuery implements RawSqlPersistenceBoundary
      */
     public function returning(AnalyticsFilter $filter): int
     {
+        $level = $this->level($filter);
+
+        if ($level !== null) {
+            return $this->returningFromCells($filter, $level);
+        }
+
         $person = $this->person();
         $people = $this->visits($filter)
             ->groupBy($person)
@@ -329,7 +335,25 @@ final class AnalyticsVisitsQuery implements RawSqlPersistenceBoundary
      */
     public function quality(AnalyticsFilter $filter): array
     {
-        $row = (array) $this->visits($filter, openedOnly: false)
+        // The cells keep every paid click's sums beside the people: where they fit, the people of Direct need the source in the level.
+        $level = $this->level($filter, ['source_key']);
+        $row = $level === null ? $this->qualityOfRows($filter) : $this->qualityOfCells($filter, $level);
+
+        return [
+            'visitors' => (int) ($row['visitors'] ?? 0),
+            'direct' => (int) ($row['direct'] ?? 0),
+            'paidClicks' => (int) ($row['paid_clicks'] ?? 0),
+            'crawlers' => (int) ($row['crawlers'] ?? 0),
+            'neverRan' => (int) ($row['never_ran'] ?? 0),
+            'spend' => TrafficMoney::stored($row['spend'] ?? 0),
+            'spendEstimated' => TrafficMoney::stored($row['spend_estimated'] ?? 0),
+        ];
+    }
+
+    /** @return array<string, mixed> what the figures leave out, read from every visit the filter admits */
+    private function qualityOfRows(AnalyticsFilter $filter): array
+    {
+        return (array) $this->visits($filter, openedOnly: false)
             ->selectRaw(implode(', ', [
                 'COUNT(DISTINCT CASE WHEN '.$this->test('opened').' THEN '.$this->person().' END) AS visitors',
                 'COUNT(DISTINCT CASE WHEN '.$this->test('opened').' AND source_key = ? THEN '.$this->person().' END) AS direct',
@@ -341,16 +365,23 @@ final class AnalyticsVisitsQuery implements RawSqlPersistenceBoundary
             ]), $this->gate->reads() ? [AnalyticsSource::DIRECT] : [AnalyticsSource::DIRECT, BotSignals::CRAWLER, BotSignals::CRAWLER])
             ->toBase()
             ->first();
+    }
 
-        return [
-            'visitors' => (int) ($row['visitors'] ?? 0),
-            'direct' => (int) ($row['direct'] ?? 0),
-            'paidClicks' => (int) ($row['paid_clicks'] ?? 0),
-            'crawlers' => (int) ($row['crawlers'] ?? 0),
-            'neverRan' => (int) ($row['never_ran'] ?? 0),
-            'spend' => TrafficMoney::stored($row['spend'] ?? 0),
-            'spendEstimated' => TrafficMoney::stored($row['spend_estimated'] ?? 0),
-        ];
+    /** @return array<string, mixed> what the figures leave out, read from the cells of a level holding the source */
+    private function qualityOfCells(AnalyticsFilter $filter, AnalyticsCellLevel $level): array
+    {
+        return (array) self::ofCells(AnalyticsCell::query(), $filter, $level)
+            ->selectRaw(implode(', ', [
+                'COALESCE(rb_cardinality(rb_or_agg(visitors::roaringbitmap)), 0) AS visitors',
+                'COALESCE(rb_cardinality(rb_or_agg(visitors::roaringbitmap) FILTER (WHERE source_key = ?)), 0) AS direct',
+                'COALESCE(SUM(paid_clicks), 0) AS paid_clicks',
+                'COALESCE(SUM(crawlers), 0) AS crawlers',
+                'COALESCE(SUM(never_ran), 0) AS never_ran',
+                'COALESCE(SUM(paid_spend), 0) AS spend',
+                'COALESCE(SUM(paid_spend_estimated), 0) AS spend_estimated',
+            ]), [AnalyticsSource::DIRECT])
+            ->toBase()
+            ->first();
     }
 
     /** How many attempts were started on the visits the filter admits: a game's starters play some more than once. */
@@ -893,7 +924,8 @@ final class AnalyticsVisitsQuery implements RawSqlPersistenceBoundary
     /** @return Builder<TrafficVisit>|Builder<AnalyticsVisit>|Builder<AnalyticsCell> what a read counts over: the cells of its level, or the visits */
     private function rows(AnalyticsFilter $filter, ?AnalyticsCellLevel $level): Builder
     {
-        return $level === null ? $this->visits($filter) : self::ofCells(AnalyticsCell::query(), $filter, $level);
+        // A cell of paid clicks none of whose pages ran has no visitors: the rows read only visits whose page ran.
+        return $level === null ? $this->visits($filter) : self::ofCells(AnalyticsCell::query(), $filter, $level)->whereNotNull('visitors');
     }
 
     /** @return Builder<AnalyticsCellAccount> the accounts of the cells a read counts over, those whose days to activate are over by today */
@@ -968,6 +1000,32 @@ final class AnalyticsVisitsQuery implements RawSqlPersistenceBoundary
         }
 
         return $rows;
+    }
+
+    /**
+     * The people of the filter who came back, from the cells: each day's
+     * people folded in turn — once by the days so far, twice by those already
+     * seen once — and the people of every day before the period, whatever the
+     * filter, as those seen before it. A union and an intersection a day,
+     * never a row.
+     */
+    private function returningFromCells(AnalyticsFilter $filter, AnalyticsCellLevel $level): int
+    {
+        $days = self::ofCells(AnalyticsCell::query(), $filter, $level)
+            ->whereNotNull('visitors')
+            ->groupBy('network_day')
+            ->selectRaw('ROW_NUMBER() OVER (ORDER BY network_day) AS n, rb_or_agg(visitors::roaringbitmap) AS people', []);
+        $before = AnalyticsCell::query()
+            ->where('level', AnalyticsCellLevel::Device->value)
+            ->where('network_day', '<', $filter->fromDay())
+            ->whereNotNull('visitors')
+            ->selectRaw('COALESCE(rb_or_agg(visitors::roaringbitmap), rb_build(ARRAY[]::integer[]))', []);
+        $folded = 'WITH RECURSIVE days AS ('.$days->toSql().'),'
+            .' fold AS (SELECT n, people AS once, rb_build(ARRAY[]::integer[]) AS twice FROM days WHERE n = 1'
+            .' UNION ALL SELECT days.n, rb_or(fold.once, days.people), rb_or(fold.twice, rb_and(fold.once, days.people)) FROM fold JOIN days ON days.n = fold.n + 1)'
+            .' SELECT rb_cardinality(rb_or(twice, rb_and(once, ('.$before->toSql().')))) AS came_back FROM fold ORDER BY n DESC LIMIT 1';
+
+        return (int) (AnalyticsCell::query()->fromRaw('('.$folded.') AS folded', [...$days->getBindings(), ...$before->getBindings()])->value('came_back') ?? 0);
     }
 
     /** @param  array<string, int|string|null>  $keys a group's values, as one key */

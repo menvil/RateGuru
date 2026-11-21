@@ -23,9 +23,11 @@ return new class extends Migration
         // or country and device, the set of each step's people as a roaring
         // bitmap of their numbers, and the visits' sums. A period's people
         // are the union of its days' sets: no visit of it is read again. Only
-        // the visits whose page ran count, as on the tabs; a column outside
-        // the row's level is empty, and inside it an empty one is a visit of
-        // no value. Written only on PostgreSQL with the roaringbitmap
+        // the visits whose page ran count, as on the tabs — but for the paid
+        // clicks' own sums, every one of them, what the figures leave out — so a
+        // cell of clicks none of whose pages ran has no set of visitors; a
+        // column outside the row's level is empty, and inside it an empty one
+        // is a visit of no value. Written only on PostgreSQL with the roaringbitmap
         // extension (RefreshAnalyticsCellsAction); elsewhere it stays empty
         // and the tabs read the visits.
         Schema::create('analytics_cells', function (Blueprint $table) {
@@ -48,6 +50,11 @@ return new class extends Migration
             $table->unsignedBigInteger('posts')->default(0);
             $table->decimal('spend', 18, 8)->default(0);
             $table->decimal('spend_estimated', 18, 8)->default(0);
+            $table->unsignedBigInteger('paid_clicks')->default(0);
+            $table->unsignedBigInteger('crawlers')->default(0);
+            $table->unsignedBigInteger('never_ran')->default(0);
+            $table->decimal('paid_spend', 18, 8)->default(0);
+            $table->decimal('paid_spend_estimated', 18, 8)->default(0);
 
             $table->index(['level', 'network_day'], 'analytics_cells_level_day_index');
             $table->index('network_day', 'analytics_cells_day_index');

@@ -16,8 +16,9 @@ use Illuminate\Database\Eloquent\Builder;
  * yet, each with the next one; and the day's cells and accounts at every level
  * (AnalyticsCellLevel), each in one pass over the day's rows — GROUPING SETS,
  * each step's people a roaring bitmap built of their numbers, only the visits
- * whose page ran, as on the tabs. PostgreSQL with the roaringbitmap extension
- * only: the action asks the gate first.
+ * whose page ran, as on the tabs; and beside them what the paid clicks were,
+ * every one, their pages run or not, what the figures leave out. PostgreSQL
+ * with the roaringbitmap extension only: the action asks the gate first.
  */
 final class AnalyticsCellsQuery implements RawSqlPersistenceBoundary
 {
@@ -45,6 +46,12 @@ final class AnalyticsCellsQuery implements RawSqlPersistenceBoundary
         'posts' => 'COALESCE(SUM(v.posts_created) FILTER (WHERE v.opened), 0)',
         'spend' => 'COALESCE(SUM(v.spend) FILTER (WHERE v.opened), 0)',
         'spend_estimated' => 'COALESCE(SUM(v.spend) FILTER (WHERE v.opened AND v.spend_estimated), 0)',
+        // Every paid click, its page run or not.
+        'paid_clicks' => 'COUNT(*) FILTER (WHERE v.source_id IS NOT NULL)',
+        'crawlers' => 'COUNT(*) FILTER (WHERE v.source_id IS NOT NULL AND v.crawler)',
+        'never_ran' => 'COUNT(*) FILTER (WHERE v.source_id IS NOT NULL AND NOT v.opened AND NOT v.crawler)',
+        'paid_spend' => 'COALESCE(SUM(v.spend) FILTER (WHERE v.source_id IS NOT NULL), 0)',
+        'paid_spend_estimated' => 'COALESCE(SUM(v.spend) FILTER (WHERE v.source_id IS NOT NULL AND v.spend_estimated), 0)',
     ];
 
     /** @return list<string> the columns of a cell, in the order cells() selects them */
@@ -81,7 +88,7 @@ final class AnalyticsCellsQuery implements RawSqlPersistenceBoundary
             ->selectRaw('fresh.visitor_key, ? + ROW_NUMBER() OVER (ORDER BY fresh.visitor_key)', [(int) AnalyticsPid::query()->max('pid')]);
     }
 
-    /** @return Builder<AnalyticsVisit> the day's cells at every level, one row a cell with any visit whose page ran (cellColumns()) */
+    /** @return Builder<AnalyticsVisit> the day's cells at every level, one row a cell with any visit (cellColumns()) */
     public function cells(string $day): Builder
     {
         $columns = [$this->level(), '? AS network_day', 'v.device', 'v.source_key', 'v.campaign_key', 'v.country'];
@@ -96,8 +103,7 @@ final class AnalyticsCellsQuery implements RawSqlPersistenceBoundary
 
         return $this->ofDay($day)
             ->selectRaw(implode(', ', $columns), [...$this->levelBindings(), $day])
-            ->groupByRaw($this->groupingSets(''), [])
-            ->havingRaw('COUNT(*) FILTER (WHERE v.opened) > ?', [0]);
+            ->groupByRaw($this->groupingSets(''), []);
     }
 
     /** @return Builder<AnalyticsVisit> the day's accounts at every level, by the UTC day each signed up on (accountColumns()) */

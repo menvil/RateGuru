@@ -271,7 +271,9 @@ network day's people at four levels of detail (`AnalyticsCellLevel`): by
 device; by source and device; by source, campaign and device; and by country
 and device. A cell (`analytics_cells`) holds, for every step, the set of its
 people as a roaring bitmap of short browser numbers (`analytics_pids`, given in
-turn and never given again), and the visits' sums; the accounts of the same
+turn and never given again), and the visits' sums — and every paid click's,
+its page run or not, so a cell of clicks none of whose pages ran has no set of
+visitors and is read only for what the figures leave out; the accounts of the same
 cells are kept apart by the UTC day each signed up on
 (`analytics_cell_accounts`), what decides whether an account's days to
 activate are over. A period's people are the size of the union of its days'
@@ -283,12 +285,15 @@ transaction, whenever `RefreshAnalyticsDayAction` changed a row of the day,
 when the day has none yet, and on the nightly recheck; until every day has
 cells the refresh fills them in turn after the rows (`cells_through`,
 `cells_filled_at`). `AnalyticsVisitsQuery` reads them for `figures()`, `by()`,
-`top()`, days and blocks of days of `series()`, `of()`, `among()` and
-`pairs()` when every column the read filters or splits by is in one level and
-it counts whole days (`AnalyticsFilter::countsWholeDays()`), taking the
-coarsest such level; a split by any other column — landing, creative, city,
-game, tags — hours, the people who came back and what the figures leave out
-read the rows. Only while the rows are read, once the cells are filled, and
+`top()`, days and blocks of days of `series()`, `of()`, `among()`, `pairs()`,
+`quality()` and `returning()` when every column the read filters or splits by
+is in one level and it counts whole days
+(`AnalyticsFilter::countsWholeDays()`), taking the coarsest such level. The
+people who came back are a fold of the period's days — once by the days so
+far, twice by those already seen once (`WITH RECURSIVE`, `rb_or` and `rb_and`
+a day) — joined to the people of every day before the period, whatever the
+filter. A split by any other column — landing, creative, city, game, tags —
+and hours read the rows. Only while the rows are read, once the cells are filled, and
 while `analytics.rollup.cells` allows it (`AnalyticsRollupGate::readsCells()`);
 without the extension nothing is written and every read takes the rows. The
 query tests read every call from the visits, from the rows and, where they are
@@ -296,9 +301,11 @@ kept, from the cells, and compare them.
 
 Measured on 5.2 million visits (3.3 million browsers) with nothing kept from
 an earlier read, every tab of 90 days together: 286 seconds from the rows,
-84 from the cells where they fit — the Overview 64 seconds to 7, Campaigns 84
-to 10, Geo 27 to under 8. A day's cells take about 0.2 seconds to write; 90
-days of them about 120 MB, the numbers of 3.3 million browsers 300 MB.
+79 from the cells where they fit — the Overview 64 seconds to 2, Site
+engagement 22 to under 1, Campaigns 84 to 9, Geo 27 to 5; what is left is
+the reads the cells don't fit (the games' own, landings, cities). Writing 95
+days of cells takes 44 seconds; 90 days of them about 120 MB, the numbers of
+3.3 million browsers 300 MB.
 
 Everything else that keeps a tab quick is deliberate and kept together:
 
