@@ -85,10 +85,34 @@ it('marks an older day changed with a new token each time, and never a day read 
         ->and(AnalyticsDirtyDay::query()->find('2026-11-02')->token)->not->toBe($token);
 });
 
+it('marks a day about to leave the days read every minute, which the next whole read would miss', function () {
+    $mark = app(MarkAnalyticsDayAction::class);
+
+    // At 11:50 the 16th is read again at 11:55 still: nothing to tell.
+    $mark->handle('2026-11-16', CarbonImmutable::parse('2026-11-18 11:50:00'));
+
+    expect(AnalyticsDirtyDay::query()->count())->toBe(0);
+
+    // At 11:57 it is among the days read every minute, but gone by the next
+    // whole read at 12:00: it is marked.
+    $mark->handle('2026-11-16', CarbonImmutable::parse('2026-11-18 11:57:00'));
+
+    expect(AnalyticsDirtyDay::query()->pluck('day')->all())->toBe(['2026-11-16'])
+        ->and(AnalyticsDirtyDay::query()->find('2026-11-16')->marked_at->toDateTimeString())->toBe('2026-11-18 11:57:00');
+
+    // Marked again, it keeps the moment it was first marked.
+    $mark->handle('2026-11-16', CarbonImmutable::parse('2026-11-18 11:58:00'));
+
+    expect(AnalyticsDirtyDay::query()->find('2026-11-16')->marked_at->toDateTimeString())->toBe('2026-11-18 11:57:00');
+});
+
 it('marks the day of a visit days old that a late step, a spend shared out again or a click that came back changes', function () {
     $old = analyticsVisit('ann', ['network_day' => '2026-11-03']);
     $today = analyticsVisit('bob', ['network_day' => '2026-11-18', 'arrived_at' => '2026-11-18 10:00:00']);
     $source = TrafficSource::factory()->create();
+    // A click whose spend was shared out from figures since removed: it goes
+    // back to its own price, which writes it.
+    analyticsVisit('cid', ['network_day' => '2026-11-05', 'arrived_at' => '2026-11-05 10:00:00', 'source_id' => $source->id, 'spend_basis' => 'manual', 'spend' => '1.50000000']);
 
     app(MarkTrafficVisitAction::class)->handle($today->id, TrafficEvent::Completed, now()->toImmutable());
 
@@ -97,6 +121,12 @@ it('marks the day of a visit days old that a late step, a spend shared out again
 
     app(MarkTrafficVisitAction::class)->handle($old->id, TrafficEvent::Account, now()->toImmutable(), ['signup_at' => now()]);
     app(AllocateSpendDayAction::class)->handle($source, '2026-11-05', now()->toImmutable());
+
+    expect(AnalyticsDirtyDay::query()->orderBy('day')->pluck('day')->all())->toBe(['2026-11-03', '2026-11-05']);
+
+    // A day whose spend has nothing to move is not marked: the mark goes with
+    // the writes it tells of, never ahead of them.
+    app(AllocateSpendDayAction::class)->handle($source, '2026-11-06', now()->toImmutable());
 
     expect(AnalyticsDirtyDay::query()->orderBy('day')->pluck('day')->all())->toBe(['2026-11-03', '2026-11-05']);
 });
@@ -133,6 +163,20 @@ it('fills the days from the first visit’s on as far as time allows, and counts
     expect($done['filled'])->toBeTrue()
         ->and(AnalyticsVisit::query()->orderBy('network_day')->pluck('network_day')->all())->toBe(['2026-11-10', '2026-11-13', '2026-11-18'])
         ->and(AnalyticsRollupState::current())->filled_through->toBe('2026-11-16')->filled_at->not->toBeNull();
+});
+
+it('reads the earlier days that still change before it first counts the rows filled, whatever the minute', function () {
+    analyticsVisit('ann', ['network_day' => '2026-11-10', 'arrived_at' => '2026-11-10 10:00:00']);
+    analyticsVisit('bob', ['network_day' => '2026-11-17', 'arrived_at' => '2026-11-17 10:00:00']);
+    analyticsVisit('cid', ['network_day' => '2026-11-18', 'arrived_at' => '2026-11-18 10:00:00']);
+
+    // 12:01: a minute that reads only today's day on — but the run that
+    // finishes filling reads the 17th too, before Analytics reads the rows.
+    $this->travelTo(CarbonImmutable::parse('2026-11-18 12:01:00'));
+    $done = app(RefreshAnalyticsVisitsAction::class)->handle(microtime(true) + 30, now: CarbonImmutable::now());
+
+    expect($done['filled'])->toBeTrue()
+        ->and(AnalyticsVisit::query()->orderBy('network_day')->pluck('network_day')->all())->toBe(['2026-11-10', '2026-11-17', '2026-11-18']);
 });
 
 it('reads today’s day and later every minute, and the earlier days that still change every fifth minute', function () {
@@ -190,6 +234,26 @@ it('reads Analytics’ own rows only once filled, brought up to date recently an
     expect($reads())->toBeFalse();
 });
 
+it('goes back to the visits while a day marked as changed waits longer than the rows may be stale', function () {
+    $reads = function (): bool {
+        app()->forgetScopedInstances();
+
+        return app(AnalyticsRollupGate::class)->reads();
+    };
+
+    analyticsVisit('ann', ['network_day' => '2026-11-02']);
+    fillAnalyticsRollup();
+
+    // Brought up to date every minute, but one day keeps failing to be read.
+    AnalyticsDirtyDay::query()->create(['day' => '2026-11-02', 'token' => '01JD0000000000000000000000', 'marked_at' => now()->subMinutes(5)]);
+
+    expect($reads())->toBeTrue();
+
+    AnalyticsDirtyDay::query()->whereKey('2026-11-02')->update(['marked_at' => now()->subMinutes(31)]);
+
+    expect($reads())->toBeFalse();
+});
+
 it('goes with its visit', function () {
     $ann = analyticsVisit('ann', ['network_day' => '2026-11-10']);
     fillAnalyticsRollup();
@@ -205,9 +269,20 @@ it('runs every minute and rechecks the last days at night, the two never at once
         ->values();
 
     expect($events)->toHaveCount(2)
-        ->and($events->pluck('expression')->all())->toBe(['* * * * *', '25 3 * * *'])
+        ->and($events->pluck('expression')->all())->toBe(['25 3 * * *', '* * * * *'])
         ->and($events->every(fn ($event) => $event->withoutOverlapping && $event->mutexName() === 'analytics-refresh-visits'))->toBeTrue()
-        ->and($events[1]->command)->toContain('--recheck=60');
+        ->and($events[0]->command)->toContain('--recheck=60');
+
+    // At 03:25 both are due, and the scheduler starts them in this order: the
+    // recheck takes the shared lock, and the minute's run is the one skipped.
+    $this->travelTo(CarbonImmutable::parse('2026-11-19 03:25:00'));
+
+    $due = collect(app(Schedule::class)->dueEvents(app()))
+        ->filter(fn ($event) => str_contains($event->command ?? '', 'analytics:refresh-visits'))
+        ->values();
+
+    expect($due)->toHaveCount(2)
+        ->and($due[0]->command)->toContain('--recheck=60');
 });
 
 it('refuses a recheck or a time it can’t read, before writing anything', function () {

@@ -19,19 +19,18 @@ use Carbon\CarbonImmutable;
  *     minute — then the rows count as brought up to date. Analytics keeps
  *     what a tab read for ten minutes anyway, and a day read costs seconds;
  *  2. the older days marked as changed (MarkAnalyticsDayAction), the earliest
- *     first, each unmarked once read unless it changed again meanwhile;
+ *     first, each unmarked once read unless it changed again meanwhile — then
+ *     marked as of now, since what is left is the change made during the read;
  *  3. until every day has been, the days not filled yet, the earliest first,
- *     from the first visit's — and once they reach the days of 1, the rows
- *     count as filled, and Analytics reads them;
+ *     from the first visit's — and once they reach the days of 1, and every
+ *     day of 1 this run skipped has been read too, the rows count as filled,
+ *     and Analytics reads them;
  *  4. when asked, the days given back from today again, a check that nothing
  *     was missed.
  */
 final class RefreshAnalyticsVisitsAction
 {
     private const int DIRTY_DAYS = 50;
-
-    /** Every so many minutes the whole of the days that change by themselves is read, not only today's on. */
-    private const int WHOLE_WINDOW_MINUTES = 5;
 
     public function __construct(
         private readonly RefreshAnalyticsDayAction $day,
@@ -49,7 +48,7 @@ final class RefreshAnalyticsVisitsAction
         $now ??= CarbonImmutable::now('UTC');
         $window = AnalyticsRollupWindow::days($now);
         $today = $now->toDateString();
-        $due = $recheckDays > 0 || $now->minute % self::WHOLE_WINDOW_MINUTES === 0
+        $due = $recheckDays > 0 || $now->minute % AnalyticsRollupWindow::WHOLE_MINUTES === 0
             ? $window
             : array_values(array_filter($window, fn (string $day): bool => $day >= $today));
         $days = 0;
@@ -70,7 +69,10 @@ final class RefreshAnalyticsVisitsAction
 
             $written += $this->day->handle($day);
             $days++;
-            AnalyticsDirtyDay::query()->where('day', $day)->where('token', $token)->delete();
+
+            if (AnalyticsDirtyDay::query()->where('day', $day)->where('token', $token)->delete() === 0) {
+                AnalyticsDirtyDay::query()->where('day', $day)->update(['marked_at' => $now]);
+            }
         }
 
         if ($state->filled_at === null) {
@@ -87,7 +89,27 @@ final class RefreshAnalyticsVisitsAction
             }
 
             if ($day === null || $day >= $window[0]) {
-                $state->forceFill(['filled_at' => $now])->save();
+                // The days of 1 this run left for the fifth minute, before
+                // Analytics starts reading the rows: otherwise the first
+                // minutes would show those days as they were filled, not as
+                // they are. A deadline reached first leaves the rows unfilled,
+                // for the next run.
+                $complete = true;
+
+                foreach (array_diff($window, $due) as $skipped) {
+                    if (microtime(true) >= $deadline) {
+                        $complete = false;
+
+                        break;
+                    }
+
+                    $written += $this->day->handle($skipped);
+                    $days++;
+                }
+
+                if ($complete) {
+                    $state->forceFill(['filled_at' => $now])->save();
+                }
             }
         }
 

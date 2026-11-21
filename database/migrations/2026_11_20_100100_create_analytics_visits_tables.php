@@ -97,10 +97,13 @@ return new class extends Migration
         // Network days older than the ones refreshed every minute that
         // something changed — a late confirmation, spend shared out again —
         // each with a token rewritten on every change, so one that comes
-        // while the day is refreshed is never lost.
+        // while the day is refreshed is never lost, and the moment it was
+        // first marked, so a day left unread too long is noticed.
         Schema::create('analytics_dirty_days', function (Blueprint $table) {
             $table->char('day', 10)->primary();
             $table->string('token', 26);
+            $table->dateTime('marked_at');
+            $table->index('marked_at', 'analytics_dirty_days_marked_index');
         });
 
         // How far the rows of analytics_visits are: the day they were last

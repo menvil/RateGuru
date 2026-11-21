@@ -14,6 +14,9 @@ use Carbon\CarbonImmutable;
  */
 final class AnalyticsRollupWindow
 {
+    /** Every so many minutes the whole of the days is read, not only today's on. */
+    public const int WHOLE_MINUTES = 5;
+
     /** @return list<string> the days, Y-m-d, the earliest first */
     public static function days(CarbonImmutable $now): array
     {
@@ -33,5 +36,16 @@ final class AnalyticsRollupWindow
     public static function covers(string $day, CarbonImmutable $now): bool
     {
         return in_array($day, self::days($now), true);
+    }
+
+    /**
+     * Whether a change to a day made now is read without being told: the day
+     * is among them now and still is when the whole of them is read next, at
+     * most WHOLE_MINUTES away. The earliest day leaves the window as time
+     * passes, so one among them now can be gone before that read.
+     */
+    public static function readsChangeMadeAt(string $day, CarbonImmutable $now): bool
+    {
+        return self::covers($day, $now) && self::covers($day, $now->addMinutes(self::WHOLE_MINUTES));
     }
 }

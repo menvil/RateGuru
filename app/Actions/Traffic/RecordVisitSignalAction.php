@@ -11,6 +11,7 @@ use App\Queries\Traffic\VisitorVisitQuery;
 use App\Support\Traffic\Capture\BotSignals;
 use App\Support\Traffic\Capture\VisitorSignals;
 use Carbon\CarbonImmutable;
+use Illuminate\Support\Facades\DB;
 use Throwable;
 
 /**
@@ -70,9 +71,16 @@ final class RecordVisitSignalAction
 
         $visit = $this->visits->holding($browserHash, $now) ?? $this->visits->latestTrackedFirst($browserHash, $now->subDay());
 
-        // The holding click can be days old: Analytics reads its day again.
-        if ($visit !== null && $visit->signup_form_at === null && TrafficVisit::query()->whereKey($visit->id)->whereNull('signup_form_at')->update(['signup_form_at' => $now]) > 0) {
-            $this->analytics->handle($visit->network_day, $now);
+        if ($visit === null || $visit->signup_form_at !== null) {
+            return;
         }
+
+        // The holding click can be days old: Analytics reads its day again,
+        // marked with the write, so neither is kept without the other.
+        DB::transaction(function () use ($visit, $now): void {
+            if (TrafficVisit::query()->whereKey($visit->id)->whereNull('signup_form_at')->update(['signup_form_at' => $now]) > 0) {
+                $this->analytics->handle($visit->network_day, $now);
+            }
+        });
     }
 }
