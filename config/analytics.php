@@ -48,11 +48,13 @@ return [
     // Analytics' own rows of the visits (analytics_visits, analytics:refresh-visits).
     // read: whether the tabs read them once they are filled; false reads the visits themselves.
     // cells: whether a read that fits them takes each day's people from the cells (analytics_cells) — PostgreSQL with the roaringbitmap extension only; false reads the rows.
+    // game_days: whether a game's figures take their whole days from the sums of its days (analytics_game_days); false reads the rows.
     // stale_minutes: how long since they were last brought up to date before the tabs read the visits instead.
     // recheck_days: how many days back from today the nightly run reads again.
     'rollup' => [
         'read' => true,
         'cells' => true,
+        'game_days' => true,
         'stale_minutes' => 30,
         'recheck_days' => 60,
     ],

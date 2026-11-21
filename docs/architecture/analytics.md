@@ -308,6 +308,33 @@ Geo 27 to 1–2; what is left is mostly the games' own reads. Writing 181 days
 of cells at every level takes about a minute; they take 300 MB (12 MB of
 accounts), the numbers of 3.3 million browsers 300 MB.
 
+#### The sums of a game's days
+
+A game's figures — its traffic by type, source, version and device, its
+campaigns, sign-ups and countries (`TrafficReportQuery`'s game reads, on the
+Games tab and a game's own Analytics and Value) — are sums, so Analytics also
+keeps them a day at a time (`analytics_game_days`): the sums of the visits that
+share a network day, a UTC day of arrival and one set of keys — channel,
+source, campaign, version, device, country, signed in or not — with the first
+of them to arrive. A sign-up not confirmed keeps its moment as a key, so whether
+its window to confirm has closed is still a matter of when it is read; how
+soon each confirmed one confirmed is counted as it is written, the thresholds
+being constants. By country, and with every country together for a read that
+names none. Every engine, no extension.
+
+`RefreshAnalyticsGameDaysAction` writes a network day's sums again with its
+rows, under the same rule as the cells — for every UTC day its visits arrived
+on, a network day in another time zone running into the days on either side —
+and the refresh fills the days without in turn (`game_days_through`,
+`game_days_filled_at`). A game's figures read their whole UTC days from the sums
+and the part days at the ends of a stretch — today so far, a window that
+starts at a moment — from the rows, the same SQL, joined in one read
+(`ArrivalWindow`); only while the rows are read, once the sums are filled, and
+while `analytics.rollup.game_days` allows it
+(`AnalyticsRollupGate::readsGameDays()`). Measured on 2.4 million visits of
+one game, the four reads of a 90-day Games tab take about 60 milliseconds
+instead of 15 seconds.
+
 Everything else that keeps a tab quick is deliberate and kept together:
 
 - the session's keys and tags are columns of each visit, so no read joins the
@@ -529,6 +556,7 @@ action. A moderator sees neither.
 | Each browser's first day (`analytics_people`) | 400 days from that day, as the visits (`traffic:purge-expired`) |
 | The cells of each day's people and their accounts (`analytics_cells`, `analytics_cell_accounts`) | 400 days, as the visits of the day (`traffic:purge-expired`) |
 | A browser's number (`analytics_pids`) | until no row of Analytics names it, but the highest, which the next number counts on from |
+| The sums of each day's games' visits (`analytics_game_days`) | 400 days, as the visits of the day (`traffic:purge-expired`) |
 | A tab's figures and the filter options, per administrator (cache) | 10 minutes (`analytics.read_cache_minutes`), or until Refresh, a segment saved, deleted or restored, or a tracking link saved |
 
 The privacy page is the owner's to update before Record site visits is switched

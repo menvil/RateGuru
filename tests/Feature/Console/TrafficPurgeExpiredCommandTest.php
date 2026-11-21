@@ -2,6 +2,7 @@
 
 use App\Models\AnalyticsCell;
 use App\Models\AnalyticsCellAccount;
+use App\Models\AnalyticsGameDay;
 use App\Models\AnalyticsPid;
 use App\Models\AnalyticsVisit;
 use App\Models\TrafficChanceRun;
@@ -58,7 +59,7 @@ it('deletes what is past its retention and keeps the rest', function () {
         ->and(TrafficSpendDay::query()->pluck('id')->all())->toBe([$keptDay->id]);
 });
 
-it('deletes the cells of people with their days’ visits, and a browser’s number once no visit names it, never the highest', function () {
+it('deletes the cells of people and the sums of game days with their days’ visits, and a browser’s number once no visit names it, never the highest', function () {
     $cell = fn (string $day): array => ['level' => 'device', 'network_day' => $day, 'device' => 'mobile'];
     AnalyticsCell::query()->insert([$cell('2025-10-01'), $cell('2026-11-01')]);
     AnalyticsCellAccount::query()->insert([[...$cell('2025-10-01'), 'signup_day' => '2025-10-01'], [...$cell('2026-11-01'), 'signup_day' => '2026-11-01']]);
@@ -67,13 +68,18 @@ it('deletes the cells of people with their days’ visits, and a browser’s num
     // 12's visits are gone; 13 has none either, but the next number counts on from it.
     AnalyticsPid::query()->insert([['visitor_key' => 11, 'pid' => 1], ['visitor_key' => 12, 'pid' => 2], ['visitor_key' => 13, 'pid' => 3]]);
 
+    $gameDay = fn (string $day): array => ['level' => 'all', 'network_day' => $day, 'arrival_day' => $day, 'game_id' => 1, 'channel' => 'direct', 'device' => 'mobile', 'first_at' => $day.' 10:00:00'];
+    AnalyticsGameDay::query()->insert([$gameDay('2025-10-01'), $gameDay('2026-11-01')]);
+
     $this->artisan('traffic:purge-expired', ['--chunk' => 1])->assertSuccessful()
         ->expectsOutput('Deleted 1 cells of people.')
+        ->expectsOutput('Deleted 1 sums of game days.')
         ->expectsOutput('Deleted 1 browser numbers.');
 
     expect(AnalyticsCell::query()->pluck('network_day')->all())->toBe(['2026-11-01'])
         ->and(AnalyticsCellAccount::query()->pluck('network_day')->all())->toBe(['2026-11-01'])
-        ->and(AnalyticsPid::query()->orderBy('pid')->pluck('pid')->all())->toBe([1, 3]);
+        ->and(AnalyticsPid::query()->orderBy('pid')->pluck('pid')->all())->toBe([1, 3])
+        ->and(AnalyticsGameDay::query()->pluck('network_day')->all())->toBe(['2026-11-01']);
 });
 
 it('deletes the posts a visit opened after 90 days from the first, the visit staying', function () {

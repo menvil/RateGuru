@@ -3,6 +3,7 @@
 namespace App\Actions\Analytics;
 
 use App\Models\AnalyticsCell;
+use App\Models\AnalyticsGameDay;
 use App\Models\AnalyticsPerson;
 use App\Models\AnalyticsVisit;
 use App\Queries\Analytics\AnalyticsRollupQuery;
@@ -17,8 +18,10 @@ use Illuminate\Support\Facades\DB;
  * again; and each browser whose page ran that day given that day as its
  * first, unless an earlier one is already known. Run again on the same day
  * it writes nothing. Then, where they are kept, the day's cells of people
- * (RefreshAnalyticsCellsAction) — when anything of the day changed, when the
- * day has none yet, or when asked. Called by analytics:refresh-visits only.
+ * (RefreshAnalyticsCellsAction), and the sums of its games' visits
+ * (RefreshAnalyticsGameDaysAction) — each when anything of the day changed,
+ * when the day has none yet, or when asked. Called by analytics:refresh-visits
+ * only.
  */
 final class RefreshAnalyticsDayAction
 {
@@ -31,10 +34,11 @@ final class RefreshAnalyticsDayAction
     public function __construct(
         private readonly AnalyticsRollupQuery $rollup,
         private readonly RefreshAnalyticsCellsAction $cells,
+        private readonly RefreshAnalyticsGameDaysAction $gameDays,
     ) {}
 
     /**
-     * @param  bool  $cells  whether to write the day's cells again even if nothing of the day changed
+     * @param  bool  $cells  whether to write the day's cells and game sums again even if nothing of the day changed
      * @return int how many rows were written
      */
     public function handle(string $day, bool $cells = false): int
@@ -83,6 +87,10 @@ final class RefreshAnalyticsDayAction
 
         if ($cells || $changedAny || ! AnalyticsCell::query()->where('network_day', $day)->exists()) {
             $this->cells->handle($day);
+        }
+
+        if ($cells || $changedAny || ! AnalyticsGameDay::query()->where('network_day', $day)->exists()) {
+            $this->gameDays->handle($day);
         }
 
         return $written;

@@ -4,6 +4,7 @@ namespace App\Console\Commands;
 
 use App\Models\AnalyticsCell;
 use App\Models\AnalyticsCellAccount;
+use App\Models\AnalyticsGameDay;
 use App\Models\AnalyticsPerson;
 use App\Models\AnalyticsPid;
 use App\Models\AnalyticsVisit;
@@ -23,8 +24,8 @@ use Illuminate\Database\Eloquent\Builder;
  * Deletes what the tracker recorded once it is past its retention
  * (config/traffic.php): visits after traffic.retention_days.visits (400) with
  * their conversions and Analytics' own rows of them, and each browser's first
- * day, the cells of each day's people and a browser's number once no visit of
- * it is left, a click's details, the posts a visit opened and shared
+ * day, the cells of each day's people and the sums of its games' visits, and a
+ * browser's number once no visit of it is left, a click's details, the posts a visit opened and shared
  * and the postback outbox after 90, spend figures and the block log after
  * 400, and every chance working-out but the newest 30 — and the days members
  * did something on the site after analytics.retention_days.activity (400,
@@ -88,6 +89,7 @@ final class TrafficPurgeExpiredCommand extends Command
             // highest, which the next number counts on from: a number given again would make two browsers one person.
             'cells of people' => $this->purge(AnalyticsCell::query()->where('network_day', '<', $now->subDays($days['visits'])->format('Y-m-d')), $chunk),
             'cells of accounts' => $this->purge(AnalyticsCellAccount::query()->where('network_day', '<', $now->subDays($days['visits'])->format('Y-m-d')), $chunk),
+            'sums of game days' => $this->purge(AnalyticsGameDay::query()->where('network_day', '<', $now->subDays($days['visits'])->format('Y-m-d')), $chunk),
             'browser numbers' => $this->purge(AnalyticsPid::query()
                 ->where('pid', '<', (int) AnalyticsPid::query()->max('pid'))
                 ->whereNotExists(fn ($visit) => $visit->from((new AnalyticsVisit)->getTable())->whereColumn('analytics_visits.visitor_key', 'analytics_pids.visitor_key')), $chunk, 'visitor_key'),

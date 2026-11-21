@@ -15301,6 +15301,7 @@ function fillAnalyticsRollup(): void
     // The cells of each day's people were written with each day's rows
     // where they are kept (PostgreSQL with the roaringbitmap extension):
     // there they count as filled too, and a read that fits them takes them.
+    // So were the sums of each day's games' visits, on every engine.
     $cells = app(AnalyticsRollupGate::class)->cellsKept();
 
     AnalyticsRollupState::query()->upsert([[
@@ -15310,15 +15311,18 @@ function fillAnalyticsRollup(): void
         'refreshed_at' => now(),
         'cells_through' => $cells && $days !== [] ? end($days) : null,
         'cells_filled_at' => $cells ? now() : null,
-    ]], ['id'], ['filled_through', 'filled_at', 'refreshed_at', 'cells_through', 'cells_filled_at']);
+        'game_days_through' => $days === [] ? null : end($days),
+        'game_days_filled_at' => now(),
+    ]], ['id'], ['filled_through', 'filled_at', 'refreshed_at', 'cells_through', 'cells_filled_at', 'game_days_through', 'game_days_filled_at']);
     app()->forgetScopedInstances();
 }
 
 /**
  * A query read twice for every call: from the visits, and from Analytics'
  * own rows of them filled just then (fillAnalyticsRollup()) — and a third
- * time from the cells of each day's people where they are kept — what each
- * read returns must be the same, and is what the call returns.
+ * time from the cells of each day's people where they are kept and the sums
+ * of each day's games' visits — what each read returns must be the same, and
+ * is what the call returns.
  *
  * @template TQuery of object
  *
@@ -15339,19 +15343,19 @@ function readBothWays(string $query): object
             app()->forgetScopedInstances();
             $fromVisits = app($this->query)->{$method}(...$arguments);
 
-            config(['analytics.rollup.read' => true, 'analytics.rollup.cells' => false]);
+            config(['analytics.rollup.read' => true, 'analytics.rollup.cells' => false, 'analytics.rollup.game_days' => false]);
             fillAnalyticsRollup();
             $fromRollup = app($this->query)->{$method}(...$arguments);
 
             expect($fromRollup)->toEqual($fromVisits, class_basename($this->query)."::{$method}() reads Analytics' own rows differently from the visits");
 
-            config(['analytics.rollup.cells' => true]);
+            config(['analytics.rollup.cells' => true, 'analytics.rollup.game_days' => true]);
             app()->forgetScopedInstances();
 
-            if (app(AnalyticsRollupGate::class)->readsCells()) {
+            if (app(AnalyticsRollupGate::class)->readsCells() || app(AnalyticsRollupGate::class)->readsGameDays()) {
                 $fromCells = app($this->query)->{$method}(...$arguments);
 
-                expect($fromCells)->toEqual($fromVisits, class_basename($this->query)."::{$method}() reads the cells of people differently from the visits");
+                expect($fromCells)->toEqual($fromVisits, class_basename($this->query)."::{$method}() reads the cells of people or the sums of game days differently from the visits");
             }
 
             return $fromVisits;

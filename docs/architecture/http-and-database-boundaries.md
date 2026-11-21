@@ -154,6 +154,15 @@ The reviewed boundaries are:
   game's versions, ordered by the accounts they brought; and their sign-ups —
   confirmed, never confirmed or still waiting against a bound cutoff, and how
   soon confirmed — per dimension, only groups with a sign-up, the most first.
+  A game's figures over whole UTC days sum the sums of its days
+  (`analytics_game_days`) again, the part days at the ends read from the rows
+  the same way, the parts joined by `UNION ALL` in one read.
+- `AnalyticsGameDaysQuery` for what those sums are written from: a network
+  day's rows of games' visits that arrived on one UTC day, grouped by every
+  key a game's figures read and by the moment of a sign-up not confirmed (a
+  `CASE`), each sum the very SQL `TrafficReportQuery` reads a game's visits
+  with; and those summed again with every country together — inserted by
+  `RefreshAnalyticsGameDaysAction` through `insertUsing`.
 - `TrafficSegmentsQuery` for a paid source's segments on Analytics →
   Campaigns: which segment each of the source's clicks is in, each segment's
   conditions bound once in a `CASE`, then the people of the whole source, of

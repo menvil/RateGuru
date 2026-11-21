@@ -17,6 +17,8 @@ use Illuminate\Database\Eloquent\Model;
  * @property CarbonImmutable|null $refreshed_at
  * @property string|null $cells_through
  * @property CarbonImmutable|null $cells_filled_at
+ * @property string|null $game_days_through
+ * @property CarbonImmutable|null $game_days_filled_at
  */
 class AnalyticsRollupState extends Model
 {
@@ -39,6 +41,7 @@ class AnalyticsRollupState extends Model
             'filled_at' => 'immutable_datetime',
             'refreshed_at' => 'immutable_datetime',
             'cells_filled_at' => 'immutable_datetime',
+            'game_days_filled_at' => 'immutable_datetime',
         ];
     }
 

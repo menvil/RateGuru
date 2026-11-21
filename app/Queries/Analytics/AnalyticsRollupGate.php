@@ -21,7 +21,12 @@ use Carbon\CarbonImmutable;
  * roaringbitmap extension — once they were filled as far back as the rows,
  * while the rows are read, and while the setting allows it
  * (analytics.rollup.cells). Without them every figure is the same, read from
- * the rows. Decided once a request: bound scoped.
+ * the rows.
+ *
+ * And whether a game's figures read the sums of its days
+ * (analytics_game_days): every engine, once they were filled as far back as
+ * the rows, while the rows are read, and while the setting allows it
+ * (analytics.rollup.game_days). Decided once a request: bound scoped.
  */
 final class AnalyticsRollupGate
 {
@@ -30,6 +35,8 @@ final class AnalyticsRollupGate
     private ?bool $kept = null;
 
     private ?bool $readsCells = null;
+
+    private ?bool $readsGameDays = null;
 
     public function reads(): bool
     {
@@ -73,5 +80,16 @@ final class AnalyticsRollupGate
             && $this->reads()
             && $this->cellsKept()
             && AnalyticsRollupState::query()->whereKey(AnalyticsRollupState::ID)->whereNotNull('cells_filled_at')->exists();
+    }
+
+    public function readsGameDays(): bool
+    {
+        if ($this->readsGameDays !== null) {
+            return $this->readsGameDays;
+        }
+
+        return $this->readsGameDays = (bool) config('analytics.rollup.game_days')
+            && $this->reads()
+            && AnalyticsRollupState::query()->whereKey(AnalyticsRollupState::ID)->whereNotNull('game_days_filled_at')->exists();
     }
 }

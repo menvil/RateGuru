@@ -31,8 +31,11 @@ use Carbon\CarbonImmutable;
  *     first visit's to the last day of 1 — then the cells count as filled,
  *     and Analytics reads them; each day's cells are written again with its
  *     rows from then on (RefreshAnalyticsDayAction);
- *  5. when asked, the days given back from today again, their cells too, a
- *     check that nothing was missed.
+ *  5. likewise the sums of each day's games' visits (analytics_game_days),
+ *     on every engine, until every day has them — then they count as filled,
+ *     and a game's figures read them;
+ *  6. when asked, the days given back from today again, their cells and
+ *     sums too, a check that nothing was missed.
  */
 final class RefreshAnalyticsVisitsAction
 {
@@ -41,6 +44,7 @@ final class RefreshAnalyticsVisitsAction
     public function __construct(
         private readonly RefreshAnalyticsDayAction $day,
         private readonly RefreshAnalyticsCellsAction $cells,
+        private readonly RefreshAnalyticsGameDaysAction $gameDays,
         private readonly AnalyticsRollupQuery $rollup,
         private readonly AnalyticsVisitsQuery $visits,
         private readonly AnalyticsRollupGate $gate,
@@ -136,6 +140,24 @@ final class RefreshAnalyticsVisitsAction
 
             if ($day === null || $day > $last) {
                 $state->forceFill(['cells_filled_at' => $now])->save();
+            }
+        }
+
+        if ($state->filled_at !== null && $state->game_days_filled_at === null) {
+            $last = $window[count($window) - 1];
+            $day = $state->game_days_through === null ? $this->visits->firstDay() : CarbonImmutable::parse($state->game_days_through, 'UTC')->addDay()->toDateString();
+
+            for (; $day !== null && $day <= $last; $day = CarbonImmutable::parse($day, 'UTC')->addDay()->toDateString()) {
+                if (microtime(true) >= $deadline) {
+                    break;
+                }
+
+                $this->gameDays->handle($day);
+                $state->forceFill(['game_days_through' => $day])->save();
+            }
+
+            if ($day === null || $day > $last) {
+                $state->forceFill(['game_days_filled_at' => $now])->save();
             }
         }
 
