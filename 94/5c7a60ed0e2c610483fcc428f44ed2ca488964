@@ -1,0 +1,84 @@
+infrastructure/scripts/restore-common
+  s_4b9dc6ab6b25d3::t_bceb415f9f1b2e 979-1060
+infrastructure/config/postgresql/70-rateguru.conf
+  s_4b9dc6ab6b25d3::t_26a426fc0cb9d6 1-36
+tests/Feature/Architecture/InstallBootstrapRuntimeTest.php
+  s_4b9dc6ab6b25d3::t_ecd8b8115d7e97 117
+infrastructure/runbooks/bootstrap-services.md
+  s_4b9dc6ab6b25d3::t_92623206aa8112 70
+  s_4b9dc6ab6b25d3::t_f73f460fecc2f7 87-117
+infrastructure/scripts/install-bootstrap-runtime
+  s_4b9dc6ab6b25d3::t_165a549a0de3cc 287-291
+tests/Pest.php
+  s_4b9dc6ab6b25d3::t_b6f9f37d1fc901 10347-10349,11816-11878,11890
+  s_4b9dc6ab6b25d3::t_6cc9190227ecd0 6550-6569
+  s_4b9dc6ab6b25d3::t_25dcfa14aeca52 11948
+  s_4b9dc6ab6b25d3::t_0df725fad2e09c 6501-6506
+  s_4b9dc6ab6b25d3::t_edf1fd0456c11e 10186
+tests/Feature/Architecture/DatabaseSupportContractTest.php
+  s_4b9dc6ab6b25d3::t_d977e4e6aaaec1 153,156-174,176
+tests/Feature/Architecture/InstallTargetDatabaseTest.php
+  s_4b9dc6ab6b25d3::t_7ae16969bf86c2 516
+  s_4b9dc6ab6b25d3::t_23c71ce861f802 226,228-234
+  s_4b9dc6ab6b25d3::t_440049ec275a7b 268-273,279-365
+  s_4b9dc6ab6b25d3::t_eba2c3267bbd86 539
+  s_4b9dc6ab6b25d3::t_dcdc3126da016a 96-104
+  s_4b9dc6ab6b25d3::t_f17faeba3c6354 267
+infrastructure/scripts/install-target-database
+  s_4b9dc6ab6b25d3::t_cac6925aa45ae3 462
+  s_4b9dc6ab6b25d3::t_f7b16a763a4bf4 110-118
+  s_4b9dc6ab6b25d3::t_7438d2df1dd05d 565-591
+  s_4b9dc6ab6b25d3::t_b9e581751d55ed 447-461,463-477
+  s_4b9dc6ab6b25d3::t_a23d8d3646b4d5 32-35
+  s_4b9dc6ab6b25d3::t_7be0517aa8cd9f 617-621
+  s_4b9dc6ab6b25d3::t_f0bfb29cad8cc1 395
+  s_4b9dc6ab6b25d3::t_d6dac12d096558 629
+  s_4b9dc6ab6b25d3::t_83851e11b1f54b 669-677
+  s_4b9dc6ab6b25d3::t_cdae01a672b439 18-20
+  s_4b9dc6ab6b25d3::t_b9043046528d5f 377-379,381
+  s_4b9dc6ab6b25d3::t_96ee9e9e7e3e8d 680
+  s_4b9dc6ab6b25d3::t_86a527bbd453c7 738,741
+infrastructure/scripts/install-bootstrap-services
+  s_4b9dc6ab6b25d3::t_64eca092cee150 3507-3515
+  s_4b9dc6ab6b25d3::t_f5cdf44fbfafdb 2944-2945
+  s_4b9dc6ab6b25d3::t_4101d6e27a0489 211-213
+  s_4b9dc6ab6b25d3::t_d190f941700d4b 1809
+  s_4b9dc6ab6b25d3::t_3e0dfd9583ae95 2613-2634
+  s_4b9dc6ab6b25d3::t_c2f9ab1c0420da 2916-2943,2946-2982
+  s_4b9dc6ab6b25d3::t_a6c4728a426a0c 3661
+  s_4b9dc6ab6b25d3::t_246f6533af28fc 185-194
+  s_4b9dc6ab6b25d3::t_a729a450a19265 1302
+  s_4b9dc6ab6b25d3::t_fcc5f933ab1077 299-301
+  s_4b9dc6ab6b25d3::t_14c163dcf3ab37 164
+  s_4b9dc6ab6b25d3::t_e834c906ce00ba 1868-1940
+  s_4b9dc6ab6b25d3::t_8e4bc6515ba45e 2026-2029
+infrastructure/runbooks/bootstrap-host.md
+  s_4b9dc6ab6b25d3::t_de46c7a6addd05 447-450
+docs/architecture/database-support.md
+  s_4b9dc6ab6b25d3::t_12139d43c64a83 111-113
+  s_4b9dc6ab6b25d3::t_4671faeb75bc1b 44-75
+infrastructure/runbooks/restore-target.md
+  s_4b9dc6ab6b25d3::t_50010aed2317b4 254-268
+infrastructure/scripts/restore-database
+  s_4b9dc6ab6b25d3::t_6cfc7af5e2bb04 223-242
+  s_4b9dc6ab6b25d3::t_015fdb8a56801a 199-203
+  s_4b9dc6ab6b25d3::t_8702c206597b58 261
+tests/Feature/Architecture/RestoreDatabaseTest.php
+  s_4b9dc6ab6b25d3::t_3d542f0e14bd4a 107-245
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "945c7a60ed0e2c610483fcc428f44ed2ca488964",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
