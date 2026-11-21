@@ -316,6 +316,11 @@ unset _php_component
 POSTGRES_PACKAGES=(
     "postgresql-${POSTGRES_MAJOR}"
     "postgresql-client-${POSTGRES_MAJOR}"
+    # Roaring bitmaps (pg_roaringbitmap, from PGDG): Analytics keeps the people
+    # of each day as one, so a period's unique people are a union rather than
+    # a sort of every visit. A plain extension — no preload, no restart;
+    # install-target-database creates it in each target's database.
+    "postgresql-${POSTGRES_MAJOR}-roaringbitmap"
 )
 
 # The tooling required to fetch and validate external repository keys — a

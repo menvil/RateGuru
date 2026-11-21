@@ -444,7 +444,10 @@ The contract reproduces what the real staging VPS runs, inspected directly:
   (`ppa.launchpadcontent.net/ondrej/php/ubuntu jammy`) — Ubuntu 22.04's
   base repository has no PHP 8.5.
 - **PostgreSQL 18** from PGDG (`apt.postgresql.org jammy-pgdg`) — the
-  staging packages identify as `18.x-1.pgdg22.04+1`.
+  staging packages identify as `18.x-1.pgdg22.04+1` — with
+  `postgresql-18-roaringbitmap` from the same repository, the extension
+  Analytics keeps each day's people in. It needs no preloading and no
+  restart; `install-target-database` creates it in each target's database.
 - **Nginx, Redis, Supervisor** and every base utility (including `unzip`,
   which extracts the pinned rclone release archive, `bind9-dnsutils` and
   `openssl`, whose `dig` and `openssl` the read-only mail identity

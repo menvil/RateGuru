@@ -47,7 +47,9 @@ it('pins every PostgreSQL service to 18.4', function () {
 
     expect($matches[1])->not->toBeEmpty()
         ->and(array_values(array_unique($matches[1])))->toBe([
-            '18.4-alpine@sha256:9a8afca54e7861fd90fab5fdf4c42477a6b1cb7d293595148e674e0a3181de15',
+            // The Debian image: PGDG, where the roaringbitmap extension comes
+            // from, builds no Alpine package.
+            '18.4-trixie@sha256:a02db8cac496f15b094798a38254f14d6e00741f709360e5e00bb6668ea31636',
         ])
         ->and(File::get(base_path('docs/architecture/database-support.md')))
         ->toContain('PostgreSQL 18.4 is the minimum supported primary runtime');
