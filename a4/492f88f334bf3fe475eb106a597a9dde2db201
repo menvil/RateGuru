@@ -1,0 +1,60 @@
+tests/Feature/Analytics/AnalyticsGameDaysTest.php
+  s_4b9dc6ab6b25d3::t_3ed5b2787a8d49 1-44,46-192
+  s_4b9dc6ab6b25d3::t_1ccdbea67dcfb3 45
+app/Queries/Analytics/AnalyticsRollupGate.php
+  s_4b9dc6ab6b25d3::t_24088129833b6a 24-29,39-40,84-93
+app/Queries/Traffic/TrafficReportQuery.php
+  s_4b9dc6ab6b25d3::t_4f64d399783d88 9,15,22,44-48,65-74,315,317-326,328-331,357,360-362,367-368,381-383,391-403,405,421-422,445-455,457-479,481-483,486-508,588-589,591-592,595-608,612
+  s_4b9dc6ab6b25d3::t_2b6716c36125f7 363-365,484
+  s_4b9dc6ab6b25d3::t_03f4ddf5292b2e 327,366,404,437,439,441-444,456,480,485
+app/Console/Commands/TrafficPurgeExpiredCommand.php
+  s_4b9dc6ab6b25d3::t_24088129833b6a 7,27-28,92
+tests/Pest.php
+  s_4b9dc6ab6b25d3::t_da50943d38e402 15304,15314-15316,15323-15325,15346,15352,15355,15358
+app/Actions/Analytics/RefreshAnalyticsVisitsAction.php
+  s_4b9dc6ab6b25d3::t_24088129833b6a 34-38,47,146-160
+tools/phpstan/architecture.neon
+  s_4b9dc6ab6b25d3::t_84c85e772ce8a1 144,146,176-181
+composer.json
+  s_4b9dc6ab6b25d3::t_84c85e772ce8a1 85
+tests/Feature/Console/TrafficPurgeExpiredCommandTest.php
+  s_4b9dc6ab6b25d3::t_860962f36435a9 5,62,71-73,76,81-82
+docs/architecture/analytics.md
+  s_4b9dc6ab6b25d3::t_860962f36435a9 311-337,559
+app/Models/AnalyticsRollupState.php
+  s_4b9dc6ab6b25d3::t_24088129833b6a 20-21,44
+app/Models/AnalyticsGameDay.php
+  s_4b9dc6ab6b25d3::t_85b6db341d752d 1-38
+database/migrations/2026_11_21_100300_create_analytics_game_days_table.php
+  s_4b9dc6ab6b25d3::t_7cee944d7f8447 1-64
+config/analytics.php
+  s_4b9dc6ab6b25d3::t_24088129833b6a 51,57
+app/Queries/Analytics/AnalyticsGameDaysQuery.php
+  s_4b9dc6ab6b25d3::t_5a23aa18def509 1-97
+docs/architecture/http-and-database-boundaries.md
+  s_4b9dc6ab6b25d3::t_860962f36435a9 157-165
+app/Actions/Analytics/RefreshAnalyticsGameDaysAction.php
+  s_4b9dc6ab6b25d3::t_cd7eb8161b3222 1-39
+tests/Unit/Support/Analytics/ArrivalWindowTest.php
+  s_4b9dc6ab6b25d3::t_2542da5639e272 1-43
+app/Support/Analytics/ArrivalWindow.php
+  s_4b9dc6ab6b25d3::t_b00a20c6681211 1-56
+app/Actions/Analytics/RefreshAnalyticsDayAction.php
+  s_4b9dc6ab6b25d3::t_24088129833b6a 6,21-24,37,41,92-93
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "a4492f88f334bf3fe475eb106a597a9dde2db201",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
