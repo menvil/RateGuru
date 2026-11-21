@@ -12,10 +12,12 @@
 #             The install-bootstrap-runtime contract is already satisfied.
 #   --apply   Root only. Idempotently configures the two RateGuru-owned
 #             package repositories (PHP PPA, PGDG), installs missing
-#             required packages, and ends with the full --verify report.
-#             Never removes packages, never runs apt upgrade/dist-upgrade/
-#             full-upgrade, never touches application users, directories,
-#             services or RateGuru configuration.
+#             required packages, upgrades an nginx below its security floor
+#             (its packages only, then restarts nginx onto the new binary),
+#             and ends with the full --verify report. Never removes
+#             packages, never runs apt upgrade/dist-upgrade/full-upgrade,
+#             never touches application users, directories, any other
+#             service or RateGuru configuration.
 #   --verify  Read-only. The authoritative install-bootstrap-runtime contract gate: exits 0
 #             only when every repository, package, binary, PHP module and
 #             client version requirement holds. --check is exactly this
@@ -64,7 +66,9 @@
 # 18. Nginx, Redis, Supervisor and every base utility come from the Ubuntu
 # 22.04 (jammy) distribution repository — no external repository is
 # introduced to chase the exact staging patch versions (nginx 1.18.0, redis
-# 6.0.16, supervisor 4.2.1).
+# 6.0.16, supervisor 4.2.1). Nginx alone has a security floor of its own,
+# NGINX_MIN_PACKAGE_VERSION, an Ubuntu package revision; unlike PHP's, --apply
+# meets it by upgrading the nginx packages (reconcile_nginx_security_floor).
 #
 # Managed external runtime — rclone: the real staging host runs a standalone
 # /usr/bin/rclone that no dpkg package owns, and the Ubuntu 22.04 rclone
@@ -127,7 +131,8 @@
 # that is RateGuru configuration: vhosts, pools, workers, databases, roles,
 # users, directories and TLS all belong to the later installers and are never
 # created here. This slice also never enables/disables/starts/stops any
-# service itself and never edits pg_hba.conf or any service configuration.
+# service itself — the one exception is restarting nginx after the security
+# upgrade above — and never edits pg_hba.conf or any service configuration.
 #
 # Bootstrap ordering: a genuinely minimal Ubuntu 22.04 host has neither
 # curl nor gnupg, yet both are needed to fetch and validate external
@@ -198,6 +203,33 @@ PHP_SERIES="8.5"
 # security release; never lower it.
 PHP_MIN_VERSION="8.5.12"
 POSTGRES_MAJOR="18"
+
+# The lowest nginx the hosts may run. nginx comes from the Ubuntu 22.04
+# archive, which fixes a flaw without changing the upstream number — a
+# patched build and an exploitable one both report nginx/1.18.0 — so the
+# floor is the Ubuntu package revision, read from dpkg, never from
+# `nginx -v`. It is read from the nginx package REQUIRED_PACKAGES already
+# installs: on jammy that package requires its server (nginx-core, or another
+# flavour) at exactly its own version, so its version is the binary's — and
+# an nginx from nginx.org is itself a package named nginx, of the foreign
+# numbering below, so it is caught here rather than replaced by an install. 1.18.0-6ubuntu14.24 (USN-9182-1,
+# 2026-11-20) carries the fixes nginx 1.30.7 released on 2026-11-18 for the
+# flaws these hosts are exposed to: CVE-2026-123007, HTTP/2 flow-control
+# memory corruption that can run code (critical; needs nothing but HTTP/2,
+# which the sites serve), CVE-2026-123633, an HTTP/2 use-after-free, and
+# CVE-2026-118899, an endless loop reading a request body over TLS 1.3, which
+# the listeners enable. Only the jammy series is proven: nginx from another
+# source (nginx.org, a PPA) numbers its releases differently — 1.30.6 sorts
+# above every 1.18.0 build and is still exposed — so it is a CONFLICT, never
+# a pass. Raise it with the next Ubuntu nginx security update; never lower it.
+NGINX_PACKAGE="nginx"
+NGINX_PACKAGE_SERIES="1.18.0-6ubuntu"
+NGINX_MIN_PACKAGE_VERSION="1.18.0-6ubuntu14.24"
+# What one nginx release is on jammy, upgraded together when below the floor:
+# the package the floor is read from, the server and the files they share
+# (--only-upgrade skips any of them not installed). apt brings the module
+# packages along, since the server requires them at exactly its own version.
+NGINX_UPGRADE_PACKAGES=(nginx nginx-core nginx-common)
 
 # --- RateGuru-owned repositories ----------------------------------------------
 
@@ -284,6 +316,11 @@ unset _php_component
 POSTGRES_PACKAGES=(
     "postgresql-${POSTGRES_MAJOR}"
     "postgresql-client-${POSTGRES_MAJOR}"
+    # Roaring bitmaps (pg_roaringbitmap, from PGDG): Analytics keeps the people
+    # of each day as one, so a period's unique people are a union rather than
+    # a sort of every visit. A plain extension — no preload, no restart;
+    # install-target-database creates it in each target's database.
+    "postgresql-${POSTGRES_MAJOR}-roaringbitmap"
 )
 
 # The tooling required to fetch and validate external repository keys — a
@@ -379,6 +416,14 @@ PHP_FPM_BIN="$(gated_default RATEGURU_BOOTSTRAP_PHP_FPM_BIN "php-fpm${PHP_SERIES
 PSQL_BIN="$(gated_default RATEGURU_BOOTSTRAP_PSQL_BIN psql)"
 PG_DUMP_BIN="$(gated_default RATEGURU_BOOTSTRAP_PG_DUMP_BIN pg_dump)"
 PG_RESTORE_BIN="$(gated_default RATEGURU_BOOTSTRAP_PG_RESTORE_BIN pg_restore)"
+# Used only to finish an nginx upgrade this run made (see
+# reconcile_nginx_security_floor).
+NGINX_BIN="$(gated_default RATEGURU_BOOTSTRAP_NGINX_BIN nginx)"
+SYSTEMCTL_BIN="$(gated_default RATEGURU_BOOTSTRAP_SYSTEMCTL_BIN systemctl)"
+# Where the running nginx master's PID and executable are read
+# (nginx_runs_replaced_binary).
+NGINX_PID_FILE="$(gated_default RATEGURU_BOOTSTRAP_NGINX_PID_FILE /run/nginx.pid)"
+PROC_ROOT="$(gated_default RATEGURU_BOOTSTRAP_PROC_ROOT /proc)"
 
 STAT_BIN="$(gated_default RATEGURU_BOOTSTRAP_STAT_BIN stat)"
 RCLONE_CONTRACT_FILE="$(gated_default RATEGURU_BOOTSTRAP_RCLONE_CONTRACT_FILE "${RCLONE_CONTRACT_FILE_DEFAULT}")"
@@ -483,10 +528,11 @@ Usage:
             never installs anything. Exits 0 only when the contract is
             already satisfied.
   --apply   Root only. Idempotently configures the RateGuru-owned PHP PPA
-            and PGDG repositories, installs missing required packages, and
-            ends with the full --verify report. Never upgrades, never
-            removes, never touches users/directories/services/RateGuru
-            configuration.
+            and PGDG repositories, installs missing required packages,
+            upgrades an nginx below its security floor (its packages only,
+            then restarts nginx), and ends with the full --verify report.
+            Never upgrades anything else, never removes, never touches
+            users/directories/other services/RateGuru configuration.
   --verify  Read-only install-bootstrap-runtime contract gate: exit 0 only when every
             repository, package, binary, PHP module and client-version
             requirement holds.
@@ -955,6 +1001,91 @@ report_php_runtime() {
     fi
 }
 
+# nginx_package_version — the installed version of NGINX_PACKAGE as dpkg
+# records it ("1.18.0-6ubuntu14.24"); empty when it is not installed.
+nginx_package_version() {
+    package_installed "${NGINX_PACKAGE}" || return 0
+
+    probe_exec "${DPKG_QUERY_BIN}" -W -f "\${Version}" -- "${NGINX_PACKAGE}" 2>/dev/null || true
+}
+
+# nginx_version_meets_floor VERSION — true when VERSION is a package of the
+# NGINX_PACKAGE_SERIES at NGINX_MIN_PACKAGE_VERSION or later. Within the
+# series only the Ubuntu revision differs ("14.24"); it is compared as dpkg
+# does, numerically part by part (as text, 14.3 would sort after 14.24), and
+# anything after it ("14.24.1", "14.24build1") is later — except a "~"
+# suffix, which dpkg sorts before the revision itself. A version outside the
+# series never meets it.
+nginx_version_meets_floor() {
+    local series="${NGINX_PACKAGE_SERIES//./\\.}"
+    local have_major have_minor have_rest floor_major floor_minor
+
+    [[ "$1" =~ ^${series}([0-9]+)(\.([0-9]+))?(.*)$ ]] || return 1
+    have_major="${BASH_REMATCH[1]}"
+    have_minor="${BASH_REMATCH[3]:-0}"
+    have_rest="${BASH_REMATCH[4]}"
+
+    [[ "${NGINX_MIN_PACKAGE_VERSION}" =~ ^${series}([0-9]+)\.([0-9]+)$ ]] || return 1
+    floor_major="${BASH_REMATCH[1]}"
+    floor_minor="${BASH_REMATCH[2]}"
+
+    if (( 10#${have_major} != 10#${floor_major} )); then
+        (( 10#${have_major} > 10#${floor_major} ))
+        return
+    fi
+
+    if (( 10#${have_minor} != 10#${floor_minor} )); then
+        (( 10#${have_minor} > 10#${floor_minor} ))
+        return
+    fi
+
+    [[ "${have_rest}" != "~"* ]]
+}
+
+# nginx_runs_replaced_binary — the running nginx master still executes a binary
+# an upgrade has since replaced: the kernel shows its executable as deleted.
+# False when nginx is not running, or its PID or executable cannot be read (as
+# a non-root --check cannot read root's), so it only ever adds a restart that
+# is certainly due.
+nginx_runs_replaced_binary() {
+    local pid exe
+
+    [[ -r "${NGINX_PID_FILE}" ]] || return 1
+    read -r pid < "${NGINX_PID_FILE}" || return 1
+    [[ "${pid}" =~ ^[0-9]+$ ]] || return 1
+
+    exe="$(readlink -- "${PROC_ROOT}/${pid}/exe" 2>/dev/null)" || return 1
+
+    [[ "${exe}" == *" (deleted)" ]]
+}
+
+# report_nginx_package — the nginx security floor, by package revision.
+report_nginx_package() {
+    local version
+
+    if ! package_installed "${NGINX_PACKAGE}"; then
+        item MISSING "nginx-version" "${NGINX_PACKAGE} not installed" \
+            "apt-get install ${NGINX_PACKAGE}"
+
+        return 0
+    fi
+
+    version="$(nginx_package_version)"
+
+    if [[ "${version}" != "${NGINX_PACKAGE_SERIES}"* ]]; then
+        item CONFLICT "nginx-version" "${NGINX_PACKAGE} ${version:-unknown} is not the Ubuntu ${SUPPORTED_OS_CODENAME} series ${NGINX_PACKAGE_SERIES}*" \
+            "install nginx from the Ubuntu ${SUPPORTED_OS_CODENAME} archive — another source numbers its releases differently, so no floor is known for it (never replaced by --apply)"
+    elif ! nginx_version_meets_floor "${version}"; then
+        item CONFLICT "nginx-version" "${NGINX_PACKAGE} ${version}, below the security floor ${NGINX_MIN_PACKAGE_VERSION}" \
+            "upgrade ${NGINX_UPGRADE_PACKAGES[*]} (apt-get install --only-upgrade) and restart nginx"
+    elif nginx_runs_replaced_binary; then
+        item CONFLICT "nginx-version" "${NGINX_PACKAGE} ${version} is installed, but the running nginx still executes the binary it replaced" \
+            "restart nginx once nginx -t passes"
+    else
+        item PASS "nginx-version" "${NGINX_PACKAGE} ${version} (security floor ${NGINX_MIN_PACKAGE_VERSION})"
+    fi
+}
+
 # report_postgres_client NAME BIN — major-version check for one client tool.
 report_postgres_client() {
     local name="$1" bin="$2" version major
@@ -981,6 +1112,8 @@ report_runtime() {
     section "RUNTIME"
 
     report_php_runtime
+
+    report_nginx_package
 
     report_postgres_client "psql" "${PSQL_BIN}"
     report_postgres_client "pg_dump" "${PG_DUMP_BIN}"
@@ -1188,8 +1321,17 @@ reconcile_repository() {
 apt_update() {
     action "apt-get update ($1)"
 
-    DEBIAN_FRONTEND=noninteractive probe_exec "${APT_GET_BIN}" update \
+    # --allow-releaseinfo-change-label: a repository renaming itself is no
+    # reason to stop. apt refuses any change of a Release file's fields until
+    # someone accepts it, and a non-interactive update just fails — as every
+    # host did on 2026-11-21, when the PHP PPA's Label became "PPA for PHP
+    # (deprecated)". The Label is a description; every signature is still
+    # verified, and a changed Origin, Suite, Codename or Version still stops
+    # the run.
+    DEBIAN_FRONTEND=noninteractive probe_exec "${APT_GET_BIN}" update --allow-releaseinfo-change-label \
         || fail "apt-get update failed"
+
+    APT_INDEXES_FRESH=true
 }
 
 # ensure_bootstrap_repository_tooling — installs ca-certificates/curl/gnupg
@@ -1369,6 +1511,84 @@ reconcile_rclone() {
     action "rclone v${RCLONE_VERSION} installed at ${RCLONE_BINARY_PATH} (${RCLONE_OWNER}:${RCLONE_GROUP} ${RCLONE_MODE})"
 }
 
+# reconcile_nginx_security_floor — the one upgrade --apply makes: an nginx of
+# the proven series below NGINX_MIN_PACKAGE_VERSION is upgraded to what the
+# Ubuntu archive offers, its packages and nothing else (--only-upgrade
+# installs nothing new; the configuration files on the host are kept). An
+# exploitable web server is not left for an operator to notice, since the
+# hosts change only through these installers. The upgrade is finished here
+# too, the only service this slice ever touches: nginx moves onto the
+# installed binary (finish_nginx_upgrade) — after this run's upgrade, and
+# also whenever the running nginx still executes a binary an earlier upgrade
+# replaced, which is how a run whose nginx -t or restart failed is finished
+# by the next one without any state kept between them. An nginx of another
+# series is never replaced (its CONFLICT stands), and one at the floor and
+# running its installed binary costs no apt call and no restart.
+reconcile_nginx_security_floor() {
+    local version
+
+    package_installed "${NGINX_PACKAGE}" || return 0
+
+    version="$(nginx_package_version)"
+
+    [[ "${version}" == "${NGINX_PACKAGE_SERIES}"* ]] || return 0
+
+    if nginx_version_meets_floor "${version}"; then
+        if nginx_runs_replaced_binary; then
+            action "nginx: ${NGINX_PACKAGE} ${version} is installed, but the running nginx still executes the binary it replaced"
+            finish_nginx_upgrade "${version}"
+        else
+            action "nginx: ${NGINX_PACKAGE} ${version} meets the security floor ${NGINX_MIN_PACKAGE_VERSION}"
+        fi
+
+        return 0
+    fi
+
+    [[ "${APT_INDEXES_FRESH}" == true ]] \
+        || apt_update "nginx is below its security floor"
+
+    action "nginx: upgrading ${NGINX_PACKAGE} ${version} to the security floor ${NGINX_MIN_PACKAGE_VERSION} or later (${NGINX_UPGRADE_PACKAGES[*]})"
+
+    # NEEDRESTART_MODE=l: Ubuntu's needrestart only lists what else uses an
+    # upgraded library, rather than restarting PHP-FPM or PostgreSQL behind
+    # this run's back.
+    NEEDRESTART_MODE=l DEBIAN_FRONTEND=noninteractive probe_exec "${APT_GET_BIN}" install -y --only-upgrade --no-install-recommends \
+        -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold -- \
+        "${NGINX_UPGRADE_PACKAGES[@]}" \
+        || fail "apt-get could not upgrade nginx"
+
+    version="$(nginx_package_version)"
+
+    nginx_version_meets_floor "${version}" \
+        || fail "nginx is still ${NGINX_PACKAGE} ${version:-unknown} after the upgrade — the Ubuntu archive does not offer ${NGINX_MIN_PACKAGE_VERSION} yet"
+
+    finish_nginx_upgrade "${version}"
+}
+
+# finish_nginx_upgrade VERSION — a running nginx restarts onto the installed
+# binary once its configuration passes nginx -t; a configuration that fails
+# leaves the running nginx as it is and fails the run, and the next run, which
+# finds the replaced binary still running, tries again. An nginx that is not
+# running is not started here: install-bootstrap-services starts it as a base
+# service, on whatever binary is installed.
+finish_nginx_upgrade() {
+    local version="$1"
+
+    if ! probe_exec "${SYSTEMCTL_BIN}" is-active --quiet nginx; then
+        action "nginx: ${NGINX_PACKAGE} ${version} installed; nginx is not running, so this run does not restart it"
+
+        return 0
+    fi
+
+    probe_exec "${NGINX_BIN}" -t >/dev/null 2>&1 \
+        || fail "nginx ${version} is installed, but its configuration does not pass nginx -t, so nginx was not restarted — fix the configuration, then re-run --apply"
+
+    probe_exec "${SYSTEMCTL_BIN}" restart nginx \
+        || fail "nginx ${version} is installed, but nginx did not restart — re-run --apply once it can"
+
+    action "nginx: restarted onto the installed binary (${NGINX_PACKAGE} ${version})"
+}
+
 # perform_apply — root is enforced by run_apply; tests exercising failure
 # paths call this directly with the gated EUID override in place.
 perform_apply() {
@@ -1409,6 +1629,8 @@ perform_apply() {
     else
         action "packages: all ${#REQUIRED_PACKAGES[@]} required packages already installed"
     fi
+
+    reconcile_nginx_security_floor
 
     # After the package phase, so unzip exists on a clean host. Never an apt
     # action: rclone converges through the verified-download path only.

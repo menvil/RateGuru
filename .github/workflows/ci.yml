@@ -195,7 +195,7 @@ jobs:
       tests: ${{ steps.test-results.outputs.tests }}
     services:
       postgres:
-        image: postgres:18.4-alpine@sha256:9a8afca54e7861fd90fab5fdf4c42477a6b1cb7d293595148e674e0a3181de15
+        image: postgres:18.4-trixie@sha256:a02db8cac496f15b094798a38254f14d6e00741f709360e5e00bb6668ea31636
         env:
           POSTGRES_DB: rateguru_test
           POSTGRES_USER: rateguru
@@ -208,6 +208,21 @@ jobs:
           --health-timeout=5s
           --health-retries=10
     steps:
+      # The roaringbitmap extension, as the hosts have it: the same PGDG package
+      # (install-bootstrap-runtime installs it there) into the service
+      # container — the Debian image, because PGDG builds no Alpine package and
+      # this image installs PostgreSQL from PGDG itself — then created by the
+      # superuser, as install-target-database does. In template1 as well: a
+      # parallel run creates each worker's database from it. No restart: the
+      # extension needs no preloading.
+      - name: Install the PostgreSQL extensions
+        run: |
+          set -Eeuo pipefail
+          docker exec ${{ job.services.postgres.id }} sh -c 'apt-get -o Acquire::Retries=3 update -qq && DEBIAN_FRONTEND=noninteractive apt-get -o Acquire::Retries=3 install -y -qq --no-install-recommends postgresql-18-roaringbitmap'
+          for database in template1 rateguru_test; do
+            docker exec ${{ job.services.postgres.id }} psql -U rateguru -d "${database}" -v ON_ERROR_STOP=1 -c 'CREATE EXTENSION IF NOT EXISTS roaringbitmap'
+          done
+
       # Depth 2, not the default 1. On a pull_request event the checkout is a
       # merge commit whose first parent is the base branch tip, so two commits
       # is exactly enough for the architecture scope guards to diff this branch
@@ -325,7 +340,7 @@ jobs:
       DB_PASSWORD: rateguru
     services:
       postgres:
-        image: postgres:18.4-alpine@sha256:9a8afca54e7861fd90fab5fdf4c42477a6b1cb7d293595148e674e0a3181de15
+        image: postgres:18.4-trixie@sha256:a02db8cac496f15b094798a38254f14d6e00741f709360e5e00bb6668ea31636
         env:
           POSTGRES_DB: rateguru_test
           POSTGRES_USER: rateguru
@@ -338,6 +353,21 @@ jobs:
           --health-timeout=5s
           --health-retries=10
     steps:
+      # The roaringbitmap extension, as the hosts have it: the same PGDG package
+      # (install-bootstrap-runtime installs it there) into the service
+      # container — the Debian image, because PGDG builds no Alpine package and
+      # this image installs PostgreSQL from PGDG itself — then created by the
+      # superuser, as install-target-database does. In template1 as well: a
+      # parallel run creates each worker's database from it. No restart: the
+      # extension needs no preloading.
+      - name: Install the PostgreSQL extensions
+        run: |
+          set -Eeuo pipefail
+          docker exec ${{ job.services.postgres.id }} sh -c 'apt-get -o Acquire::Retries=3 update -qq && DEBIAN_FRONTEND=noninteractive apt-get -o Acquire::Retries=3 install -y -qq --no-install-recommends postgresql-18-roaringbitmap'
+          for database in template1 rateguru_test; do
+            docker exec ${{ job.services.postgres.id }} psql -U rateguru -d "${database}" -v ON_ERROR_STOP=1 -c 'CREATE EXTENSION IF NOT EXISTS roaringbitmap'
+          done
+
       - name: Checkout
         uses: actions/checkout@v7
 

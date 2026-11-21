@@ -48,6 +48,12 @@ function itdbWriteStubs(string $scratch): void
 
         payload="${args}"
 
+        # The database a statement runs in: extensions are a fact of one.
+        database=""
+        for arg in "$@"; do
+            case "${arg}" in --dbname=*) database="${arg#--dbname=}" ;; esac
+        done
+
         # Exactly one statement arrives on stdin — the one carrying the role
         # password, which is the whole point of sending it that way. Every other
         # call uses --command, and reading stdin for those would block forever
@@ -92,6 +98,15 @@ function itdbWriteStubs(string $scratch): void
                 ;;
             *"FROM pg_database WHERE datname"*)
                 [[ -e "${STUB_STATE}/database-exists" ]] && echo 1
+                ;;
+            *"FROM pg_available_extensions WHERE name = 'roaringbitmap'"*)
+                [[ -e "${STUB_STATE}/extension-unavailable" ]] || echo 1
+                ;;
+            *"FROM pg_extension WHERE extname = 'roaringbitmap'"*)
+                [[ -e "${STUB_STATE}/extension-roaringbitmap@${database}" ]] && echo 1
+                ;;
+            *"CREATE EXTENSION IF NOT EXISTS roaringbitmap"*)
+                touch "${STUB_STATE}/extension-roaringbitmap@${database}"
                 ;;
             *"CREATE ROLE"*)
                 touch "${STUB_STATE}/role-exists"
@@ -214,8 +229,15 @@ function itdbLog(string $scratch): string
         : '';
 }
 
-/** An already-provisioned, already-populated database. */
+/** An already-provisioned, already-populated database, with its extensions. */
 function itdbExistingDatabase(string $scratch): void
+{
+    itdbDatabaseBeforeExtensions($scratch);
+    touch($scratch.'/state/extension-roaringbitmap@rateguru_staging');
+}
+
+/** A database prepared before the installer created extensions. */
+function itdbDatabaseBeforeExtensions(string $scratch): void
 {
     touch($scratch.'/state/role-exists');
     touch($scratch.'/state/database-exists');
@@ -248,10 +270,126 @@ it('creates the role and the database on a clean host, then verifies connectivit
         expect($log)->toContain('CREATE DATABASE rateguru_staging OWNER rateguru_staging_app TEMPLATE template0');
         expect($log)->toContain('GRANT CONNECT ON DATABASE rateguru_staging TO rateguru_staging_app');
 
-        expect($output)->toContain('No schema was created and no migration was run');
+        expect($output)->toContain('No application schema was created and no migration was run');
+
+        // The extension goes into the target's database, as the superuser,
+        // after the database exists.
+        expect($log)->toContain('--dbname=rateguru_staging --set=ON_ERROR_STOP=1 --command=CREATE EXTENSION IF NOT EXISTS roaringbitmap WITH SCHEMA public;');
+        expect(strpos($log, 'CREATE EXTENSION'))->toBeGreaterThan(strpos($log, 'CREATE DATABASE'));
+        expect($output)->toContain('the extensions (roaringbitmap) are present');
     } finally {
         itdbCleanup($scratch);
     }
+});
+
+// =============================================================================
+// Extensions — created by the superuser, never by the application role
+// =============================================================================
+
+it('adds the extensions to a database prepared before them, and nothing else', function () {
+    $scratch = itdbScratchDir();
+
+    try {
+        itdbWriteStubs($scratch);
+        itdbWriteEnv($scratch);
+        itdbDatabaseBeforeExtensions($scratch);
+
+        // A live target's database: --check says what is missing...
+        [$exit, $output] = itdbRun($scratch, ['--check', '--target', 'staging-main']);
+
+        expect($exit)->toBe(1);
+        expect($output)->toContain('database rateguru_staging: lacks the extension(s) roaringbitmap — --apply will create them (IF NOT EXISTS, as the superuser)');
+        expect($output)->toContain('NEEDS_APPLY');
+        expect(itdbLog($scratch))->not->toContain('CREATE EXTENSION');
+
+        // ...--verify refuses it...
+        [$exit, $output] = itdbRun($scratch, ['--verify', '--target', 'staging-main']);
+
+        expect($exit)->toBe(1);
+        expect($output)->toContain('PostgreSQL database rateguru_staging lacks the extension(s) roaringbitmap — run --apply');
+
+        // ...and --apply adds the extension alone: the role and the database
+        // stay exactly as they were.
+        [$exit, $output] = itdbRun($scratch, ['--apply', '--target', 'staging-main']);
+
+        expect($exit)->toBe(0, $output);
+        expect($output)->toContain('creating PostgreSQL extension roaringbitmap in rateguru_staging');
+
+        $log = itdbLog($scratch);
+
+        expect($log)->toContain('CREATE EXTENSION IF NOT EXISTS roaringbitmap WITH SCHEMA public;');
+        expect($log)->not->toContain('CREATE ROLE');
+        expect($log)->not->toContain('CREATE DATABASE');
+
+        // A second --apply has nothing left to create.
+        file_put_contents($scratch.'/state/psql.log', '');
+
+        [$exit] = itdbRun($scratch, ['--apply', '--target', 'staging-main']);
+
+        expect($exit)->toBe(0);
+        expect(itdbLog($scratch))->not->toContain('CREATE EXTENSION');
+    } finally {
+        itdbCleanup($scratch);
+    }
+});
+
+it('looks for the extension in the target database, not in the one the catalogs are read from', function () {
+    $scratch = itdbScratchDir();
+
+    try {
+        itdbWriteStubs($scratch);
+        itdbWriteEnv($scratch);
+        itdbDatabaseBeforeExtensions($scratch);
+
+        // Present in postgres, absent where the application's tables are.
+        touch($scratch.'/state/extension-roaringbitmap@postgres');
+
+        [$exit, $output] = itdbRun($scratch, ['--check', '--target', 'staging-main']);
+
+        expect($exit)->toBe(1);
+        expect($output)->toContain('database rateguru_staging: lacks the extension(s) roaringbitmap');
+        expect(itdbLog($scratch))->toContain("--dbname=rateguru_staging --command=SELECT 1 FROM pg_extension WHERE extname = 'roaringbitmap';");
+    } finally {
+        itdbCleanup($scratch);
+    }
+});
+
+it('fails with the reason when the extension package is not installed, creating nothing', function () {
+    $scratch = itdbScratchDir();
+
+    try {
+        itdbWriteStubs($scratch);
+        itdbWriteEnv($scratch);
+        itdbDatabaseBeforeExtensions($scratch);
+        touch($scratch.'/state/extension-unavailable');
+
+        [$exit, $output] = itdbRun($scratch, ['--apply', '--target', 'staging-main']);
+
+        expect($exit)->toBe(1);
+        expect($output)->toContain('PostgreSQL cannot create the extension roaringbitmap in rateguru_staging: its package is not installed — install-bootstrap-runtime --apply installs it');
+        expect(itdbLog($scratch))->not->toContain('CREATE EXTENSION');
+    } finally {
+        itdbCleanup($scratch);
+    }
+});
+
+it('reads extensions in the target database and creates them only through the superuser', function () {
+    $source = File::get(itdbScript());
+
+    // Every extension is a literal the identifier rule accepts: nothing
+    // else is ever interpolated into a statement.
+    preg_match('/^REQUIRED_EXTENSIONS=\(([^)]*)\)$/m', $source, $declared);
+    expect($declared[1] ?? null)->toBe('roaringbitmap');
+
+    foreach (explode(' ', $declared[1]) as $extension) {
+        expect($extension)->toMatch('/^[a-z_][a-z0-9_]{0,62}$/');
+    }
+
+    // Created through runuser as the superuser, never over the application
+    // role's own connection.
+    expect($source)->toMatch('/"\$\{RUNUSER_BIN\}" -u "\$\{POSTGRES_SUPERUSER\}" -- \\\\\n\s+"\$\{PSQL_BIN\}" \\\\\n(?:\s+--[a-z-]+(?:=\S+)? \\\\\n)+\s+--command="CREATE EXTENSION IF NOT EXISTS \$\{extension\} WITH SCHEMA public;"/');
+    expect($source)->not->toContain('DROP EXTENSION');
+    expect($source)->not->toContain('ALTER EXTENSION');
 });
 
 it('never puts the role password in an argument vector', function () {
@@ -402,6 +540,7 @@ it('reports readiness through the exit status of --check', function () {
         expect(itdbLog($scratch))
             ->not->toContain('CREATE ROLE')
             ->not->toContain('CREATE DATABASE')
+            ->not->toContain('CREATE EXTENSION')
             ->not->toContain('GRANT ');
     } finally {
         itdbCleanup($scratch);
@@ -424,6 +563,7 @@ it('never issues a destructive or schema-changing statement in any mode', functi
 
         foreach ([
             'DROP DATABASE', 'DROP ROLE', 'DROP SCHEMA', 'DROP TABLE',
+            'DROP EXTENSION', 'ALTER EXTENSION',
             'TRUNCATE', 'DELETE FROM', 'UPDATE ', 'INSERT INTO',
             'ALTER ROLE', 'ALTER DATABASE', 'REVOKE', 'REASSIGN',
         ] as $forbidden) {

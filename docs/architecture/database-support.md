@@ -41,6 +41,41 @@ Operational support is intentionally different from application compatibility:
 each deployment still needs engine-appropriate backup, restore, monitoring, and
 upgrade procedures.
 
+## PostgreSQL extensions
+
+PostgreSQL deployments carry one extension, **roaringbitmap**
+(`pg_roaringbitmap`, from PGDG): Growth → Analytics keeps each day's people as a
+roaring bitmap, so a period's unique people are a union of days rather than a
+sort of every visit. It is an optional fast path, never a requirement — the
+application uses it where it finds it and otherwise reads exactly as SQLite and
+MariaDB do, so neither compatibility target is affected and no migration
+creates or needs it.
+
+- **Hosts.** `install-bootstrap-runtime` installs `postgresql-18-roaringbitmap`;
+  `install-target-database` creates the extension in each target's database as
+  the `postgres` superuser, because an extension not marked trusted needs one
+  and the application role never is one. Restores create it the same way
+  before restoring the dump as the application role (see
+  `infrastructure/runbooks/restore-target.md`).
+- **CI.** Every PostgreSQL job installs the package into its service container
+  and creates the extension in the test database and in `template1`, which a
+  parallel run copies for each worker.
+- **Locally.** Homebrew has no package for it; build it once against the
+  Homebrew PostgreSQL, then create it as your own (superuser) role in the test
+  database and in `template1`, which a parallel run copies for each worker:
+
+  ```bash
+  git clone --depth 1 --branch v1.3.0 https://github.com/ChenHuajun/pg_roaringbitmap.git
+  make -C pg_roaringbitmap install PG_CONFIG="$(brew --prefix postgresql@18)/bin/pg_config"
+  psql -d rateguru_test -c 'CREATE EXTENSION IF NOT EXISTS roaringbitmap'
+  psql -d template1 -c 'CREATE EXTENSION IF NOT EXISTS roaringbitmap'
+  ```
+
+  Worker databases created before that (`rateguru_test_test_<token>`) keep
+  lacking it: run the suite once with `--recreate-databases`, or create the
+  extension in each. `brew upgrade postgresql@18` removes the built files;
+  build it again after one.
+
 ## Development and tests
 
 Install and start the primary local database, then run its tests:
@@ -76,7 +111,9 @@ credentials; CI provides its own isolated service with those values.
 ## CI database matrix
 
 The primary Pest job and the Browser job run on the pinned
-`postgres:18.4-alpine` service container. Coverage uses the same image. These containers exist only
+`postgres:18.4-trixie` service container, the Debian image, with the
+roaringbitmap extension installed from PGDG (no Alpine package exists).
+Coverage uses the same image. These containers exist only
 inside GitHub Actions. Separate compatibility jobs run the complete Unit and
 Feature suites, fresh migrations, the standard seed, and rollback checks on
 SQLite and MariaDB.
