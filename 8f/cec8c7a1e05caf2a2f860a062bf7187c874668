@@ -1,0 +1,22 @@
+tests/Feature/Queries/GameMetricsQueryTest.php
+  s_4b9dc6ab6b25d3::t_4a897f12a4c43b 3,900-904,906
+  s_4b9dc6ab6b25d3::t_e80a3292c2f5f7 14,31,905
+app/Actions/Games/GameEventRecorder.php
+  s_4b9dc6ab6b25d3::t_4a897f12a4c43b 10,15-18,34-37
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "8fcec8c7a1e05caf2a2f860a062bf7187c874668",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
