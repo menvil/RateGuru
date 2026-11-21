@@ -1321,7 +1321,14 @@ reconcile_repository() {
 apt_update() {
     action "apt-get update ($1)"
 
-    DEBIAN_FRONTEND=noninteractive probe_exec "${APT_GET_BIN}" update \
+    # --allow-releaseinfo-change-label: a repository renaming itself is no
+    # reason to stop. apt refuses any change of a Release file's fields until
+    # someone accepts it, and a non-interactive update just fails — as every
+    # host did on 2026-11-21, when the PHP PPA's Label became "PPA for PHP
+    # (deprecated)". The Label is a description; every signature is still
+    # verified, and a changed Origin, Suite, Codename or Version still stops
+    # the run.
+    DEBIAN_FRONTEND=noninteractive probe_exec "${APT_GET_BIN}" update --allow-releaseinfo-change-label \
         || fail "apt-get update failed"
 
     APT_INDEXES_FRESH=true
