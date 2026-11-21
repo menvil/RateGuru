@@ -362,7 +362,14 @@ player by an account the browser signed up or in on (`account_browsers`) or
 by the visit a play of theirs came on. A play with no recorded visit is left
 out, and a visitor who came from two places counts in each. A country group
 is the current price set's: the countries it names, or for the last group
-every country the others don't name and an unknown one.
+every country the others don't name and an unknown one. A visit counts in a
+window while it arrived before the window ends and was last seen after it
+begins; no visit is seen on past the longest attribution window a source can
+have (30 days), so only arrivals from a day more than that before the window
+are read — a click id that came back later counts in the window it began in.
+The visits are Analytics' own rows of them (`analytics_visits`, which keep a
+tracked visit's browser hash and when it was last seen) once those are filled
+and up to date (docs/architecture/analytics.md, "What a tab reads").
 
 The funnel counts people at every step, and each step's rate names the step it
 is a share of — not always the one above it: Sign-up begun and New accounts

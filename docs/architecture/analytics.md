@@ -206,13 +206,63 @@ to 31, else blocks of seven days from the first, the last as long as the days
 left (`FigureChange` says the change; "No earlier data" when the window before
 counted none).
 
-### Reading without rollups
+### What a tab reads
 
-Analytics keeps no totals aside: every figure is read
-straight from the visits, as conditional distinct counts and sums over the
-period's visits, through a wider span of arrivals so the arrival index narrows
-the scan first, as every traffic report reads it. What makes that hold is
-deliberate and kept together:
+A visit is wide — every moment of every step, its worth, its settling — and
+the people of a period are counted by sorting every visit of it, so Analytics
+reads its own narrow rows of the visits instead (`analytics_visits`, one per
+visit, the same id, gone with it): the browser as a number, the first 64 bits
+of its hash read as a signed integer (`AnalyticsVisitRow::key()`, worked out in
+PHP so every engine stores the same); each step a flag rather than the moment;
+the account's sign-up only once it confirmed, what decides whether its days to
+activate are over; the sums; and every column a split or a filter names. A
+second table keeps the first network day each browser's page ran
+(`analytics_people`), so whether a visitor of a period had come before it is a
+look-up, not a search of every earlier visit. Measured on 4.5 million visits
+over 90 days (50,000 a day), with nothing kept from an earlier read: every tab
+of 30 days together in about a minute instead of three, of 90 days in under two
+instead of seven; the figures of 30 days in about a second instead of eight,
+and a game's figures narrowed to a device in under half a minute instead of a
+minute and a half.
+
+`analytics:refresh-visits` alone writes them (`RefreshAnalyticsVisitsAction`),
+every minute for up to 45 seconds:
+
+- the network days whose visits still change by themselves — from the day
+  before the earliest day any time zone is on to the latest one
+  (`AnalyticsRollupWindow`) — today's UTC day and later every minute, the
+  earlier ones every fifth: each visit is made into its row and compared with
+  the one written before, and only a row that changed, or is new, is written,
+  so a day read again costs reading it, about two seconds for 50,000 visits;
+- the older days something changed — a late mark, a visit opened or counted on
+  days after it came, spend shared out again, a click id that came back — each
+  writer telling `MarkAnalyticsDayAction`, which keeps the day with a token
+  rewritten on every change, so a change made while the day is read leaves it
+  marked for the next run;
+- until every day has been, the days not filled yet, the earliest first, from
+  the first visit's.
+
+Once a night it reads the last `analytics.rollup.recheck_days` (60) days again,
+a check that nothing was missed. No index of the rows leads with the browser:
+a planner would walk it for the people's order instead of sorting, reading the
+table at random.
+
+The same rows serve the posts of Site engagement (`AnalyticsContentQuery`, the
+sessions joined by `entry_visit_id`), the visit an account is credited to on
+Retention (`RetentionQuery`), and a game's Analytics — its traffic figures
+(`TrafficReportQuery`'s game reads, by `game_id` and arrival) and the plays
+and visitors a device or country narrows to (`GameMetricsQuery`, which is why
+a tracked visit's row keeps its browser hash and when it was last seen).
+
+`AnalyticsVisitsQuery` and the others read these rows only once they are filled as far back
+as the visits go, while they were brought up to date within
+`analytics.rollup.stale_minutes` (30) and while `analytics.rollup.read` allows
+it (`AnalyticsRollupGate`, decided once a request); otherwise it reads the
+visits themselves, slower but never behind. The same conditions on the same
+days and arrivals give the same figures either way, and its tests read every
+call both ways and compare them.
+
+Everything else that keeps a tab quick is deliberate and kept together:
 
 - the session's keys and tags are columns of each visit, so no read joins the
   visit a session began with;
@@ -232,13 +282,6 @@ deliberate and kept together:
   "Figures read HH:MM UTC" and offers Refresh, and saving, deleting or restoring
   a segment, or saving a tracking link, drops everything kept, for every
   administrator, so it is read afresh.
-
-The limit for this way of reading was set before it was built: measured over 90
-days of visits and the window before on PostgreSQL, a tab slower than two
-seconds gets a short-lived read cache that says when its figures were read, and
-one slower than five needs a rollup of its own before Record site visits is
-switched on in production. The read cache is in place: each tab it keeps took
-over two seconds on 4.5 million visits over 90 days.
 
 Other thresholds, each a product rule in `config/analytics.php`: a city needs
 20 visitors for a row of its own, the rest of its country counted together; the
@@ -272,7 +315,8 @@ registered boundary in `tools/phpstan/architecture.neon`, with its reason in
 docs/architecture/http-and-database-boundaries.md and a behaviour test:
 
 - `AnalyticsVisitsQuery` — the people of the period's visits, in all, per
-  dimension with the rest counted together, per bucket, and who came back;
+  dimension with the rest counted together, per bucket, and who came back,
+  from Analytics' own rows of the visits or from the visits themselves;
 - `AnalyticsContentQuery` — the posts the period's visits opened, and the
   accounts whose session opened each first;
 - `TrafficSegmentsQuery` — a paid source's segments, each click's segment
@@ -284,8 +328,8 @@ docs/architecture/http-and-database-boundaries.md and a behaviour test:
 - `GameMetricsQuery::periodFunnel()` — how far the visitors each period sent to
   each version got.
 
-`JourneyQuery`, `LandingExperiencesQuery` and `AnalyticsMarkersQuery` are
-Eloquent alone. Everywhere every value is bound, every grouping column comes
+`JourneyQuery`, `LandingExperiencesQuery`, `AnalyticsMarkersQuery` and
+`AnalyticsRollupQuery` are Eloquent alone. Everywhere every value is bound, every grouping column comes
 from `AnalyticsDimension` or `SegmentParameter`, and there is neither date
 arithmetic nor a branch per engine, so each read means the same on PostgreSQL,
 SQLite and MariaDB.
@@ -430,6 +474,8 @@ action. A moderator sees neither.
 | Segments, a deleted one only marked | for ever |
 | Tracking links, never deleted | for ever |
 | Hidden periods | for ever, as every period |
+| Analytics' own rows of the visits (`analytics_visits`) | as long as their visit |
+| Each browser's first day (`analytics_people`) | 400 days from that day, as the visits (`traffic:purge-expired`) |
 | A tab's figures and the filter options, per administrator (cache) | 10 minutes (`analytics.read_cache_minutes`), or until Refresh, a segment saved, deleted or restored, or a tracking link saved |
 
 The privacy page is the owner's to update before Record site visits is switched

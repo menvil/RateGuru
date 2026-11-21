@@ -40,9 +40,10 @@ use Illuminate\Support\Carbon;
  * counts: an attempt by its own visit, a visitor by their visits of the game.
  * The same on every database engine.
  */
-function metricsQuery(): GameMetricsQuery
+/** @return GameMetricsQuery read both ways, each call compared (readBothWays()) */
+function metricsQuery(): object
 {
-    return app(GameMetricsQuery::class);
+    return readBothWays(GameMetricsQuery::class);
 }
 
 function metricsScope(GameVersion $version, GameAudience $audience = GameAudience::Anonymous, ?int $versionId = null, ?VisitFilter $visits = null): GameMetricsScope

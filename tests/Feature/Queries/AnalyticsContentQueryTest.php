@@ -22,9 +22,10 @@ beforeEach(function () {
     $this->travelTo(CarbonImmutable::parse('2026-11-18 12:00:00'));
 });
 
-function contentQuery(): AnalyticsContentQuery
+/** @return AnalyticsContentQuery read both ways, each call compared (readBothWays()) */
+function contentQuery(): object
 {
-    return app(AnalyticsContentQuery::class);
+    return readBothWays(AnalyticsContentQuery::class);
 }
 
 it('counts the views, each browser that opened a post once, those who voted on one they opened, and the shares of the visits the filter admits', function () {

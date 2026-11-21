@@ -6,8 +6,10 @@ use App\Contracts\Persistence\RawSqlPersistenceBoundary;
 use App\Enums\TrafficChannel;
 use App\Enums\TrafficDimension;
 use App\Enums\TrafficKnownReason;
+use App\Models\AnalyticsVisit;
 use App\Models\TrafficCampaignStagePeriod;
 use App\Models\TrafficVisit;
+use App\Queries\Analytics\AnalyticsRollupGate;
 use App\Queries\Users\UnconfirmedAccountsQuery;
 use App\Support\Traffic\Reports\ReportFigures;
 use App\Support\Traffic\Reports\SignupFigures;
@@ -39,6 +41,21 @@ use Illuminate\Database\Eloquent\Builder;
  */
 final class TrafficReportQuery implements RawSqlPersistenceBoundary
 {
+    /** @var array<string, string> what a figure tests on a visit, as the same test on Analytics' own rows of the visits */
+    private const array ROLLUP_TESTS = [
+        'opened_at IS NOT NULL' => 'opened',
+        'started_at IS NOT NULL' => 'started',
+        'completed_at IS NOT NULL' => 'completed',
+        'goal_at IS NOT NULL' => 'goal',
+        'account_at IS NOT NULL' => 'account',
+        'account_at IS NULL' => 'NOT account',
+        'post_published_at IS NOT NULL' => 'post_published',
+        'returned_at IS NOT NULL' => 'returned',
+        'signup_at IS NOT NULL' => 'signed_up',
+    ];
+
+    public function __construct(private readonly AnalyticsRollupGate $gate) {}
+
     public const int MOST_GROUPS = 2000;
 
     /**
@@ -277,17 +294,20 @@ final class TrafficReportQuery implements RawSqlPersistenceBoundary
      */
     public function gameBreakdown(int $gameId, CarbonImmutable $since, ?CarbonImmutable $until = null, ?VisitFilter $visits = null): array
     {
-        [$metrics, $bindings] = self::metrics();
+        [$metrics, $bindings] = $this->ofGame(self::metrics());
 
-        return TrafficVisit::query()
-            ->tracked()
-            ->where('game_id', $gameId)
+        return $this->gameVisits($gameId)
             ->where('arrived_at', '>=', $since)
             ->when($until !== null, fn (Builder $query) => $query->where('arrived_at', '<', $until))
             ->when($visits !== null, fn (Builder $query) => $query->matching($visits))
             ->groupBy('channel', 'source_id', 'version_id', 'device')
             ->select('channel', 'source_id', 'version_id', 'device')
             ->selectRaw('MIN(arrived_at) AS first_at, '.$metrics, $bindings)
+            // In one order whichever rows are read.
+            ->orderBy('channel')
+            ->orderBy('source_id')
+            ->orderBy('version_id')
+            ->orderBy('device')
             ->toBase()
             ->get()
             ->map(fn (object $row): array => [
@@ -308,16 +328,14 @@ final class TrafficReportQuery implements RawSqlPersistenceBoundary
      */
     public function gameCampaigns(int $gameId, CarbonImmutable $since, CarbonImmutable $until, ?VisitFilter $visits = null): array
     {
-        return TrafficVisit::query()
-            ->tracked()
-            ->where('game_id', $gameId)
+        return $this->gameVisits($gameId)
             ->where('arrived_at', '>=', $since)
             ->where('arrived_at', '<', $until)
             ->when($visits !== null, fn (Builder $query) => $query->matching($visits))
             ->whereNotNull('campaign_id')
             ->distinct()
             ->get(['source_id', 'campaign_id'])
-            ->countBy(fn (TrafficVisit $visit): int => (int) $visit->source_id)
+            ->countBy(fn (TrafficVisit|AnalyticsVisit $visit): int => (int) $visit->source_id)
             ->all();
     }
 
@@ -331,16 +349,18 @@ final class TrafficReportQuery implements RawSqlPersistenceBoundary
      */
     public function gameSignups(int $gameId, CarbonImmutable $since, CarbonImmutable $until, ?int $versionId = null, ?CarbonInterface $unconfirmedBefore = null, ?VisitFilter $visits = null): array
     {
-        [$signups, $bindings] = self::signupMetrics($unconfirmedBefore ?? UnconfirmedAccountsQuery::cutoff());
-        $row = (array) TrafficVisit::query()
-            ->tracked()
-            ->where('game_id', $gameId)
+        [$signups, $bindings] = $this->ofGame(self::signupMetrics($unconfirmedBefore ?? UnconfirmedAccountsQuery::cutoff()));
+        $row = (array) $this->gameVisits($gameId)
             ->where('arrived_at', '>=', $since)
             ->where('arrived_at', '<', $until)
             ->when($versionId !== null, fn (Builder $query) => $query->where('version_id', $versionId))
             ->when($visits !== null, fn (Builder $query) => $query->matching($visits))
             // The anonymous visitors' view: a visitor signed in when they came is a logged-in player, not one of them.
-            ->where(fn (Builder $query) => $query->whereNull('known_reason')->orWhere('known_reason', '<>', TrafficKnownReason::SignedIn->value))
+            ->when(
+                $this->gate->reads(),
+                fn (Builder $query) => $query->where('signed_in', false),
+                fn (Builder $query) => $query->where(fn (Builder $either) => $either->whereNull('known_reason')->orWhere('known_reason', '<>', TrafficKnownReason::SignedIn->value)),
+            )
             ->selectRaw('COUNT(*) AS visits, '.$signups, $bindings)
             ->toBase()
             ->first();
@@ -359,9 +379,7 @@ final class TrafficReportQuery implements RawSqlPersistenceBoundary
     {
         $country = TrafficDimension::Country->columns()[0];
 
-        return TrafficVisit::query()
-            ->tracked()
-            ->where('game_id', $gameId)
+        return $this->gameVisits($gameId)
             ->whereNotNull($country)
             ->distinct()
             ->orderBy($country)
@@ -369,6 +387,30 @@ final class TrafficReportQuery implements RawSqlPersistenceBoundary
             ->map(fn (mixed $code): string => (string) $code)
             ->values()
             ->all();
+    }
+
+    /**
+     * The visits of a game the tracker counts: from Analytics' own rows of
+     * them once AnalyticsRollupGate says they are filled and up to date, else
+     * from the visits — the same rows either way.
+     *
+     * @return Builder<TrafficVisit>|Builder<AnalyticsVisit>
+     */
+    private function gameVisits(int $gameId): Builder
+    {
+        return ($this->gate->reads() ? AnalyticsVisit::query() : TrafficVisit::query())->tracked()->where('game_id', $gameId);
+    }
+
+    /**
+     * Figures as SQL (metrics(), signupMetrics()) for the rows gameVisits()
+     * reads: on Analytics' own rows each test of a moment is its flag.
+     *
+     * @param  array{0: string, 1: list<mixed>}  $figures
+     * @return array{0: string, 1: list<mixed>}
+     */
+    private function ofGame(array $figures): array
+    {
+        return $this->gate->reads() ? [strtr($figures[0], self::ROLLUP_TESTS), $figures[1]] : $figures;
     }
 
     /** @return Builder<TrafficVisit> */

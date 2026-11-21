@@ -2,6 +2,7 @@
 
 namespace App\Console\Commands;
 
+use App\Models\AnalyticsPerson;
 use App\Models\TrafficBlockEvent;
 use App\Models\TrafficChanceRun;
 use App\Models\TrafficPostback;
@@ -17,7 +18,8 @@ use Illuminate\Database\Eloquent\Builder;
 /**
  * Deletes what the tracker recorded once it is past its retention
  * (config/traffic.php): visits after traffic.retention_days.visits (400) with
- * their conversions, a click's details, the posts a visit opened and shared
+ * their conversions and Analytics' own rows of them, and each browser's first
+ * day once it is that old, a click's details, the posts a visit opened and shared
  * and the postback outbox after 90, spend figures and the block log after
  * 400, and every chance working-out but the newest 30 — and the days members
  * did something on the site after analytics.retention_days.activity (400,
@@ -75,6 +77,8 @@ final class TrafficPurgeExpiredCommand extends Command
             'posts of visits' => $this->purge(TrafficVisitPost::query()->where('first_at', '<', $now->subDays($days['visit_details'])), $chunk, 'visit_id'),
             'postbacks' => $this->purge(TrafficPostback::query()->where('created_at', '<', $now->subDays($days['postbacks'])), $chunk),
             'visits' => $this->purge(TrafficVisit::query()->where('arrived_at', '<', $now->subDays($days['visits'])), $chunk),
+            // Analytics' own row of a visit goes with it; a browser's first day goes once visits that old are gone.
+            'first days of browsers' => $this->purge(AnalyticsPerson::query()->where('first_day', '<', $now->subDays($days['visits'])->format('Y-m-d')), $chunk, 'visitor_key'),
             'spend figures' => $this->purge(TrafficSpendDay::query()->where('network_day', '<', $now->subDays($days['spend_days'])->format('Y-m-d')), $chunk),
             'block log lines' => $this->purge(TrafficBlockEvent::query()->where('occurred_at', '<', $now->subDays($days['block_events'])), $chunk),
             'activity days' => $this->purge(UserActivityDay::query()->where('day', '<', $now->subDays($activityDays)->format('Y-m-d')), $chunk),

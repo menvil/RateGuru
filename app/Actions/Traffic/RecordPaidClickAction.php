@@ -2,6 +2,7 @@
 
 namespace App\Actions\Traffic;
 
+use App\Actions\Analytics\MarkAnalyticsDayAction;
 use App\Actions\Traffic\Concerns\WorksOutClickSpend;
 use App\Enums\TrafficActor;
 use App\Enums\TrafficCampaignEventKind;
@@ -65,6 +66,7 @@ final class RecordPaidClickAction
     public function __construct(
         private readonly VisitorVisitQuery $visits,
         private readonly DomainLogger $logger,
+        private readonly MarkAnalyticsDayAction $analytics,
     ) {}
 
     /**
@@ -213,6 +215,8 @@ final class RecordPaidClickAction
 
         if ($visit->visitor_hash === $browserHash) {
             $visit->forceFill(['last_seen_at' => $now])->save();
+            // The same click again any time later: Analytics reads the old click's day again.
+            $this->analytics->handle($visit->network_day, $now);
 
             return $visit;
         }
@@ -242,6 +246,8 @@ final class RecordPaidClickAction
                 $visit->arrived_at,
             )),
         ])->save();
+        // A click id can come again any time later: Analytics reads the old click's day again.
+        $this->analytics->handle($visit->network_day, $now);
 
         return $visit;
     }

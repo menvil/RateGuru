@@ -2,6 +2,7 @@
 
 namespace App\Actions\Traffic;
 
+use App\Actions\Analytics\MarkAnalyticsDayAction;
 use App\Actions\Traffic\Concerns\WorksOutClickSpend;
 use App\Enums\TrafficSpendBasis;
 use App\Enums\TrafficSpendMode;
@@ -42,8 +43,12 @@ final class AllocateSpendDayAction
 
     private const array ALLOCATED = TrafficSpendBasis::ALLOCATED;
 
+    public function __construct(private readonly MarkAnalyticsDayAction $analytics) {}
+
     public function handle(TrafficSource $source, string $day, CarbonImmutable $now): void
     {
+        // Spend shared out again on a day long past — a file, a figure typed in: Analytics reads that day again.
+        $this->analytics->handle($day, $now);
         $facts = TrafficSpendDay::query()->where('source_id', $source->id)->where('network_day', $day)->orderBy('id')->get();
         $drawnFrom = $facts->pluck('id')->map(fn (mixed $id): int => (int) $id)->all();
         // The network's own figures count only for a source that takes its spend from them.
