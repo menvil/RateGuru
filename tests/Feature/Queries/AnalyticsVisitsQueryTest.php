@@ -28,16 +28,18 @@ use Carbon\CarbonImmutable;
  * visit was recorded; the figures of the values asked for, the people of
  * pairs of values, what the paid clicks cost by one dimension or more, the
  * first day each value came on, and the people of each set of campaign tags
- * the sessions of some campaigns came by. The same on every database engine.
+ * the sessions of some campaigns came by. The same on every database engine,
+ * and the same read from Analytics' own rows of the visits.
  */
 
 beforeEach(function () {
     $this->travelTo(CarbonImmutable::parse('2026-11-18 12:00:00'));
 });
 
-function analyticsQuery(): AnalyticsVisitsQuery
+/** @return AnalyticsVisitsQuery read both ways, each call compared (readBothWays()) */
+function analyticsQuery(): object
 {
-    return app(AnalyticsVisitsQuery::class);
+    return readBothWays(AnalyticsVisitsQuery::class);
 }
 
 it('counts each browser once, however many visits and days it came on, and only once its page ran', function () {
@@ -530,7 +532,7 @@ it('reads the window before the period with the same conditions', function () {
         ->and(analyticsQuery()->figures($previous)->visitors)->toBe(1);
 });
 
-it('offers the values the most people came through, the most first, without counting anything else', function () {
+it('offers the values the most visits came by, the most first, without counting anything else', function () {
     foreach (['ann', 'bob', 'cat', 'hal'] as $browser) {
         analyticsVisit($browser, ['source_key' => 'reddit:organic', 'campaign_key' => 'tag:launch']);
     }
@@ -540,11 +542,15 @@ it('offers the values the most people came through, the most first, without coun
     analyticsVisit('eve', ['source_key' => 'google:organic', 'campaign_key' => 'tag:launch']);
     analyticsVisit('fay', ['source_key' => 'google:organic']);
     analyticsVisit('fay', ['source_key' => 'bing:organic']);
+    // More visits than Google's, from fewer people: the visits rank it.
+    analyticsVisit('ivy', ['source_key' => 'bing:organic', 'network_day' => '2026-11-12']);
+    analyticsVisit('ivy', ['source_key' => 'bing:organic', 'network_day' => '2026-11-13']);
+    analyticsVisit('ivy', ['source_key' => 'bing:organic', 'network_day' => '2026-11-14']);
     // Its page never ran: nobody.
     analyticsVisit('gus', ['source_key' => 'x:organic', 'opened_at' => null]);
 
-    expect(array_column(analyticsQuery()->top(analyticsFilter(), AnalyticsDimension::Source, 10), 'source_key'))->toBe(['reddit:organic', 'google:organic', 'bing:organic'])
-        ->and(analyticsQuery()->top(analyticsFilter(), AnalyticsDimension::Source, 2))->toBe([['source_key' => 'reddit:organic'], ['source_key' => 'google:organic']])
+    expect(array_column(analyticsQuery()->top(analyticsFilter(), AnalyticsDimension::Source, 10), 'source_key'))->toBe(['reddit:organic', 'bing:organic', 'google:organic'])
+        ->and(analyticsQuery()->top(analyticsFilter(), AnalyticsDimension::Source, 2))->toBe([['source_key' => 'reddit:organic'], ['source_key' => 'bing:organic']])
         ->and(array_column(analyticsQuery()->top(analyticsFilter(source: 'google:organic'), AnalyticsDimension::Campaign, 10), 'campaign_key'))->toBe(['tag:launch', null])
         ->and(analyticsQuery()->top(analyticsFilter('yesterday'), AnalyticsDimension::Source, 10))->toBe([]);
 });

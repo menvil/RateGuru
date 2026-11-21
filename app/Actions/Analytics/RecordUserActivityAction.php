@@ -42,6 +42,7 @@ final class RecordUserActivityAction
     public function __construct(
         private readonly MarkTrafficVisitAction $marks,
         private readonly RecordVisitPostAction $posts,
+        private readonly MarkAnalyticsDayAction $analytics,
     ) {}
 
     /**
@@ -140,6 +141,8 @@ final class RecordUserActivityAction
             ->where('votes', 0)->where('comments', 0)->where('posts_created', 0)
             ->update(['acted_at' => $at->utc()]);
         TrafficVisit::query()->whereKey($visit->id)->where($counter, '<', RecordVisitPostAction::MOST)->increment($counter);
+        // The visit counted on can be a paid click days old: Analytics reads its day again.
+        $this->analytics->handle($visit->network_day);
 
         if ($postId !== null) {
             $this->posts->actedOn((int) $visit->id, $postId, $activity, $at);

@@ -44,6 +44,8 @@ final class RetentionQuery implements RawSqlPersistenceBoundary
 
     private const string MOMENT = 'Y-m-d H:i:s';
 
+    public function __construct(private readonly AnalyticsRollupGate $gate) {}
+
     /** The moment the first account signed up, whether confirmed since or not; none before the first. */
     public function firstSignup(): ?CarbonImmutable
     {
@@ -177,7 +179,8 @@ final class RetentionQuery implements RawSqlPersistenceBoundary
         $query = AccountAttribution::query()
             ->from('account_attributions as accounts')
             ->join('users', 'users.id', '=', 'accounts.user_id')
-            ->leftJoin('traffic_visits as credited', 'credited.id', '=', 'accounts.credited_visit_id')
+            // Analytics' own row of the visit, narrower, once filled and up to date: the same source and device.
+            ->leftJoin(($this->gate->reads() ? 'analytics_visits' : 'traffic_visits').' as credited', 'credited.id', '=', 'accounts.credited_visit_id')
             ->leftJoin('game_attempts as attempts', 'attempts.id', '=', 'accounts.credited_attempt_id')
             ->where('users.role', UserRole::User->value)
             ->whereNotNull('accounts.confirmed_at')

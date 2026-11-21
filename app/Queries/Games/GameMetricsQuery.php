@@ -11,15 +11,18 @@ use App\Enums\GameEventType;
 use App\Enums\GameOnwardKind;
 use App\Enums\TrafficDimension;
 use App\Models\AccountAttribution;
+use App\Models\AnalyticsVisit;
 use App\Models\GameAnswer;
 use App\Models\GameAssignment;
 use App\Models\GameAttempt;
 use App\Models\GameEmailCapture;
 use App\Models\GameEvent;
 use App\Models\TrafficVisit;
+use App\Queries\Analytics\AnalyticsRollupGate;
 use App\Support\Analytics\PeriodVersionFunnel;
 use App\Support\Games\Analytics\GameFunnel;
 use App\Support\Games\Analytics\GameMetricsScope;
+use App\Support\Traffic\Presets\PresetSchema;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Query\JoinClause;
@@ -102,6 +105,8 @@ final class GameMetricsQuery implements RawSqlPersistenceBoundary
         GameEventType::FeedVoted,
         GameEventType::Exit,
     ];
+
+    public function __construct(private readonly AnalyticsRollupGate $gate) {}
 
     /**
      * The funnel of the scope, in all (keyed 0) or split by version, flow or
@@ -619,37 +624,53 @@ final class GameMetricsQuery implements RawSqlPersistenceBoundary
      */
     private function people(GameMetricsScope $scope, bool $withPlace): Builder
     {
-        $place = $withPlace ? ['traffic_visits.'.TrafficDimension::Device->columns()[0], 'traffic_visits.'.TrafficDimension::Country->columns()[0]] : [];
-        // Visits of the window only: one that ran into it from before counts, one long over does not.
-        $visits = fn (): Builder => TrafficVisit::query()->tracked()->matching($scope->visits)
-            ->where('traffic_visits.arrived_at', '<', $scope->to)
-            ->where('traffic_visits.last_seen_at', '>=', $scope->from);
+        // Analytics' own rows of the visits once filled and up to date: the same visits, narrower to read.
+        $table = $this->gate->reads() ? 'analytics_visits' : 'traffic_visits';
+        $place = $withPlace ? [$table.'.'.TrafficDimension::Device->columns()[0], $table.'.'.TrafficDimension::Country->columns()[0]] : [];
+        // Visits of the window only: one that ran into it from before counts, one long over does not —
+        // and none runs on past the longest attribution window, so older arrivals are never read.
+        $visits = fn (): Builder => ($this->gate->reads() ? AnalyticsVisit::query() : TrafficVisit::query())->tracked()->matching($scope->visits)
+            ->where($table.'.arrived_at', '>=', self::earliestArrival($scope))
+            ->where($table.'.arrived_at', '<', $scope->to)
+            ->where($table.'.last_seen_at', '>=', $scope->from);
 
         if ($scope->audience === GameAudience::Anonymous) {
             // A guest by a visit of this game, or by the visit a play of theirs came on — a paid click
             // landing on another game holds the browser, and the play is counted by it.
             $plays = $visits()
-                ->join('game_attempts', 'game_attempts.traffic_visit_id', '=', 'traffic_visits.id')
+                ->join('game_attempts', 'game_attempts.traffic_visit_id', '=', $table.'.id')
                 ->where('game_attempts.game_id', $scope->gameId)
-                ->select(['traffic_visits.visitor_hash as person', ...$place]);
+                ->select([$table.'.visitor_hash as person', ...$place]);
 
             return $visits()
-                ->where('traffic_visits.game_id', $scope->gameId)
-                ->select(['traffic_visits.visitor_hash as person', ...$place])
+                ->where($table.'.game_id', $scope->gameId)
+                ->select([$table.'.visitor_hash as person', ...$place])
                 ->union($plays);
         }
 
         $browsers = $visits()
-            ->join('account_browsers', 'account_browsers.visitor_hash', '=', 'traffic_visits.visitor_hash')
-            ->where('traffic_visits.game_id', $scope->gameId)
+            ->join('account_browsers', 'account_browsers.visitor_hash', '=', $table.'.visitor_hash')
+            ->where($table.'.game_id', $scope->gameId)
             ->select(['account_browsers.user_id as person', ...$place]);
 
         return $visits()
-            ->join('game_attempts', 'game_attempts.traffic_visit_id', '=', 'traffic_visits.id')
+            ->join('game_attempts', 'game_attempts.traffic_visit_id', '=', $table.'.id')
             ->where('game_attempts.game_id', $scope->gameId)
             ->whereNotNull('game_attempts.user_id')
             ->select(['game_attempts.user_id as person', ...$place])
             ->union($browsers);
+    }
+
+    /**
+     * The earliest a visit of the scope can have arrived: a visit is seen —
+     * a play, a step — only while it holds its browser, never longer than the
+     * longest attribution window a source can have, so a day more than that
+     * before the window is as far back as a visit that ran into it began.
+     * A click id that came back later is counted from the window it began in.
+     */
+    private static function earliestArrival(GameMetricsScope $scope): CarbonImmutable
+    {
+        return $scope->from->subDays(max(PresetSchema::ATTRIBUTION_DAYS) + 1);
     }
 
     /** @return Builder<GameAttempt> the attempts started in the scope */
@@ -774,10 +795,13 @@ final class GameMetricsQuery implements RawSqlPersistenceBoundary
             ->where('game_attempts.started_at', '>=', $scope->from)
             ->where('game_attempts.started_at', '<', $scope->to)
             ->when($scope->versionId !== null, fn (Builder $inner) => $inner->where('game_attempts.version_id', $scope->versionId))
-            // Of a play's own visit, whichever game it landed on.
+            // Of a play's own visit, whichever game it landed on: one that arrived before the play, within the longest attribution window.
             ->when($scope->visits->narrows(), fn (Builder $inner) => $inner->whereIn(
                 'game_attempts.traffic_visit_id',
-                TrafficVisit::query()->tracked()->matching($scope->visits)->select('traffic_visits.id'),
+                ($this->gate->reads() ? AnalyticsVisit::query() : TrafficVisit::query())->tracked()->matching($scope->visits)
+                    ->where('arrived_at', '>=', self::earliestArrival($scope))
+                    ->where('arrived_at', '<', $scope->to)
+                    ->select('id'),
             ));
     }
 
@@ -809,7 +833,7 @@ final class GameMetricsQuery implements RawSqlPersistenceBoundary
 
         $views
             ? $query->joinSub($this->people($scope, true), 'visit_people', 'visit_people.person', '=', self::viewer($scope))
-            : $query->join('traffic_visits as play_visits', 'play_visits.id', '=', 'game_attempts.traffic_visit_id');
+            : $query->join(($this->gate->reads() ? 'analytics_visits' : 'traffic_visits').' as play_visits', 'play_visits.id', '=', 'game_attempts.traffic_visit_id');
         $column = ($views ? 'visit_people.' : 'play_visits.').self::VISIT_GROUPS[$by]->columns()[0];
 
         if ($by !== 'group') {

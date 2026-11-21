@@ -61,7 +61,7 @@ it('counts the confirmed accounts of members per source and game, each week to t
     retentionAccount('2026-11-10 10:00:00', [1], [], User::factory()->admin()->create());
     retentionAccount('2026-10-20 10:00:00', [1]);
 
-    $groups = app(RetentionQuery::class)->groups(retentionWeeks(), analyticsFilter('7d')->period, null);
+    $groups = readBothWays(RetentionQuery::class)->groups(retentionWeeks(), analyticsFilter('7d')->period, null);
 
     expect(retentionGroups($groups))->toBe([
         '- | -' => ['accounts' => 1, 'weeks' => ['0 0 0 0 0 0', '1 1 0 0 1 1', '0 0 0 0 0 0']],
@@ -82,7 +82,7 @@ it('reads the accounts of a period outside the weeks, and only those of the devi
     retentionAccount('2026-11-12 10:00:00', [7]);
 
     $august = analyticsFilter(from: '2026-08-15', to: '2026-08-31')->period;
-    $query = app(RetentionQuery::class);
+    $query = readBothWays(RetentionQuery::class);
 
     expect(retentionGroups($query->groups(retentionWeeks(), $august, null)))->toBe([
         '- | -' => ['accounts' => 0, 'weeks' => ['0 0 0 0 0 0', '1 0 1 0 1 0', '0 0 0 0 0 0']],
@@ -109,7 +109,7 @@ it('counts once each member who came back on a day of the period, confirmed or f
     retentionAccount('2026-11-01 10:00:00', [2]);
     UserActivityDay::factory()->create(['user_id' => User::factory()->admin()->create()->id, 'day' => '2026-11-16', 'day_number' => 3]);
 
-    $query = app(RetentionQuery::class);
+    $query = readBothWays(RetentionQuery::class);
     $week = analyticsFilter('7d')->period;
 
     expect($query->returning($week, null))->toBe(2)

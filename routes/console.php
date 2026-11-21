@@ -99,6 +99,22 @@ Schedule::command('traffic:allocate-spend')->everyMinute()->withoutOverlapping(5
 Schedule::command('traffic:sync-networks')->everyMinute()->withoutOverlapping(10)->runInBackground();
 Schedule::command('traffic:block-losers')->everyFiveMinutes()->withoutOverlapping(60)->runInBackground();
 
+// Analytics' own rows of the visits (docs/architecture/analytics.md, "What a
+// tab reads"): every minute, the days whose visits still change, the older
+// days something changed, and — until every day has been — the earlier days
+// not filled yet, for up to 45 seconds; once a night the last
+// analytics.rollup.recheck_days days again, a check that nothing was missed.
+// Both share one overlap lock, so no day is written by two runs at once; it
+// lasts ten minutes, longer than the nightly run, short enough that a
+// scheduler killed mid-run holds Analytics back for minutes, not a day. The
+// nightly run is registered first: at 03:25 both are due, the scheduler
+// starts them in the order they are listed, and the one started second finds
+// the lock taken and is skipped — so the minute's run gives way to the
+// recheck, which reads those days anyway, and not the other way round. The
+// minutes after it skip while it runs; the rows stay current enough for that.
+Schedule::command('analytics:refresh-visits --recheck='.(int) config('analytics.rollup.recheck_days').' --seconds=540')->dailyAt('03:25')->createMutexNameUsing('analytics-refresh-visits')->withoutOverlapping(10)->runInBackground();
+Schedule::command('analytics:refresh-visits')->everyMinute()->createMutexNameUsing('analytics-refresh-visits')->withoutOverlapping(10)->runInBackground();
+
 // The local IP location database (docs/architecture/geo.md). Every minute,
 // but a run with nothing to do ends at once: each edition is checked once a
 // day, sooner after a failure or when the administrator asks for a refresh.

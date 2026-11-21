@@ -1,5 +1,6 @@
 <?php
 
+use App\Actions\Analytics\RefreshAnalyticsDayAction;
 use App\Actions\Games\ApplyGameTrafficAction;
 use App\Actions\Games\ChangeGameStatusAction;
 use App\Actions\Games\PublishGameVersionAction;
@@ -58,6 +59,7 @@ use App\Livewire\Admin\StudioPlanPostVotesEditor;
 use App\Livewire\Games\PlayGame;
 use App\Models\AccountAttribution;
 use App\Models\AccountBrowser;
+use App\Models\AnalyticsRollupState;
 use App\Models\Category;
 use App\Models\Comment;
 use App\Models\Game;
@@ -15144,6 +15146,65 @@ function analyticsVisit(string $browser, array $attributes = []): TrafficVisit
         'source_key' => AnalyticsSource::DIRECT,
         ...$attributes,
     ]);
+}
+
+/**
+ * Analytics' own rows of the visits (analytics_visits) filled for every day
+ * a visit was recorded on, and counted as filled and just brought up to
+ * date, so AnalyticsVisitsQuery reads them from now on — unless the setting
+ * says otherwise.
+ */
+function fillAnalyticsRollup(): void
+{
+    $refresh = app(RefreshAnalyticsDayAction::class);
+    $days = TrafficVisit::query()->distinct()->orderBy('network_day')->pluck('network_day')->map(fn (mixed $day): string => substr((string) $day, 0, 10))->all();
+
+    foreach ($days as $day) {
+        $refresh->handle($day);
+    }
+
+    AnalyticsRollupState::query()->upsert([[
+        'id' => AnalyticsRollupState::ID,
+        'filled_through' => $days === [] ? null : end($days),
+        'filled_at' => now(),
+        'refreshed_at' => now(),
+    ]], ['id'], ['filled_through', 'filled_at', 'refreshed_at']);
+    app()->forgetScopedInstances();
+}
+
+/**
+ * A query read twice for every call: from the visits, and from Analytics'
+ * own rows of them filled just then (fillAnalyticsRollup()) — what each read
+ * returns must be the same, and is what the call returns.
+ *
+ * @template TQuery of object
+ *
+ * @param  class-string<TQuery>  $query
+ * @return TQuery
+ */
+function readBothWays(string $query): object
+{
+    return new class($query)
+    {
+        /** @param  class-string  $query */
+        public function __construct(private readonly string $query) {}
+
+        /** @param  array<int, mixed>  $arguments */
+        public function __call(string $method, array $arguments): mixed
+        {
+            config(['analytics.rollup.read' => false]);
+            app()->forgetScopedInstances();
+            $fromVisits = app($this->query)->{$method}(...$arguments);
+
+            config(['analytics.rollup.read' => true]);
+            fillAnalyticsRollup();
+            $fromRollup = app($this->query)->{$method}(...$arguments);
+
+            expect($fromRollup)->toEqual($fromVisits, class_basename($this->query)."::{$method}() reads Analytics' own rows differently from the visits");
+
+            return $fromVisits;
+        }
+    };
 }
 
 /** The visits given as one session: each sharing the first's entry, as a later visit of the session goes on from it. */

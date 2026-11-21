@@ -45,4 +45,14 @@ return [
     // How many sources the Overview table lists before the rest fold into one row.
     'sources_top' => 10,
 
+    // Analytics' own rows of the visits (analytics_visits, analytics:refresh-visits).
+    // read: whether the tabs read them once they are filled; false reads the visits themselves.
+    // stale_minutes: how long since they were last brought up to date before the tabs read the visits instead.
+    // recheck_days: how many days back from today the nightly run reads again.
+    'rollup' => [
+        'read' => true,
+        'stale_minutes' => 30,
+        'recheck_days' => 60,
+    ],
+
 ];
