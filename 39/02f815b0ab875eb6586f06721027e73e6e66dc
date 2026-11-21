@@ -1,0 +1,32 @@
+app/Queries/Analytics/AnalyticsVisitsQuery.php
+  s_4b9dc6ab6b25d3::t_5bb9e7febc2b38 598-612,616,646,648-657
+tools/phpstan/architecture.neon
+  s_4b9dc6ab6b25d3::t_5bb9e7febc2b38 171-172
+docs/architecture/analytics.md
+  ai_agent 270-273,290-291,296-297,305-309
+tests/Feature/Analytics/AnalyticsCellsTest.php
+  s_4b9dc6ab6b25d3::t_3f23aab2f3cc5a 10,175,178,216-274
+  s_4b9dc6ab6b25d3::t_a84e8da6db358c 141,155-161
+app/Support/Analytics/AnalyticsCellLevel.php
+  s_4b9dc6ab6b25d3::t_5b3c32e952741f 9-12,17-20,23-27,29-36,43-46,49-50,55-56,58-72,75-81,92-97
+app/Queries/Analytics/AnalyticsCellsQuery.php
+  s_4b9dc6ab6b25d3::t_822e7941dd5880 94,117,137-138,140-141,143-147,149,155
+database/migrations/2026_11_21_100200_create_analytics_cells_tables.php
+  s_4b9dc6ab6b25d3::t_822e7941dd5880 22-24,42-50,84-92
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "3902f815b0ab875eb6586f06721027e73e6e66dc",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
