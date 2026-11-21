@@ -15260,6 +15260,16 @@ function forgetChosenReportPeriods(): void
     session()->forget(ReportPeriodMemory::SESSION_KEY);
 }
 
+/**
+ * The migration that indexes the visits by their five campaign tags: built
+ * on the tag columns, so a test that takes those columns off takes it off
+ * first and puts it back last.
+ */
+function trafficVisitTagsIndexMigration(): object
+{
+    return require database_path('migrations/2026_11_21_110000_add_tags_index_to_traffic_visits_table.php');
+}
+
 /** The visits of an Analytics preset, or of a range of days, narrowed as given, read for today. */
 function analyticsFilter(string $preset = '7d', ?TrafficDevice $device = null, ?string $source = null, ?string $campaign = null, ?string $from = null, ?string $to = null): AnalyticsFilter
 {
