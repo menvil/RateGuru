@@ -1,0 +1,29 @@
+app/Queries/Analytics/AnalyticsCellsQuery.php
+  s_4b9dc6ab6b25d3::t_6089966d9bafbd 1-159
+docs/architecture/http-and-database-boundaries.md
+  s_4b9dc6ab6b25d3::t_30067033014920 91-96
+tools/phpstan/architecture.neon
+  s_4b9dc6ab6b25d3::t_30067033014920 177,179
+composer.json
+  s_4b9dc6ab6b25d3::t_30067033014920 85
+docs/architecture/analytics.md
+  s_4b9dc6ab6b25d3::t_30067033014920 359-361
+app/Actions/Analytics/RefreshAnalyticsCellsAction.php
+  s_4b9dc6ab6b25d3::t_71c2aba86cc224 8,14-20,22,24,34,39-40
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "4217c682f8db71a202c53edf9d6d7b80368d2e11",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
