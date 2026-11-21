@@ -1,0 +1,59 @@
+app/Queries/Analytics/AnalyticsCellsQuery.php
+  s_4b9dc6ab6b25d3::t_04895a826060ef 51
+  s_4b9dc6ab6b25d3::t_042c4186ae4aa8 38-39,52-53,129-158
+docs/architecture/analytics.md
+  s_4b9dc6ab6b25d3::t_c0e351217ed693 292-297
+  s_4b9dc6ab6b25d3::t_34b23c6f24a9aa 564
+docs/architecture/http-and-database-boundaries.md
+  s_4b9dc6ab6b25d3::t_c0e351217ed693 93-94
+app/Models/AnalyticsPostCell.php
+  s_4b9dc6ab6b25d3::t_f82953f926bb4a 1-27
+tests/Feature/Console/TrafficPurgeExpiredCommandTest.php
+  s_4b9dc6ab6b25d3::t_2a6749dba5b5d0 5,98-100
+  s_4b9dc6ab6b25d3::t_04895a826060ef 87
+app/Console/Commands/TrafficPurgeExpiredCommand.php
+  s_4b9dc6ab6b25d3::t_7a0452b1e09341 11,30-36,89-96,109,118
+app/Actions/Analytics/RefreshAnalyticsCellsAction.php
+  s_4b9dc6ab6b25d3::t_4d9e66eaa39915 19-21
+  s_4b9dc6ab6b25d3::t_042c4186ae4aa8 8,39,43
+app/Support/Analytics/AnalyticsVisitRow.php
+  s_4b9dc6ab6b25d3::t_f82953f926bb4a 12-14,40,43,51,56-57,59-61,63-65,67-75,78-79,139-142
+  s_4b9dc6ab6b25d3::t_04895a826060ef 37,41,45,52-55,58,62,66,138
+database/migrations/2026_11_21_120000_add_post_figures_to_analytics_tables.php
+  s_4b9dc6ab6b25d3::t_4427d8b089c0c3 1-11,15,17-28,30-60,62-64,66-68
+  s_4b9dc6ab6b25d3::t_04895a826060ef 12-14,16,29,61,65
+app/Queries/Analytics/AnalyticsVisitsQuery.php
+  s_4b9dc6ab6b25d3::t_4d9e66eaa39915 927-942
+tools/phpstan/architecture.neon
+  s_4b9dc6ab6b25d3::t_c0e351217ed693 186,193,195
+app/Actions/Analytics/RecordVisitPostAction.php
+  s_4b9dc6ab6b25d3::t_7e95de61ec7aef 34-39,49,59,70,72,74,89
+app/Actions/Analytics/RecordUserActivityAction.php
+  s_4b9dc6ab6b25d3::t_7e95de61ec7aef 148-151
+tests/Feature/Analytics/AnalyticsCellsTest.php
+  s_4b9dc6ab6b25d3::t_be8a7281943f3c 13,278-302
+app/Queries/Analytics/AnalyticsContentQuery.php
+  s_4b9dc6ab6b25d3::t_04895a826060ef 97-98
+  s_4b9dc6ab6b25d3::t_4d9e66eaa39915 7,27-30,51-58,69-74,94,96,99,101,121-142,155
+tests/Feature/Analytics/AnalyticsRollupTest.php
+  s_4b9dc6ab6b25d3::t_2a6749dba5b5d0 4,135-157
+app/Queries/Analytics/AnalyticsRollupQuery.php
+  s_4b9dc6ab6b25d3::t_61c5c50d5c7865 9,33,45-54
+  s_4b9dc6ab6b25d3::t_042c4186ae4aa8 24-25
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "e66bdedfc75586f412a3a2a8f2e21d887b65ed39",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
