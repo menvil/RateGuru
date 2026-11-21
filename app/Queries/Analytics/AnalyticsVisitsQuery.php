@@ -924,6 +924,23 @@ final class AnalyticsVisitsQuery implements RawSqlPersistenceBoundary
     }
 
     /**
+     * The cells a read of the filter, split by the columns given, can count
+     * from — those of the coarsest level holding every column it filters or
+     * splits by, with anyone whose page ran — or none when such a read takes
+     * the rows (level()): for a read of another query that adds up the same
+     * people (AnalyticsContentQuery).
+     *
+     * @param  list<string>  $splitBy
+     * @return Builder<AnalyticsCell>|null
+     */
+    public function cellsFor(AnalyticsFilter $filter, array $splitBy = []): ?Builder
+    {
+        $level = $this->level($filter, $splitBy);
+
+        return $level === null ? null : self::ofCells(AnalyticsCell::query(), $filter, $level)->whereNotNull('visitors');
+    }
+
+    /**
      * The level of the cells a read of the filter, split by the columns
      * given, takes its people from: the coarsest that holds every column it
      * filters or splits by, over whole days, where the gate allows the cells

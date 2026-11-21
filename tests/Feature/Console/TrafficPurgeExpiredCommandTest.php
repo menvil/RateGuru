@@ -2,6 +2,7 @@
 
 use App\Models\AnalyticsCell;
 use App\Models\AnalyticsCellAccount;
+use App\Models\AnalyticsDirtyDay;
 use App\Models\AnalyticsGameDay;
 use App\Models\AnalyticsPid;
 use App\Models\AnalyticsVisit;
@@ -83,7 +84,7 @@ it('deletes the cells of people and the sums of game days with their days’ vis
 });
 
 it('deletes the posts a visit opened after 90 days from the first, the visit staying', function () {
-    $visit = TrafficVisit::factory()->create(['arrived_at' => now()->subDays(91)]);
+    $visit = TrafficVisit::factory()->create(['arrived_at' => now()->subDays(91), 'network_day' => now()->subDays(91)->toDateString()]);
     $fresh = TrafficVisit::factory()->create();
     // The first of a visit's posts opened just before the 90 days were up, the second just after.
     TrafficVisitPost::query()->forceCreate(['visit_id' => $visit->id, 'post_id' => 11, 'views' => 2, 'first_at' => now()->subDays(90)->subMinute()]);
@@ -94,7 +95,9 @@ it('deletes the posts a visit opened after 90 days from the first, the visit sta
 
     expect(TrafficVisitPost::query()->orderBy('visit_id')->orderBy('post_id')->get(['visit_id', 'post_id'])->map(fn (TrafficVisitPost $row): array => [$row->visit_id, $row->post_id])->all())
         ->toBe([[$visit->id, 12], [$fresh->id, 11]])
-        ->and(TrafficVisit::query()->whereKey($visit->id)->exists())->toBeTrue();
+        ->and(TrafficVisit::query()->whereKey($visit->id)->exists())->toBeTrue()
+        // Analytics keeps what each visit did with posts: the visit's day is read again.
+        ->and(AnalyticsDirtyDay::query()->pluck('day')->all())->toContain(substr((string) $visit->network_day, 0, 10));
 });
 
 it('deletes the days members did something after 400 days, without a new environment variable', function () {

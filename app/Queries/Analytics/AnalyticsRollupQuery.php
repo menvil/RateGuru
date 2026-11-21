@@ -6,6 +6,7 @@ use App\Models\AnalyticsDirtyDay;
 use App\Models\AnalyticsPerson;
 use App\Models\AnalyticsVisit;
 use App\Models\TrafficVisit;
+use App\Models\TrafficVisitPost;
 use App\Support\Analytics\AnalyticsVisitRow;
 use App\Support\Traffic\Reports\TrafficReportFilter;
 
@@ -20,7 +21,8 @@ final class AnalyticsRollupQuery
 {
     /**
      * The visits of a day after the id given, the first ones recorded first,
-     * at most so many: their columns a row is made from.
+     * at most so many: their columns a row is made from, and what each did
+     * with posts (AnalyticsVisitRow::postFigures()).
      *
      * @return list<array<string, mixed>>
      */
@@ -28,7 +30,7 @@ final class AnalyticsRollupQuery
     {
         $window = new TrafficReportFilter($day, $day);
 
-        return TrafficVisit::query()
+        $visits = TrafficVisit::query()
             ->where('network_day', $day)
             ->where('arrived_at', '>=', $window->arrivedFrom())
             ->where('arrived_at', '<', $window->arrivedBefore())
@@ -40,6 +42,16 @@ final class AnalyticsRollupQuery
             ->get()
             ->map(fn (object $row): array => (array) $row)
             ->all();
+
+        // What each visit did with posts, from its rows of them: one read for the block.
+        $posts = $visits === [] ? collect() : TrafficVisitPost::query()
+            ->whereIn('visit_id', array_column($visits, 'id'))
+            ->toBase()
+            ->get(['visit_id', 'views', 'voted', 'shared_at'])
+            ->map(fn (object $post): array => (array) $post)
+            ->groupBy('visit_id');
+
+        return array_map(fn (array $visit): array => [...$visit, ...AnalyticsVisitRow::postFigures($posts->get($visit['id'], collect())->all())], $visits);
     }
 
     /**

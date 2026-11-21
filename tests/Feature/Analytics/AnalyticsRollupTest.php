@@ -1,6 +1,7 @@
 <?php
 
 use App\Actions\Analytics\MarkAnalyticsDayAction;
+use App\Actions\Analytics\RecordVisitPostAction;
 use App\Actions\Analytics\RefreshAnalyticsDayAction;
 use App\Actions\Analytics\RefreshAnalyticsVisitsAction;
 use App\Actions\Traffic\AllocateSpendDayAction;
@@ -129,6 +130,31 @@ it('marks the day of a visit days old that a late step, a spend shared out again
     app(AllocateSpendDayAction::class)->handle($source, '2026-11-06', now()->toImmutable());
 
     expect(AnalyticsDirtyDay::query()->orderBy('day')->pluck('day')->all())->toBe(['2026-11-03', '2026-11-05']);
+});
+
+it('keeps what a visit did with posts on its row, and marks the day of a visit days old whose posts change', function () {
+    $old = analyticsVisit('ann', ['network_day' => '2026-11-03']);
+    $today = analyticsVisit('bob', ['network_day' => '2026-11-18', 'arrived_at' => '2026-11-18 10:00:00']);
+    analyticsVisitPost($old, 7, ['views' => 2, 'voted' => true]);
+    analyticsVisitPost($old, 8, ['views' => 0, 'voted' => true, 'shared_at' => '2026-11-03 10:05:00']);
+    app(RefreshAnalyticsDayAction::class)->handle('2026-11-03');
+
+    expect(AnalyticsVisit::query()->whereKey($old->id)->first(['post_views', 'post_viewed', 'post_voted', 'post_shares'])->only(['post_views', 'post_viewed', 'post_voted', 'post_shares']))
+        ->toMatchArray(['post_views' => 2, 'post_shares' => 1])
+        ->and((bool) AnalyticsVisit::query()->whereKey($old->id)->value('post_voted'))->toBeTrue();
+
+    // A post opened on today's visit is read with today's day anyway; one opened or shared on the old visit marks its day.
+    app(RecordVisitPostAction::class)->viewedOn($today->id, 9, now()->toImmutable());
+
+    expect(AnalyticsDirtyDay::query()->count())->toBe(0);
+
+    app(RecordVisitPostAction::class)->viewedOn($old->id, 9, now()->toImmutable());
+
+    expect(AnalyticsDirtyDay::query()->pluck('day')->all())->toBe(['2026-11-03']);
+
+    app(RefreshAnalyticsDayAction::class)->handle('2026-11-03');
+
+    expect((int) AnalyticsVisit::query()->whereKey($old->id)->value('post_views'))->toBe(3);
 });
 
 it('reads a marked day again and lets it go', function () {

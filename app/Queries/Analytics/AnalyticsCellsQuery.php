@@ -35,6 +35,8 @@ final class AnalyticsCellsQuery implements RawSqlPersistenceBoundary
         'activated' => 'v.opened AND v.activated',
         'voters' => 'v.opened AND v.votes > 0',
         'commenters' => 'v.opened AND v.comments > 0',
+        'post_viewers' => 'v.opened AND v.post_viewed',
+        'post_voters' => 'v.opened AND v.post_voted',
     ];
 
     /** @var array<string, string> each sum, over the visits whose page ran */
@@ -46,6 +48,9 @@ final class AnalyticsCellsQuery implements RawSqlPersistenceBoundary
         'posts' => 'COALESCE(SUM(v.posts_created) FILTER (WHERE v.opened), 0)',
         'spend' => 'COALESCE(SUM(v.spend) FILTER (WHERE v.opened), 0)',
         'spend_estimated' => 'COALESCE(SUM(v.spend) FILTER (WHERE v.opened AND v.spend_estimated), 0)',
+        'post_rows' => 'COALESCE(SUM(v.post_rows) FILTER (WHERE v.opened), 0)',
+        'post_views' => 'COALESCE(SUM(v.post_views) FILTER (WHERE v.opened), 0)',
+        'post_shares' => 'COALESCE(SUM(v.post_shares) FILTER (WHERE v.opened), 0)',
         // Every paid click, its page run or not.
         'paid_clicks' => 'COUNT(*) FILTER (WHERE v.source_id IS NOT NULL)',
         'crawlers' => 'COUNT(*) FILTER (WHERE v.source_id IS NOT NULL AND v.crawler)',
@@ -119,6 +124,38 @@ final class AnalyticsCellsQuery implements RawSqlPersistenceBoundary
                 'rb_build_agg(p.pid)::bytea AS accounts',
             ]), [...$this->levelBindings(), $day])
             ->groupByRaw($this->groupingSets(", TO_CHAR(v.signup_at, 'YYYY-MM-DD')"), []);
+    }
+
+    /** @return list<string> the columns postCells() selects, in order */
+    public static function postCellColumns(): array
+    {
+        return ['network_day', 'device', 'post_id', 'viewers', 'engaged', 'voters', 'views', 'votes', 'comments'];
+    }
+
+    /**
+     * Each post's people of the day by device, from the rows of the posts of
+     * the day's visits whose page ran (postCellColumns()): those who opened it,
+     * of them those who voted on it or commented on it, those who voted on it,
+     * and its views, votes and comments — what AnalyticsContentQuery::topPosts()
+     * reads of each visit's row of a post.
+     *
+     * @return Builder<AnalyticsVisit>
+     */
+    public function postCells(string $day): Builder
+    {
+        return $this->ofDay($day)
+            ->join('traffic_visit_posts as s', 's.visit_id', '=', 'v.id')
+            ->where('v.opened', true)
+            ->selectRaw(implode(', ', [
+                '? AS network_day', 'v.device', 's.post_id',
+                'rb_build_agg(p.pid) FILTER (WHERE s.views > 0)::bytea AS viewers',
+                'rb_build_agg(p.pid) FILTER (WHERE s.views > 0 AND (s.voted OR s.commented))::bytea AS engaged',
+                'rb_build_agg(p.pid) FILTER (WHERE s.voted)::bytea AS voters',
+                'COALESCE(SUM(s.views), 0) AS views',
+                'COUNT(*) FILTER (WHERE s.voted) AS votes',
+                'COUNT(*) FILTER (WHERE s.commented) AS comments',
+            ]), [$day])
+            ->groupBy('v.device', 's.post_id');
     }
 
     /** @return Builder<AnalyticsVisit> the day's rows with each browser's number, through the arrivals as every traffic report reads a day */

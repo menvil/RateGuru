@@ -10,6 +10,7 @@ use App\Models\AnalyticsRollupState;
 use App\Models\Game;
 use App\Models\TrafficSource;
 use App\Models\TrafficVisit;
+use App\Queries\Analytics\AnalyticsContentQuery;
 use App\Queries\Analytics\AnalyticsRollupGate;
 use App\Queries\Analytics\AnalyticsVisitsQuery;
 use App\Support\Analytics\AnalyticsCellLevel;
@@ -272,6 +273,33 @@ it('gives what the paid clicks cost and the first day of each value the rows giv
         ->and(readBothWays(AnalyticsVisitsQuery::class)->spend(analyticsFilter('7d'), [AnalyticsDimension::Source], [AnalyticsSource::DIRECT]))->toBe([])
         ->and(readBothWays(AnalyticsVisitsQuery::class)->firstDays(AnalyticsDimension::Campaign, ['paid:3', 'tag:spring', 'tag:none'], '2026-11-12', '2026-11-18'))->toBe(['paid:3' => '2026-11-12', 'tag:spring' => '2026-11-15'])
         ->and(readBothWays(AnalyticsVisitsQuery::class)->firstDays(AnalyticsDimension::Landing, ['post', 'feed'], '2026-11-14', '2026-11-18'))->toEqualCanonicalizing(['post' => '2026-11-16', 'feed' => '2026-11-17']);
+});
+
+it('reads the posts of Site engagement from the cells and each post’s own cells, never from the rows of the posts', function () {
+    cellsFixture();
+    $ann = TrafficVisit::query()->where('visitor_hash', hash('sha256', 'ann'))->where('network_day', '2026-11-12')->firstOrFail();
+    $gus = TrafficVisit::query()->where('visitor_hash', hash('sha256', 'gus'))->firstOrFail();
+    analyticsVisitPost($ann, 7, ['views' => 2, 'voted' => true, 'shared_at' => '2026-11-12 10:05:00']);
+    analyticsVisitPost($gus, 7, ['views' => 1, 'commented' => true]);
+    analyticsVisitPost($gus, 8, ['views' => 0, 'voted' => true]);
+    $week = analyticsFilter('7d');
+
+    expect(readBothWays(AnalyticsContentQuery::class)->figures($week))->toBe(['views' => 3, 'viewers' => 2, 'voters' => 1, 'shares' => 1])
+        ->and(readBothWays(AnalyticsContentQuery::class)->bySource(analyticsFilter('7d', TrafficDevice::Mobile), ['paid:7', AnalyticsSource::DIRECT]))->toHaveKey('paid:7')
+        ->and(readBothWays(AnalyticsContentQuery::class)->topPosts($week->period, TrafficDevice::Mobile, 10))->toHaveCount(1);
+
+    fillAnalyticsRollup();
+    $content = app(AnalyticsContentQuery::class);
+
+    foreach ([fn () => $content->figures($week), fn () => $content->bySource($week, ['paid:7']), fn () => $content->topPosts($week->period, null, 10)] as $read) {
+        DB::flushQueryLog();
+        DB::enableQueryLog();
+        $read();
+        $sql = collect(DB::getQueryLog())->pluck('query')->implode(' ');
+        DB::disableQueryLog();
+
+        expect($sql)->toContain('_cells')->not->toContain('traffic_visit_posts');
+    }
 });
 
 it('writes a day’s cells again when one of its visits changes', function () {

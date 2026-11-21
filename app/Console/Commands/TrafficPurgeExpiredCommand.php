@@ -8,6 +8,7 @@ use App\Models\AnalyticsCellAccount;
 use App\Models\AnalyticsGameDay;
 use App\Models\AnalyticsPerson;
 use App\Models\AnalyticsPid;
+use App\Models\AnalyticsPostCell;
 use App\Models\AnalyticsVisit;
 use App\Models\TrafficBlockEvent;
 use App\Models\TrafficChanceRun;
@@ -26,11 +27,13 @@ use Illuminate\Database\Eloquent\Builder;
  * Deletes what the tracker recorded once it is past its retention
  * (config/traffic.php): visits after traffic.retention_days.visits (400) with
  * their conversions and Analytics' own rows of them, and each browser's first
- * day, the cells of each day's people and the sums of its games' visits once
- * every visit of their day is gone — a day the cutoff runs through is marked
- * for analytics:refresh-visits to write again from the visits left — and a
- * browser's number once no visit of it is left, a click's details, the posts a visit opened and shared
- * and the postback outbox after 90, spend figures and the block log after
+ * day, the cells of each day's people and posts and the sums of its games'
+ * visits once every visit of their day is gone — a day the cutoff runs
+ * through is marked for analytics:refresh-visits to write again from the
+ * visits left — and a browser's number once no visit of it is left; a
+ * click's details, the posts a visit opened and shared — the days of their
+ * visits marked, as Analytics keeps what each visit did with posts — and the
+ * postback outbox after 90, spend figures and the block log after
  * 400, and every chance working-out but the newest 30 — and the days members
  * did something on the site after analytics.retention_days.activity (400,
  * config/analytics.php). Sources, campaigns, blocks, prices and attributions
@@ -83,6 +86,14 @@ final class TrafficPurgeExpiredCommand extends Command
 
         $now = CarbonImmutable::now('UTC');
         [$lastGone, $cut] = self::networkDays($now->subDays($days['visits']));
+        // The days of the visits whose posts go: Analytics keeps what each visit did with posts, and reads those days again.
+        $postDays = TrafficVisitPost::query()
+            ->join('traffic_visits', 'traffic_visits.id', '=', 'traffic_visit_posts.visit_id')
+            ->where('traffic_visit_posts.first_at', '<', $now->subDays($days['visit_details']))
+            ->distinct()
+            ->pluck('traffic_visits.network_day')
+            ->map(fn (mixed $day): string => substr((string) $day, 0, 10))
+            ->all();
         $deleted = [
             'click details' => $this->purge(TrafficVisitDetail::query()->where('created_at', '<', $now->subDays($days['visit_details'])), $chunk, 'visit_id'),
             'posts of visits' => $this->purge(TrafficVisitPost::query()->where('first_at', '<', $now->subDays($days['visit_details'])), $chunk, 'visit_id'),
@@ -95,6 +106,7 @@ final class TrafficPurgeExpiredCommand extends Command
             'cells of people' => $this->purge(AnalyticsCell::query()->where('network_day', '<=', $lastGone), $chunk),
             'cells of accounts' => $this->purge(AnalyticsCellAccount::query()->where('network_day', '<=', $lastGone), $chunk),
             'sums of game days' => $this->purge(AnalyticsGameDay::query()->where('network_day', '<=', $lastGone), $chunk),
+            'cells of posts' => $this->purge(AnalyticsPostCell::query()->where('network_day', '<=', $lastGone), $chunk),
             'browser numbers' => $this->purge(AnalyticsPid::query()
                 ->where('pid', '<', (int) AnalyticsPid::query()->max('pid'))
                 ->whereNotExists(fn ($visit) => $visit->from((new AnalyticsVisit)->getTable())->whereColumn('analytics_visits.visitor_key', 'analytics_pids.visitor_key')), $chunk, 'visitor_key'),
@@ -103,7 +115,7 @@ final class TrafficPurgeExpiredCommand extends Command
             'activity days' => $this->purge(UserActivityDay::query()->where('day', '<', $now->subDays($activityDays)->format('Y-m-d')), $chunk),
         ];
 
-        foreach ($cut as $day) {
+        foreach (array_unique([...$cut, ...$postDays]) as $day) {
             app(MarkAnalyticsDayAction::class)->handle($day, $now);
         }
 

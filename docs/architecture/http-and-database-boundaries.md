@@ -90,7 +90,8 @@ The reviewed boundaries are:
   summed, and the people who came back as a `WITH RECURSIVE` fold of the
   period's days through `fromRaw` (PostgreSQL with the roaringbitmap
   extension only).
-- `AnalyticsCellsQuery` for what those cells are written from, a day's rows of
+- `AnalyticsCellsQuery` for what those cells are written from — and each
+  post's people of a day by device (`analytics_post_cells`) — a day's rows of
   `analytics_visits`: one `SELECT` with `GROUPING SETS` over every level, each
   step's people `rb_build_agg(pid) FILTER (WHERE …)`, the sums beside them
   and the paid clicks' own, and the next browser numbers by

@@ -183,16 +183,16 @@ parameters:
             -
                 class: App\Queries\Analytics\AnalyticsCellsQuery
                 methods: [selectRaw, groupByRaw]
-                reason: 'The cells of a day''s people are read from that day''s rows in one pass apiece, for RefreshAnalyticsCellsAction to insert: GROUPING SETS over every level of detail, each step''s people a roaring bitmap built of the browsers'' numbers (rb_build_agg … FILTER), the sums beside them and every paid click''s, its page run or not; and the next numbers given to the day''s new browsers by ROW_NUMBER() over them — inserted with insertUsing, PostgreSQL with the roaringbitmap extension only; every value is bound and every column comes from AnalyticsCellLevel.'
+                reason: 'The cells of a day''s people are read from that day''s rows in one pass apiece, for RefreshAnalyticsCellsAction to insert: GROUPING SETS over every level of detail, each step''s people a roaring bitmap built of the browsers'' numbers (rb_build_agg … FILTER), the sums beside them and every paid click''s, its page run or not; and the next numbers given to the day''s new browsers by ROW_NUMBER() over them — inserted with insertUsing, PostgreSQL with the roaringbitmap extension only; every value is bound and every column comes from AnalyticsCellLevel.; and each post''s people of the day by device, from the rows of the posts of the day''s visits, for analytics_post_cells'
                 bindings: required
                 behaviorTests: [tests/Feature/Analytics/AnalyticsCellsTest.php]
                 status: approved
             -
                 class: App\Queries\Analytics\AnalyticsContentQuery
                 methods: [selectRaw, havingRaw, orderByRaw]
-                reason: 'Site engagement counts the posts a period''s visits opened: conditional COUNT(DISTINCT CASE WHEN … THEN visitor_hash END) and sums over the rows each visit keeps of its posts — in all, per source, and per post with only the posts opened at all, the most opened first — and the different browsers of the accounts whose session first opened each post, without hydrating up to millions of rows; every value is bound and every column of the visit comes from AnalyticsDimension.'
+                reason: 'Site engagement counts the posts a period''s visits opened: conditional COUNT(DISTINCT CASE WHEN … THEN visitor_hash END) and sums over the rows each visit keeps of its posts — in all, per source, and per post with only the posts opened at all, the most opened first — and the different browsers of the accounts whose session first opened each post, without hydrating up to millions of rows; every value is bound and every column of the visit comes from AnalyticsDimension.; and, where the cells of each day''s people fit a read, the posts'' figures as the cells'' sums and the union of their sets of those who opened and voted on a post (HAVING a row of a post), each post''s people as the union of its own cells'' sets'
                 bindings: required
-                behaviorTests: [tests/Feature/Queries/AnalyticsContentQueryTest.php]
+                behaviorTests: [tests/Feature/Queries/AnalyticsContentQueryTest.php, tests/Feature/Analytics/AnalyticsCellsTest.php]
                 status: approved
             -
                 class: App\Queries\Analytics\TrafficSegmentsQuery

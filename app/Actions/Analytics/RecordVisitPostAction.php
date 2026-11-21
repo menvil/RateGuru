@@ -31,6 +31,12 @@ use Illuminate\Database\Eloquent\Builder;
  * (`first_at`) when it is made, and again at the first view of a row a
  * vote, comment or share made: the moment the post was first opened, which
  * decides the post a session opened first (AnalyticsContentQuery).
+ *
+ * A row opened or shared is of a visit Analytics keeps the posts of
+ * (AnalyticsVisitRow): its day is marked to be read again once the row is
+ * written (MarkAnalyticsDayAction) — the visit can be a paid click days old.
+ * A vote or a comment is marked by the activity it comes with
+ * (RecordUserActivityAction).
  */
 final class RecordVisitPostAction
 {
@@ -40,6 +46,7 @@ final class RecordVisitPostAction
     public function __construct(
         private readonly VisitorVisitQuery $visits,
         private readonly PublishedPostDetailsQuery $posts,
+        private readonly MarkAnalyticsDayAction $analytics,
     ) {}
 
     /** The browser opened the post, which its own page would show. */
@@ -49,6 +56,7 @@ final class RecordVisitPostAction
 
         if ($visit !== null && $this->posts->isPublished($postId)) {
             $this->view((int) $visit->id, $postId, $now);
+            $this->analytics->handle($visit->network_day, $now);
         }
     }
 
@@ -59,10 +67,11 @@ final class RecordVisitPostAction
      */
     public function viewedOn(int $visitId, int $postId, CarbonImmutable $now): void
     {
-        $flags = TrafficVisit::query()->whereKey($visitId)->value('bot_flags');
+        $visit = TrafficVisit::query()->whereKey($visitId)->toBase()->first(['bot_flags', 'network_day']);
 
-        if ($flags !== null && ! BotSignals::isCrawler((int) $flags)) {
+        if ($visit !== null && ! BotSignals::isCrawler((int) $visit->bot_flags)) {
             $this->view($visitId, $postId, $now);
+            $this->analytics->handle((string) $visit->network_day, $now);
         }
     }
 
@@ -77,6 +86,7 @@ final class RecordVisitPostAction
 
         $this->row((int) $visit->id, $postId, $now);
         $this->rowOf((int) $visit->id, $postId)->whereNull('shared_at')->update(['shared_at' => $now]);
+        $this->analytics->handle($visit->network_day, $now);
     }
 
     /** A member voted on the post or commented on it on the given visit: the flag of its row. */

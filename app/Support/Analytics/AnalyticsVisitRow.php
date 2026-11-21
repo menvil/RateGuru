@@ -9,8 +9,9 @@ use App\Support\Traffic\Money\TrafficMoney;
 /**
  * One visit as Growth → Analytics reads it (analytics_visits), worked out
  * from its row of traffic_visits: the browser as a number — the first 64
- * bits of its hash, a signed integer — each step a flag, the sums, and the
- * columns a split or a filter names. Every value comes out as the text the database hands back once
+ * bits of its hash, a signed integer — each step a flag, the sums, the
+ * columns a split or a filter names, and what it did with posts
+ * (POST_FIGURES, from its rows of traffic_visit_posts). Every value comes out as the text the database hands back once
  * stored, whatever the engine, so a row written before can be told apart
  * from the one the visit makes now by comparing them (same()). Pure.
  */
@@ -33,19 +34,49 @@ final class AnalyticsVisitRow
         'signup_at', 'signup_after_seconds', 'account_after_seconds', 'votes', 'comments', 'posts_created', 'spend', 'spend_estimated',
         'value_real', 'value_expected', 'tagged', 'crawler', 'source_key', 'campaign_key', 'creative_key', 'landing_key', 'device',
         'country', 'city', 'game_id', 'version_id', 'utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term',
+        'post_rows', 'post_views', 'post_viewed', 'post_voted', 'post_shares',
     ];
 
-    private const array FLAGS = ['opened', 'known', 'signed_in', 'started', 'completed', 'goal', 'signup_form', 'signed_up', 'account', 'activated', 'post_published', 'returned', 'spend_estimated', 'tagged', 'crawler'];
+    /** @var list<string> what a visit did with posts, worked out from its rows of traffic_visit_posts (postFigures()) */
+    public const array POST_FIGURES = ['post_rows', 'post_views', 'post_viewed', 'post_voted', 'post_shares'];
 
-    private const array NUMBERS = ['id', 'entry_visit_id', 'source_id', 'campaign_id', 'visitor_key', 'signup_after_seconds', 'account_after_seconds', 'votes', 'comments', 'posts_created', 'game_id', 'version_id'];
+    private const array FLAGS = ['opened', 'known', 'signed_in', 'started', 'completed', 'goal', 'signup_form', 'signed_up', 'account', 'activated', 'post_published', 'returned', 'spend_estimated', 'tagged', 'crawler', 'post_viewed', 'post_voted'];
+
+    private const array NUMBERS = ['id', 'entry_visit_id', 'source_id', 'campaign_id', 'visitor_key', 'signup_after_seconds', 'account_after_seconds', 'votes', 'comments', 'posts_created', 'game_id', 'version_id', 'post_rows', 'post_views', 'post_shares'];
 
     private const array MONEY = ['spend', 'value_real', 'value_expected'];
 
     private const array MOMENTS = ['arrived_at', 'last_seen_at', 'signup_at'];
 
     /**
+     * What a visit did with posts, from its rows of traffic_visit_posts: how
+     * many rows it has — one voted on from the feed, never opened, is one —
+     * the times it opened one, whether it opened any, whether it voted on one
+     * it opened, and how many it shared.
+     *
+     * @param  iterable<array{views: int|string, voted: bool|int|string, shared_at: mixed}>  $posts
+     * @return array{post_rows: int, post_views: int, post_viewed: bool, post_voted: bool, post_shares: int}
+     */
+    public static function postFigures(iterable $posts): array
+    {
+        $figures = ['post_rows' => 0, 'post_views' => 0, 'post_viewed' => false, 'post_voted' => false, 'post_shares' => 0];
+
+        foreach ($posts as $post) {
+            $views = (int) $post['views'];
+            $figures['post_rows']++;
+            $figures['post_views'] += $views;
+            $figures['post_viewed'] = $figures['post_viewed'] || $views > 0;
+            $figures['post_voted'] = $figures['post_voted'] || ($views > 0 && self::flag($post['voted']));
+            $figures['post_shares'] += $post['shared_at'] !== null ? 1 : 0;
+        }
+
+        return $figures;
+    }
+
+    /**
      * The row a visit makes, from its columns (SOURCE_COLUMNS) as the
-     * database hands them back.
+     * database hands them back, and what it did with posts (postFigures()) —
+     * none when they aren't given.
      *
      * @param  array<string, mixed>  $visit
      * @return array<string, string|null>
@@ -104,6 +135,11 @@ final class AnalyticsVisitRow
             'utm_campaign' => $visit['utm_campaign'] ?? null,
             'utm_content' => $visit['utm_content'] ?? null,
             'utm_term' => $visit['utm_term'] ?? null,
+            'post_rows' => $visit['post_rows'] ?? 0,
+            'post_views' => $visit['post_views'] ?? 0,
+            'post_viewed' => self::flag($visit['post_viewed'] ?? false),
+            'post_voted' => self::flag($visit['post_voted'] ?? false),
+            'post_shares' => $visit['post_shares'] ?? 0,
         ]);
     }
 

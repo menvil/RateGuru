@@ -289,7 +289,12 @@ the day's rows, so a write that fails leaves the day to be written whole again; 
 cells the refresh fills them in turn after the rows (`cells_through`,
 `cells_filled_at`). `AnalyticsVisitsQuery` reads them for `figures()`, `by()`,
 `top()`, days and blocks of days of `series()`, `of()`, `among()`, `pairs()`,
-`quality()`, `returning()`, `spend()` and `firstDays()` when every column the
+`quality()`, `returning()`, `spend()` and `firstDays()` — and
+`AnalyticsContentQuery` its posts' figures, from what each visit did with posts
+kept on its row (`post_rows`, `post_views`, `post_viewed`, `post_voted`,
+`post_shares`, read again whenever a visit's row of a post changes, the day
+marked when the visit is days old), and the posts opened most from each post's
+people a day and device (`analytics_post_cells`) — when every column the
 read filters or splits by is in one level and it counts whole days
 (`AnalyticsFilter::countsWholeDays()`), taking the coarsest such level. The
 people who came back are a fold of the period's days — once by the days so
@@ -556,7 +561,7 @@ action. A moderator sees neither.
 | Hidden periods | for ever, as every period |
 | Analytics' own rows of the visits (`analytics_visits`) | as long as their visit |
 | Each browser's first day (`analytics_people`) | 400 days from that day, as the visits (`traffic:purge-expired`) |
-| The cells of each day's people and their accounts (`analytics_cells`, `analytics_cell_accounts`) | until every visit of the day is gone (`traffic:purge-expired`); a day the cutoff runs through is written again from the visits left |
+| The cells of each day's people, their accounts and each post's people (`analytics_cells`, `analytics_cell_accounts`, `analytics_post_cells`) | until every visit of the day is gone (`traffic:purge-expired`); a day the cutoff runs through is written again from the visits left |
 | A browser's number (`analytics_pids`) | until no row of Analytics names it, but the highest, which the next number counts on from |
 | The sums of each day's games' visits (`analytics_game_days`) | as the cells |
 | A tab's figures and the filter options, per administrator (cache) | 10 minutes (`analytics.read_cache_minutes`), or until Refresh, a segment saved, deleted or restored, or a tracking link saved |

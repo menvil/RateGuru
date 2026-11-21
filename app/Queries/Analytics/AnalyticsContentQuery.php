@@ -4,6 +4,7 @@ namespace App\Queries\Analytics;
 
 use App\Contracts\Persistence\RawSqlPersistenceBoundary;
 use App\Enums\TrafficDevice;
+use App\Models\AnalyticsPostCell;
 use App\Models\AnalyticsVisit;
 use App\Models\Post;
 use App\Models\TrafficVisit;
@@ -23,7 +24,10 @@ use Illuminate\Database\Eloquent\Collection;
  * Analytics figure counts it (AnalyticsVisitsQuery). The visits are
  * Analytics' own narrow rows of them whenever AnalyticsRollupGate says they
  * are filled and up to date, else the visits themselves — the same figures
- * either way.
+ * either way; and where the gate allows the cells of each day's people, a
+ * read that fits them counts from them instead: the people who opened a post
+ * and voted on one as the union of the cells' sets (AnalyticsVisitsQuery::cellsFor()),
+ * each post's people from its own cells (analytics_post_cells).
  *
  *  - figures()       how often the filter's visits opened a post, the
  *                    browsers that opened one, of them those who voted on
@@ -44,7 +48,14 @@ final class AnalyticsContentQuery implements RawSqlPersistenceBoundary
     /** The most posts a list reads. */
     public const int MOST_POSTS = 100;
 
-    public function __construct(private readonly AnalyticsRollupGate $gate) {}
+    /** What figures() reads of the cells, the same figures counted from each visit's posts (AnalyticsVisitRow::postFigures()). */
+    private const string CELL_METRICS = 'COALESCE(SUM(post_views), 0) AS views, COALESCE(rb_cardinality(rb_or_agg(post_viewers::roaringbitmap)), 0) AS viewers, '
+        .'COALESCE(rb_cardinality(rb_or_agg(post_voters::roaringbitmap)), 0) AS voters, COALESCE(SUM(post_shares), 0) AS shares';
+
+    public function __construct(
+        private readonly AnalyticsRollupGate $gate,
+        private readonly AnalyticsVisitsQuery $visits,
+    ) {}
 
     /**
      * What the visits the filter admits did with posts: the times they
@@ -55,6 +66,12 @@ final class AnalyticsContentQuery implements RawSqlPersistenceBoundary
      */
     public function figures(AnalyticsFilter $filter): array
     {
+        $cells = $this->visits->cellsFor($filter);
+
+        if ($cells !== null) {
+            return self::counted((array) $cells->selectRaw(self::CELL_METRICS, [])->toBase()->first());
+        }
+
         [$metrics, $bindings] = $this->metrics();
 
         return self::counted((array) $this->rows($filter)->selectRaw($metrics, $bindings)->toBase()->first());
@@ -74,9 +91,14 @@ final class AnalyticsContentQuery implements RawSqlPersistenceBoundary
         }
 
         [$metrics, $bindings] = $this->metrics();
+        $cells = $this->visits->cellsFor($filter, ['source_key']);
         $figures = [];
+        $read = $cells !== null
+            // A source is listed once a visit of it has a row of a post, as when the rows of the posts are read.
+            ? $cells->whereIn('source_key', $sourceKeys)->groupBy('source_key')->select('source_key')->selectRaw(self::CELL_METRICS, [])->havingRaw('SUM(post_rows) > ?', [0])
+            : $this->rows($filter)->whereIn('visits.source_key', $sourceKeys)->groupBy('visits.source_key')->select('visits.source_key')->selectRaw($metrics, $bindings);
 
-        foreach ($this->rows($filter)->whereIn('visits.source_key', $sourceKeys)->groupBy('visits.source_key')->select('visits.source_key')->selectRaw($metrics, $bindings)->toBase()->get() as $row) {
+        foreach ($read->toBase()->get() as $row) {
             $row = (array) $row;
             $figures[(string) $row['source_key']] = self::counted($row);
         }
@@ -96,7 +118,28 @@ final class AnalyticsContentQuery implements RawSqlPersistenceBoundary
      */
     public function topPosts(AnalyticsPeriod $period, ?TrafficDevice $device, int $limit): array
     {
-        return $this->rows(new AnalyticsFilter($period, $device))
+        $filter = new AnalyticsFilter($period, $device);
+        // Each post's people a day and device, over whole days: the union of their sets, the sums summed.
+        $read = $this->gate->readsCells() && $filter->countsWholeDays()
+            ? AnalyticsPostCell::query()
+                ->whereBetween('network_day', [$filter->fromDay(), $filter->toDay()])
+                ->when($device !== null, fn (Builder $query) => $query->where('device', $device))
+                ->groupBy('post_id')
+                ->select('post_id')
+                ->selectRaw(implode(', ', [
+                    'SUM(views) AS views',
+                    'COALESCE(rb_cardinality(rb_or_agg(viewers::roaringbitmap)), 0) AS viewers',
+                    'COALESCE(rb_cardinality(rb_or_agg(engaged::roaringbitmap)), 0) AS engaged',
+                    'SUM(votes) AS votes',
+                    'COALESCE(rb_cardinality(rb_or_agg(voters::roaringbitmap)), 0) AS voters',
+                    'SUM(comments) AS comments',
+                ]), [])
+                ->havingRaw('SUM(views) > ?', [0])
+                ->orderByRaw('SUM(views) DESC', [])
+                ->orderBy('post_id')
+            : null;
+
+        return ($read ?? $this->rows($filter)
             ->groupBy('seen.post_id')
             ->select('seen.post_id')
             ->selectRaw(implode(', ', [
@@ -109,7 +152,7 @@ final class AnalyticsContentQuery implements RawSqlPersistenceBoundary
             ]), [0, 0])
             ->havingRaw('SUM(seen.views) > ?', [0])
             ->orderByRaw('SUM(seen.views) DESC', [])
-            ->orderBy('seen.post_id')
+            ->orderBy('seen.post_id'))
             ->limit(max(1, min($limit, self::MOST_POSTS)))
             ->toBase()
             ->get()
