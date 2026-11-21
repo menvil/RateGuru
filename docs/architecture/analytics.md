@@ -356,9 +356,9 @@ docs/architecture/http-and-database-boundaries.md and a behaviour test:
   dimension with the rest counted together, per bucket, and who came back,
   from Analytics' own rows of the visits or from the visits themselves, and
   where they fit from the cells of each day's people (`rb_or_agg`);
-- `RefreshAnalyticsCellsAction` — a day's cells, every level in one
-  `GROUPING SETS` pass, each step's people `rb_build_agg` of the browsers'
-  numbers;
+- `AnalyticsCellsQuery` — a day's cells, every level in one `GROUPING SETS`
+  pass, each step's people `rb_build_agg` of the browsers' numbers, for
+  `RefreshAnalyticsCellsAction` to insert;
 - `AnalyticsContentQuery` — the posts the period's visits opened, and the
   accounts whose session opened each first;
 - `TrafficSegmentsQuery` — a paid source's segments, each click's segment

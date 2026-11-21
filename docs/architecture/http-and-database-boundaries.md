@@ -88,11 +88,12 @@ The reviewed boundaries are:
   figures, splits and lists come from them instead: each step's people as
   `rb_cardinality(rb_or_agg(…))` over the cells' roaring bitmaps, the sums
   summed (PostgreSQL with the roaringbitmap extension only).
-- `RefreshAnalyticsCellsAction` for writing those cells from a day's rows of
-  `analytics_visits`: one `INSERT … SELECT` with `GROUPING SETS` over every
-  level, each step's people `rb_build_agg(pid) FILTER (WHERE …)`, the sums
-  beside them, `HAVING` a visit whose page ran, and the next browser numbers
-  by `ROW_NUMBER()` — through `insertUsing`, never `DB::statement`.
+- `AnalyticsCellsQuery` for what those cells are written from, a day's rows of
+  `analytics_visits`: one `SELECT` with `GROUPING SETS` over every level, each
+  step's people `rb_build_agg(pid) FILTER (WHERE …)`, the sums beside them,
+  `HAVING` a visit whose page ran, and the next browser numbers by
+  `ROW_NUMBER()` — inserted by `RefreshAnalyticsCellsAction` through
+  `insertUsing`, never `DB::statement`.
 - `CommentListQuery` for arithmetic comment ranking.
 - `ComparisonPeriodsQuery` for literal LIKE searches over the titles, internal
   names and slugs of the games whose traffic periods Growth → Experiments lists.
