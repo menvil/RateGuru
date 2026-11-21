@@ -7,11 +7,15 @@ use App\Models\GameAssignment;
 use App\Models\GameAttempt;
 use App\Models\GameEvent;
 use App\Support\Games\Play\GameVisitor;
+use InvalidArgumentException;
 
 /**
  * Writes a game's tracked moments (game_events), called by the actions that
  * make them, inside their own transactions: an event exists only if what it
- * records does. Ids and codes only — never anything a visitor typed.
+ * records does. Ids and codes only — never anything a visitor typed. An
+ * attempt's event is of the attempt's own game and happens now, never before
+ * the attempt began: GameMetricsQuery reads an attempt's events only from its
+ * game's events since the window began (docs/architecture/games.md).
  */
 final class GameEventRecorder
 {
@@ -27,6 +31,10 @@ final class GameEventRecorder
         ?GameAssignment $assignment = null,
         array $detail = [],
     ): void {
+        if ($attempt !== null && (int) $attempt->game_id !== $gameId) {
+            throw new InvalidArgumentException("An event of attempt {$attempt->id} is of its own game, not of game {$gameId}.");
+        }
+
         $versionId ??= $attempt !== null ? $attempt->version_id : $assignment?->version_id;
         $assignmentId = $assignment !== null ? $assignment->id : $attempt?->assignment_id;
 

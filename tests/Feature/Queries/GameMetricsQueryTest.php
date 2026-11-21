@@ -1,5 +1,6 @@
 <?php
 
+use App\Actions\Games\GameEventRecorder;
 use App\Actions\Games\PublishGameVersionAction;
 use App\Enums\AccountSignupPlace;
 use App\Enums\GameAccountOutcome;
@@ -10,6 +11,7 @@ use App\Enums\GameOnwardKind;
 use App\Enums\TrafficDevice;
 use App\Models\AccountAttribution;
 use App\Models\AccountBrowser;
+use App\Models\Game;
 use App\Models\GameAnswer;
 use App\Models\GameAssignment;
 use App\Models\GameAttempt;
@@ -26,6 +28,7 @@ use App\Support\Analytics\ActivityDay;
 use App\Support\Analytics\PeriodVersionFunnel;
 use App\Support\Games\Analytics\GameFunnel;
 use App\Support\Games\Analytics\GameMetricsScope;
+use App\Support\Games\Play\GameVisitor;
 use App\Support\Traffic\Reports\VisitFilter;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Carbon;
@@ -893,4 +896,12 @@ it('counts, beside each period’s visitors per version, every attempt they star
         ->and($sorted(metricsQuery()->periods((int) $first->game_id)))->toBe($sorted([$earlier->id => ['started' => 4, 'completed' => 2], $later->id => ['started' => 2, 'completed' => 1]]))
         ->and(metricsQuery()->periods((int) $first->game_id, (int) $first->id))->toBe([$earlier->id => ['started' => 3, 'completed' => 2]])
         ->and($sorted(metricsQuery()->periods((int) $first->game_id, (int) $second->id)))->toBe($sorted([$earlier->id => ['started' => 1, 'completed' => 0], $later->id => ['started' => 2, 'completed' => 1]]));
+});
+
+it('records an attempt’s event only for the attempt’s own game, which the funnel reads its events by', function () {
+    $attempt = GameAttempt::factory()->create();
+    $other = Game::factory()->create();
+
+    expect(fn () => app(GameEventRecorder::class)->record(GameEventType::ShareClicked, $other->id, new GameVisitor(GameAudience::Anonymous, null, str_repeat('a', 64)), attempt: $attempt))
+        ->toThrow(InvalidArgumentException::class);
 });
