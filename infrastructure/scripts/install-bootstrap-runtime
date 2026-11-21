@@ -61,8 +61,9 @@
 # incidental security-patch pin. PHP must be series 8.5 (8.5.x floats with
 # security updates) and at least PHP_MIN_VERSION — a security floor, below
 # which a release is known to be exploitable, not a pin: every later 8.5.x
-# passes. --apply never upgrades an installed PHP to meet it; it is reported
-# as CONFLICT and the upgrade is an operator step. PostgreSQL must be major
+# passes. --apply meets it by upgrading the installed php8.5 packages and
+# moving PHP-FPM and the long-running PHP workers onto the new binary
+# (reconcile_php_security_floor). PostgreSQL must be major
 # 18. Nginx, Redis, Supervisor and every base utility come from the Ubuntu
 # 22.04 (jammy) distribution repository — no external repository is
 # introduced to chase the exact staging patch versions (nginx 1.18.0, redis
@@ -192,16 +193,19 @@ SUPPORTED_OS_CODENAME="jammy"
 SUPPORTED_ARCHITECTURES="x86_64 amd64"
 
 PHP_SERIES="8.5"
-# The lowest PHP release the hosts may run. 8.5.12 (php.net, 2026-10-21)
-# fixes two critical unauthenticated remote code execution flaws in the PHP
-# core: CVE-2026-109618 (GHSA-w8hw-w9fx-j79w), out-of-memory handling that
-# leaves request data half-initialized while multipart request bodies are
-# parsed, and CVE-2026-109619 (GHSA-6wmf-4rv5-p3rp), request-owned state that
-# outlives its memory and is used by the next request the same worker
-# handles. Every earlier 8.5 release is exposed through PHP-FPM, which takes
-# multipart uploads from the public site. Raise it with the next PHP
-# security release; never lower it.
-PHP_MIN_VERSION="8.5.12"
+# The lowest PHP release the hosts may run. 8.5.13 (php.net, 2026-11-19)
+# fixes the security flaws found after 8.5.12, among them CVE-2026-129289,
+# request smuggling through PHP-FPM, and remote code execution in session
+# handling; 8.5.12 (2026-10-22) had fixed two critical unauthenticated remote
+# code execution flaws in the core, CVE-2026-109618 (GHSA-w8hw-w9fx-j79w,
+# out-of-memory handling that leaves request data half-initialized while a
+# multipart body is parsed) and CVE-2026-109619 (GHSA-6wmf-4rv5-p3rp,
+# request-owned state used by the next request the same worker handles).
+# Every earlier 8.5 release is exposed through PHP-FPM, which serves the
+# public site. --apply meets it (reconcile_php_security_floor). Raise it with
+# the next PHP security release, together with composer.json's php
+# requirement; never lower it.
+PHP_MIN_VERSION="8.5.13"
 POSTGRES_MAJOR="18"
 
 # The lowest nginx the hosts may run. nginx comes from the Ubuntu 22.04
@@ -423,6 +427,9 @@ SYSTEMCTL_BIN="$(gated_default RATEGURU_BOOTSTRAP_SYSTEMCTL_BIN systemctl)"
 # Where the running nginx master's PID and executable are read
 # (nginx_runs_replaced_binary).
 NGINX_PID_FILE="$(gated_default RATEGURU_BOOTSTRAP_NGINX_PID_FILE /run/nginx.pid)"
+# PHP-FPM's master and the supervised PHP workers (reconcile_php_security_floor).
+PHP_FPM_PID_FILE="$(gated_default RATEGURU_BOOTSTRAP_PHP_FPM_PID_FILE "/run/php/php${PHP_SERIES}-fpm.pid")"
+SUPERVISORCTL_BIN="$(gated_default RATEGURU_BOOTSTRAP_SUPERVISORCTL_BIN supervisorctl)"
 PROC_ROOT="$(gated_default RATEGURU_BOOTSTRAP_PROC_ROOT /proc)"
 
 STAT_BIN="$(gated_default RATEGURU_BOOTSTRAP_STAT_BIN stat)"
@@ -967,15 +974,87 @@ report_php_binary() {
             "install the php${PHP_SERIES} packages from the PHP PPA (never removes the conflicting PHP)"
     elif ! php_version_meets_floor "${version}"; then
         item CONFLICT "${name}" "reports PHP ${version}, below the security floor ${PHP_MIN_VERSION}" \
-            "apt-get install --only-upgrade the installed php${PHP_SERIES} packages to ${PHP_MIN_VERSION} or later, then restart php${PHP_SERIES}-fpm and every long-running PHP worker — an operator step, never taken by --apply"
+            "upgrade the php${PHP_SERIES} packages (apt-get install --only-upgrade), then restart php${PHP_SERIES}-fpm and the supervised PHP workers onto the new binary"
     else
         item PASS "${name}" "PHP ${version} (required series ${PHP_SERIES}, security floor ${PHP_MIN_VERSION})"
+    fi
+}
+
+# runs_replaced_binary PID — the process executes a binary an upgrade has
+# since replaced: the kernel shows its executable as deleted. False when the
+# process or its executable cannot be read (as a non-root --check cannot read
+# root's), so it only ever adds a restart that is certainly due.
+runs_replaced_binary() {
+    local exe
+
+    [[ "$1" =~ ^[0-9]+$ ]] || return 1
+
+    exe="$(readlink -- "${PROC_ROOT}/$1/exe" 2>/dev/null)" || return 1
+
+    [[ "${exe}" == *" (deleted)" ]]
+}
+
+# php_fpm_runs_replaced_binary — PHP-FPM's master still executes the binary
+# an upgrade replaced.
+php_fpm_runs_replaced_binary() {
+    local pid
+
+    [[ -r "${PHP_FPM_PID_FILE}" ]] || return 1
+    read -r pid < "${PHP_FPM_PID_FILE}" || return 1
+
+    runs_replaced_binary "${pid}"
+}
+
+# stale_php_workers — the supervisor programs whose process still executes a
+# PHP binary an upgrade replaced (the queue workers, the Nightwatch agent),
+# space-separated, into STALE_PHP_WORKERS. None when supervisor is not
+# running or not installed. Not a $(...) capture, so a caller reads the
+# result in its own shell.
+STALE_PHP_WORKERS=""
+
+resolve_stale_php_workers() {
+    local name state pid rest exe
+
+    STALE_PHP_WORKERS=""
+
+    while read -r name state pid rest; do
+        [[ "${state}" == RUNNING && "${pid}" == pid ]] || continue
+
+        pid="${rest%%,*}"
+
+        runs_replaced_binary "${pid}" || continue
+
+        exe="$(readlink -- "${PROC_ROOT}/${pid}/exe" 2>/dev/null)" || continue
+
+        [[ "${exe}" == *php* ]] || continue
+
+        STALE_PHP_WORKERS="${STALE_PHP_WORKERS:+${STALE_PHP_WORKERS} }${name}"
+    done < <(probe_exec "${SUPERVISORCTL_BIN}" status 2>/dev/null || true)
+}
+
+# report_php_processes — no PHP process the hosts serve or work with still
+# runs a binary an upgrade replaced: an upgrade is only done once they run
+# the new code.
+report_php_processes() {
+    local stale=()
+
+    php_fpm_runs_replaced_binary && stale+=("php${PHP_SERIES}-fpm")
+
+    resolve_stale_php_workers
+    [[ -n "${STALE_PHP_WORKERS}" ]] && stale+=(${STALE_PHP_WORKERS})
+
+    if (( ${#stale[@]} == 0 )); then
+        item PASS "php-processes" "no PHP process runs a replaced binary"
+    else
+        item CONFLICT "php-processes" "still running the PHP binary an upgrade replaced: ${stale[*]}" \
+            "restart them onto the installed binary (php-fpm${PHP_SERIES} -t first)"
     fi
 }
 
 report_php_runtime() {
     report_php_binary "php-cli" "${PHP_CLI_BIN}" "CLI SAPI"
     report_php_binary "php-fpm" "${PHP_FPM_BIN}" "FPM SAPI"
+    report_php_processes
 
     if ! tool_available "${PHP_CLI_BIN}" && [[ ! -x "${PHP_CLI_BIN}" ]]; then
         item MISSING "php-modules" "cannot enumerate modules without ${PHP_CLI_BIN}" \
@@ -1511,6 +1590,88 @@ reconcile_rclone() {
     action "rclone v${RCLONE_VERSION} installed at ${RCLONE_BINARY_PATH} (${RCLONE_OWNER}:${RCLONE_GROUP} ${RCLONE_MODE})"
 }
 
+# reconcile_php_security_floor — PHP below PHP_MIN_VERSION is upgraded to what
+# its repository offers: the installed packages of PHP_PACKAGES and nothing
+# else (--only-upgrade installs nothing new; apt brings along what they
+# require at exactly their own version, such as php8.5-opcache; the host's
+# php.ini files are kept). There is no option to run below the floor: its
+# releases are known to be exploitable, and the hosts change only through
+# these installers. The upgrade is finished here too (finish_php_upgrade),
+# and so is one an earlier run left unfinished, found by a process still
+# running the replaced binary. A PHP of another series is never replaced
+# (its CONFLICT stands).
+reconcile_php_security_floor() {
+    local cli fpm
+
+    package_installed "php${PHP_SERIES}-cli" || return 0
+
+    cli="$(php_reported_version "${PHP_CLI_BIN}")"
+    fpm="$(php_reported_version "${PHP_FPM_BIN}")"
+
+    [[ "${cli}" == "${PHP_SERIES}".* ]] || return 0
+
+    if php_version_meets_floor "${cli}" && { [[ -z "${fpm}" ]] || php_version_meets_floor "${fpm}"; }; then
+        resolve_stale_php_workers
+
+        if php_fpm_runs_replaced_binary || [[ -n "${STALE_PHP_WORKERS}" ]]; then
+            action "php: PHP ${cli} is installed, but processes still run the binary it replaced"
+            finish_php_upgrade "${cli}"
+        else
+            action "php: PHP ${cli} meets the security floor ${PHP_MIN_VERSION}"
+        fi
+
+        return 0
+    fi
+
+    [[ "${APT_INDEXES_FRESH}" == true ]] \
+        || apt_update "PHP is below its security floor"
+
+    action "php: upgrading PHP ${cli} to the security floor ${PHP_MIN_VERSION} or later (${PHP_PACKAGES[*]})"
+
+    # NEEDRESTART_MODE=l, as for nginx: needrestart only lists; this run
+    # restarts what runs PHP itself, after php-fpm -t.
+    NEEDRESTART_MODE=l DEBIAN_FRONTEND=noninteractive probe_exec "${APT_GET_BIN}" install -y --only-upgrade --no-install-recommends \
+        -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold -- \
+        "${PHP_PACKAGES[@]}" \
+        || fail "apt-get could not upgrade PHP"
+
+    cli="$(php_reported_version "${PHP_CLI_BIN}")"
+    fpm="$(php_reported_version "${PHP_FPM_BIN}")"
+
+    php_version_meets_floor "${cli}" && php_version_meets_floor "${fpm}" \
+        || fail "PHP is still ${cli:-unknown} (FPM ${fpm:-unknown}) after the upgrade — its repository does not offer ${PHP_MIN_VERSION} yet"
+
+    resolve_stale_php_workers
+    finish_php_upgrade "${cli}"
+}
+
+# finish_php_upgrade VERSION — PHP-FPM restarts onto the installed binary once
+# its configuration passes php-fpm -t (one that fails leaves it as it is and
+# fails the run; the next run tries again), then each supervisor program still
+# running the replaced binary restarts: supervisor stops it the way it always
+# does, so a queue worker finishes its job first. PHP-FPM not running is not
+# started here; install-bootstrap-services starts it as a base service.
+finish_php_upgrade() {
+    local version="$1" program
+
+    if probe_exec "${SYSTEMCTL_BIN}" is-active --quiet "php${PHP_SERIES}-fpm"; then
+        probe_exec "${PHP_FPM_BIN}" -t >/dev/null 2>&1 \
+            || fail "PHP ${version} is installed, but php-fpm${PHP_SERIES} -t fails, so PHP-FPM was not restarted — fix the configuration, then re-run --apply"
+
+        probe_exec "${SYSTEMCTL_BIN}" restart "php${PHP_SERIES}-fpm" \
+            || fail "PHP ${version} is installed, but php${PHP_SERIES}-fpm did not restart — re-run --apply once it can"
+
+        action "php: php${PHP_SERIES}-fpm restarted onto the installed binary (PHP ${version})"
+    fi
+
+    for program in ${STALE_PHP_WORKERS}; do
+        probe_exec "${SUPERVISORCTL_BIN}" restart "${program}" >/dev/null \
+            || fail "PHP ${version} is installed, but the supervisor program ${program} did not restart — re-run --apply once it can"
+
+        action "php: supervisor program ${program} restarted onto the installed binary"
+    done
+}
+
 # reconcile_nginx_security_floor — the one upgrade --apply makes: an nginx of
 # the proven series below NGINX_MIN_PACKAGE_VERSION is upgraded to what the
 # Ubuntu archive offers, its packages and nothing else (--only-upgrade
@@ -1630,6 +1791,7 @@ perform_apply() {
         action "packages: all ${#REQUIRED_PACKAGES[@]} required packages already installed"
     fi
 
+    reconcile_php_security_floor
     reconcile_nginx_security_floor
 
     # After the package phase, so unzip exists on a clean host. Never an apt
