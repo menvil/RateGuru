@@ -312,6 +312,8 @@ final class TrafficReportQuery implements RawSqlPersistenceBoundary
      */
     public function gameBreakdown(int $gameId, CarbonImmutable $since, ?CarbonImmutable $until = null, ?VisitFilter $visits = null): array
     {
+        // Moments as the visits keep them, in UTC, whichever way they are read.
+        [$since, $until] = [$since->utc(), $until?->utc()];
         $keys = ['channel', 'source_id', 'version_id', 'device'];
         [$metrics, $bindings] = $this->ofGame(self::metrics());
         $read = fn (Builder $visitsOf): Builder => $visitsOf
@@ -354,6 +356,8 @@ final class TrafficReportQuery implements RawSqlPersistenceBoundary
      */
     public function gameCampaigns(int $gameId, CarbonImmutable $since, CarbonImmutable $until, ?VisitFilter $visits = null): array
     {
+        // Moments as the visits keep them, in UTC, whichever way they are read.
+        [$since, $until] = [$since->utc(), $until->utc()];
         $read = fn (Builder $visitsOf): Builder => $visitsOf
             ->whereNotNull('campaign_id')
             ->distinct()
@@ -378,6 +382,8 @@ final class TrafficReportQuery implements RawSqlPersistenceBoundary
      */
     public function gameSignups(int $gameId, CarbonImmutable $since, CarbonImmutable $until, ?int $versionId = null, ?CarbonInterface $unconfirmedBefore = null, ?VisitFilter $visits = null): array
     {
+        // Moments as the visits keep them, in UTC, whichever way they are read.
+        [$since, $until] = [$since->utc(), $until->utc()];
         $cutoff = $unconfirmedBefore ?? UnconfirmedAccountsQuery::cutoff();
         [$signups, $bindings] = $this->ofGame(self::signupMetrics($cutoff));
         $read = fn (Builder $visitsOf): Builder => $visitsOf

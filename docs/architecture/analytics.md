@@ -281,9 +281,11 @@ activate are over. A period's people are the size of the union of its days'
 sets, so no row is read again: the figures of 90 days in tens of
 milliseconds.
 
-`RefreshAnalyticsCellsAction` writes a day's cells again from its rows, in one
-transaction, whenever `RefreshAnalyticsDayAction` changed a row of the day,
-when the day has none yet, and on the nightly recheck; until every day has
+`RefreshAnalyticsCellsAction` writes a day's cells again from its rows
+whenever `RefreshAnalyticsDayAction` changed a row of the day, when the day has
+none yet, whenever the day was marked as changed — a mark can be a deletion,
+which changes no row — and on the nightly recheck, in the same transaction as
+the day's rows, so a write that fails leaves the day to be written whole again; until every day has
 cells the refresh fills them in turn after the rows (`cells_through`,
 `cells_filled_at`). `AnalyticsVisitsQuery` reads them for `figures()`, `by()`,
 `top()`, days and blocks of days of `series()`, `of()`, `among()`, `pairs()`,
@@ -554,9 +556,9 @@ action. A moderator sees neither.
 | Hidden periods | for ever, as every period |
 | Analytics' own rows of the visits (`analytics_visits`) | as long as their visit |
 | Each browser's first day (`analytics_people`) | 400 days from that day, as the visits (`traffic:purge-expired`) |
-| The cells of each day's people and their accounts (`analytics_cells`, `analytics_cell_accounts`) | 400 days, as the visits of the day (`traffic:purge-expired`) |
+| The cells of each day's people and their accounts (`analytics_cells`, `analytics_cell_accounts`) | until every visit of the day is gone (`traffic:purge-expired`); a day the cutoff runs through is written again from the visits left |
 | A browser's number (`analytics_pids`) | until no row of Analytics names it, but the highest, which the next number counts on from |
-| The sums of each day's games' visits (`analytics_game_days`) | 400 days, as the visits of the day (`traffic:purge-expired`) |
+| The sums of each day's games' visits (`analytics_game_days`) | as the cells |
 | A tab's figures and the filter options, per administrator (cache) | 10 minutes (`analytics.read_cache_minutes`), or until Refresh, a segment saved, deleted or restored, or a tracking link saved |
 
 The privacy page is the owner's to update before Record site visits is switched

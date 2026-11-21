@@ -71,7 +71,8 @@ final class AnalyticsGameDaysQuery implements RawSqlPersistenceBoundary
             ->where('arrived_at', '>=', $arrivalDay)
             ->where('arrived_at', '<', $arrivalDay->addDay())
             ->selectRaw(
-                '? AS level, ? AS network_day, ? AS arrival_day, '.implode(', ', self::KEYS).', '.self::UNCONFIRMED.' AS unconfirmed_at, MIN(arrived_at) AS first_at, '.$sums,
+                // MIN of the grouped CASE, one value a group: MariaDB's ONLY_FULL_GROUP_BY takes an expression only as an aggregate.
+                '? AS level, ? AS network_day, ? AS arrival_day, '.implode(', ', self::KEYS).', MIN('.self::UNCONFIRMED.') AS unconfirmed_at, MIN(arrived_at) AS first_at, '.$sums,
                 [AnalyticsGameDay::BY_COUNTRY, $networkDay, $arrivalDay->toDateString(), ...$bindings],
             )
             ->groupBy(...self::KEYS)

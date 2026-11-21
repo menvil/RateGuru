@@ -79,7 +79,8 @@ final class RefreshAnalyticsVisitsAction
                 break;
             }
 
-            $written += $this->day->handle($day);
+            // A mark can be a deletion, which leaves no row changed: the day's cells and sums are written again whatever.
+            $written += $this->day->handle($day, cells: true);
             $days++;
 
             if (AnalyticsDirtyDay::query()->where('day', $day)->where('token', $token)->delete() === 0) {

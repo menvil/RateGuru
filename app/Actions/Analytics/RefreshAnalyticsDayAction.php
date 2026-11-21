@@ -43,6 +43,12 @@ final class RefreshAnalyticsDayAction
      */
     public function handle(string $day, bool $cells = false): int
     {
+        // The day's rows and what is written from them commit together: a write that fails leaves the rows as they were, so the next run finds them changed and writes the day again.
+        return DB::transaction(fn (): int => $this->refresh($day, $cells));
+    }
+
+    private function refresh(string $day, bool $cells): int
+    {
         $written = 0;
         $afterId = 0;
         $changedAny = false;

@@ -177,7 +177,8 @@ final class AnalyticsVisitsQuery implements RawSqlPersistenceBoundary
             ->select($columns)
             ->selectRaw($metrics, $bindings)
             ->orderByRaw($this->peopleOrder($level).' DESC', [])
-            ->orderBy($columns[0])
+            // Groups that tie, by every column: one order whichever rows are read, so the same groups make the limit.
+            ->tap(fn (Builder $query) => self::byEveryColumn($query, $columns))
             ->limit($limit)
             ->toBase()
             ->get()
@@ -438,7 +439,7 @@ final class AnalyticsVisitsQuery implements RawSqlPersistenceBoundary
             ->groupBy(...$columns)
             ->select($columns)
             ->orderByRaw($level === null ? 'COUNT(*) DESC' : 'SUM(visits) DESC', [])
-            ->orderBy($columns[0])
+            ->tap(fn (Builder $query) => self::byEveryColumn($query, $columns))
             ->limit(max(1, min($limit, self::MOST_GROUPS)))
             ->toBase()
             ->get()
@@ -784,6 +785,7 @@ final class AnalyticsVisitsQuery implements RawSqlPersistenceBoundary
                 ->select($columns)
                 ->selectRaw($metrics, $bindings)
                 ->orderByRaw($this->peopleOrder($level).' DESC', [])
+                ->tap(fn (Builder $query) => self::byEveryColumn($query, $columns))
                 ->toBase()
                 ->get()
                 ->map(fn (object $row): array => ['keys' => self::keys((array) $row, $columns), ...self::counted((array) $row)])
@@ -1043,6 +1045,17 @@ final class AnalyticsVisitsQuery implements RawSqlPersistenceBoundary
             .' SELECT rb_cardinality(rb_or(twice, rb_and(once, ('.$before->toSql().')))) AS came_back FROM fold ORDER BY n DESC LIMIT 1';
 
         return (int) (AnalyticsCell::query()->fromRaw('('.$folded.') AS folded', [...$days->getBindings(), ...$before->getBindings()])->value('came_back') ?? 0);
+    }
+
+    /**
+     * @param  Builder<covariant Model>  $query
+     * @param  list<string>  $columns  what a split's groups are ordered by after its own order, in turn
+     */
+    private static function byEveryColumn(Builder $query, array $columns): void
+    {
+        foreach ($columns as $column) {
+            $query->orderBy($column);
+        }
     }
 
     /** @param  array<string, int|string|null>  $keys a group's values, as one key */

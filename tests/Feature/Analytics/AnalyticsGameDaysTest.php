@@ -1,9 +1,11 @@
 <?php
 
 use App\Actions\Analytics\RefreshAnalyticsDayAction;
+use App\Actions\Analytics\RefreshAnalyticsVisitsAction;
 use App\Enums\TrafficChannel;
 use App\Enums\TrafficDevice;
 use App\Enums\TrafficKnownReason;
+use App\Models\AnalyticsDirtyDay;
 use App\Models\AnalyticsGameDay;
 use App\Models\AnalyticsRollupState;
 use App\Models\Game;
@@ -173,6 +175,55 @@ it('writes a day’s sums again when one of its visits changes', function () {
     app()->forgetScopedInstances();
 
     expect(app(TrafficReportQuery::class)->gameSignups($game->id, CarbonImmutable::parse('2026-11-14 00:00:00'), CarbonImmutable::parse('2026-11-15 00:00:00'))['figures']->confirmed)->toBe(1);
+});
+
+it('writes nothing of a day when its sums cannot be written, so the next run writes the whole day again', function () {
+    ['game' => $game] = gameDaysFixture();
+    fillAnalyticsRollup();
+    TrafficVisit::query()->where('arrived_at', '2026-11-14 08:00:00')->firstOrFail()->forceFill(['account_at' => '2026-11-14 08:30:00', 'signup_after_seconds' => 300, 'account_after_seconds' => 1500])->save();
+    $failed = false;
+    DB::beforeExecuting(function (string $sql) use (&$failed): void {
+        if (! $failed && str_starts_with($sql, 'delete from "analytics_game_days"') || ! $failed && str_starts_with($sql, 'delete from `analytics_game_days`')) {
+            $failed = true;
+
+            throw new RuntimeException('The sums could not be written.');
+        }
+    });
+
+    expect(fn () => app(RefreshAnalyticsDayAction::class)->handle('2026-11-14'))->toThrow(RuntimeException::class);
+
+    app(RefreshAnalyticsDayAction::class)->handle('2026-11-14');
+    app()->forgetScopedInstances();
+
+    expect(app(TrafficReportQuery::class)->gameSignups($game->id, CarbonImmutable::parse('2026-11-14 00:00:00'), CarbonImmutable::parse('2026-11-15 00:00:00'))['figures']->confirmed)->toBe(1);
+});
+
+it('keeps the sums of a day the purge’s cutoff runs through, written again from the visits left, and deletes those of a day whose visits all went', function () {
+    // Now 2026-11-17 12:00: visits are kept 400 days, so the cutoff is 2025-10-13 12:00.
+    $game = Game::factory()->create();
+    $source = TrafficSource::factory()->create();
+    $visit = fn (string $at, string $day) => TrafficVisit::factory()->create(['game_id' => $game->id, 'source_id' => $source->id, 'arrived_at' => $at, 'network_day' => $day, 'opened_at' => $at, 'spend' => '0.10']);
+    // A day all of whose visits go; the cutoff's own day, one visit before it and one after; a day ahead of UTC that began before it.
+    $visit('2025-10-11 10:00:00', '2025-10-11');
+    $visit('2025-10-13 08:00:00', '2025-10-13');
+    $visit('2025-10-13 14:00:00', '2025-10-13');
+    $visit('2025-10-13 11:00:00', '2025-10-14');
+    $visit('2025-10-14 10:00:00', '2025-10-14');
+    fillAnalyticsRollup();
+
+    $this->artisan('traffic:purge-expired')->assertSuccessful();
+
+    expect(AnalyticsGameDay::query()->where('network_day', '2025-10-11')->exists())->toBeFalse()
+        ->and(AnalyticsDirtyDay::query()->orderBy('day')->pluck('day')->all())->toContain('2025-10-13', '2025-10-14');
+
+    // The run that reads the marked days writes their sums from the visits left.
+    app(RefreshAnalyticsVisitsAction::class)->handle(microtime(true) + 60);
+    app()->forgetScopedInstances();
+
+    $rows = readBothWays(TrafficReportQuery::class)->gameBreakdown($game->id, CarbonImmutable::parse('2025-10-01 00:00:00'), CarbonImmutable::parse('2025-10-20 00:00:00'));
+
+    expect(collect($rows)->sum(fn (array $row): int => $row['figures']->visits))->toBe(2)
+        ->and($rows[0]['first_at']->toDateTimeString())->toBe('2025-10-13 14:00:00');
 });
 
 it('reads the rows, never the sums, once the setting turns them off or before they are filled', function () {
