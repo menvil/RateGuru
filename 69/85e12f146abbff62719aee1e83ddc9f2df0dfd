@@ -1,0 +1,47 @@
+app/Support/Analytics/PeriodVersionFunnel.php
+  s_4b9dc6ab6b25d3::t_f2a5e3f1f447dd 30-31
+  s_4b9dc6ab6b25d3::t_8a7b2951be1fa5 14-16
+app/Queries/Games/GameMetricsQuery.php
+  s_4b9dc6ab6b25d3::t_8958aab35fb9e9 140,142
+  s_4b9dc6ab6b25d3::t_7320e339cea9a8 582-590
+  s_4b9dc6ab6b25d3::t_b86c3e5981de50 816-817
+  s_4b9dc6ab6b25d3::t_3cc5ca41623075 143-147,158,203,219,221,248,286,389-392,403-405,421-424,441-442,525,555-566,568-574,578-581,592-593,595,597,599-609,611,614-624,799-815
+app/Filament/Resources/Games/Analytics/GameAnalyticsView.php
+  s_4b9dc6ab6b25d3::t_3cc5ca41623075 888-894,913-923,931-932
+tools/phpstan/architecture.neon
+  s_4b9dc6ab6b25d3::t_a79c2251cabae0 136
+  s_4b9dc6ab6b25d3::t_cea356ba5c6cfc 137
+docs/architecture/games.md
+  s_4b9dc6ab6b25d3::t_2084c0afddd91b 330-333
+docs/architecture/http-and-database-boundaries.md
+  s_4b9dc6ab6b25d3::t_cea356ba5c6cfc 108-110
+tests/Feature/Games/Admin/GameAnalyticsPageTest.php
+  s_4b9dc6ab6b25d3::t_0c6e0b3d4e8b9c 575
+  s_4b9dc6ab6b25d3::t_7dba06462f57c2 550-551,561
+tests/Feature/Queries/GameMetricsQueryTest.php
+  s_4b9dc6ab6b25d3::t_35c46a94604578 857-863,865-896
+  s_4b9dc6ab6b25d3::t_c6a71ab11b6bac 416-487
+  s_4b9dc6ab6b25d3::t_73d05fde100edf 535-566
+  s_4b9dc6ab6b25d3::t_b4f0d9b5a21114 415
+  s_4b9dc6ab6b25d3::t_856b2e884c4d25 864
+tests/Feature/Database/GameEventAttemptTypeIndexTest.php
+  s_4b9dc6ab6b25d3::t_ae35043394bd2a 1-54
+database/migrations/2026_11_21_100300_add_attempt_type_index_to_game_events_table.php
+  s_4b9dc6ab6b25d3::t_91b21044363ff3 1-46
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "6985e12f146abbff62719aee1e83ddc9f2df0dfd",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
