@@ -794,6 +794,24 @@ function phpSecurityFloor(): string
 }
 
 /**
+ * The lowest nginx package the hosts may run — NGINX_MIN_PACKAGE_VERSION, an
+ * Ubuntu package revision, as install-bootstrap-runtime declares it. Read from
+ * the script so the fixtures follow one number when it is raised.
+ */
+function nginxSecurityFloor(): string
+{
+    preg_match(
+        '/^NGINX_MIN_PACKAGE_VERSION="([^"]+)"$/m',
+        (string) file_get_contents(base_path('infrastructure/scripts/install-bootstrap-runtime')),
+        $floor,
+    );
+
+    expect($floor[1] ?? null)->not->toBeNull('install-bootstrap-runtime no longer declares NGINX_MIN_PACKAGE_VERSION');
+
+    return $floor[1];
+}
+
+/**
  * The sourced libraries under infrastructure/scripts: never executed
  * directly, so they must stay non-executable. Kept here beside
  * requiredCliManifestNames() so the CLI allowlist and the library exemption
@@ -6501,6 +6519,12 @@ if [[ "${cmd}" == "SELECT 1;" ]]; then
     exit 0
 fi
 
+# The superuser creating a dump's extension in the database restored into.
+if [[ "${cmd}" =~ ^CREATE\ EXTENSION\ IF\ NOT\ EXISTS\ ([a-z0-9_]+)\ WITH\ SCHEMA\ public\;$ ]]; then
+    [[ "${RGTEST_CREATE_EXTENSION_EXIT:-0}" == 0 ]] || { printf 'ERROR: extension "%s" is not available\n' "${BASH_REMATCH[1]}" >&2; exit 1; }
+    exit 0
+fi
+
 printf 'ERROR: unhandled SQL in fake psql: %s\n' "${cmd}" >&2
 exit 1
 BASH);
@@ -6544,6 +6568,26 @@ printf '%s\n' "pg_restore $*" >> "${RGTEST_PG_RESTORE_LOG}"
 if [[ -n "${PGPASSWORD:-}" ]]; then
     printf 'pgpassword-present\n' >> "${RGTEST_PG_RESTORE_LOG}"
 fi
+
+# --list reads the dump named as an argument and prints its table of
+# contents: the fixture's (RGTEST_DUMP_TOC, a file), or one without
+# extensions, the shape every backup had before the application used one.
+if [[ " $* " == *" --list "* ]]; then
+    if [[ -n "${RGTEST_DUMP_TOC:-}" ]]; then
+        cat "${RGTEST_DUMP_TOC}"
+    else
+        printf ';\n; Archive created at 2026-11-21 03:00:00 UTC\n;\n215; 1259 16390 TABLE public migrations\n216; 1259 16395 TABLE public users\n'
+    fi
+    exit "${RGTEST_PG_RESTORE_LIST_EXIT:-0}"
+fi
+
+# --use-list: keep the list it was handed, so a test can read what was left out.
+for arg in "$@"; do
+    case "${arg}" in
+        --use-list=*) cp "${arg#--use-list=}" "${RGTEST_PG_RESTORE_LOG}.list" ;;
+    esac
+done
+
 cat >/dev/null
 
 status="${RGTEST_PG_RESTORE_EXIT:-0}"
@@ -9944,6 +9988,7 @@ function provisionWriteStubs(string $scratch): void
                 touch "${STUB_SVC_STATE}/${unit}.active"
                 if [[ "${unit}" == nginx ]]; then respawn_nginx_workers; fi
                 if [[ "${unit}" == *fpm* ]]; then sync_fpm_sockets; fi
+                if [[ "${unit}" == postgresql ]]; then touch "${STUB_SVC_STATE}/postgresql@18-main.active"; fi
                 ;;
             stop)
                 rm -f "${STUB_SVC_STATE}/${unit}.active"
@@ -10028,6 +10073,8 @@ function provisionWriteStubs(string $scratch): void
             esac
             STUB);
     }
+
+    writePostgresSettingsStubs($scratch);
 }
 
 function provisionOwnerTableAdd(string $scratch, string $physical, string $owner, string $group): void
@@ -10158,7 +10205,7 @@ function provisionFixture(string $scratch, array $options = []): array
     foreach ([
         '/home', '/var/log', '/etc/nginx/sites-available', '/etc/nginx/sites-enabled',
         '/etc/php/8.5/fpm/pool.d', '/etc/supervisor/conf.d', '/etc/cron.d',
-        '/etc/ssh/sshd_config.d', '/usr/bin', '/run/php', '/var/backups',
+        '/etc/ssh/sshd_config.d', '/etc/postgresql/18/main/conf.d', '/usr/bin', '/run/php', '/var/backups',
     ] as $sub) {
         @mkdir($fs.$sub, 0o755, true);
     }
@@ -10233,7 +10280,7 @@ function provisionFixture(string $scratch, array $options = []): array
 
     // Every base host service is already enabled and running: provisioning
     // runs on a prepared host and never starts one.
-    foreach (['ssh', 'cron', 'nginx', 'postgresql', 'redis-server', 'supervisor', 'php8.5-fpm'] as $unit) {
+    foreach (['ssh', 'cron', 'nginx', 'postgresql', 'postgresql@18-main', 'redis-server', 'supervisor', 'php8.5-fpm'] as $unit) {
         touch($scratch.'/svc/'.$unit.'.enabled');
         touch($scratch.'/svc/'.$unit.'.active');
     }
@@ -10319,6 +10366,9 @@ function provisionFixture(string $scratch, array $options = []): array
         'RATEGURU_BOOTSTRAPSVC_SYSTEMCTL_BIN' => $scratch.'/bin/systemctl',
         'RATEGURU_BOOTSTRAPSVC_NGINX_BIN' => $scratch.'/bin/nginx',
         'RATEGURU_BOOTSTRAPSVC_SSHD_BIN' => $scratch.'/bin/sshd',
+        'RATEGURU_BOOTSTRAPSVC_RUNUSER_BIN' => $scratch.'/bin/pg-runuser',
+        'RATEGURU_BOOTSTRAPSVC_PSQL_BIN' => $scratch.'/bin/pg-psql',
+        'RATEGURU_BOOTSTRAPSVC_POSTGRES_SERVER_BIN' => $scratch.'/bin/pg-postgres',
         'RATEGURU_BOOTSTRAPSVC_PHP_FPM_BIN' => $scratch.'/bin/php-fpm8.5',
         'RATEGURU_BOOTSTRAPSVC_SUPERVISORCTL_BIN' => $scratch.'/bin/supervisorctl',
         'RATEGURU_BOOTSTRAPSVC_STAT_BIN' => $scratch.'/bin/stat',
@@ -11681,9 +11731,16 @@ function bsvcWriteStubs(string $scratch): void
                 [[ -e "${STUB_TOGGLES}/${unit}-start-fail" ]] && exit 1
                 touch "${STUB_SVC_STATE}/${unit}.active"
                 if [[ "${unit}" == nginx ]]; then respawn_nginx_workers; fi
+                # The umbrella starts the cluster, as postgresql.service does.
+                if [[ "${unit}" == postgresql ]]; then touch "${STUB_SVC_STATE}/postgresql@18-main.active"; fi
                 ;;
             stop)    rm -f "${STUB_SVC_STATE}/${unit}.active" ;;
             reload|restart)
+                # A restart that fails leaves the unit stopped.
+                if [[ "${cmd}" == restart && -e "${STUB_TOGGLES}/${unit}-restart-fail" ]]; then
+                    rm -f "${STUB_SVC_STATE}/${unit}.active"
+                    exit 1
+                fi
                 [[ -e "${STUB_SVC_STATE}/${unit}.active" ]] || exit 1
                 if [[ "${unit}" == nginx ]]; then respawn_nginx_workers; fi
                 ;;
@@ -11785,6 +11842,79 @@ function bsvcWriteStubs(string $scratch): void
             esac
             STUB);
     }
+
+    writePostgresSettingsStubs($scratch);
+}
+
+/**
+ * The PostgreSQL cluster install-bootstrap-services asks about RateGuru's
+ * settings, as three stubs: runuser (runs the command it is given), the
+ * server binary's `postgres -C` parse (fails when the postgres-config-fail
+ * toggle exists) and psql. psql reports shared_buffers waiting for a restart
+ * while the postgres-pending toggle exists and systemctl has not restarted
+ * the cluster, work_mem not loaded while postgres-unloaded exists and no
+ * reload has run, work_mem overridden by a later file while
+ * postgres-overridden exists, and fails outright while postgres-unreachable
+ * exists. Every call is logged to postgres.log.
+ */
+function writePostgresSettingsStubs(string $scratch): void
+{
+    $stubs = [
+        'pg-runuser' => <<<'STUB'
+            #!/bin/bash
+            shift 3
+            exec "$@"
+            STUB,
+        'pg-postgres' => <<<'STUB'
+            #!/bin/bash
+            printf 'postgres %s\n' "$*" >> "${STUB_LOG}/postgres.log"
+            [[ ! -e "${STUB_TOGGLES}/postgres-config-fail" ]]
+            STUB,
+        'pg-psql' => <<<'STUB'
+            #!/bin/bash
+            cmd=""
+            for arg in "$@"; do
+                case "${arg}" in --command=*) cmd="${arg#--command=}" ;; esac
+            done
+            printf 'psql %s\n' "${cmd}" >> "${STUB_LOG}/postgres.log"
+            [[ -e "${STUB_TOGGLES}/postgres-unreachable" ]] && exit 2
+            restarted=false
+            if [[ -f "${STUB_LOG}/systemctl.log" ]]; then
+                while IFS= read -r line; do
+                    [[ "${line}" == "systemctl restart postgresql@18-main" ]] && restarted=true
+                done < "${STUB_LOG}/systemctl.log"
+            fi
+            reloaded=false
+            if [[ -f "${STUB_LOG}/postgres.log" ]]; then
+                while IFS= read -r line; do
+                    [[ "${line}" == "psql SELECT pg_reload_conf();" ]] && reloaded=true
+                done < "${STUB_LOG}/postgres.log"
+            fi
+            case "${cmd}" in
+                *"s.sourcefile"*)
+                    if [[ -e "${STUB_TOGGLES}/postgres-unloaded" && "${reloaded}" == false ]]; then printf 'work_mem\n'; else printf '\n'; fi
+                    ;;
+                *pending_restart*)
+                    if [[ -e "${STUB_TOGGLES}/postgres-pending" && "${restarted}" == false ]]; then
+                        printf 'shared_buffers\n'
+                    else
+                        printf '\n'
+                    fi
+                    ;;
+                *pg_file_settings*)
+                    if [[ -e "${STUB_TOGGLES}/postgres-overridden" ]]; then printf 'work_mem\n'; else printf '\n'; fi
+                    ;;
+                *pg_reload_conf*) printf 't\n' ;;
+                "SELECT 1;") printf '1\n' ;;
+                *) exit 1 ;;
+            esac
+            STUB,
+    ];
+
+    foreach ($stubs as $name => $content) {
+        file_put_contents($scratch.'/bin/'.$name, $content."\n");
+        chmod($scratch.'/bin/'.$name, 0o755);
+    }
 }
 
 /**
@@ -11796,6 +11926,7 @@ function bsvcManagedFiles(): array
 {
     return [
         '/etc/ssh/sshd_config.d/70-rateguru-deploy.conf' => base_path('infrastructure/config/ssh/70-rateguru-deploy.conf'),
+        '/etc/postgresql/18/main/conf.d/70-rateguru.conf' => base_path('infrastructure/config/postgresql/70-rateguru.conf'),
         '/etc/nginx/sites-available/rateguru-staging' => base_path('infrastructure/config/nginx/rateguru-staging'),
         '/etc/php/8.5/fpm/pool.d/rateguru-staging.conf' => base_path('infrastructure/config/php-fpm/rateguru-staging.conf'),
         '/etc/supervisor/conf.d/rateguru-staging-queue.conf' => base_path('infrastructure/config/supervisor/rateguru-staging-queue.conf'),
@@ -11853,7 +11984,7 @@ function bsvcFixture(string $scratch, array $options = []): array
     foreach ([
         '/etc/nginx/sites-available', '/etc/nginx/sites-enabled',
         '/etc/php/8.5/fpm/pool.d', '/etc/supervisor/conf.d',
-        '/etc/cron.d', '/etc/ssh/sshd_config.d',
+        '/etc/cron.d', '/etc/ssh/sshd_config.d', '/etc/postgresql/18/main/conf.d',
         '/home/www/rateguru/staging/shared/storage',
         '/home/www/rateguru/staging/releases',
         '/usr/bin', '/run/php',
@@ -11957,7 +12088,7 @@ function bsvcFixture(string $scratch, array $options = []): array
         bsvcOwnerTableAdd($scratch, $staging.'/shared/storage/logs', 'rateguru-staging', 'rateguru-staging');
 
         foreach ([
-            'ssh', 'cron', 'nginx', 'postgresql', 'redis-server', 'supervisor',
+            'ssh', 'cron', 'nginx', 'postgresql', 'postgresql@18-main', 'redis-server', 'supervisor',
             'php8.5-fpm', 'staging-mailpit', 'staging-mailtrap-local',
         ] as $unit) {
             touch($scratch.'/svc/'.$unit.'.enabled');
@@ -12008,6 +12139,9 @@ function bsvcFixture(string $scratch, array $options = []): array
         'RATEGURU_BOOTSTRAPSVC_SYSTEMCTL_BIN' => $scratch.'/bin/systemctl',
         'RATEGURU_BOOTSTRAPSVC_NGINX_BIN' => $scratch.'/bin/nginx',
         'RATEGURU_BOOTSTRAPSVC_SSHD_BIN' => $scratch.'/bin/sshd',
+        'RATEGURU_BOOTSTRAPSVC_RUNUSER_BIN' => $scratch.'/bin/pg-runuser',
+        'RATEGURU_BOOTSTRAPSVC_PSQL_BIN' => $scratch.'/bin/pg-psql',
+        'RATEGURU_BOOTSTRAPSVC_POSTGRES_SERVER_BIN' => $scratch.'/bin/pg-postgres',
         'RATEGURU_BOOTSTRAPSVC_PHP_FPM_BIN' => $scratch.'/bin/php-fpm8.5',
         'RATEGURU_BOOTSTRAPSVC_SUPERVISORCTL_BIN' => $scratch.'/bin/supervisorctl',
         'RATEGURU_BOOTSTRAPSVC_STAT_BIN' => $scratch.'/bin/stat',

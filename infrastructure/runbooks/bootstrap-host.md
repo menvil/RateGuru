@@ -444,7 +444,10 @@ The contract reproduces what the real staging VPS runs, inspected directly:
   (`ppa.launchpadcontent.net/ondrej/php/ubuntu jammy`) — Ubuntu 22.04's
   base repository has no PHP 8.5.
 - **PostgreSQL 18** from PGDG (`apt.postgresql.org jammy-pgdg`) — the
-  staging packages identify as `18.x-1.pgdg22.04+1`.
+  staging packages identify as `18.x-1.pgdg22.04+1` — with
+  `postgresql-18-roaringbitmap` from the same repository, the extension
+  Analytics keeps each day's people in. It needs no preloading and no
+  restart; `install-target-database` creates it in each target's database.
 - **Nginx, Redis, Supervisor** and every base utility (including `unzip`,
   which extracts the pinned rclone release archive, `bind9-dnsutils` and
   `openssl`, whose `dig` and `openssl` the read-only mail identity
@@ -464,15 +467,17 @@ ever introduced to chase an incidental patch version.
 ### The PHP security floor
 
 PHP has one exception to floating: a **security floor**, `PHP_MIN_VERSION` in
-`install-bootstrap-runtime`, currently **8.5.12**. It is not a pin — every
+`install-bootstrap-runtime`, currently **8.5.13**. It is not a pin — every
 later 8.5 release passes — but anything below it is a `CONFLICT` for both the
 CLI and the FPM binary, so `--check`, `--verify`, `prepare-host --verify`,
 `verify-infrastructure` and every installer that gates on the runtime refuse
-the host.
+the host. There is no option to run below it.
 
-Why 8.5.12: on 2026-10-21 php.net released 8.5.12 (with 8.4.27, 8.3.36 and
-8.2.35) to fix two critical, unauthenticated remote code execution flaws in
-the PHP core, and asked every user to update immediately:
+Why 8.5.13: php.net released it on 2026-11-19 with the fixes for the
+security flaws found after 8.5.12, among them **CVE-2026-129289**, request
+smuggling through PHP-FPM, and remote code execution in session handling.
+8.5.12 (2026-10-22) had fixed two critical, unauthenticated remote code
+execution flaws in the core:
 
 - **CVE-2026-109618** ([GHSA-w8hw-w9fx-j79w](https://github.com/php/php-src/security/advisories/GHSA-w8hw-w9fx-j79w))
   — RCE via OOM corruption: out-of-memory handling can interrupt PHP while
@@ -482,49 +487,81 @@ the PHP core, and asked every user to update immediately:
   — RCE via stale global state: state owned by one request survives its
   memory and is used by the next request the same worker handles.
 
-PHP-FPM takes multipart uploads from the public site, so every earlier 8.5
-release is exposed. The application enforces the same number: `composer.json`
-requires `php ^8.5.12`, and Composer's platform check stops every request and
-every artisan command of a build on an older PHP.
+PHP-FPM serves the public site, so every earlier 8.5 release is exposed. The
+application enforces the same number: `composer.json` requires `php ^8.5.13`,
+and Composer's platform check stops every request and every artisan command of
+a build on an older PHP.
 
-`--apply` never upgrades an installed PHP to meet the floor — the installer
-still never runs `apt-get upgrade` in any form. Raising PHP is an operator
-step, done by hand on the host:
+`--apply` meets the floor itself (`reconcile_php_security_floor`), the way it
+meets nginx's: when PHP is below it, it runs `apt-get update`, upgrades the
+installed `php8.5-*` packages the installer requires (`--only-upgrade`, the
+host's `php.ini` files kept, needrestart only listing), checks `php-fpm8.5 -t`,
+restarts `php8.5-fpm`, and restarts every supervisor program whose process still
+runs the replaced PHP binary — the queue workers and the Nightwatch agent;
+supervisor stops them the way it always does, so a worker finishes its job
+first. The scheduler starts a fresh process every minute and needs nothing. A
+configuration that fails `php-fpm8.5 -t` leaves PHP-FPM running as it is and
+fails the run. The next run finishes it without any state kept in between:
+`php-processes` is a `CONFLICT` while PHP-FPM's master or a supervised PHP
+worker still runs a binary the kernel shows as deleted, and `--apply` restarts
+them, with no apt call.
 
-```bash
-# What is installed; any other PHP series from the PPA needs the same update
-php8.5 -v
-dpkg-query -W -f='${db:Status-Abbrev} ${Package} ${Version}\n' 'php*' | awk '$1=="ii"'
+**Order matters when the floor rises.** A build requiring the new PHP fails
+every request on a host still below it. So: merge, run **Prepare staging
+host** (the shared machine upgrades, both targets), check **Verify staging
+infrastructure**, and only then deploy the build. When the next PHP security
+release comes, raise `PHP_MIN_VERSION` and the `php` requirement in
+`composer.json` together (a test keeps them equal). Never lower the floor.
 
-# Refresh the indexes and dry-run: only php8.5-* packages, at the floor or later
-sudo apt-get update
-PKGS=$(dpkg-query -W -f='${db:Status-Abbrev} ${Package}\n' 'php8.5*' | awk '$1=="ii"{print $2}')
-sudo apt-get install --only-upgrade -s $PKGS
+### The nginx security floor
 
-# Upgrade; needrestart only lists, the existing php.ini files are kept
-sudo NEEDRESTART_MODE=l DEBIAN_FRONTEND=noninteractive apt-get install --only-upgrade -y \
-  -o Dpkg::Options::=--force-confold $PKGS
+Nginx has a floor too: `NGINX_MIN_PACKAGE_VERSION` in
+`install-bootstrap-runtime`, currently **1.18.0-6ubuntu14.24**. Unlike PHP's it
+is an **Ubuntu package revision**, read from dpkg, because Ubuntu fixes nginx
+without changing the upstream number: a patched build and an exploitable one
+both answer `nginx/1.18.0 (Ubuntu)`, so `nginx -v` cannot tell them apart. It is
+read from the `nginx` package the installer already requires: on jammy that
+package requires its server (`nginx-core` by default) at exactly its own
+version, so its version is the binary's.
 
-# FPM on the new binary
-sudo php-fpm8.5 -t && sudo systemctl restart php8.5-fpm
-```
+Why 1.18.0-6ubuntu14.24: on 2026-11-18 nginx released 1.30.7 and 1.31.9 with
+fixes for ten flaws, and Ubuntu carried the ones jammy is exposed to into
+14.23 (2026-11-19, USN-9159-1) and 14.24 (2026-11-20, USN-9182-1):
 
-Then move every long-running PHP process onto the new binary, because it keeps
-the old one mapped until it restarts: `php8.5 artisan queue:restart` from each
-active target's `current`, as its runtime user, for the queue workers, and
-`supervisorctl restart` for the Nightwatch agent. The scheduler starts a fresh
-process every minute and needs nothing. Finish with
-`install-bootstrap-runtime --verify` and `verify-infrastructure --target T` for
-every active target. No PHP process may still run a deleted binary:
+- **CVE-2026-123007** — HTTP/2 flow-control memory corruption that can run
+  code (CVSS 4.0 9.2, critical). It needs nothing but HTTP/2, which the sites
+  serve: the staging vhosts say `http2`, and on 1.18 that turns HTTP/2 on for
+  every server on the port.
+- **CVE-2026-123633** — an HTTP/2 use-after-free.
+- **CVE-2026-118899** — an endless loop reading a request body over TLS 1.3,
+  which the listeners enable (fixed in 14.24, hence the floor).
 
-```bash
-sudo sh -c 'for p in $(pgrep php); do l=$(readlink /proc/$p/exe); case "$l" in *deleted*) echo "$p $l";; esac; done'
-```
+Only the jammy series `1.18.0-6ubuntu*` is accepted. An nginx from another
+source numbers its releases differently — nginx.org's 1.30.6 sorts above every
+1.18.0 build and is still exposed — so it is a `CONFLICT`, never a pass, and is
+never replaced. Its package is itself named `nginx`, which is why the floor
+reads that package: requiring `nginx-core` instead would have had apt install
+it by removing the foreign nginx.
 
-When the next PHP security release comes, raise `PHP_MIN_VERSION` and the
-`php` requirement in `composer.json` together (a test keeps them equal),
-upgrade the hosts first, and only then deploy a build carrying the new
-requirement. Never lower the floor.
+Unlike PHP's, this floor is met by `--apply`: when `nginx` is below it,
+`install-bootstrap-runtime --apply` runs `apt-get update`, upgrades exactly
+`nginx nginx-core nginx-common` (`--only-upgrade`, the host's configuration
+files kept, needrestart only listing), checks `nginx -t` and restarts nginx onto
+the new binary — a moment's interruption of every site on the machine, once.
+A configuration that fails `nginx -t` leaves the running nginx untouched and
+fails the run. The next run finishes it without any state kept in between: a
+running nginx whose executable the kernel shows as deleted still runs the
+binary an upgrade replaced, so the report calls it a `CONFLICT` and `--apply`
+restarts it (again only after `nginx -t`). A stopped nginx is not started here;
+`install-bootstrap-services` starts it as a base service. So the hosts are upgraded through the ordinary workflows:
+**Prepare staging host** (from `develop`) converges the shared machine, nginx
+included, and **Verify staging infrastructure** / **Verify production
+infrastructure** report `nginx-version` with the installed revision. A host
+below the floor fails every verification until Prepare has run.
+
+When the next Ubuntu nginx security update comes, raise
+`NGINX_MIN_PACKAGE_VERSION` (a test keeps it inside the series and at or above
+14.24) and run Prepare. Never lower the floor.
 
 **Node.js, npm and Composer are intentionally absent.** GitHub Actions
 builds the immutable application artifact (`composer install --no-dev`,

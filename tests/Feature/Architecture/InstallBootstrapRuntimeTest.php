@@ -114,7 +114,7 @@ function bootstrapRuntimeRequiredPackages(): array
         ['cli', 'common', 'fpm', 'bcmath', 'curl', 'gd', 'intl', 'mbstring', 'pgsql', 'redis', 'xml', 'zip'],
     );
 
-    return array_merge($base, $php, ['postgresql-18', 'postgresql-client-18']);
+    return array_merge($base, $php, ['postgresql-18', 'postgresql-client-18', 'postgresql-18-roaringbitmap']);
 }
 
 /**
@@ -337,6 +337,25 @@ function bootstrapRuntimeWriteHostFiles(string $scratch, array $options): void
     file_put_contents($scratch.'/fs/dpkg-installed.txt', implode("\n", $installed).($installed === [] ? '' : "\n"));
 
     bootstrapRuntimeWriteRcloneFixture($scratch, $options);
+
+    // The running nginx master: its PID file and its executable as the kernel
+    // shows it — the installed binary, or one an upgrade has replaced.
+    expect(@mkdir($scratch.'/fs/run', 0o755, true) || is_dir($scratch.'/fs/run'))->toBeTrue();
+    expect(@mkdir($scratch.'/fs/proc/4242', 0o755, true))->toBeTrue();
+    if ($options['nginxActive'] ?? true) {
+        file_put_contents($scratch.'/fs/run/nginx.pid', "4242\n");
+    }
+    symlink(($options['nginxRunsReplaced'] ?? false) ? '/usr/sbin/nginx (deleted)' : '/usr/sbin/nginx', $scratch.'/fs/proc/4242/exe');
+
+    // PHP-FPM's master (pid 5151) and a supervised queue worker (pid 6161),
+    // on the installed binaries or on ones an upgrade replaced.
+    $replaced = $options['phpRunsReplaced'] ?? false;
+    expect(@mkdir($scratch.'/fs/run/php', 0o755, true))->toBeTrue();
+    expect(@mkdir($scratch.'/fs/proc/5151', 0o755, true))->toBeTrue();
+    expect(@mkdir($scratch.'/fs/proc/6161', 0o755, true))->toBeTrue();
+    file_put_contents($scratch.'/fs/run/php/php8.5-fpm.pid', "5151\n");
+    symlink($replaced ? '/usr/sbin/php-fpm8.5 (deleted)' : '/usr/sbin/php-fpm8.5', $scratch.'/fs/proc/5151/exe');
+    symlink($replaced ? '/usr/bin/php8.5 (deleted)' : '/usr/bin/php8.5', $scratch.'/fs/proc/6161/exe');
 }
 
 /**
@@ -431,8 +450,17 @@ function bootstrapRuntimeWriteToolStubs(string $scratch, array $options): void
     $phpStub = <<<'STUB'
         #!/bin/bash
         if [[ "$1" == "-v" ]]; then
-            printf 'PHP %s (%s) (built: Jan  1 2026 00:00:00) (NTS)\n' "${STUB_PHP_VERSION}" "${STUB_PHP_SAPI}"
+            version="${STUB_PHP_VERSION}"
+            if [[ -f "${STUB_LOG}/php.version" ]]; then
+                read -r version < "${STUB_LOG}/php.version"
+            fi
+            printf 'PHP %s (%s) (built: Jan  1 2026 00:00:00) (NTS)\n' "${version}" "${STUB_PHP_SAPI}"
             exit 0
+        fi
+        if [[ "$1" == "-t" ]]; then
+            printf 'php-fpm -t\n' >> "${STUB_LOG}/service.log"
+            [[ "${STUB_PHP_FPM_CONFIG_FAIL:-}" != "true" ]]
+            exit
         fi
         if [[ "$1" == "-m" ]]; then
             printf '[PHP Modules]\n'
@@ -503,17 +531,75 @@ function bootstrapRuntimeWriteToolStubs(string $scratch, array $options): void
 
 function bootstrapRuntimeWriteMutationStubs(string $scratch, array $options): void
 {
-    // dpkg-query: reads the fixture package database; builtins only.
+    // dpkg-query: reads the fixture package database; builtins only. Asked
+    // for ${Version}, it answers nginx's — the version the test set, or the
+    // one an --only-upgrade wrote — and a fixed one for anything else.
     bootstrapRuntimeWriteStub($scratch.'/bin/dpkg-query', <<<'STUB'
         #!/bin/bash
         pkg="${!#}"
         while IFS= read -r line; do
             if [[ "${line}" == "${pkg}" ]]; then
-                printf 'installed'
+                if [[ "$*" == *'${Version}'* ]]; then
+                    version="1.0-1"
+                    if [[ "${pkg}" == "nginx" ]]; then
+                        version="${STUB_NGINX_VERSION}"
+                        if [[ -f "${STUB_LOG}/nginx.version" ]]; then
+                            read -r version < "${STUB_LOG}/nginx.version"
+                        fi
+                    fi
+                    printf '%s' "${version}"
+                else
+                    printf 'installed'
+                fi
                 exit 0
             fi
         done < "${STUB_DPKG_STATE}"
         exit 1
+        STUB);
+
+    // systemctl and nginx: log every call; nginx -t fails when the test asks,
+    // systemctl answers is-active from the test's choice, and a restart puts
+    // the running master on the installed binary — unless the test makes the
+    // restart fail.
+    bootstrapRuntimeWriteStub($scratch.'/bin/systemctl', <<<'STUB'
+        #!/bin/bash
+        printf 'systemctl %s\n' "$*" >> "${STUB_LOG}/service.log"
+        if [[ "$1" == "is-active" ]]; then
+            [[ "${STUB_NGINX_ACTIVE:-true}" == "true" ]]
+            exit
+        fi
+        if [[ "$1" == "restart" && "$2" == "nginx" ]]; then
+            [[ "${STUB_NGINX_RESTART_FAIL:-}" == "true" ]] && exit 1
+            PATH="${STUB_REAL_PATH}" ln -sfn /usr/sbin/nginx "${STUB_PROC_ROOT}/4242/exe"
+        fi
+        if [[ "$1" == "restart" && "$2" == "php8.5-fpm" ]]; then
+            [[ "${STUB_PHP_FPM_RESTART_FAIL:-}" == "true" ]] && exit 1
+            PATH="${STUB_REAL_PATH}" ln -sfn /usr/sbin/php-fpm8.5 "${STUB_PROC_ROOT}/5151/exe"
+        fi
+        exit 0
+        STUB);
+    bootstrapRuntimeWriteStub($scratch.'/bin/nginx', <<<'STUB'
+        #!/bin/bash
+        printf 'nginx %s\n' "$*" >> "${STUB_LOG}/service.log"
+        [[ "${STUB_NGINX_CONFIG_FAIL:-}" != "true" ]]
+        STUB);
+
+    // supervisorctl: status answers one queue worker, pid 6161; a restart
+    // puts that worker on the installed PHP binary.
+    bootstrapRuntimeWriteStub($scratch.'/bin/supervisorctl', <<<'STUB'
+        #!/bin/bash
+        if [[ "$1" == "status" ]]; then
+            [[ "${STUB_SUPERVISOR_RUNNING:-true}" == "true" ]] || exit 7
+            printf 'rateguru-staging-queue:rateguru-staging-queue_00   RUNNING   pid 6161, uptime 0:10:00\n'
+            printf 'rateguru-staging-mailer                             STOPPED   Nov 21 01:00 PM\n'
+            exit 3
+        fi
+        printf 'supervisorctl %s\n' "$*" >> "${STUB_LOG}/service.log"
+        if [[ "$1" == "restart" ]]; then
+            [[ "${STUB_SUPERVISOR_RESTART_FAIL:-}" == "true" ]] && exit 1
+            PATH="${STUB_REAL_PATH}" ln -sfn /usr/bin/php8.5 "${STUB_PROC_ROOT}/6161/exe"
+        fi
+        exit 0
         STUB);
 
     // apt-get: logs every invocation; a successful install marks its
@@ -530,6 +616,21 @@ function bootstrapRuntimeWriteMutationStubs(string $scratch, array $options): vo
         if [[ "$1" == "install" ]]; then
             if [[ "${STUB_APT_INSTALL_FAIL:-}" == "true" ]]; then
                 exit 100
+            fi
+            if [[ "$*" == *"--only-upgrade"* ]]; then
+                printf '%s\n' "${NEEDRESTART_MODE:-unset}" > "${STUB_LOG}/apt-needrestart-mode"
+                if [[ "$*" == *" -- php8.5-cli "* ]]; then
+                    printf '%s\n' "${STUB_PHP_UPGRADE_VERSION}" > "${STUB_LOG}/php.version"
+                    # dpkg replaced the binaries under PHP-FPM and the worker.
+                    PATH="${STUB_REAL_PATH}" ln -sfn '/usr/sbin/php-fpm8.5 (deleted)' "${STUB_PROC_ROOT}/5151/exe"
+                    PATH="${STUB_REAL_PATH}" ln -sfn '/usr/bin/php8.5 (deleted)' "${STUB_PROC_ROOT}/6161/exe"
+                fi
+                if [[ "$*" == *" -- nginx "* ]]; then
+                    printf '%s\n' "${STUB_NGINX_UPGRADE_VERSION}" > "${STUB_LOG}/nginx.version"
+                    # dpkg replaced the binary under the running master.
+                    PATH="${STUB_REAL_PATH}" ln -sfn '/usr/sbin/nginx (deleted)' "${STUB_PROC_ROOT}/4242/exe"
+                fi
+                exit 0
             fi
             for arg in "$@"; do
                 case "${arg}" in
@@ -759,6 +860,12 @@ function bootstrapRuntimeFixture(string $scratch, array $options = []): array
         'RATEGURU_BOOTSTRAP_PSQL_BIN' => $scratch.'/tools/psql',
         'RATEGURU_BOOTSTRAP_PG_DUMP_BIN' => $scratch.'/tools/pg_dump',
         'RATEGURU_BOOTSTRAP_PG_RESTORE_BIN' => $scratch.'/tools/pg_restore',
+        'RATEGURU_BOOTSTRAP_NGINX_BIN' => $scratch.'/bin/nginx',
+        'RATEGURU_BOOTSTRAP_SYSTEMCTL_BIN' => $scratch.'/bin/systemctl',
+        'RATEGURU_BOOTSTRAP_NGINX_PID_FILE' => $scratch.'/fs/run/nginx.pid',
+        'RATEGURU_BOOTSTRAP_PHP_FPM_PID_FILE' => $scratch.'/fs/run/php/php8.5-fpm.pid',
+        'RATEGURU_BOOTSTRAP_SUPERVISORCTL_BIN' => $scratch.'/bin/supervisorctl',
+        'RATEGURU_BOOTSTRAP_PROC_ROOT' => $scratch.'/fs/proc',
         'RATEGURU_BOOTSTRAP_STAT_BIN' => $scratch.'/bin/stat',
         'RATEGURU_BOOTSTRAP_RCLONE_CONTRACT_FILE' => $scratch.'/fs/external-runtimes.env',
         'RATEGURU_BOOTSTRAP_RCLONE_KEY_FILE' => $scratch.'/fs/rclone-release-signing-key.asc',
@@ -768,8 +875,13 @@ function bootstrapRuntimeFixture(string $scratch, array $options = []): array
         'STUB_STAGED_DIR' => $scratch.'/staged',
         'STUB_TOOLS_DIR' => $scratch.'/tools',
         'STUB_PHP_VERSION' => $options['phpVersion'] ?? phpSecurityFloor(),
+        'STUB_PHP_UPGRADE_VERSION' => $options['phpUpgradeVersion'] ?? phpSecurityFloor(),
         'STUB_PHP_MODULES' => $options['phpModules'] ?? implode(' ', bootstrapRuntimeRequiredPhpModules()),
         'STUB_PG_VERSION' => $options['pgVersion'] ?? '18.4',
+        'STUB_NGINX_VERSION' => $options['nginxVersion'] ?? nginxSecurityFloor(),
+        'STUB_NGINX_UPGRADE_VERSION' => $options['nginxUpgradeVersion'] ?? nginxSecurityFloor(),
+        'STUB_NGINX_ACTIVE' => ($options['nginxActive'] ?? true) ? 'true' : 'false',
+        'STUB_PROC_ROOT' => $scratch.'/fs/proc',
         'STUB_FPR_PHP' => $options['fprPhp'] ?? bootstrapRuntimePhpPpaFingerprint(),
         'STUB_FPR_PGDG' => $options['fprPgdg'] ?? bootstrapRuntimePgdgFingerprint(),
         'STUB_FPR_RCLONE' => $options['fprRclone'] ?? bootstrapRuntimeRcloneFingerprint(),
@@ -798,6 +910,24 @@ function bootstrapRuntimeFixture(string $scratch, array $options = []): array
 
     if ($options['gpgExtraKey'] ?? false) {
         $env['STUB_GPG_EXTRA_KEY'] = 'true';
+    }
+
+    if ($options['nginxConfigFail'] ?? false) {
+        $env['STUB_NGINX_CONFIG_FAIL'] = 'true';
+    }
+
+    if ($options['nginxRestartFail'] ?? false) {
+        $env['STUB_NGINX_RESTART_FAIL'] = 'true';
+    }
+
+    foreach (['phpFpmConfigFail' => 'STUB_PHP_FPM_CONFIG_FAIL', 'phpFpmRestartFail' => 'STUB_PHP_FPM_RESTART_FAIL', 'supervisorRestartFail' => 'STUB_SUPERVISOR_RESTART_FAIL'] as $option => $variable) {
+        if ($options[$option] ?? false) {
+            $env[$variable] = 'true';
+        }
+    }
+
+    if (($options['supervisorRunning'] ?? true) === false) {
+        $env['STUB_SUPERVISOR_RUNNING'] = 'false';
     }
 
     return $env;
@@ -850,6 +980,20 @@ function bootstrapRuntimeAptLog(string $scratch): string
     $path = $scratch.'/log/apt.log';
 
     return is_file($path) ? (string) file_get_contents($path) : '';
+}
+
+/** What the systemctl and nginx stubs were asked, one call a line. */
+function bootstrapRuntimeServiceLog(string $scratch): string
+{
+    $path = $scratch.'/log/service.log';
+
+    return is_file($path) ? (string) file_get_contents($path) : '';
+}
+
+/** The exact apt call that upgrades nginx to its security floor. */
+function bootstrapRuntimeNginxUpgradeCall(): string
+{
+    return 'apt-get install -y --only-upgrade --no-install-recommends -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold -- nginx nginx-core nginx-common';
 }
 
 // =============================================================================
@@ -1113,7 +1257,7 @@ it('treats a PHP 8.5 release below the security floor as CONFLICT for both SAPIs
         expect($exit)->toBe(1, "PHP {$version} must not satisfy --check:\n{$output}");
         expect($output)->toContain("CONFLICT php-cli — reports PHP {$version}, below the security floor {$floor}");
         expect($output)->toContain("CONFLICT php-fpm — reports PHP {$version}, below the security floor {$floor}");
-        expect($output)->toContain("-> apply: apt-get install --only-upgrade the installed php8.5 packages to {$floor} or later, then restart php8.5-fpm and every long-running PHP worker — an operator step, never taken by --apply");
+        expect($output)->toContain('-> apply: upgrade the php8.5 packages (apt-get install --only-upgrade), then restart php8.5-fpm and the supervised PHP workers onto the new binary');
         expect($output)->toContain("CONFLICT: 2\n");
         expect($output)->not->toContain('HOST RUNTIME CONTRACT: SATISFIED');
 
@@ -1125,7 +1269,8 @@ it('treats a PHP 8.5 release below the security floor as CONFLICT for both SAPIs
         bootstrapRuntimeCleanup($scratch);
     }
 })->with([
-    'the release before the floor' => '8.5.11',
+    'the release before the floor, with its own critical fixes missing' => '8.5.12',
+    'the release before that' => '8.5.11',
     'a single-digit patch that sorts after the floor as text' => '8.5.9',
     'the staging host as first observed' => '8.5.8',
     'the first 8.5 release' => '8.5.0',
@@ -1147,23 +1292,415 @@ it('accepts the security floor itself and every later PHP 8.5 release', function
         bootstrapRuntimeCleanup($scratch);
     }
 })->with([
-    'the floor' => '8.5.12',
-    'the next patch' => '8.5.13',
+    'the floor' => '8.5.13',
+    'the next patch' => '8.5.14',
     'a two-digit patch' => '8.5.20',
     'a three-digit patch' => '8.5.100',
 ]);
 
-it('never upgrades a PHP below the security floor during --apply, and fails its closing verification', function () {
+it('upgrades a PHP below the floor during --apply, its packages only, then moves PHP-FPM and the workers onto the new binary', function () {
     $scratch = bootstrapRuntimeScratchDir();
 
     try {
-        $env = bootstrapRuntimeFixture($scratch, ['phpVersion' => '8.5.11']);
+        $env = bootstrapRuntimeFixture($scratch, ['phpVersion' => '8.5.12']);
+        $floor = phpSecurityFloor();
+        $packages = implode(' ', array_map(fn (string $c): string => "php8.5-{$c}", ['cli', 'common', 'fpm', 'bcmath', 'curl', 'gd', 'intl', 'mbstring', 'pgsql', 'redis', 'xml', 'zip']));
 
         [$exit, $output] = bootstrapRuntimeRun(['--apply'], $env);
 
-        expect($exit)->not->toBe(0, "apply must not report success on a PHP below the floor:\n{$output}");
-        expect($output)->toContain('CONFLICT php-cli — reports PHP 8.5.11, below the security floor '.phpSecurityFloor());
-        expect(bootstrapRuntimeAptLog($scratch))->toBe('', 'apply ran apt-get on a host whose packages are all installed');
+        expect($exit)->toBe(0, $output);
+        expect($output)->toContain("php: upgrading PHP 8.5.12 to the security floor {$floor} or later");
+        expect($output)->toContain("php: php8.5-fpm restarted onto the installed binary (PHP {$floor})");
+        expect($output)->toContain('php: supervisor program rateguru-staging-queue:rateguru-staging-queue_00 restarted onto the installed binary');
+        expect($output)->toContain("PASS     php-fpm — PHP {$floor}");
+        expect($output)->toContain('PASS     php-processes — no PHP process runs a replaced binary');
+        expect($output)->toContain('HOST RUNTIME CONTRACT: SATISFIED');
+
+        // A fresh index, then exactly the php8.5 packages, needrestart listing only.
+        expect(explode("\n", trim(bootstrapRuntimeAptLog($scratch))))->toBe([
+            'apt-get update --allow-releaseinfo-change-label',
+            "apt-get install -y --only-upgrade --no-install-recommends -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold -- {$packages}",
+        ]);
+        expect(trim((string) file_get_contents($scratch.'/log/apt-needrestart-mode')))->toBe('l');
+
+        // PHP-FPM is restarted only after its configuration passes, then the
+        // worker still running the replaced binary; nothing else.
+        expect(explode("\n", trim(bootstrapRuntimeServiceLog($scratch))))->toBe([
+            'systemctl is-active --quiet php8.5-fpm',
+            'php-fpm -t',
+            'systemctl restart php8.5-fpm',
+            'supervisorctl restart rateguru-staging-queue:rateguru-staging-queue_00',
+        ]);
+    } finally {
+        bootstrapRuntimeCleanup($scratch);
+    }
+});
+
+it('reports PHP processes still on a replaced binary, and --apply restarts them without upgrading again', function () {
+    $scratch = bootstrapRuntimeScratchDir();
+
+    try {
+        $env = bootstrapRuntimeFixture($scratch, ['phpRunsReplaced' => true]);
+
+        [$exit, $output] = bootstrapRuntimeRun(['--check'], $env);
+
+        expect($exit)->toBe(1, $output);
+        expect($output)->toContain('CONFLICT php-processes — still running the PHP binary an upgrade replaced: php8.5-fpm rateguru-staging-queue:rateguru-staging-queue_00');
+
+        [$exit, $output] = bootstrapRuntimeRun(['--apply'], $env);
+
+        expect($exit)->toBe(0, $output);
+        expect(bootstrapRuntimeAptLog($scratch))->toBe('');
+        expect(bootstrapRuntimeServiceLog($scratch))->toContain("php-fpm -t\nsystemctl restart php8.5-fpm\nsupervisorctl restart rateguru-staging-queue:rateguru-staging-queue_00\n");
+        expect($output)->toContain('PASS     php-processes — no PHP process runs a replaced binary');
+    } finally {
+        bootstrapRuntimeCleanup($scratch);
+    }
+});
+
+it('finishes a PHP upgrade whose php-fpm -t, PHP-FPM restart or worker restart failed on the next --apply', function (string $failure) {
+    $scratch = bootstrapRuntimeScratchDir();
+
+    try {
+        $env = bootstrapRuntimeFixture($scratch, ['phpVersion' => '8.5.12', $failure => true]);
+
+        [$exit] = bootstrapRuntimeRun(['--apply'], $env);
+
+        expect($exit)->not->toBe(0);
+
+        unset($env['STUB_PHP_FPM_CONFIG_FAIL'], $env['STUB_PHP_FPM_RESTART_FAIL'], $env['STUB_SUPERVISOR_RESTART_FAIL']);
+        file_put_contents($scratch.'/log/apt.log', '');
+
+        [$exit, $output] = bootstrapRuntimeRun(['--apply'], $env);
+
+        expect($exit)->toBe(0, $output);
+        expect($output)->toContain('processes still run the binary it replaced');
+        expect(bootstrapRuntimeAptLog($scratch))->toBe('');
+        expect($output)->toContain('PASS     php-processes — no PHP process runs a replaced binary');
+    } finally {
+        bootstrapRuntimeCleanup($scratch);
+    }
+})->with([
+    'php-fpm -t failed' => 'phpFpmConfigFail',
+    'the PHP-FPM restart failed' => 'phpFpmRestartFail',
+    'the worker restart failed' => 'supervisorRestartFail',
+]);
+
+it('fails when the PHP repository does not offer the floor yet, and restarts nothing', function () {
+    $scratch = bootstrapRuntimeScratchDir();
+
+    try {
+        $env = bootstrapRuntimeFixture($scratch, ['phpVersion' => '8.5.11', 'phpUpgradeVersion' => '8.5.12']);
+
+        [$exit, $output] = bootstrapRuntimeRun(['--apply'], $env);
+
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain('PHP is still 8.5.12 (FPM 8.5.12) after the upgrade — its repository does not offer '.phpSecurityFloor().' yet');
+        expect(bootstrapRuntimeServiceLog($scratch))->not->toContain('restart');
+    } finally {
+        bootstrapRuntimeCleanup($scratch);
+    }
+});
+
+it('never replaces a PHP of another series', function () {
+    $scratch = bootstrapRuntimeScratchDir();
+
+    try {
+        $env = bootstrapRuntimeFixture($scratch, ['phpVersion' => '8.4.27']);
+
+        [$exit, $output] = bootstrapRuntimeRun(['--apply'], $env);
+
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain('CONFLICT php-cli — reports PHP 8.4.27, required series is 8.5');
+        expect(bootstrapRuntimeAptLog($scratch))->not->toContain('--only-upgrade');
+    } finally {
+        bootstrapRuntimeCleanup($scratch);
+    }
+});
+
+it('reads no supervised worker when supervisor is not running, and still passes', function () {
+    $scratch = bootstrapRuntimeScratchDir();
+
+    try {
+        $env = bootstrapRuntimeFixture($scratch, ['supervisorRunning' => false]);
+
+        [$exit, $output] = bootstrapRuntimeRun(['--verify'], $env);
+
+        expect($exit)->toBe(0, $output);
+        expect($output)->toContain('PASS     php-processes — no PHP process runs a replaced binary');
+    } finally {
+        bootstrapRuntimeCleanup($scratch);
+    }
+});
+
+// =============================================================================
+// The nginx security floor — an Ubuntu package revision, met by --apply
+// =============================================================================
+
+it('treats an Ubuntu nginx below the security floor as CONFLICT', function (string $version) {
+    $scratch = bootstrapRuntimeScratchDir();
+
+    try {
+        $env = bootstrapRuntimeFixture($scratch, ['nginxVersion' => $version]);
+        $floor = nginxSecurityFloor();
+
+        [$exit, $output] = bootstrapRuntimeRun(['--check'], $env);
+
+        expect($exit)->toBe(1, "nginx {$version} must not satisfy --check:\n{$output}");
+        expect($output)->toContain("CONFLICT nginx-version — nginx {$version}, below the security floor {$floor}");
+        expect($output)->toContain('-> apply: upgrade nginx nginx-core nginx-common (apt-get install --only-upgrade) and restart nginx');
+        expect($output)->toContain("CONFLICT: 1\n");
+
+        [$exit, $output] = bootstrapRuntimeRun(['--verify'], $env);
+
+        expect($exit)->toBe(1, "nginx {$version} must not satisfy --verify:\n{$output}");
+        expect($output)->toContain("CONFLICT nginx-version — nginx {$version}, below the security floor {$floor}");
+        expect(bootstrapRuntimeAptLog($scratch))->toBe('');
+        expect(bootstrapRuntimeServiceLog($scratch))->toBe('');
+    } finally {
+        bootstrapRuntimeCleanup($scratch);
+    }
+})->with([
+    'the revision that fixed the HTTP/2 flaws alone' => '1.18.0-6ubuntu14.23',
+    'a revision that sorts after the floor as text' => '1.18.0-6ubuntu14.3',
+    'a pre-release of the floor itself' => '1.18.0-6ubuntu14.24~rc1',
+    'a revision without a minor part' => '1.18.0-6ubuntu14',
+    'the first jammy build' => '1.18.0-6ubuntu1',
+]);
+
+it('accepts the nginx security floor and every later revision of the series', function (string $version) {
+    $scratch = bootstrapRuntimeScratchDir();
+
+    try {
+        $env = bootstrapRuntimeFixture($scratch, ['nginxVersion' => $version]);
+
+        [$exit, $output] = bootstrapRuntimeRun(['--verify'], $env);
+
+        expect($exit)->toBe(0, "nginx {$version} must satisfy --verify:\n{$output}");
+        expect($output)->toContain("PASS     nginx-version — nginx {$version} (security floor ".nginxSecurityFloor().')');
+    } finally {
+        bootstrapRuntimeCleanup($scratch);
+    }
+})->with([
+    'the floor' => '1.18.0-6ubuntu14.24',
+    'the next revision' => '1.18.0-6ubuntu14.25',
+    'a three-digit revision' => '1.18.0-6ubuntu14.100',
+    'a rebuild of the floor' => '1.18.0-6ubuntu14.24.1',
+    'a no-change rebuild' => '1.18.0-6ubuntu14.24build1',
+    'a later major revision' => '1.18.0-6ubuntu15.1',
+]);
+
+it('refuses an nginx from another source and never replaces it', function (string $version) {
+    $scratch = bootstrapRuntimeScratchDir();
+
+    try {
+        $env = bootstrapRuntimeFixture($scratch, ['nginxVersion' => $version]);
+
+        // nginx.org numbers its own releases: 1.30.6 sorts above every 1.18.0
+        // build and is still exposed, so a version comparison alone would
+        // call an exploitable server safe.
+        [$exit, $output] = bootstrapRuntimeRun(['--check'], $env);
+
+        expect($exit)->toBe(1);
+        expect($output)->toContain("CONFLICT nginx-version — nginx {$version} is not the Ubuntu jammy series 1.18.0-6ubuntu*");
+        expect($output)->toContain('never replaced by --apply');
+
+        [$exit, $output] = bootstrapRuntimeRun(['--apply'], $env);
+
+        expect($exit)->not->toBe(0);
+
+        // Nothing is installed in its place either: the floor reads the nginx
+        // package itself, so no server package is required that apt would
+        // install by replacing this one.
+        expect(bootstrapRuntimeAptLog($scratch))->toBe('');
+        expect(bootstrapRuntimeServiceLog($scratch))->toBe('');
+    } finally {
+        bootstrapRuntimeCleanup($scratch);
+    }
+})->with([
+    'nginx.org stable, one release short of the fix' => '1.30.6-1~jammy',
+    'the Ubuntu 24.04 package' => '1.24.0-2ubuntu7.21',
+]);
+
+it('upgrades an nginx below the floor during --apply, its packages only, then restarts it onto the new binary', function () {
+    $scratch = bootstrapRuntimeScratchDir();
+
+    try {
+        $env = bootstrapRuntimeFixture($scratch, ['nginxVersion' => '1.18.0-6ubuntu14.23']);
+        $floor = nginxSecurityFloor();
+
+        [$exit, $output] = bootstrapRuntimeRun(['--apply'], $env);
+
+        expect($exit)->toBe(0, $output);
+        expect($output)->toContain("nginx: upgrading nginx 1.18.0-6ubuntu14.23 to the security floor {$floor} or later (nginx nginx-core nginx-common)");
+        expect($output)->toContain("nginx: restarted onto the installed binary (nginx {$floor})");
+        expect($output)->toContain("PASS     nginx-version — nginx {$floor} (security floor {$floor})");
+        expect($output)->toContain('HOST RUNTIME CONTRACT: SATISFIED');
+
+        // A fresh index first, then the nginx packages and nothing else.
+        expect(explode("\n", trim(bootstrapRuntimeAptLog($scratch))))->toBe([
+            'apt-get update --allow-releaseinfo-change-label',
+            bootstrapRuntimeNginxUpgradeCall(),
+        ]);
+
+        // The configuration is proven before the restart, and the restart
+        // happens once.
+        expect(explode("\n", trim(bootstrapRuntimeServiceLog($scratch))))->toBe([
+            'systemctl is-active --quiet nginx',
+            'nginx -t',
+            'systemctl restart nginx',
+        ]);
+    } finally {
+        bootstrapRuntimeCleanup($scratch);
+    }
+});
+
+it('keeps needrestart from restarting other services after the nginx upgrade', function () {
+    $scratch = bootstrapRuntimeScratchDir();
+
+    try {
+        $env = bootstrapRuntimeFixture($scratch, ['nginxVersion' => '1.18.0-6ubuntu14.23']);
+
+        [$exit, $output] = bootstrapRuntimeRun(['--apply'], $env);
+
+        // Ubuntu runs needrestart after apt; left to itself it may restart
+        // PHP-FPM or PostgreSQL, which share the host with nginx. The upgrade
+        // reaches apt with it only listing.
+        expect($exit)->toBe(0, $output);
+        expect(trim((string) file_get_contents($scratch.'/log/apt-needrestart-mode')))->toBe('l');
+    } finally {
+        bootstrapRuntimeCleanup($scratch);
+    }
+});
+
+it('restarts an nginx at the floor that still runs the binary an upgrade replaced, with no apt call', function () {
+    $scratch = bootstrapRuntimeScratchDir();
+
+    try {
+        $env = bootstrapRuntimeFixture($scratch, ['nginxRunsReplaced' => true]);
+        $floor = nginxSecurityFloor();
+
+        // The package is at the floor, but the master predates it: the
+        // exploitable code is still the code that runs.
+        [$exit, $output] = bootstrapRuntimeRun(['--check'], $env);
+
+        expect($exit)->toBe(1, $output);
+        expect($output)->toContain("CONFLICT nginx-version — nginx {$floor} is installed, but the running nginx still executes the binary it replaced");
+
+        [$exit, $output] = bootstrapRuntimeRun(['--apply'], $env);
+
+        expect($exit)->toBe(0, $output);
+        expect(bootstrapRuntimeAptLog($scratch))->toBe('');
+        expect(explode("\n", trim(bootstrapRuntimeServiceLog($scratch))))->toBe([
+            'systemctl is-active --quiet nginx',
+            'nginx -t',
+            'systemctl restart nginx',
+        ]);
+        expect($output)->toContain("PASS     nginx-version — nginx {$floor} (security floor {$floor})");
+    } finally {
+        bootstrapRuntimeCleanup($scratch);
+    }
+});
+
+it('finishes an upgrade whose nginx -t or restart failed on the next --apply, without upgrading again', function (string $failure) {
+    $scratch = bootstrapRuntimeScratchDir();
+
+    try {
+        $env = bootstrapRuntimeFixture($scratch, ['nginxVersion' => '1.18.0-6ubuntu14.23', $failure => true]);
+
+        [$exit] = bootstrapRuntimeRun(['--apply'], $env);
+
+        expect($exit)->not->toBe(0);
+
+        // The package is upgraded; the running master is not.
+        unset($env['STUB_NGINX_CONFIG_FAIL'], $env['STUB_NGINX_RESTART_FAIL']);
+        file_put_contents($scratch.'/log/apt.log', '');
+        file_put_contents($scratch.'/log/service.log', '');
+
+        [$exit, $output] = bootstrapRuntimeRun(['--apply'], $env);
+
+        expect($exit)->toBe(0, $output);
+        expect($output)->toContain('the running nginx still executes the binary it replaced');
+        expect(bootstrapRuntimeAptLog($scratch))->toBe('');
+        expect(bootstrapRuntimeServiceLog($scratch))->toContain("nginx -t\nsystemctl restart nginx\n");
+        expect($output)->toContain('PASS     nginx-version — nginx '.nginxSecurityFloor());
+    } finally {
+        bootstrapRuntimeCleanup($scratch);
+    }
+})->with([
+    'nginx -t failed' => 'nginxConfigFail',
+    'the restart failed' => 'nginxRestartFail',
+]);
+
+it('never restarts an upgraded nginx whose configuration fails nginx -t', function () {
+    $scratch = bootstrapRuntimeScratchDir();
+
+    try {
+        $env = bootstrapRuntimeFixture($scratch, [
+            'nginxVersion' => '1.18.0-6ubuntu14.23',
+            'nginxConfigFail' => true,
+        ]);
+
+        [$exit, $output] = bootstrapRuntimeRun(['--apply'], $env);
+
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain('its configuration does not pass nginx -t, so nginx was not restarted');
+        expect(bootstrapRuntimeServiceLog($scratch))->not->toContain('restart');
+    } finally {
+        bootstrapRuntimeCleanup($scratch);
+    }
+});
+
+it('fails when the archive does not offer the nginx security floor yet', function () {
+    $scratch = bootstrapRuntimeScratchDir();
+
+    try {
+        $env = bootstrapRuntimeFixture($scratch, [
+            'nginxVersion' => '1.18.0-6ubuntu14.22',
+            'nginxUpgradeVersion' => '1.18.0-6ubuntu14.23',
+        ]);
+
+        [$exit, $output] = bootstrapRuntimeRun(['--apply'], $env);
+
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain('nginx is still nginx 1.18.0-6ubuntu14.23 after the upgrade — the Ubuntu archive does not offer '.nginxSecurityFloor().' yet');
+        expect(bootstrapRuntimeServiceLog($scratch))->not->toContain('restart');
+    } finally {
+        bootstrapRuntimeCleanup($scratch);
+    }
+});
+
+it('leaves an upgraded nginx that is not running stopped', function () {
+    $scratch = bootstrapRuntimeScratchDir();
+
+    try {
+        $env = bootstrapRuntimeFixture($scratch, [
+            'nginxVersion' => '1.18.0-6ubuntu14.23',
+            'nginxActive' => false,
+        ]);
+
+        [$exit, $output] = bootstrapRuntimeRun(['--apply'], $env);
+
+        expect($exit)->toBe(0, $output);
+        expect($output)->toContain('nginx is not running, so this run does not restart it');
+        expect(trim(bootstrapRuntimeServiceLog($scratch)))->toBe('systemctl is-active --quiet nginx');
+    } finally {
+        bootstrapRuntimeCleanup($scratch);
+    }
+});
+
+it('makes no apt call and touches no service when nginx already meets its floor', function () {
+    $scratch = bootstrapRuntimeScratchDir();
+
+    try {
+        $env = bootstrapRuntimeFixture($scratch);
+
+        [$exit, $output] = bootstrapRuntimeRun(['--apply'], $env);
+
+        expect($exit)->toBe(0, $output);
+        expect($output)->toContain('nginx: nginx '.nginxSecurityFloor().' meets the security floor');
+        expect(bootstrapRuntimeAptLog($scratch))->toBe('');
+        expect(bootstrapRuntimeServiceLog($scratch))->toBe('');
     } finally {
         bootstrapRuntimeCleanup($scratch);
     }
@@ -1266,7 +1803,7 @@ it('bootstraps a clean host: pinned repositories, one apt update, one install, c
         ));
         $runtimeInstall = 'apt-get install -y --no-install-recommends -- '.implode(' ', $remaining);
         expect(bootstrapRuntimeAptLog($scratch))->toBe(
-            "apt-get update\n{$bootstrapInstall}\napt-get update\n{$runtimeInstall}\n",
+            "apt-get update --allow-releaseinfo-change-label\n{$bootstrapInstall}\napt-get update --allow-releaseinfo-change-label\n{$runtimeInstall}\n",
         );
 
         // The managed rclone runtime converged through the verified-download
@@ -1397,7 +1934,7 @@ it('leaves pre-existing operator-configured repositories untouched while install
         expect(is_file($scratch.'/log/curl.log'))->toBeFalse('installer fetched keys for repositories it does not own');
 
         expect(bootstrapRuntimeAptLog($scratch))->toBe(
-            "apt-get update\napt-get install -y --no-install-recommends -- php8.5-zip\n",
+            "apt-get update --allow-releaseinfo-change-label\napt-get install -y --no-install-recommends -- php8.5-zip\n",
         );
     } finally {
         bootstrapRuntimeCleanup($scratch);
@@ -1431,7 +1968,7 @@ it('fails closed when one repository key cannot be fetched: earlier repo intact,
         // Dependent package installation never started: only the bootstrap
         // repository tooling phase reached apt.
         expect(bootstrapRuntimeAptLog($scratch))->toBe(
-            "apt-get update\napt-get install -y --no-install-recommends -- ca-certificates curl gnupg\n",
+            "apt-get update --allow-releaseinfo-change-label\napt-get install -y --no-install-recommends -- ca-certificates curl gnupg\n",
         );
     } finally {
         bootstrapRuntimeCleanup($scratch);
@@ -1453,7 +1990,7 @@ it('refuses key material whose fingerprint does not match the pin and stops befo
         expect(glob($scratch.'/apt/sources.list.d/rateguru-*') ?: [])->toBe([]);
         expect(glob($scratch.'/keyrings/*') ?: [])->toBe([]);
         expect(bootstrapRuntimeAptLog($scratch))->toBe(
-            "apt-get update\napt-get install -y --no-install-recommends -- ca-certificates curl gnupg\n",
+            "apt-get update --allow-releaseinfo-change-label\napt-get install -y --no-install-recommends -- ca-certificates curl gnupg\n",
         );
     } finally {
         bootstrapRuntimeCleanup($scratch);
@@ -1471,7 +2008,7 @@ it('refuses key material that bundles extra keys beyond the pinned one', functio
         expect($output)->toContain('refusing to install it');
         expect(glob($scratch.'/keyrings/*') ?: [])->toBe([]);
         expect(bootstrapRuntimeAptLog($scratch))->toBe(
-            "apt-get update\napt-get install -y --no-install-recommends -- ca-certificates curl gnupg\n",
+            "apt-get update --allow-releaseinfo-change-label\napt-get install -y --no-install-recommends -- ca-certificates curl gnupg\n",
         );
     } finally {
         bootstrapRuntimeCleanup($scratch);
@@ -1511,7 +2048,7 @@ it('bootstraps a host that genuinely lacks curl and gpg: tooling first, external
         ));
         $runtimeInstall = 'apt-get install -y --no-install-recommends -- '.implode(' ', $remaining);
         expect(bootstrapRuntimeAptLog($scratch))->toBe(
-            "apt-get update\n{$bootstrapInstall}\napt-get update\n{$runtimeInstall}\n",
+            "apt-get update --allow-releaseinfo-change-label\n{$bootstrapInstall}\napt-get update --allow-releaseinfo-change-label\n{$runtimeInstall}\n",
         );
 
         // Both keys were fetched only after the tooling existed, and the
@@ -1540,7 +2077,7 @@ it('aborts before any external key fetch when the bootstrap-tooling apt update f
 
         expect($exit)->toBe(1);
         expect($output)->toContain('ERROR: apt-get update failed');
-        expect(bootstrapRuntimeAptLog($scratch))->toBe("apt-get update\n");
+        expect(bootstrapRuntimeAptLog($scratch))->toBe("apt-get update --allow-releaseinfo-change-label\n");
         expect(is_file($scratch.'/log/curl.log'))->toBeFalse('a key fetch happened before the tooling existed');
         expect(glob($scratch.'/apt/sources.list.d/rateguru-*') ?: [])->toBe([]);
         expect(glob($scratch.'/keyrings/*') ?: [])->toBe([]);
@@ -1562,7 +2099,7 @@ it('aborts before any external key fetch when the bootstrap-tooling apt install 
         expect($exit)->toBe(1);
         expect($output)->toContain('ERROR: apt-get install failed for the bootstrap repository tooling');
         expect(bootstrapRuntimeAptLog($scratch))->toBe(
-            "apt-get update\napt-get install -y --no-install-recommends -- ca-certificates curl gnupg\n",
+            "apt-get update --allow-releaseinfo-change-label\napt-get install -y --no-install-recommends -- ca-certificates curl gnupg\n",
         );
         expect(is_file($scratch.'/log/curl.log'))->toBeFalse('a key fetch happened before the tooling existed');
         expect(glob($scratch.'/apt/sources.list.d/rateguru-*') ?: [])->toBe([]);
@@ -1605,7 +2142,7 @@ it('aborts when apt-get update fails, before any package installation', function
 
         expect($exit)->toBe(1);
         expect($output)->toContain('ERROR: apt-get update failed');
-        expect(bootstrapRuntimeAptLog($scratch))->toBe("apt-get update\n");
+        expect(bootstrapRuntimeAptLog($scratch))->toBe("apt-get update --allow-releaseinfo-change-label\n");
     } finally {
         bootstrapRuntimeCleanup($scratch);
     }
@@ -2274,18 +2811,37 @@ it('keeps the PHP series aligned with the committed deployment.conf template', f
     expect($template)->toContain('PHP_FPM_SERVICE=php'.$series[1].'-fpm');
 });
 
-it('keeps the PHP security floor inside the series and never below the release that fixes CVE-2026-109618 and CVE-2026-109619', function () {
+it('keeps the PHP security floor inside the series and never below the release that fixes CVE-2026-129289', function () {
     preg_match('/^PHP_SERIES="([^"]+)"$/m', bootstrapRuntimeSource(), $series);
     $floor = phpSecurityFloor();
 
     expect($floor)->toMatch('/^\d+\.\d+\.\d+$/');
     expect($floor)->toStartWith($series[1].'.');
 
-    // 8.5.12 is the first 8.5 release without either remote code execution
-    // flaw (php.net, 2026-10-21). The floor moves up with later security
-    // releases; going back below it would let a host run an exploitable PHP
-    // while every verification passes.
-    expect(version_compare($floor, '8.5.12', '>='))->toBeTrue("the PHP security floor {$floor} is below 8.5.12");
+    // 8.5.13 (php.net, 2026-11-19) is the first 8.5 release with the fixes for
+    // request smuggling through PHP-FPM (CVE-2026-129289) and remote code
+    // execution in session handling, after 8.5.12 fixed CVE-2026-109618 and
+    // CVE-2026-109619. The floor moves up with later security releases; going
+    // back below it would let a host run an exploitable PHP while every
+    // verification passes.
+    expect(version_compare($floor, '8.5.13', '>='))->toBeTrue("the PHP security floor {$floor} is below 8.5.13");
+});
+
+it('keeps the nginx security floor inside the jammy series and never below the revision that fixes CVE-2026-123007', function () {
+    preg_match('/^NGINX_PACKAGE_SERIES="([^"]+)"$/m', bootstrapRuntimeSource(), $series);
+    $floor = nginxSecurityFloor();
+
+    expect($series[1] ?? null)->toBe('1.18.0-6ubuntu');
+    expect($floor)->toStartWith($series[1]);
+    expect($floor)->toMatch('/^1\.18\.0-6ubuntu\d+\.\d+$/');
+
+    // 1.18.0-6ubuntu14.24 (USN-9182-1, 2026-11-20) is the first jammy build
+    // with every fix nginx 1.30.7 brought for the flaws these hosts are
+    // exposed to — the critical HTTP/2 one and the TLS 1.3 loop. The floor
+    // moves up with later updates; below it, an exploitable server would
+    // pass every verification.
+    preg_match('/(\d+)\.(\d+)$/', $floor, $revision);
+    expect([(int) $revision[1], (int) $revision[2]] >= [14, 24])->toBeTrue("the nginx security floor {$floor} is below 1.18.0-6ubuntu14.24");
 });
 
 /**
@@ -2569,5 +3125,28 @@ it('installs cron through the generic package mechanism', function () {
     foreach (['systemctl enable cron', 'systemctl start cron', 'service cron'] as $adHoc) {
         expect(str_contains($executable, $adHoc))
             ->toBeFalse("the runtime installer must not manage the cron service itself: {$adHoc}");
+    }
+});
+
+it('lets apt accept a repository renaming itself, and nothing broader, in every installer that refreshes the indexes', function () {
+    // On 2026-11-21 the PHP PPA's Release Label became "PPA for PHP
+    // (deprecated)", and a non-interactive apt-get update refuses any changed
+    // Release field until it is accepted: every host's Prepare failed there.
+    foreach (['install-bootstrap-runtime', 'install-mail-gateway', 'install-mail-signing'] as $script) {
+        $source = File::get(base_path('infrastructure/scripts/'.$script));
+
+        preg_match_all('/"\$\{APT_GET_BIN\}" update\b[^\n]*/', $source, $updates);
+
+        expect($updates[0])->not->toBeEmpty("{$script} refreshes no index");
+
+        foreach ($updates[0] as $update) {
+            expect($update)->toContain('update --allow-releaseinfo-change-label');
+        }
+
+        // Only the Label: a changed Origin, Suite or Codename, or a repository
+        // without a valid signature, still stops the run.
+        foreach (['--allow-releaseinfo-change ', '--allow-releaseinfo-change-origin', '--allow-releaseinfo-change-suite', '--allow-releaseinfo-change-codename', '--allow-unauthenticated', '--allow-insecure-repositories', 'AllowReleaseInfoChange'] as $broader) {
+            expect(str_contains($source, $broader))->toBeFalse("{$script}: {$broader}");
+        }
     }
 });

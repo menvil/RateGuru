@@ -124,7 +124,10 @@ it('lists paid and tagged campaigns, the most people first, the biggest open dow
         ->and($data['description'])->toBe('Click a campaign to see its creatives, then a creative to see its games. Last 30 days.')
         ->and($data['sorts'])->toBe(CampaignsTab::SORTS)
         ->and($data['foot'])->toBe('A paid campaign and its creative come from the network’s link; a tagged one from utm_campaign, its creative from utm_content, else utm_term. '
-            .'Click a game row to open its analytics. Registration and activation use new visitors; a rate shows “—” until the number it divides by reaches 30. '
+            .'Click a game row to open its analytics. '
+            .'Registrations count confirmed accounts: the email link clicked, or a Google or Facebook sign-up, which confirms at once. '
+            .'Activated counts accounts that came back and played, voted, commented or posted on one of the 7 days after their sign-up day; the sign-up day itself doesn’t count. '
+            .'Registration and activation use new visitors; a rate shows “—” until the number it divides by reaches 30. '
             .'Ad networks count clicks differently, so their numbers won’t match these visitors exactly.');
 });
 
@@ -226,7 +229,32 @@ it('says activation is too early while none of a row’s accounts is old enough,
     $activated = $data['rows'][0]['cells'][7];
 
     expect($activated)->toMatchArray(['value' => '0', 'sub' => 'Too early', 'title' => '4 accounts, none old enough yet'])
-        ->and($data['foot'])->toContain('Activation needs 7 days after signup: “Too early” marks a row none of whose accounts is that old yet. Accounts from 11 Nov on can still activate.');
+        ->and($data['foot'])->toContain('“Too early” marks a row none of whose accounts has had its 7 days yet; accounts from 11 Nov on can still activate.');
+});
+
+it('says what Registrations and Activated count, since activation is not the account’s confirmation', function () {
+    analyticsClick('one', $this->campaign, ['signup_at' => '2026-11-14 10:00:00', 'account_at' => '2026-11-14 10:00:00']);
+
+    $data = analyticsCampaigns();
+
+    // A Google or Facebook sign-up confirms at once and counts as a
+    // registration like a clicked email link; activation is what the account
+    // did after its sign-up day.
+    expect($data['foot'])->toContain('Registrations count confirmed accounts: the email link clicked, or a Google or Facebook sign-up, which confirms at once. Activated counts accounts that came back and played, voted, commented or posted on one of the 7 days after their sign-up day; the sign-up day itself doesn’t count.')
+        ->and($data['titles'])->toBe([
+            'Registrations' => 'Confirmed accounts: the email link clicked, or a Google or Facebook sign-up, which confirms at once',
+            'Activated' => 'Accounts that came back and played, voted, commented or posted on one of the 7 days after their sign-up day',
+        ]);
+});
+
+it('reads an activated account among accounts not old enough as so far, not as too early', function () {
+    foreach (range(1, 40) as $n) {
+        analyticsClick('early-'.$n, $this->campaign, $n <= 3 ? ['signup_at' => '2026-11-14 10:00:00', 'account_at' => '2026-11-14 10:00:00', 'activated_at' => $n === 1 ? '2026-11-15 09:00:00' : null] : []);
+    }
+
+    $activated = analyticsCampaigns()['rows'][0]['cells'][7];
+
+    expect($activated)->toMatchArray(['value' => '1', 'sub' => 'so far', 'title' => '3 accounts, none old enough yet: more may still activate']);
 });
 
 it('sorts the campaigns and their creatives by a rate of new visitors or by what an account cost, offering cost only with spend', function () {

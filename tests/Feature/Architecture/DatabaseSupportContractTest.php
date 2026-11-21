@@ -150,8 +150,30 @@ it('runs primary and compatibility test suites in ci', function () {
         // only has rights on one until this widens them.
         ->toContain('- name: Allow per-worker test databases')
         ->and($coverage)
-        ->toContain('image: postgres:18.4-alpine')
+        ->toContain('image: postgres:18.4-trixie')
         ->toContain('extensions: mbstring, pdo_pgsql, pcov');
+
+    // Every PostgreSQL the tests run against has the roaringbitmap extension
+    // the hosts have: the PGDG package in the Debian image (PGDG builds none
+    // for Alpine), created in the test database and in template1, which a
+    // parallel run copies for each worker.
+    $coverageWorkflow = Yaml::parseFile(base_path('.github/workflows/coverage.yml'));
+    $postgresJobs = collect($workflow['jobs'])
+        ->merge($coverageWorkflow['jobs'])
+        ->filter(fn (array $job): bool => isset($job['services']['postgres']));
+
+    expect($postgresJobs->keys()->all())->toBe(['tests', 'tests-browser', 'coverage']);
+
+    foreach ($postgresJobs as $name => $job) {
+        expect($job['services']['postgres']['image'])->toStartWith('postgres:18.4-trixie@sha256:', $name);
+
+        $step = collect($job['steps'])->firstWhere('name', 'Install the PostgreSQL extensions');
+
+        expect($step)->not->toBeNull("{$name} installs no PostgreSQL extension")
+            ->and($step['run'])->toContain('install -y -qq --no-install-recommends postgresql-18-roaringbitmap')
+            ->and($step['run'])->toContain('for database in template1 rateguru_test; do')
+            ->and($step['run'])->toContain('CREATE EXTENSION IF NOT EXISTS roaringbitmap');
+    }
 
     // The Architecture job carries the same scope-guard prerequisites the
     // primary job does: without them every diff-based guard silently skips.
