@@ -346,6 +346,16 @@ function bootstrapRuntimeWriteHostFiles(string $scratch, array $options): void
         file_put_contents($scratch.'/fs/run/nginx.pid', "4242\n");
     }
     symlink(($options['nginxRunsReplaced'] ?? false) ? '/usr/sbin/nginx (deleted)' : '/usr/sbin/nginx', $scratch.'/fs/proc/4242/exe');
+
+    // PHP-FPM's master (pid 5151) and a supervised queue worker (pid 6161),
+    // on the installed binaries or on ones an upgrade replaced.
+    $replaced = $options['phpRunsReplaced'] ?? false;
+    expect(@mkdir($scratch.'/fs/run/php', 0o755, true))->toBeTrue();
+    expect(@mkdir($scratch.'/fs/proc/5151', 0o755, true))->toBeTrue();
+    expect(@mkdir($scratch.'/fs/proc/6161', 0o755, true))->toBeTrue();
+    file_put_contents($scratch.'/fs/run/php/php8.5-fpm.pid', "5151\n");
+    symlink($replaced ? '/usr/sbin/php-fpm8.5 (deleted)' : '/usr/sbin/php-fpm8.5', $scratch.'/fs/proc/5151/exe');
+    symlink($replaced ? '/usr/bin/php8.5 (deleted)' : '/usr/bin/php8.5', $scratch.'/fs/proc/6161/exe');
 }
 
 /**
@@ -440,8 +450,17 @@ function bootstrapRuntimeWriteToolStubs(string $scratch, array $options): void
     $phpStub = <<<'STUB'
         #!/bin/bash
         if [[ "$1" == "-v" ]]; then
-            printf 'PHP %s (%s) (built: Jan  1 2026 00:00:00) (NTS)\n' "${STUB_PHP_VERSION}" "${STUB_PHP_SAPI}"
+            version="${STUB_PHP_VERSION}"
+            if [[ -f "${STUB_LOG}/php.version" ]]; then
+                read -r version < "${STUB_LOG}/php.version"
+            fi
+            printf 'PHP %s (%s) (built: Jan  1 2026 00:00:00) (NTS)\n' "${version}" "${STUB_PHP_SAPI}"
             exit 0
+        fi
+        if [[ "$1" == "-t" ]]; then
+            printf 'php-fpm -t\n' >> "${STUB_LOG}/service.log"
+            [[ "${STUB_PHP_FPM_CONFIG_FAIL:-}" != "true" ]]
+            exit
         fi
         if [[ "$1" == "-m" ]]; then
             printf '[PHP Modules]\n'
@@ -549,9 +568,13 @@ function bootstrapRuntimeWriteMutationStubs(string $scratch, array $options): vo
             [[ "${STUB_NGINX_ACTIVE:-true}" == "true" ]]
             exit
         fi
-        if [[ "$1" == "restart" ]]; then
+        if [[ "$1" == "restart" && "$2" == "nginx" ]]; then
             [[ "${STUB_NGINX_RESTART_FAIL:-}" == "true" ]] && exit 1
             PATH="${STUB_REAL_PATH}" ln -sfn /usr/sbin/nginx "${STUB_PROC_ROOT}/4242/exe"
+        fi
+        if [[ "$1" == "restart" && "$2" == "php8.5-fpm" ]]; then
+            [[ "${STUB_PHP_FPM_RESTART_FAIL:-}" == "true" ]] && exit 1
+            PATH="${STUB_REAL_PATH}" ln -sfn /usr/sbin/php-fpm8.5 "${STUB_PROC_ROOT}/5151/exe"
         fi
         exit 0
         STUB);
@@ -559,6 +582,24 @@ function bootstrapRuntimeWriteMutationStubs(string $scratch, array $options): vo
         #!/bin/bash
         printf 'nginx %s\n' "$*" >> "${STUB_LOG}/service.log"
         [[ "${STUB_NGINX_CONFIG_FAIL:-}" != "true" ]]
+        STUB);
+
+    // supervisorctl: status answers one queue worker, pid 6161; a restart
+    // puts that worker on the installed PHP binary.
+    bootstrapRuntimeWriteStub($scratch.'/bin/supervisorctl', <<<'STUB'
+        #!/bin/bash
+        if [[ "$1" == "status" ]]; then
+            [[ "${STUB_SUPERVISOR_RUNNING:-true}" == "true" ]] || exit 7
+            printf 'rateguru-staging-queue:rateguru-staging-queue_00   RUNNING   pid 6161, uptime 0:10:00\n'
+            printf 'rateguru-staging-mailer                             STOPPED   Nov 21 01:00 PM\n'
+            exit 3
+        fi
+        printf 'supervisorctl %s\n' "$*" >> "${STUB_LOG}/service.log"
+        if [[ "$1" == "restart" ]]; then
+            [[ "${STUB_SUPERVISOR_RESTART_FAIL:-}" == "true" ]] && exit 1
+            PATH="${STUB_REAL_PATH}" ln -sfn /usr/bin/php8.5 "${STUB_PROC_ROOT}/6161/exe"
+        fi
+        exit 0
         STUB);
 
     // apt-get: logs every invocation; a successful install marks its
@@ -578,6 +619,12 @@ function bootstrapRuntimeWriteMutationStubs(string $scratch, array $options): vo
             fi
             if [[ "$*" == *"--only-upgrade"* ]]; then
                 printf '%s\n' "${NEEDRESTART_MODE:-unset}" > "${STUB_LOG}/apt-needrestart-mode"
+                if [[ "$*" == *" -- php8.5-cli "* ]]; then
+                    printf '%s\n' "${STUB_PHP_UPGRADE_VERSION}" > "${STUB_LOG}/php.version"
+                    # dpkg replaced the binaries under PHP-FPM and the worker.
+                    PATH="${STUB_REAL_PATH}" ln -sfn '/usr/sbin/php-fpm8.5 (deleted)' "${STUB_PROC_ROOT}/5151/exe"
+                    PATH="${STUB_REAL_PATH}" ln -sfn '/usr/bin/php8.5 (deleted)' "${STUB_PROC_ROOT}/6161/exe"
+                fi
                 if [[ "$*" == *" -- nginx "* ]]; then
                     printf '%s\n' "${STUB_NGINX_UPGRADE_VERSION}" > "${STUB_LOG}/nginx.version"
                     # dpkg replaced the binary under the running master.
@@ -816,6 +863,8 @@ function bootstrapRuntimeFixture(string $scratch, array $options = []): array
         'RATEGURU_BOOTSTRAP_NGINX_BIN' => $scratch.'/bin/nginx',
         'RATEGURU_BOOTSTRAP_SYSTEMCTL_BIN' => $scratch.'/bin/systemctl',
         'RATEGURU_BOOTSTRAP_NGINX_PID_FILE' => $scratch.'/fs/run/nginx.pid',
+        'RATEGURU_BOOTSTRAP_PHP_FPM_PID_FILE' => $scratch.'/fs/run/php/php8.5-fpm.pid',
+        'RATEGURU_BOOTSTRAP_SUPERVISORCTL_BIN' => $scratch.'/bin/supervisorctl',
         'RATEGURU_BOOTSTRAP_PROC_ROOT' => $scratch.'/fs/proc',
         'RATEGURU_BOOTSTRAP_STAT_BIN' => $scratch.'/bin/stat',
         'RATEGURU_BOOTSTRAP_RCLONE_CONTRACT_FILE' => $scratch.'/fs/external-runtimes.env',
@@ -826,6 +875,7 @@ function bootstrapRuntimeFixture(string $scratch, array $options = []): array
         'STUB_STAGED_DIR' => $scratch.'/staged',
         'STUB_TOOLS_DIR' => $scratch.'/tools',
         'STUB_PHP_VERSION' => $options['phpVersion'] ?? phpSecurityFloor(),
+        'STUB_PHP_UPGRADE_VERSION' => $options['phpUpgradeVersion'] ?? phpSecurityFloor(),
         'STUB_PHP_MODULES' => $options['phpModules'] ?? implode(' ', bootstrapRuntimeRequiredPhpModules()),
         'STUB_PG_VERSION' => $options['pgVersion'] ?? '18.4',
         'STUB_NGINX_VERSION' => $options['nginxVersion'] ?? nginxSecurityFloor(),
@@ -868,6 +918,16 @@ function bootstrapRuntimeFixture(string $scratch, array $options = []): array
 
     if ($options['nginxRestartFail'] ?? false) {
         $env['STUB_NGINX_RESTART_FAIL'] = 'true';
+    }
+
+    foreach (['phpFpmConfigFail' => 'STUB_PHP_FPM_CONFIG_FAIL', 'phpFpmRestartFail' => 'STUB_PHP_FPM_RESTART_FAIL', 'supervisorRestartFail' => 'STUB_SUPERVISOR_RESTART_FAIL'] as $option => $variable) {
+        if ($options[$option] ?? false) {
+            $env[$variable] = 'true';
+        }
+    }
+
+    if (($options['supervisorRunning'] ?? true) === false) {
+        $env['STUB_SUPERVISOR_RUNNING'] = 'false';
     }
 
     return $env;
@@ -1197,7 +1257,7 @@ it('treats a PHP 8.5 release below the security floor as CONFLICT for both SAPIs
         expect($exit)->toBe(1, "PHP {$version} must not satisfy --check:\n{$output}");
         expect($output)->toContain("CONFLICT php-cli — reports PHP {$version}, below the security floor {$floor}");
         expect($output)->toContain("CONFLICT php-fpm — reports PHP {$version}, below the security floor {$floor}");
-        expect($output)->toContain("-> apply: apt-get install --only-upgrade the installed php8.5 packages to {$floor} or later, then restart php8.5-fpm and every long-running PHP worker — an operator step, never taken by --apply");
+        expect($output)->toContain('-> apply: upgrade the php8.5 packages (apt-get install --only-upgrade), then restart php8.5-fpm and the supervised PHP workers onto the new binary');
         expect($output)->toContain("CONFLICT: 2\n");
         expect($output)->not->toContain('HOST RUNTIME CONTRACT: SATISFIED');
 
@@ -1209,7 +1269,8 @@ it('treats a PHP 8.5 release below the security floor as CONFLICT for both SAPIs
         bootstrapRuntimeCleanup($scratch);
     }
 })->with([
-    'the release before the floor' => '8.5.11',
+    'the release before the floor, with its own critical fixes missing' => '8.5.12',
+    'the release before that' => '8.5.11',
     'a single-digit patch that sorts after the floor as text' => '8.5.9',
     'the staging host as first observed' => '8.5.8',
     'the first 8.5 release' => '8.5.0',
@@ -1231,23 +1292,142 @@ it('accepts the security floor itself and every later PHP 8.5 release', function
         bootstrapRuntimeCleanup($scratch);
     }
 })->with([
-    'the floor' => '8.5.12',
-    'the next patch' => '8.5.13',
+    'the floor' => '8.5.13',
+    'the next patch' => '8.5.14',
     'a two-digit patch' => '8.5.20',
     'a three-digit patch' => '8.5.100',
 ]);
 
-it('never upgrades a PHP below the security floor during --apply, and fails its closing verification', function () {
+it('upgrades a PHP below the floor during --apply, its packages only, then moves PHP-FPM and the workers onto the new binary', function () {
     $scratch = bootstrapRuntimeScratchDir();
 
     try {
-        $env = bootstrapRuntimeFixture($scratch, ['phpVersion' => '8.5.11']);
+        $env = bootstrapRuntimeFixture($scratch, ['phpVersion' => '8.5.12']);
+        $floor = phpSecurityFloor();
+        $packages = implode(' ', array_map(fn (string $c): string => "php8.5-{$c}", ['cli', 'common', 'fpm', 'bcmath', 'curl', 'gd', 'intl', 'mbstring', 'pgsql', 'redis', 'xml', 'zip']));
 
         [$exit, $output] = bootstrapRuntimeRun(['--apply'], $env);
 
-        expect($exit)->not->toBe(0, "apply must not report success on a PHP below the floor:\n{$output}");
-        expect($output)->toContain('CONFLICT php-cli — reports PHP 8.5.11, below the security floor '.phpSecurityFloor());
-        expect(bootstrapRuntimeAptLog($scratch))->toBe('', 'apply ran apt-get on a host whose packages are all installed');
+        expect($exit)->toBe(0, $output);
+        expect($output)->toContain("php: upgrading PHP 8.5.12 to the security floor {$floor} or later");
+        expect($output)->toContain("php: php8.5-fpm restarted onto the installed binary (PHP {$floor})");
+        expect($output)->toContain('php: supervisor program rateguru-staging-queue:rateguru-staging-queue_00 restarted onto the installed binary');
+        expect($output)->toContain("PASS     php-fpm — PHP {$floor}");
+        expect($output)->toContain('PASS     php-processes — no PHP process runs a replaced binary');
+        expect($output)->toContain('HOST RUNTIME CONTRACT: SATISFIED');
+
+        // A fresh index, then exactly the php8.5 packages, needrestart listing only.
+        expect(explode("\n", trim(bootstrapRuntimeAptLog($scratch))))->toBe([
+            'apt-get update --allow-releaseinfo-change-label',
+            "apt-get install -y --only-upgrade --no-install-recommends -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold -- {$packages}",
+        ]);
+        expect(trim((string) file_get_contents($scratch.'/log/apt-needrestart-mode')))->toBe('l');
+
+        // PHP-FPM is restarted only after its configuration passes, then the
+        // worker still running the replaced binary; nothing else.
+        expect(explode("\n", trim(bootstrapRuntimeServiceLog($scratch))))->toBe([
+            'systemctl is-active --quiet php8.5-fpm',
+            'php-fpm -t',
+            'systemctl restart php8.5-fpm',
+            'supervisorctl restart rateguru-staging-queue:rateguru-staging-queue_00',
+        ]);
+    } finally {
+        bootstrapRuntimeCleanup($scratch);
+    }
+});
+
+it('reports PHP processes still on a replaced binary, and --apply restarts them without upgrading again', function () {
+    $scratch = bootstrapRuntimeScratchDir();
+
+    try {
+        $env = bootstrapRuntimeFixture($scratch, ['phpRunsReplaced' => true]);
+
+        [$exit, $output] = bootstrapRuntimeRun(['--check'], $env);
+
+        expect($exit)->toBe(1, $output);
+        expect($output)->toContain('CONFLICT php-processes — still running the PHP binary an upgrade replaced: php8.5-fpm rateguru-staging-queue:rateguru-staging-queue_00');
+
+        [$exit, $output] = bootstrapRuntimeRun(['--apply'], $env);
+
+        expect($exit)->toBe(0, $output);
+        expect(bootstrapRuntimeAptLog($scratch))->toBe('');
+        expect(bootstrapRuntimeServiceLog($scratch))->toContain("php-fpm -t\nsystemctl restart php8.5-fpm\nsupervisorctl restart rateguru-staging-queue:rateguru-staging-queue_00\n");
+        expect($output)->toContain('PASS     php-processes — no PHP process runs a replaced binary');
+    } finally {
+        bootstrapRuntimeCleanup($scratch);
+    }
+});
+
+it('finishes a PHP upgrade whose php-fpm -t, PHP-FPM restart or worker restart failed on the next --apply', function (string $failure) {
+    $scratch = bootstrapRuntimeScratchDir();
+
+    try {
+        $env = bootstrapRuntimeFixture($scratch, ['phpVersion' => '8.5.12', $failure => true]);
+
+        [$exit] = bootstrapRuntimeRun(['--apply'], $env);
+
+        expect($exit)->not->toBe(0);
+
+        unset($env['STUB_PHP_FPM_CONFIG_FAIL'], $env['STUB_PHP_FPM_RESTART_FAIL'], $env['STUB_SUPERVISOR_RESTART_FAIL']);
+        file_put_contents($scratch.'/log/apt.log', '');
+
+        [$exit, $output] = bootstrapRuntimeRun(['--apply'], $env);
+
+        expect($exit)->toBe(0, $output);
+        expect($output)->toContain('processes still run the binary it replaced');
+        expect(bootstrapRuntimeAptLog($scratch))->toBe('');
+        expect($output)->toContain('PASS     php-processes — no PHP process runs a replaced binary');
+    } finally {
+        bootstrapRuntimeCleanup($scratch);
+    }
+})->with([
+    'php-fpm -t failed' => 'phpFpmConfigFail',
+    'the PHP-FPM restart failed' => 'phpFpmRestartFail',
+    'the worker restart failed' => 'supervisorRestartFail',
+]);
+
+it('fails when the PHP repository does not offer the floor yet, and restarts nothing', function () {
+    $scratch = bootstrapRuntimeScratchDir();
+
+    try {
+        $env = bootstrapRuntimeFixture($scratch, ['phpVersion' => '8.5.11', 'phpUpgradeVersion' => '8.5.12']);
+
+        [$exit, $output] = bootstrapRuntimeRun(['--apply'], $env);
+
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain('PHP is still 8.5.12 (FPM 8.5.12) after the upgrade — its repository does not offer '.phpSecurityFloor().' yet');
+        expect(bootstrapRuntimeServiceLog($scratch))->not->toContain('restart');
+    } finally {
+        bootstrapRuntimeCleanup($scratch);
+    }
+});
+
+it('never replaces a PHP of another series', function () {
+    $scratch = bootstrapRuntimeScratchDir();
+
+    try {
+        $env = bootstrapRuntimeFixture($scratch, ['phpVersion' => '8.4.27']);
+
+        [$exit, $output] = bootstrapRuntimeRun(['--apply'], $env);
+
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain('CONFLICT php-cli — reports PHP 8.4.27, required series is 8.5');
+        expect(bootstrapRuntimeAptLog($scratch))->not->toContain('--only-upgrade');
+    } finally {
+        bootstrapRuntimeCleanup($scratch);
+    }
+});
+
+it('reads no supervised worker when supervisor is not running, and still passes', function () {
+    $scratch = bootstrapRuntimeScratchDir();
+
+    try {
+        $env = bootstrapRuntimeFixture($scratch, ['supervisorRunning' => false]);
+
+        [$exit, $output] = bootstrapRuntimeRun(['--verify'], $env);
+
+        expect($exit)->toBe(0, $output);
+        expect($output)->toContain('PASS     php-processes — no PHP process runs a replaced binary');
     } finally {
         bootstrapRuntimeCleanup($scratch);
     }
@@ -2631,18 +2811,20 @@ it('keeps the PHP series aligned with the committed deployment.conf template', f
     expect($template)->toContain('PHP_FPM_SERVICE=php'.$series[1].'-fpm');
 });
 
-it('keeps the PHP security floor inside the series and never below the release that fixes CVE-2026-109618 and CVE-2026-109619', function () {
+it('keeps the PHP security floor inside the series and never below the release that fixes CVE-2026-129289', function () {
     preg_match('/^PHP_SERIES="([^"]+)"$/m', bootstrapRuntimeSource(), $series);
     $floor = phpSecurityFloor();
 
     expect($floor)->toMatch('/^\d+\.\d+\.\d+$/');
     expect($floor)->toStartWith($series[1].'.');
 
-    // 8.5.12 is the first 8.5 release without either remote code execution
-    // flaw (php.net, 2026-10-21). The floor moves up with later security
-    // releases; going back below it would let a host run an exploitable PHP
-    // while every verification passes.
-    expect(version_compare($floor, '8.5.12', '>='))->toBeTrue("the PHP security floor {$floor} is below 8.5.12");
+    // 8.5.13 (php.net, 2026-11-19) is the first 8.5 release with the fixes for
+    // request smuggling through PHP-FPM (CVE-2026-129289) and remote code
+    // execution in session handling, after 8.5.12 fixed CVE-2026-109618 and
+    // CVE-2026-109619. The floor moves up with later security releases; going
+    // back below it would let a host run an exploitable PHP while every
+    // verification passes.
+    expect(version_compare($floor, '8.5.13', '>='))->toBeTrue("the PHP security floor {$floor} is below 8.5.13");
 });
 
 it('keeps the nginx security floor inside the jammy series and never below the revision that fixes CVE-2026-123007', function () {
