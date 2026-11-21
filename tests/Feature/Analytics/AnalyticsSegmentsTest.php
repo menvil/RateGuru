@@ -440,3 +440,13 @@ it('answers only an administrator who may manage traffic sources, every request 
     $this->actingAs(User::factory()->moderator()->create());
     $this->get(GrowthAnalyticsPage::getUrl(['tab' => 'campaigns', 'source' => 'paid:'.$this->exo->id, 'segment' => 'new']))->assertForbidden();
 });
+
+it('says what a segment’s Activated counts', function () {
+    segmentsCardFixture($this->campaign);
+
+    $segments = analyticsSegments(['source' => 'paid:'.$this->exo->id]);
+
+    expect($segments['rows'][0]['cells']['activated'])->toMatchArray(['value' => '1', 'title' => '1 of 5 accounts came back and acted'])
+        ->and($segments['titles']['Activated'])->toBe('Accounts that came back and played, voted, commented or posted on one of the 7 days after their sign-up day')
+        ->and($segments['titles']['Registrations'])->toBe('Confirmed accounts: the email link clicked, or a Google or Facebook sign-up, which confirms at once');
+});

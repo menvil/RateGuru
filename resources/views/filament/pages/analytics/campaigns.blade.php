@@ -114,7 +114,7 @@
                         <div class="rg-admin-table__cell" role="columnheader">Segment</div>
                         <div class="rg-admin-table__cell" role="columnheader">Rule</div>
                         @foreach (['Visitors', 'Game starts', 'Registrations', 'Reg. rate', 'Activated', 'Cost / reg.'] as $column)
-                            <div class="rg-admin-table__cell rg-admin-table__cell--numeric" role="columnheader">{{ $column }}</div>
+                            <div class="rg-admin-table__cell rg-admin-table__cell--numeric" role="columnheader" @if (isset($segments['titles'][$column])) title="{{ $segments['titles'][$column] }}" @endif>{{ $column }}</div>
                         @endforeach
                         <div class="rg-admin-table__cell" role="columnheader">Verdict</div>
                         <div class="rg-admin-table__cell" role="columnheader"><span class="rg-admin-sr-only">Edit</span></div>
@@ -147,7 +147,7 @@
                                 role="cell"
                                 title="{{ $row['cells']['rate']['title'] }}"
                             >{{ $row['cells']['rate']['value'] }}</div>
-                            <div class="rg-admin-table__cell rg-admin-table__cell--numeric rg-admin-analytics__segment-figure" role="cell">{{ $row['cells']['activated'] }}</div>
+                            <div class="rg-admin-table__cell rg-admin-table__cell--numeric rg-admin-analytics__segment-figure" role="cell" title="{{ $row['cells']['activated']['title'] }}">{{ $row['cells']['activated']['value'] }}</div>
                             <div @class(['rg-admin-table__cell rg-admin-table__cell--numeric rg-admin-analytics__segment-figure', 'rg-admin-analytics__segment-figure--quiet' => $row['cells']['cost'] === '—']) role="cell">{{ $row['cells']['cost'] }}</div>
                             <div class="rg-admin-table__cell" role="cell">
                                 @if ($row['verdict'] !== null)
@@ -200,7 +200,7 @@
                         <div class="rg-admin-table__cell" role="columnheader">Campaign · creative · game</div>
                         <div class="rg-admin-table__cell" role="columnheader">Source · medium</div>
                         @foreach (['Spend', 'Landing visitors', 'Cost / visitor', 'Game starts', 'Completion', 'Registrations', 'Cost / registration', 'Activated', 'Cost / activated'] as $column)
-                            <div class="rg-admin-table__cell rg-admin-table__cell--numeric" role="columnheader">{{ $column }}</div>
+                            <div class="rg-admin-table__cell rg-admin-table__cell--numeric" role="columnheader" @if (isset($data['titles'][$column])) title="{{ $data['titles'][$column] }}" @endif>{{ $column }}</div>
                         @endforeach
                     </div>
                     @foreach ($data['rows'] as $row)

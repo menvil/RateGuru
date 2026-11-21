@@ -283,6 +283,7 @@ final class CampaignsTab implements AnalyticsTab
             'full' => $models->count() >= SaveTrafficSegmentAction::MOST_SEGMENTS,
             'most' => SaveTrafficSegmentAction::MOST_SEGMENTS,
             'foot' => $foot,
+            'titles' => self::headerTitles((int) config('analytics.activation_days')),
             'editing' => $editing,
         ];
     }
@@ -319,7 +320,13 @@ final class CampaignsTab implements AnalyticsTab
                         ? number_format($figures->newVisitors).' new '.str('visitor')->plural($figures->newVisitors).', fewer than a rate needs'
                         : number_format($figures->accounts).' of '.number_format($figures->newVisitors).' new visitors',
                 ],
-                'activated' => number_format($figures->activated),
+                'activated' => [
+                    'value' => number_format($figures->activated),
+                    'tone' => null,
+                    // The segments' figures carry no matured accounts, so no
+                    // "too early" here: the header's title says what counts.
+                    'title' => number_format($figures->activated).' of '.number_format($figures->accounts).' '.str('account')->plural($figures->accounts).' came back and acted',
+                ],
                 'cost' => $paid && $figures->accounts > 0 && $spend->isPositive()
                     ? TrafficMoney::fine($spend->dividedBy($figures->accounts, TrafficMoney::SCALE, RoundingMode::HalfUp))
                     : '—',
@@ -599,6 +606,7 @@ final class CampaignsTab implements AnalyticsTab
             'sort' => $sort,
             'rows' => $campaigns === [] ? [] : $rows,
             'foot' => self::foot($filter, $minimum, $early),
+            'titles' => self::headerTitles((int) config('analytics.activation_days')),
         ];
     }
 
@@ -636,7 +644,11 @@ final class CampaignsTab implements AnalyticsTab
                     : self::cell(self::percent($completion), title: number_format($figures->completers).' of '.number_format($figures->starters).' starters'),
                 self::cell(number_format($figures->accounts), sub: $ofNew($figures->accountRate($minimum))),
                 $cost($figures->accounts),
-                self::cell(number_format($figures->activated), sub: $tooEarly ? 'Too early' : $ofNew($figures->activationRate($minimum)), title: $tooEarly ? number_format($figures->accounts).' '.str('account')->plural($figures->accounts).', none old enough yet' : null),
+                self::cell(
+                    number_format($figures->activated),
+                    sub: $tooEarly ? ($figures->activated === 0 ? 'Too early' : 'so far') : $ofNew($figures->activationRate($minimum)),
+                    title: $tooEarly ? number_format($figures->accounts).' '.str('account')->plural($figures->accounts).', none old enough yet'.($figures->activated === 0 ? '' : ': more may still activate') : null,
+                ),
                 $cost($figures->activated),
             ],
         ];
@@ -980,6 +992,31 @@ final class CampaignsTab implements AnalyticsTab
     }
 
     /**
+     * What Registrations and Activated count — the words people read another
+     * way: a registration is a confirmed account however it was confirmed, and
+     * activation is not that confirmation but what the account did after its
+     * sign-up day.
+     */
+    public static function meaning(int $days): string
+    {
+        return 'Registrations count confirmed accounts: the email link clicked, or a Google or Facebook sign-up, which confirms at once. '
+            .'Activated counts accounts that came back and played, voted, commented or posted on one of the '.$days.' days after their sign-up day; the sign-up day itself doesn’t count.';
+    }
+
+    /**
+     * The headers whose meaning a pointer can ask for, and what it is.
+     *
+     * @return array<string, string>
+     */
+    public static function headerTitles(int $days): array
+    {
+        return [
+            'Registrations' => 'Confirmed accounts: the email link clicked, or a Google or Facebook sign-up, which confirms at once',
+            'Activated' => 'Accounts that came back and played, voted, commented or posted on one of the '.$days.' days after their sign-up day',
+        ];
+    }
+
+    /**
      * What the tree's footnote says: where a campaign and its creative come
      * from, where a game's row leads, how rates are read, when activation
      * can be told, and the spend a device leaves out.
@@ -988,10 +1025,10 @@ final class CampaignsTab implements AnalyticsTab
     {
         $days = (int) config('analytics.activation_days');
         $foot = 'A paid campaign and its creative come from the network’s link; a tagged one from utm_campaign, its creative from utm_content, else utm_term. '
-            .'Click a game row to open its analytics. Registration and activation use new visitors; a rate shows “—” until the number it divides by reaches '.$minimum.'.';
+            .'Click a game row to open its analytics. '.self::meaning($days).' Registration and activation use new visitors; a rate shows “—” until the number it divides by reaches '.$minimum.'.';
 
         if ($early) {
-            $foot .= ' Activation needs '.$days.' days after signup: “Too early” marks a row none of whose accounts is that old yet. Accounts from '
+            $foot .= ' “Too early” marks a row none of whose accounts has had its '.$days.' days yet; accounts from '
                 .ActivityDay::maturedBefore($filter->period->today, $days)->format('d M').' on can still activate.';
         }
 
