@@ -327,6 +327,10 @@ transaction as the change it records: `view`, `assigned`, `step_viewed`,
 `share_clicked`, `replay`, `exit`, `post_opened`, `post_voted`, `post_rated`,
 `feed_voted`, `goal_reached`, `account_confirmed` and `post_sign_in_form`. Each row carries the game, version, attempt, assignment, audience
 and the user or the visitor's hash — ids and codes, never anything typed.
+An attempt's event carries the attempt's own game and the moment it was
+recorded, never earlier than the attempt's start: `GameMetricsQuery` reads an
+attempt's events by that game and from the window's start, so whatever writes
+events — an import or a backfill too — keeps to both.
 `step_viewed` (`result_viewed` for Full Result) names each step after the game
 an attempt enters, the one its last pick moves it on to included.
 `share_clicked` names where the result went, and is recorded on the attempt

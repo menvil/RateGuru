@@ -105,7 +105,9 @@ The reviewed boundaries are:
   per device, country or country group of the recorded visits behind them, or
   per traffic period and version from the visitors each period assigned — the
   result screens among them read with an `EXISTS` on the attempt's events —
-  and the people who started more than one attempt; and of the attempts sent
+  and the visitors, the people behind the attempts and those who started more
+  than one, counted over rows grouped by person first rather than by a
+  distinct count of every row; and of the attempts sent
   to a post, the people who saw a sign-in form or signed up there within 30
   minutes of the attempt's way on, and of those, whose account is confirmed —
   the moment 30 minutes on, with the minutes bound, written per engine

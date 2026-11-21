@@ -133,8 +133,8 @@ parameters:
                 status: approved
             -
                 class: App\Queries\Games\GameMetricsQuery
-                methods: [selectRaw, havingRaw]
-                reason: 'A game''s figures need conditional and distinct counts of its attempts, answers, emails and events — per version, flow or content set, per device, country or country group of the recorded visits behind them, or per traffic period and version from the visitors each period assigned — and the people with more than one attempt, without hydrating the rows; every value is bound.'
+                methods: [selectRaw]
+                reason: 'A game''s figures need conditional and distinct counts of its attempts, answers, emails and events — per version, flow or content set, per device, country or country group of the recorded visits behind them, or per traffic period and version from the visitors each period assigned — and its visitors and players, the people with more than one attempt among them, counted from rows grouped by person first, without hydrating the rows; every value is bound.'
                 bindings: required
                 behaviorTests: [tests/Feature/Queries/GameMetricsQueryTest.php]
                 status: approved

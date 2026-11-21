@@ -412,6 +412,79 @@ it('splits the figures by version, flow and content set, a person once in each',
         ->and(metricsQuery()->funnels(metricsScope($first, versionId: $second->id))[0]->started)->toBe(1);
 });
 
+it('counts each viewer once in every group they viewed, a version’s guests and players apart, and lists a version whose views name nobody with no visitors', function () {
+    $draft = publishableGameDraft(rounds: 2);
+    $first = liveGame($draft);
+    $second = metricsSecondVersion($draft);
+    $third = metricsSecondVersion($draft);
+    [$player, $other] = User::factory()->count(2)->create()->all();
+    $hashless = fn (GameVersion $version) => (new GameEvent)->forceFill([
+        'game_id' => $version->game_id, 'version_id' => $version->id, 'audience' => GameAudience::Anonymous,
+        'visitor_hash' => null, 'type' => GameEventType::View, 'occurred_at' => '2026-11-05 12:00:00',
+    ])->save();
+
+    // V1: guest-a three times and guest-b, and two players, one of them twice. V2: guest-a again, and a view with
+    // no hash. V3: only a view with no hash.
+    metricsView($first, 'guest-a');
+    metricsView($first, 'guest-a', '2026-11-06 09:00:00');
+    metricsView($first, 'guest-a', '2026-11-07 09:00:00');
+    metricsView($first, 'guest-b');
+    metricsView($first, $player);
+    metricsView($first, $player, '2026-11-06 09:00:00');
+    metricsView($first, $other);
+    metricsView($second, 'guest-a');
+    $hashless($second);
+    $hashless($third);
+
+    $visitors = fn (array $funnels): array => array_map(fn (GameFunnel $funnel): int => $funnel->visitors, $funnels);
+    $guests = metricsScope($first);
+    $players = metricsScope($first, GameAudience::Authenticated);
+
+    expect($visitors(metricsQuery()->funnels($guests, 'version')))->toBe([$first->id => 2, $second->id => 1, $third->id => 0])
+        ->and($visitors(metricsQuery()->funnels($players, 'version')))->toBe([$first->id => 2])
+        // One content set: guest-a, who saw two of its versions, is one visitor of it.
+        ->and($visitors(metricsQuery()->funnels($guests, 'set')))->toBe([(int) $first->content_set_id => 2])
+        ->and([metricsQuery()->funnels($guests)[0]->visitors, metricsQuery()->visitors($guests)])->toBe([2, 2])
+        ->and([metricsQuery()->funnels($players)[0]->visitors, metricsQuery()->visitors($players)])->toBe([2, 2])
+        ->and(metricsQuery()->funnels(metricsScope($first, versionId: $third->id))[0]->visitors)->toBe(0);
+});
+
+it('counts plays, the people behind them, accounts and replays from each person’s plays summed up first, in all and per version', function () {
+    $draft = publishableGameDraft(rounds: 2);
+    $first = liveGame($draft);
+    $second = metricsSecondVersion($draft);
+    [$account, $newcomer, $player] = User::factory()->count(3)->create()->all();
+    $goal = ['goal_reached_at' => '2026-11-05 12:06:00'];
+
+    // guest-a played V1 twice, completing one and reaching the goal on it, and V2 once: played again in V1 and in all, not in V2.
+    metricsAttempt($first, 'guest-a', attributes: [...metricsCompleted(), ...$goal]);
+    metricsAttempt($first, 'guest-a');
+    metricsAttempt($second, 'guest-a', attributes: metricsCompleted());
+    // guest-b on V1 and guest-c on V2 signed in to the same account: two people, one account signed in to.
+    metricsAttempt($first, 'guest-b', attributes: ['user_id' => $account->id, 'account_outcome' => GameAccountOutcome::SignedIn]);
+    metricsAttempt($second, 'guest-c', attributes: ['user_id' => $account->id, 'account_outcome' => GameAccountOutcome::SignedIn]);
+    // guest-d played V2 twice and made a confirmed account on the second play, which reached the goal.
+    metricsAttempt($second, 'guest-d');
+    $credited = metricsAttempt($second, 'guest-d', attributes: [...metricsCompleted(), ...$goal, 'user_id' => $newcomer->id, 'account_outcome' => GameAccountOutcome::Registered]);
+    AccountAttribution::factory()->confirmed()->create(['user_id' => $newcomer->id, 'credited_attempt_id' => $credited->id]);
+    // Two plays of V2 nobody can be told apart by, one completed and reaching the goal: plays, but nobody's — and,
+    // counted together, one more who played again.
+    metricsAttempt($second, 'nobody', attributes: [...metricsCompleted(), ...$goal, 'visitor_hash' => null]);
+    metricsAttempt($second, 'nobody', attributes: ['visitor_hash' => null]);
+    // A logged-in player twice: a player of their own audience, told apart by the account.
+    metricsAttempt($first, $player);
+    metricsAttempt($first, $player, attributes: metricsCompleted());
+
+    $byVersion = metricsQuery()->funnels(metricsScope($first), 'version');
+    $ofSecond = new GameFunnel(started: 6, completed: 3, registered: 1, signedIn: 1, replayers: 2, starters: 3, finishers: 2, goalReached: 2, goalPeople: 1);
+
+    expect($byVersion[$first->id])->toEqual(new GameFunnel(started: 3, completed: 1, signedIn: 1, replayers: 1, starters: 2, finishers: 1, goalReached: 1, goalPeople: 1))
+        ->and($byVersion[$second->id])->toEqual($ofSecond)
+        ->and(metricsQuery()->funnels(metricsScope($first))[0])->toEqual(new GameFunnel(started: 9, completed: 4, registered: 1, signedIn: 1, replayers: 3, starters: 4, finishers: 2, goalReached: 3, goalPeople: 2))
+        ->and(metricsQuery()->funnels(metricsScope($first, versionId: $second->id))[0])->toEqual($ofSecond)
+        ->and(metricsQuery()->funnels(metricsScope($first, GameAudience::Authenticated))[0])->toEqual(new GameFunnel(started: 2, completed: 1, replayers: 1, starters: 1, finishers: 1));
+});
+
 it('counts the people who finished one of the versions given, each once however many of them they finished', function () {
     $draft = publishableGameDraft(rounds: 2);
     $first = liveGame($draft);
@@ -457,6 +530,38 @@ it('counts the people one of the versions given sent on to a post, each once how
         ->and(metricsQuery()->sentToPost(metricsScope($first), [$first->id]))->toBe(1)
         ->and(metricsQuery()->sentToPost(metricsScope($first), []))->toBe(0)
         ->and(metricsQuery()->sentToPost(metricsScope($first, GameAudience::Authenticated), [$first->id, $second->id]))->toBe(1);
+});
+
+it('counts the events of the attempts started in the window, from its very first moment and however long after it closed', function () {
+    $draft = publishableGameDraft(rounds: 2);
+    $first = liveGame($draft);
+    $second = metricsSecondVersion($draft);
+
+    // Started as the window opened and shared that same second.
+    $opening = metricsAttempt($first, 'guest-a', '2026-11-01 00:00:00', metricsCompleted());
+    metricsView($first, 'guest-a', '2026-11-01 00:00:00', GameEventType::ShareClicked, $opening);
+    // Started as it was closing, then shared, sent on to a post and signing up begun after it closed.
+    $closing = metricsAttempt($second, 'guest-b', '2026-11-08 23:59:00', metricsCompleted());
+    metricsView($second, 'guest-b', '2026-11-09 00:10:00', GameEventType::ShareClicked, $closing);
+    metricsView($second, 'guest-b', '2026-11-09 00:11:00', GameEventType::PostOpened, $closing);
+    metricsView($second, 'guest-b', '2026-11-09 00:12:00', GameEventType::RegistrationCtaClicked, $closing, provider: 'email');
+    // Started a second before the window, all of it done inside: not the window's.
+    $before = metricsAttempt($first, 'guest-c', '2026-10-31 23:59:59', metricsCompleted());
+    metricsView($first, 'guest-c', '2026-11-02 10:00:00', GameEventType::ShareClicked, $before);
+    metricsView($first, 'guest-c', '2026-11-02 10:01:00', GameEventType::PostOpened, $before);
+    metricsView($first, 'guest-c', '2026-11-02 10:02:00', GameEventType::RegistrationCtaClicked, $before, provider: 'google');
+    // The same guest's play of another game in the window.
+    $elsewhere = liveGame(publishableGameDraft(rounds: 1));
+    metricsView($elsewhere, 'guest-a', type: GameEventType::ShareClicked, attempt: metricsAttempt($elsewhere, 'guest-a', attributes: metricsCompleted()));
+
+    $events = fn (GameFunnel $f): array => [$f->shared, $f->sharers, $f->wentToPost, $f->signUpStarters];
+    $byVersion = metricsQuery()->funnels(metricsScope($first), 'version');
+
+    expect($events(metricsQuery()->funnels(metricsScope($first))[0]))->toBe([2, 2, 1, 1])
+        ->and($events($byVersion[$first->id]))->toBe([1, 1, 0, 0])
+        ->and($events($byVersion[$second->id]))->toBe([1, 1, 1, 1])
+        ->and(metricsQuery()->sentToPost(metricsScope($first), [$first->id, $second->id]))->toBe(1)
+        ->and(metricsQuery()->signUpMethods(metricsScope($first)))->toBe(['email' => 1]);
 });
 
 it('refuses to split the figures by anything else', function () {
@@ -748,4 +853,44 @@ it('counts an account as matured once its seven days after the day it signed up 
     $funnel = metricsQuery()->periodFunnel([(int) $period->id], ActivityDay::maturedBefore(CarbonImmutable::now(), 7))[$period->id][$version->id];
 
     expect([$funnel->accounts, $funnel->matured, $funnel->activated])->toBe([2, 1, 1]);
+});
+
+it('counts, beside each period’s visitors per version, every attempt they started and the completed among them — what periods() counts', function () {
+    $this->travelTo('2026-11-18 12:00:00');
+    $draft = publishableGameDraft(rounds: 1);
+    $first = liveGame($draft);
+    $second = metricsSecondVersion($draft);
+    $earlier = GameTrafficPeriod::query()->where('game_id', $first->game_id)->where('audience', GameAudience::Anonymous->value)->firstOrFail();
+    $earlier->forceFill(['ended_at' => now()])->save();
+    $later = GameTrafficPeriod::factory()->create(['game_id' => $first->game_id, 'started_at' => now()]);
+    $replay = fn (GameAssignment $of, array $attributes = []): GameAttempt => GameAttempt::factory()->create(['version_id' => $of->version_id, 'assignment_id' => $of->id, 'visitor_hash' => $of->visitor_hash, ...$attributes]);
+
+    // V1 in the earlier period: a visitor who never started, and one who played three times and completed twice — the
+    // first play with an email and two confirmed accounts credited to it, which leave it one play.
+    periodVisitor($earlier, $first);
+    $player = periodVisitor($earlier, $first, ['email' => true, 'account' => '2026-11-02 10:00:00']);
+    AccountAttribution::factory()->confirmed()->create(['credited_attempt_id' => GameAttempt::query()->where('assignment_id', $player->id)->value('id')]);
+    $replay($player, metricsCompleted());
+    $replay($player);
+    // V2: one play in the earlier period; in the later, a visitor who saw the result and played again.
+    periodVisitor($earlier, $second, ['started' => true]);
+    $replay(periodVisitor($later, $second, ['result' => true]));
+    // A play with no assignment is no period's.
+    metricsAttempt($first, 'guest-z');
+
+    $funnels = metricsQuery()->periodFunnel([(int) $earlier->id, (int) $later->id], CarbonImmutable::parse('2026-11-11 00:00:00'));
+    $figures = fn (PeriodVersionFunnel $f): array => [$f->assigned, $f->started, $f->completed, $f->accounts, $f->attempts, $f->attemptsCompleted];
+    $sorted = function (array $periods): array {
+        ksort($periods);
+
+        return $periods;
+    };
+
+    expect($figures($funnels[$earlier->id][$first->id]))->toBe([2, 1, 1, 1, 3, 2])
+        ->and($figures($funnels[$earlier->id][$second->id]))->toBe([1, 1, 0, 0, 1, 0])
+        ->and($figures($funnels[$later->id][$second->id]))->toBe([1, 1, 1, 0, 2, 1])
+        // What periods() reads from the attempts themselves, in all and of each version.
+        ->and($sorted(metricsQuery()->periods((int) $first->game_id)))->toBe($sorted([$earlier->id => ['started' => 4, 'completed' => 2], $later->id => ['started' => 2, 'completed' => 1]]))
+        ->and(metricsQuery()->periods((int) $first->game_id, (int) $first->id))->toBe([$earlier->id => ['started' => 3, 'completed' => 2]])
+        ->and($sorted(metricsQuery()->periods((int) $first->game_id, (int) $second->id)))->toBe($sorted([$earlier->id => ['started' => 1, 'completed' => 0], $later->id => ['started' => 2, 'completed' => 1]]));
 });
