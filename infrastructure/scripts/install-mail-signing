@@ -1117,7 +1117,9 @@ install_package() {
         DEBIAN_FRONTEND=noninteractive "${DPKG_BIN}" --configure "${OPENDKIM_PACKAGE}" || true
     fi
 
-    DEBIAN_FRONTEND=noninteractive "${APT_GET_BIN}" update
+    # A repository renaming itself (its Release Label) is accepted, as in
+    # install-bootstrap-runtime's apt_update; any other change still stops it.
+    DEBIAN_FRONTEND=noninteractive "${APT_GET_BIN}" update --allow-releaseinfo-change-label
     DEBIAN_FRONTEND=noninteractive "${APT_GET_BIN}" install -y \
         --no-install-recommends --no-remove \
         -o Dpkg::Options::=--force-confdef \

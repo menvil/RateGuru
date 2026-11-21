@@ -251,6 +251,21 @@ restores. Instead:
   normal migration would. The staged database is then verified: owner, public
   table count > 0, a readable migrations count, and a real connection as the
   application role. The live database is not read, written, locked or renamed.
+
+  A dump of a database holding an extension (roaringbitmap, which Analytics
+  uses) carries `CREATE EXTENSION` and `COMMENT ON EXTENSION`, and the
+  application role may run neither: the first needs a superuser, the second
+  the extension's owner. So before the staged database exists, the dump's
+  table of contents is read (`pg_restore --list`) and every extension it
+  names must be one a RateGuru host provides (`RESTORE_ALLOWED_EXTENSIONS` in
+  `restore-common`, equal to `install-target-database`'s list) — any other
+  refuses the restore with nothing created. After `createdb`, the `postgres`
+  superuser creates those extensions in the staged database, and the restore
+  reads `--use-list` with exactly those two entries left out; everything else
+  in the dump is restored as before, as the application role. A dump without
+  extensions is restored exactly as it always was. `restore-test` and
+  `offsite-restore-test` restore as `postgres` already and need only the
+  package.
 * **activate** — block new connections to the live database, terminate the
   sessions it has (scoped to that database only), rename it aside to a
   pre-restore name, rename the staged database into the canonical name,

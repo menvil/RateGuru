@@ -444,7 +444,10 @@ The contract reproduces what the real staging VPS runs, inspected directly:
   (`ppa.launchpadcontent.net/ondrej/php/ubuntu jammy`) — Ubuntu 22.04's
   base repository has no PHP 8.5.
 - **PostgreSQL 18** from PGDG (`apt.postgresql.org jammy-pgdg`) — the
-  staging packages identify as `18.x-1.pgdg22.04+1`.
+  staging packages identify as `18.x-1.pgdg22.04+1` — with
+  `postgresql-18-roaringbitmap` from the same repository, the extension
+  Analytics keeps each day's people in. It needs no preloading and no
+  restart; `install-target-database` creates it in each target's database.
 - **Nginx, Redis, Supervisor** and every base utility (including `unzip`,
   which extracts the pinned rclone release archive, `bind9-dnsutils` and
   `openssl`, whose `dig` and `openssl` the read-only mail identity
@@ -525,6 +528,56 @@ When the next PHP security release comes, raise `PHP_MIN_VERSION` and the
 `php` requirement in `composer.json` together (a test keeps them equal),
 upgrade the hosts first, and only then deploy a build carrying the new
 requirement. Never lower the floor.
+
+### The nginx security floor
+
+Nginx has a floor too: `NGINX_MIN_PACKAGE_VERSION` in
+`install-bootstrap-runtime`, currently **1.18.0-6ubuntu14.24**. Unlike PHP's it
+is an **Ubuntu package revision**, read from dpkg, because Ubuntu fixes nginx
+without changing the upstream number: a patched build and an exploitable one
+both answer `nginx/1.18.0 (Ubuntu)`, so `nginx -v` cannot tell them apart. It is
+read from the `nginx` package the installer already requires: on jammy that
+package requires its server (`nginx-core` by default) at exactly its own
+version, so its version is the binary's.
+
+Why 1.18.0-6ubuntu14.24: on 2026-11-18 nginx released 1.30.7 and 1.31.9 with
+fixes for ten flaws, and Ubuntu carried the ones jammy is exposed to into
+14.23 (2026-11-19, USN-9159-1) and 14.24 (2026-11-20, USN-9182-1):
+
+- **CVE-2026-123007** — HTTP/2 flow-control memory corruption that can run
+  code (CVSS 4.0 9.2, critical). It needs nothing but HTTP/2, which the sites
+  serve: the staging vhosts say `http2`, and on 1.18 that turns HTTP/2 on for
+  every server on the port.
+- **CVE-2026-123633** — an HTTP/2 use-after-free.
+- **CVE-2026-118899** — an endless loop reading a request body over TLS 1.3,
+  which the listeners enable (fixed in 14.24, hence the floor).
+
+Only the jammy series `1.18.0-6ubuntu*` is accepted. An nginx from another
+source numbers its releases differently — nginx.org's 1.30.6 sorts above every
+1.18.0 build and is still exposed — so it is a `CONFLICT`, never a pass, and is
+never replaced. Its package is itself named `nginx`, which is why the floor
+reads that package: requiring `nginx-core` instead would have had apt install
+it by removing the foreign nginx.
+
+Unlike PHP's, this floor is met by `--apply`: when `nginx` is below it,
+`install-bootstrap-runtime --apply` runs `apt-get update`, upgrades exactly
+`nginx nginx-core nginx-common` (`--only-upgrade`, the host's configuration
+files kept, needrestart only listing), checks `nginx -t` and restarts nginx onto
+the new binary — a moment's interruption of every site on the machine, once.
+A configuration that fails `nginx -t` leaves the running nginx untouched and
+fails the run. The next run finishes it without any state kept in between: a
+running nginx whose executable the kernel shows as deleted still runs the
+binary an upgrade replaced, so the report calls it a `CONFLICT` and `--apply`
+restarts it (again only after `nginx -t`). A stopped nginx is not started here;
+`install-bootstrap-services` starts it as a base service. So the hosts are upgraded through the ordinary workflows:
+**Prepare staging host** (from `develop`) converges the shared machine, nginx
+included, and **Verify staging infrastructure** / **Verify production
+infrastructure** report `nginx-version` with the installed revision. A host
+below the floor fails every verification until Prepare has run.
+
+When the next Ubuntu nginx security update comes, raise
+`NGINX_MIN_PACKAGE_VERSION` (a test keeps it inside the series and at or above
+14.24) and run Prepare. Never lower the floor.
 
 **Node.js, npm and Composer are intentionally absent.** GitHub Actions
 builds the immutable application artifact (`composer install --no-dev`,

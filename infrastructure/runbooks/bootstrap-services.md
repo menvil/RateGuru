@@ -67,6 +67,7 @@ reload:
 | `/etc/supervisor/conf.d/rateguru-staging-queue.conf` | `infrastructure/config/supervisor/rateguru-staging-queue.conf` | `supervisorctl reread` (validation only — nothing applied) |
 | `/etc/cron.d/rateguru-staging-scheduler` | `infrastructure/config/cron/rateguru-staging-scheduler` | structural cron validation + user/php-binary existence |
 | `/etc/ssh/sshd_config.d/70-rateguru-deploy.conf` (host-global) | `infrastructure/config/ssh/70-rateguru-deploy.conf` | `sshd -t` |
+| `/etc/postgresql/18/main/conf.d/70-rateguru.conf` (host-global) | `infrastructure/config/postgresql/70-rateguru.conf` | `postgres -C` (the server's own parse of every configuration file) |
 
 Plus one directory: `TARGET_ROOT/shared/storage/logs`
 (`runtime_user:runtime_group`, setgid `2770`) — the exact service-support
@@ -82,6 +83,45 @@ before any daemon reload could ever see the bad candidate, the restored
 configuration is re-validated, and the run fails. SSH is only ever
 *reloaded* (never restarted) and only when the installed restriction
 actually changed — the active SSH session is never touched.
+
+### PostgreSQL settings
+
+The host's one cluster (`18/main`) gets RateGuru's settings as a single
+drop-in its `postgresql.conf` includes (`include_dir = 'conf.d'`); the
+distribution's `postgresql.conf` is never edited. The values — `shared_buffers`,
+`effective_cache_size`, `work_mem`, `maintenance_work_mem`, the parallel worker
+limits and `random_page_cost` — are sized for the machine the targets share
+(4 vCPU, 5.8 GiB), and the file explains each.
+
+- **Validation.** `postgres -C shared_buffers --config-file=…/postgresql.conf`,
+  run as `postgres`, parses every configuration file the way a start would and
+  fails on a syntax error, an unknown setting or a value out of range, without
+  touching the running server. `pg_file_settings` cannot serve: it reports a
+  setting waiting for a restart exactly as it reports an invalid one.
+- **Apply.** A changed file is validated, then PostgreSQL reloads
+  (`pg_reload_conf()`). An unchanged file reloads too when the running cluster
+  has not loaded a setting it holds (the running value did not come from the
+  file — a reload an earlier run never reached, or an `ALTER SYSTEM RESET` no
+  reload followed). If PostgreSQL then reports a setting waiting for a restart
+  (`pg_settings.pending_restart`; `shared_buffers` is one), the cluster's unit
+  `postgresql@18-main` is restarted once — a short interruption of every
+  target's database — and the run waits until it answers again. A file that is
+  unchanged and loaded, with no restart pending, costs neither a reload nor a
+  restart. A setting that a later file overrides (`postgresql.auto.conf`,
+  written by `ALTER SYSTEM`) fails the run with the way out:
+  `ALTER SYSTEM RESET` it.
+- **Rollback.** A failed run restores the previous file and puts PostgreSQL
+  back onto it: the cluster's unit started again if the restart left it down
+  (`postgresql.service` is an umbrella that stays active with the cluster
+  stopped, so it is never the question), otherwise reloaded, and restarted when
+  a restart-only setting changed back.
+- **Report.** `config-test:postgresql` is `PASS` when the files parse and the
+  running cluster applies every setting it read, `DRIFT` while a setting is not
+  loaded yet or a restart is pending, `CONFLICT` when a later file overrides
+  RateGuru's settings.
+
+PostgreSQL's settings, like SSH's, belong to the host run: a target-scoped run
+neither reports, installs nor restarts them.
 
 ## Prerequisite gate
 
