@@ -1,0 +1,46 @@
+tests/Feature/Architecture/InstallBootstrapRuntimeTest.php
+  s_4b9dc6ab6b25d3::t_5022945f6da69e 811-813
+  s_4b9dc6ab6b25d3::t_b4c8909df1dd4a 1231-1348,1355-1428
+  s_4b9dc6ab6b25d3::t_1cfecf5bd67e41 107
+  s_4b9dc6ab6b25d3::t_fec90f599733e4 2548-2564
+  s_4b9dc6ab6b25d3::t_55ca2c84a4565e 1349-1354
+  s_4b9dc6ab6b25d3::t_c00512eb4dcfed 564-569
+  s_4b9dc6ab6b25d3::t_7c30c2bea07c0f 798-799
+  s_4b9dc6ab6b25d3::t_150a82dfb4fa29 900-913
+  s_4b9dc6ab6b25d3::t_65bc53df16cefa 506-508,514-525,532-546
+  s_4b9dc6ab6b25d3::t_704be13cff685e 844-847
+tests/Pest.php
+  s_4b9dc6ab6b25d3::t_5d493d6b03e702 794-810
+infrastructure/scripts/install-bootstrap-runtime
+  s_4b9dc6ab6b25d3::t_c819d6c6add809 1507-1510
+  s_4b9dc6ab6b25d3::t_100ba6200dac01 69-71
+  s_4b9dc6ab6b25d3::t_60c372fef34a17 291-293
+  s_4b9dc6ab6b25d3::t_3781f29601bfbf 993-1057
+  s_4b9dc6ab6b25d3::t_1112adccb7953b 1295-1296
+  s_4b9dc6ab6b25d3::t_c201eb6bce54d0 412-415
+  s_4b9dc6ab6b25d3::t_c1552324eeb367 134-135
+  s_4b9dc6ab6b25d3::t_cd8c777dd02aa7 1085-1086
+  s_4b9dc6ab6b25d3::t_8193cb052d81b7 1476-1506,1511-1532
+  s_4b9dc6ab6b25d3::t_aa1729f2046368 1574-1575
+  s_4b9dc6ab6b25d3::t_99fd792cca0103 15-20
+  s_4b9dc6ab6b25d3::t_2126120fdb6193 207-228
+  s_4b9dc6ab6b25d3::t_f17307f6c104df 520-524
+infrastructure/runbooks/bootstrap-host.md
+  s_4b9dc6ab6b25d3::t_557af3408e844a 529-570
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "a8b403bf3838a726ce0613f91967e80ea6bff789",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
