@@ -1,0 +1,72 @@
+docs/architecture/analytics.md
+  s_4b9dc6ab6b25d3::t_eea6ddd507d798 265-302,357-361,377-378,522-523
+database/migrations/2026_11_21_100200_create_analytics_cells_tables.php
+  s_4b9dc6ab6b25d3::t_4074293b9ff455 1-92
+app/Queries/Analytics/AnalyticsVisitsQuery.php
+  s_4b9dc6ab6b25d3::t_19858d3bedc435 24,211,246-248,250,253,276-278,282,435-446,449-450,453,482-484,486-488,492,498,505-506,527-529,534-535,944-970
+  s_4b9dc6ab6b25d3::t_f83b2c6ca43cc2 764,767,782,785,807,810,924,931
+  s_4b9dc6ab6b25d3::t_243d97f0e9dfaf 26,191,195,214,759-763,765-766,768-775
+  s_4b9dc6ab6b25d3::t_ea6772a88b3634 8-9,15,47-52,127-129,131,169-170,175,179,189,201,207-210,212-213,215-221,403-405,409,708,731,734,738,843,845-848,876-923,925-930,932-943,971-998
+app/Models/AnalyticsPid.php
+  s_4b9dc6ab6b25d3::t_2fed47b8899409 1-32
+app/Actions/Analytics/RefreshAnalyticsDayAction.php
+  s_4b9dc6ab6b25d3::t_f4d46f57de6e06 5,19-21,31-34,36-40,44,69-70,84-86
+app/Support/Analytics/VisitorFigures.php
+  s_4b9dc6ab6b25d3::t_d07ce2affcf615 80-87
+tests/Feature/Analytics/AnalyticsCellsTest.php
+  s_4b9dc6ab6b25d3::t_cf4ca85b80510a 16,121-169
+  s_4b9dc6ab6b25d3::t_f4b523eed38356 79,94,119
+  s_4b9dc6ab6b25d3::t_9f8145cc12134a 1-9,11-15,17-43,45-67,71-78,80-84,86,88-93,95-109,111-118,170-175,177-180,184-200
+  s_4b9dc6ab6b25d3::t_00e6a93d48f85f 44,85,87,110,120
+  s_4b9dc6ab6b25d3::t_9f1561dd6cc00f 68-70,181-183
+  s_4b9dc6ab6b25d3::t_33f3b42ee0a957 10,176
+app/Models/AnalyticsCellAccount.php
+  s_4b9dc6ab6b25d3::t_2fed47b8899409 1-25
+app/Models/AnalyticsRollupState.php
+  s_4b9dc6ab6b25d3::t_2fed47b8899409 11-12,18-19,41
+app/Actions/Analytics/RefreshAnalyticsCellsAction.php
+  s_4b9dc6ab6b25d3::t_63338e91c93009 1-183
+config/analytics.php
+  s_4b9dc6ab6b25d3::t_dd03e93e3ad070 50,55
+app/Support/Analytics/AnalyticsFilter.php
+  s_4b9dc6ab6b25d3::t_d07ce2affcf615 94-99
+app/Actions/Analytics/RefreshAnalyticsVisitsAction.php
+  s_4b9dc6ab6b25d3::t_f4d46f57de6e06 7,29-35,43,46,124-141,146
+app/Support/Analytics/AnalyticsCellLevel.php
+  s_4b9dc6ab6b25d3::t_a31508ecc6a346 1-4,7-46,48-67
+  s_4b9dc6ab6b25d3::t_243d97f0e9dfaf 5-6,47
+docs/architecture/http-and-database-boundaries.md
+  s_4b9dc6ab6b25d3::t_7006ff52ff3310 86-95
+app/Console/Commands/TrafficPurgeExpiredCommand.php
+  s_4b9dc6ab6b25d3::t_7db05de027b9ad 5-6,8-9,26-27,89-90
+  s_4b9dc6ab6b25d3::t_c0bfde54a592c4 87-88,91-93
+tests/Feature/Console/TrafficPurgeExpiredCommandTest.php
+  s_4b9dc6ab6b25d3::t_7a969d1c7fdcdf 66
+  s_4b9dc6ab6b25d3::t_d02a53d890e9be 3-6,61-65,67-76
+tools/phpstan/architecture.neon
+  s_4b9dc6ab6b25d3::t_a66dd1eef3b6a3 172,174-181
+app/Models/AnalyticsCell.php
+  s_4b9dc6ab6b25d3::t_2fed47b8899409 1-26
+app/Queries/Analytics/AnalyticsRollupGate.php
+  s_4b9dc6ab6b25d3::t_243d97f0e9dfaf 60
+  s_4b9dc6ab6b25d3::t_de8baccf572119 5,18-24,30-33,52-59,61-75
+tests/Pest.php
+  s_4b9dc6ab6b25d3::t_33f3b42ee0a957 105
+  s_4b9dc6ab6b25d3::t_b692d3f958e02a 15167-15171,15177-15179,15185-15187,15208,15214-15221
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "c50d28a23421fea89d066804ea5c4caacf23802b",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
