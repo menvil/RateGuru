@@ -112,7 +112,10 @@ The reviewed boundaries are:
   to a post, the people who saw a sign-in form or signed up there within 30
   minutes of the attempt's way on, and of those, whose account is confirmed —
   the moment 30 minutes on, with the minutes bound, written per engine
-  (`minutesAfter()`).
+  (`minutesAfter()`); and, per traffic period and version, the sums of the
+  hours of its assignments once counted (`analytics_period_hours`) beside the
+  assignments of the hours since and of those changed, joined by `UNION ALL`
+  in one read.
 - `GamePostPickerQuery` for literal LIKE searches over the titles and author usernames of the posts a game round may show.
 - `GamesQuery` for literal LIKE searches over game titles, internal names and slugs.
 - `MatchedUsersQuery` for literal LIKE searches.

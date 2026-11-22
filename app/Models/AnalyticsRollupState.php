@@ -9,7 +9,9 @@ use Illuminate\Database\Eloquent\Model;
  * How far the rows Growth → Analytics reads are (analytics_visits): the day
  * they were filled up to on the way to every day, when every day first was,
  * and when they were last brought up to date — and the same of the cells of
- * people per day (analytics_cells). One row, id 1.
+ * people per day (analytics_cells); and the hours of assignments a traffic
+ * period's funnel is summed from (analytics_period_hours): the last hour every
+ * hour up to which is counted. One row, id 1.
  *
  * @property int $id
  * @property string|null $filled_through
@@ -19,6 +21,7 @@ use Illuminate\Database\Eloquent\Model;
  * @property CarbonImmutable|null $cells_filled_at
  * @property string|null $game_days_through
  * @property CarbonImmutable|null $game_days_filled_at
+ * @property CarbonImmutable|null $period_hours_through
  */
 class AnalyticsRollupState extends Model
 {
@@ -42,6 +45,7 @@ class AnalyticsRollupState extends Model
             'refreshed_at' => 'immutable_datetime',
             'cells_filled_at' => 'immutable_datetime',
             'game_days_filled_at' => 'immutable_datetime',
+            'period_hours_through' => 'immutable_datetime',
         ];
     }
 

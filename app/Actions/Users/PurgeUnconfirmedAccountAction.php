@@ -3,6 +3,7 @@
 namespace App\Actions\Users;
 
 use App\Actions\Analytics\MarkAnalyticsDayAction;
+use App\Actions\Analytics\MarkAnalyticsPeriodHourAction;
 use App\Actions\Counters\RecalculatePostCountersAction;
 use App\Actions\Profile\AnonymizeUserAccountAction;
 use App\Actions\Ranking\RecalculatePostScoreAction;
@@ -63,6 +64,7 @@ final class PurgeUnconfirmedAccountAction
         private readonly RecalculatePostScoreAction $postScore,
         private readonly AnonymizeUserAccountAction $anonymize,
         private readonly MarkAnalyticsDayAction $analytics,
+        private readonly MarkAnalyticsPeriodHourAction $periodHours,
     ) {}
 
     public function handle(int $userId, CarbonInterface $signedUpBefore, bool $dryRun = false): UnconfirmedAccountPurgeOutcome
@@ -249,8 +251,10 @@ final class PurgeUnconfirmedAccountAction
 
     /**
      * The games it played: its attempts, their answers, emails and events,
-     * and the versions it was assigned — the days of the visits they were
-     * played on marked for Analytics (MarkAnalyticsDayAction).
+     * and the versions it was assigned — each a part of its period's funnel,
+     * which is told the hours of their assignments first, and the days of the
+     * visits they were played on marked for Analytics (MarkAnalyticsDayAction).
+     * Its attribution, never confirmed, was never one of the funnel's accounts.
      */
     private function eraseGames(int $id): void
     {
@@ -260,6 +264,8 @@ final class PurgeUnconfirmedAccountAction
             ->orderBy('id')
             ->lockForUpdate()
             ->pluck('id');
+
+        $this->periodHours->ofAssignments(GameAssignment::query()->whereIn('id', $assignments)->orWhereIn('id', GameAttempt::query()->whereIn('id', $attempts)->select('assignment_id')));
 
         $events = GameEvent::query()
             ->where(fn ($event) => $event

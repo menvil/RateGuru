@@ -432,7 +432,9 @@ docs/architecture/http-and-database-boundaries.md and a behaviour test:
 - `TrackingLinksQuery` and `ComparisonPeriodsQuery` — literal searches with
   `ESCAPE`;
 - `GameMetricsQuery::periodFunnel()` — how far the visitors each period sent to
-  each version got.
+  each version got: once counted, the sums of the hours of its assignments
+  (`analytics_period_hours`) beside the assignments of the hours since and of
+  those changed, joined by `UNION ALL` in one read.
 
 `JourneyQuery`, `LandingExperiencesQuery`, `AnalyticsMarkersQuery` and
 `AnalyticsRollupQuery` are Eloquent alone. Everywhere every value is bound, every grouping column comes
@@ -507,6 +509,53 @@ they assign nobody. Value, postbacks and Traffic sources stay per game.
 A test link to a version (docs/architecture/games.md, "Test links") plays it
 through the preview and records nothing — no click, cookie, assignment,
 attempt or event — so it never reaches Experiments or Analytics.
+
+### The hours of a period's assignments
+
+A period's funnel counts every assignment the period ever made, and a period
+runs as long as its shares stay — weeks of a busy site's visitors. Every
+assignment is of one period, one version and one UTC hour, so the funnel is
+also kept an hour of assignments at a time (`analytics_period_hours`): of the
+assignments a period made to a version in the hour, how many there were and
+how many of them started, completed, saw a result, left an email and reached
+the goal, and their attempts and the completed among them; beside them, the
+confirmed accounts credited to their attempts by the UTC day each signed up
+on, with the activated among them (`analytics_period_hour_accounts`) — the
+day decides whether an account has matured, the cut always being a midnight.
+Every engine, no extension.
+
+An hour stays open while it or the hour after it is the current one
+(`PeriodFunnelHours`): what the plays of its assignments start, finish and
+lead to mostly happens then, and nothing tells of it. Once it is closed, every
+writer of what the funnel counts of one of its assignments marks the hour in
+the change's own transaction (`MarkAnalyticsPeriodHourAction`, the token new
+on every change): a play started from an assignment hours or days old, an
+attempt completed, a result seen (whichever action records it), an email
+left, the goal reached, an account credited to one of its plays confirmed or
+activated, and the results seen and emails `games:purge-expired` deletes, the
+plays and assignments of an unconfirmed account removed and the emails of an
+account deleted. `analytics:refresh-visits` counts them first every minute
+(`RefreshAnalyticsPeriodHoursAction`): the hours marked, each unmarked once
+counted unless it changed again meanwhile; then every hour closed ten minutes
+since — longer than a change takes to be kept — the earliest first, from the
+first assignment's (on deploy, every hour of the assignments already made),
+passing over hours nobody was assigned in (`period_hours_through`); and at
+night the hours of the last `analytics.rollup.recheck_days` days again, a
+check that nothing was missed. An hour is read first and written after, so
+counting never holds a lock on what playing writes.
+
+`GameMetricsQuery::periodFunnel()` takes the hours counted from their sums,
+and the hours since — two or three — and the hours marked from the
+assignments themselves, the same SQL, in one read (the marked hours read
+first): the same figures as reading every assignment, at any moment, however
+long ago the refresh last ran, so nothing waits on it and no staleness
+decides. A cut inside a day, and more than 100 hours marked at once, read
+every assignment; so does everything while `analytics.rollup.period_hours` is
+off or no hour is counted yet. Measured on 696,000 assignments of 30 days
+(24,000 a day): the funnel of a period of 500,000 assignments in tens of
+milliseconds instead of two to three seconds — Landings' comparison and
+Experiments read one period, the Games tab up to 20 — and every hour of them
+counted in six seconds.
 
 ## Segments and tracking links
 
@@ -588,6 +637,7 @@ action. A moderator sees neither.
 | The sums of each day's games' visits (`analytics_game_days`) | as the cells |
 | A tab's figures and the filter options, per administrator (cache) | 10 minutes (`analytics.read_cache_minutes`), or until Refresh, a segment saved, deleted or restored, or a tracking link saved |
 | The accounts of each day by the post their session opened first (`analytics_first_post_cells`) | as the cells |
+| The hours of each period's assignments and their accounts (`analytics_period_hours`, `analytics_period_hour_accounts`) | as their assignments, kept for ever; an hour something of which is purged or removed is counted again |
 
 The privacy page is the owner's to update before Record site visits is switched
 on (docs/admin/traffic-sources.md, "Privacy page").

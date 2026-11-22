@@ -30,6 +30,9 @@ use Carbon\CarbonImmutable;
  */
 final class AnalyticsRollupGate
 {
+    /** The most hours changed since they were counted that a period's funnel reads beside the sums — a minute's on a busy site; past it, read every assignment. */
+    public const int MOST_CHANGED_HOURS = 100;
+
     private ?bool $reads = null;
 
     private ?bool $kept = null;
@@ -91,5 +94,38 @@ final class AnalyticsRollupGate
         return $this->readsGameDays = (bool) config('analytics.rollup.game_days')
             && $this->reads()
             && AnalyticsRollupState::query()->whereKey(AnalyticsRollupState::ID)->whereNotNull('game_days_filled_at')->exists();
+    }
+
+    /**
+     * How a traffic period's funnel takes the hours of its assignments from
+     * their sums (analytics_period_hours), on every engine: the last hour
+     * every hour up to which is counted, and the hours counted that changed
+     * since (analytics_dirty_period_hours), the earliest first — both in one
+     * read, at every call, so each funnel is read with the hours it is summed
+     * from. The assignments of the hours since and of those changed are read
+     * beside the sums, so it never depends on how recently they were counted.
+     * None — read every assignment — while the setting says so
+     * (analytics.rollup.period_hours), no hour is counted yet, or more hours
+     * changed than MOST_CHANGED_HOURS wait, a refresh that stopped.
+     *
+     * @return array{through: CarbonImmutable, changed: list<CarbonImmutable>}|null
+     */
+    public function periodHours(): ?array
+    {
+        if (! (bool) config('analytics.rollup.period_hours')) {
+            return null;
+        }
+
+        $rows = AnalyticsRollupState::query()
+            ->leftJoin('analytics_dirty_period_hours', 'analytics_dirty_period_hours.assigned_hour', '<=', 'analytics_rollup_states.period_hours_through')
+            ->whereKey(AnalyticsRollupState::ID)
+            ->orderBy('analytics_dirty_period_hours.assigned_hour')
+            ->limit(self::MOST_CHANGED_HOURS + 1)
+            ->toBase()
+            ->get(['analytics_rollup_states.period_hours_through', 'analytics_dirty_period_hours.assigned_hour']);
+        $through = $rows->first()?->period_hours_through;
+        $changed = $rows->pluck('assigned_hour')->filter(fn (mixed $hour): bool => $hour !== null)->map(fn (mixed $hour): CarbonImmutable => CarbonImmutable::parse((string) $hour, 'UTC'))->values()->all();
+
+        return $through === null || count($changed) > self::MOST_CHANGED_HOURS ? null : ['through' => CarbonImmutable::parse((string) $through, 'UTC'), 'changed' => $changed];
     }
 }

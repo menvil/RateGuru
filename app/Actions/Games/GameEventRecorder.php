@@ -3,6 +3,7 @@
 namespace App\Actions\Games;
 
 use App\Actions\Analytics\MarkAnalyticsDayAction;
+use App\Actions\Analytics\MarkAnalyticsPeriodHourAction;
 use App\Enums\GameEventType;
 use App\Models\GameAssignment;
 use App\Models\GameAttempt;
@@ -17,7 +18,9 @@ use InvalidArgumentException;
  * records does. Ids and codes only — never anything a visitor typed. An
  * attempt's event is of the attempt's own game and happens now, never before
  * the attempt began: GameMetricsQuery reads an attempt's events only from its
- * game's events since the window began (docs/architecture/games.md).
+ * game's events since the window began (docs/architecture/games.md). A result
+ * seen is a step of its period's funnel, which is told of it
+ * (MarkAnalyticsPeriodHourAction) whichever action records it.
  *
  * A share clicked on an attempt started on a visit is counted on that visit
  * by Analytics (AnalyticsVisitRow::attemptFigures()): the visit's day is
@@ -26,7 +29,10 @@ use InvalidArgumentException;
  */
 final class GameEventRecorder
 {
-    public function __construct(private readonly MarkAnalyticsDayAction $analytics) {}
+    public function __construct(
+        private readonly MarkAnalyticsDayAction $analytics,
+        private readonly MarkAnalyticsPeriodHourAction $periodHours,
+    ) {}
 
     /**
      * @param  array{step_type?: string|null, round_index?: int|null, provider?: string|null}  $detail
@@ -67,6 +73,10 @@ final class GameEventRecorder
         if ($type === GameEventType::ShareClicked && $attempt?->traffic_visit_id !== null) {
             $day = TrafficVisit::query()->whereKey($attempt->traffic_visit_id)->value('network_day');
             $this->analytics->handle($day === null ? null : (string) $day);
+        }
+
+        if ($type === GameEventType::ResultViewed && $attempt !== null) {
+            $this->periodHours->ofAttempt($attempt);
         }
     }
 }

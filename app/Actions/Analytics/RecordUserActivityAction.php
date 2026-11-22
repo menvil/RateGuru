@@ -7,6 +7,8 @@ use App\Enums\TrafficEvent;
 use App\Enums\UserActivity;
 use App\Enums\UserRole;
 use App\Models\AccountAttribution;
+use App\Models\GameAssignment;
+use App\Models\GameAttempt;
 use App\Models\TrafficVisit;
 use App\Models\User;
 use App\Models\UserActivityDay;
@@ -43,6 +45,7 @@ final class RecordUserActivityAction
         private readonly MarkTrafficVisitAction $marks,
         private readonly RecordVisitPostAction $posts,
         private readonly MarkAnalyticsDayAction $analytics,
+        private readonly MarkAnalyticsPeriodHourAction $periodHours,
     ) {}
 
     /**
@@ -160,6 +163,11 @@ final class RecordUserActivityAction
         }
 
         $attribution->forceFill(['activated_at' => $at])->save();
+
+        // An activated account of the period's funnel of the play it was credited to.
+        if ($attribution->credited_attempt_id !== null) {
+            $this->periodHours->ofAssignments(GameAssignment::query()->whereIn('id', GameAttempt::query()->whereKey($attribution->credited_attempt_id)->select('assignment_id')));
+        }
 
         if ($attribution->confirmed_at !== null && $attribution->credited_visit_id !== null) {
             $this->marks->handle((int) $attribution->credited_visit_id, TrafficEvent::Activated, $at);

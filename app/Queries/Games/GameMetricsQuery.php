@@ -11,6 +11,8 @@ use App\Enums\GameEventType;
 use App\Enums\GameOnwardKind;
 use App\Enums\TrafficDimension;
 use App\Models\AccountAttribution;
+use App\Models\AnalyticsPeriodHour;
+use App\Models\AnalyticsPeriodHourAccount;
 use App\Models\AnalyticsVisit;
 use App\Models\GameAnswer;
 use App\Models\GameAssignment;
@@ -48,7 +50,9 @@ use LogicException;
  *  - results()      the completed attempts of a version by result;
  *  - periods()      the attempts started and completed in each traffic period;
  *  - periodFunnel() per traffic period and version, how far the visitors it
- *                   assigned got, what the versions are compared by;
+ *                   assigned got, what the versions are compared by — and
+ *                   periodHour() what each hour of assignments is counted as
+ *                   for it;
  *  - library()      per game, the starts, completions, anonymous visitors and
  *                   new accounts of a window.
  *
@@ -88,6 +92,12 @@ final class GameMetricsQuery implements RawSqlPersistenceBoundary
         'country' => TrafficDimension::Country,
         'group' => TrafficDimension::Country,
     ];
+
+    /** Of periodFunnel()'s figures, those each assignment counts in once, and its attempts: what an hour of assignments keeps (analytics_period_hours). */
+    public const array PERIOD_HOUR_FIGURES = ['assigned', 'started', 'completed', 'result_viewed', 'emailed', 'goal', 'attempts', 'attempts_completed'];
+
+    /** Every figure of periodFunnel(), in the order each part of its read selects them. */
+    private const array PERIOD_FIGURES = [...self::PERIOD_HOUR_FIGURES, 'accounts', 'matured', 'activated'];
 
     /** How long after a way on sent a visitor to a post what they do there is still the play's, as CreditGameSiteActivityAction credits it. */
     private const int ON_SITE_MINUTES = 30;
@@ -391,6 +401,16 @@ final class GameMetricsQuery implements RawSqlPersistenceBoundary
      * attempt, a replay one more. One query for every period asked for; a
      * version nobody was sent to in a period is absent from it.
      *
+     * Every assignment is of one period, one version and one UTC hour, so
+     * the hours of a period add up to it: once they are counted
+     * (AnalyticsRollupGate::periodHours()), the hours counted come from their
+     * sums (analytics_period_hours, and the accounts by the day each signed
+     * up on), and the hours since and those changed since they were counted
+     * (analytics_dirty_period_hours, read first) from the assignments
+     * themselves, the same SQL, all in one read — the same figures as reading
+     * every assignment. A cut inside a day, which the accounts kept by their
+     * day can't tell, reads every assignment.
+     *
      * @param  list<int>  $periodIds
      * @return array<int, array<int, PeriodVersionFunnel>>
      */
@@ -400,31 +420,15 @@ final class GameMetricsQuery implements RawSqlPersistenceBoundary
             return [];
         }
 
-        // An attempt is one row of the join, so its own counts need no DISTINCT: it has one confirmed
-        // account at most, an account one attribution (account_attributions_user_unique), and an
-        // attempt one email (its unique attempt_id).
-        $rows = $this->withConfirmedAccounts(GameAssignment::query()->leftJoin('game_attempts', 'game_attempts.assignment_id', '=', 'game_assignments.id'))
-            ->leftJoin('account_attributions as credited_accounts', 'credited_accounts.user_id', '=', 'confirmed_accounts.user_id')
-            ->leftJoin('game_email_captures', 'game_email_captures.attempt_id', '=', 'game_attempts.id')
-            ->whereIn('game_assignments.period_id', $periodIds)
-            ->groupBy('game_assignments.period_id', 'game_assignments.version_id')
-            ->select('game_assignments.period_id', 'game_assignments.version_id')
-            ->selectRaw(
-                'COUNT(DISTINCT game_assignments.id) AS assigned,
-                COUNT(DISTINCT CASE WHEN game_attempts.id IS NOT NULL THEN game_assignments.id END) AS started,
-                COUNT(DISTINCT CASE WHEN game_attempts.status = ? THEN game_assignments.id END) AS completed,
-                COUNT(DISTINCT CASE WHEN EXISTS (SELECT 1 FROM game_events WHERE game_events.attempt_id = game_attempts.id AND game_events.type = ?) THEN game_assignments.id END) AS result_viewed,
-                COUNT(DISTINCT CASE WHEN game_email_captures.id IS NOT NULL THEN game_assignments.id END) AS emailed,
-                COUNT(DISTINCT CASE WHEN game_attempts.goal_reached_at IS NOT NULL THEN game_assignments.id END) AS goal,
-                COUNT(DISTINCT confirmed_accounts.user_id) AS accounts,
-                COUNT(DISTINCT CASE WHEN credited_accounts.signed_up_at < ? THEN confirmed_accounts.user_id END) AS matured,
-                COUNT(DISTINCT CASE WHEN credited_accounts.signed_up_at < ? AND credited_accounts.activated_at IS NOT NULL THEN confirmed_accounts.user_id END) AS activated,
-                COUNT(game_attempts.id) AS attempts,
-                SUM(CASE WHEN game_attempts.status = ? THEN 1 ELSE 0 END) AS attempts_completed',
-                [GameAttemptStatus::Completed->value, GameEventType::ResultViewed->value, $maturedBefore, $maturedBefore, GameAttemptStatus::Completed->value],
-            )
-            ->toBase()
-            ->get();
+        $hours = $maturedBefore->utc()->equalTo($maturedBefore->utc()->startOfDay()) ? $this->gate->periodHours() : null;
+        $rows = ($hours !== null
+            ? GameAssignment::query()
+                ->fromSub($this->periodHourParts($periodIds, $maturedBefore, $hours['through'], $hours['changed']), 'parts')
+                ->groupBy('parts.period_id', 'parts.version_id')
+                ->select('parts.period_id', 'parts.version_id')
+                ->selectRaw(implode(', ', array_map(fn (string $figure): string => "SUM(parts.{$figure}) AS {$figure}", self::PERIOD_FIGURES)), [])
+            : $this->assignmentFigures(GameAssignment::query()->whereIn('game_assignments.period_id', $periodIds), $maturedBefore)
+        )->toBase()->get();
         $periods = [];
 
         foreach ($rows as $row) {
@@ -444,6 +448,162 @@ final class GameMetricsQuery implements RawSqlPersistenceBoundary
         }
 
         return $periods;
+    }
+
+    /**
+     * What an hour of assignments is counted as (RefreshAnalyticsPeriodHoursAction):
+     * per period and version, the figures of periodFunnel() each assignment
+     * made in the UTC hour counts in once, and its attempts (PERIOD_HOUR_FIGURES);
+     * and the confirmed accounts credited to their attempts by the UTC day
+     * each signed up on, with the activated among them — the same rows
+     * periodFunnel() reads, so the hours add up to what it reads of every
+     * assignment.
+     *
+     * @return array{figures: list<array<string, int|string>>, accounts: list<array<string, int|string>>}
+     */
+    public function periodHour(CarbonImmutable $hour): array
+    {
+        $hour = $hour->utc();
+        $assignments = fn (): Builder => GameAssignment::query()
+            ->where('game_assignments.assigned_at', '>=', $hour)
+            ->where('game_assignments.assigned_at', '<', $hour->addHour());
+        $figures = [];
+
+        foreach ($this->assignmentFigures($assignments(), null)->toBase()->get() as $row) {
+            $figures[] = ['period_id' => (int) $row->period_id, 'version_id' => (int) $row->version_id, 'assigned_hour' => $hour->toDateTimeString(), ...array_map(fn (string $figure): int => (int) $row->{$figure}, array_combine(self::PERIOD_HOUR_FIGURES, self::PERIOD_HOUR_FIGURES))];
+        }
+
+        // One row a confirmed account: an attempt has one at most and an account is credited to one attempt.
+        $accounts = [];
+        $rows = $this->assignmentRows($assignments())
+            ->whereNotNull('credited_accounts.user_id')
+            ->select('game_assignments.period_id', 'game_assignments.version_id', 'credited_accounts.signed_up_at', 'credited_accounts.activated_at')
+            ->toBase()
+            ->get();
+
+        foreach ($rows as $row) {
+            $day = substr((string) $row->signed_up_at, 0, 10);
+            $key = "{$row->period_id}|{$row->version_id}|{$day}";
+            $accounts[$key] ??= ['period_id' => (int) $row->period_id, 'version_id' => (int) $row->version_id, 'assigned_hour' => $hour->toDateTimeString(), 'signup_day' => $day, 'accounts' => 0, 'activated' => 0];
+            $accounts[$key]['accounts']++;
+            $accounts[$key]['activated'] += $row->activated_at === null ? 0 : 1;
+        }
+
+        return ['figures' => $figures, 'accounts' => array_values($accounts)];
+    }
+
+    /**
+     * The parts of periodFunnel() once the hours are counted, each selecting
+     * PERIOD_FIGURES per period and version, for one outer read to sum: the
+     * sums of the hours counted and not changed since, their accounts — the
+     * matured those that signed up on a day before the cut's — and the
+     * assignments of the hours since and of those changed, read as every
+     * assignment is, each changed hour between bound moments.
+     *
+     * @param  list<int>  $periodIds
+     * @param  list<CarbonImmutable>  $changed  the hours counted that changed since
+     * @return Builder<AnalyticsPeriodHour>
+     */
+    private function periodHourParts(array $periodIds, CarbonImmutable $maturedBefore, CarbonImmutable $through, array $changed): Builder
+    {
+        $unchanged = fn (Builder $query, string $table): Builder => $query
+            ->whereIn("{$table}.period_id", $periodIds)
+            ->where("{$table}.assigned_hour", '<=', $through)
+            ->when($changed !== [], fn (Builder $query): Builder => $query->whereNotIn("{$table}.assigned_hour", $changed))
+            ->groupBy("{$table}.period_id", "{$table}.version_id")
+            ->select("{$table}.period_id", "{$table}.version_id");
+        $none = fn (array $figures): string => implode(', ', array_map(fn (string $figure): string => "0 AS {$figure}", $figures));
+        $day = $maturedBefore->utc()->toDateString();
+
+        $hours = $unchanged(AnalyticsPeriodHour::query(), 'analytics_period_hours')->selectRaw(
+            implode(', ', array_map(fn (string $figure): string => "SUM({$figure}) AS {$figure}", self::PERIOD_HOUR_FIGURES)).', '.$none(['accounts', 'matured', 'activated']),
+            [],
+        );
+        $accounts = $unchanged(AnalyticsPeriodHourAccount::query(), 'analytics_period_hour_accounts')->selectRaw(
+            $none(self::PERIOD_HOUR_FIGURES).', SUM(accounts) AS accounts, SUM(CASE WHEN signup_day < ? THEN accounts ELSE 0 END) AS matured, SUM(CASE WHEN signup_day < ? THEN activated ELSE 0 END) AS activated',
+            [$day, $day],
+        );
+        $open = $this->assignmentFigures(
+            GameAssignment::query()->whereIn('game_assignments.period_id', $periodIds)->where('game_assignments.assigned_at', '>=', $through->addHour()),
+            $maturedBefore,
+        );
+        $parts = $hours->unionAll($accounts)->unionAll($open);
+
+        if ($changed === []) {
+            return $parts;
+        }
+
+        // Every hour changed is one counted, before the hours since: no assignment is read twice.
+        return $parts->unionAll($this->assignmentFigures(
+            GameAssignment::query()
+                ->whereIn('game_assignments.period_id', $periodIds)
+                ->where(function (Builder $hours) use ($changed): void {
+                    foreach ($changed as $hour) {
+                        $hours->orWhere(fn (Builder $within): Builder => $within->where('game_assignments.assigned_at', '>=', $hour)->where('game_assignments.assigned_at', '<', $hour->addHour()));
+                    }
+                }),
+            $maturedBefore,
+        ));
+    }
+
+    /**
+     * The assignments given with their attempts, each attempt's confirmed
+     * account's attribution (credited_accounts) — of two credited to it, the
+     * lower id's, the account withConfirmedAccounts() takes — and its email.
+     * An attempt is one row: it has one such account at most, and one email
+     * (its unique attempt_id). Each attempt's account is looked up by the
+     * attempt (account_attributions_attempt_index) rather than every
+     * confirmed account grouped, so reading a few hours costs what they hold.
+     *
+     * @param  Builder<GameAssignment>  $assignments
+     * @return Builder<GameAssignment>
+     */
+    private function assignmentRows(Builder $assignments): Builder
+    {
+        return $assignments
+            ->leftJoin('game_attempts', 'game_attempts.assignment_id', '=', 'game_assignments.id')
+            ->leftJoin('account_attributions as credited_accounts', fn (JoinClause $join): JoinClause => $join
+                ->on('credited_accounts.credited_attempt_id', '=', 'game_attempts.id')
+                ->whereNotNull('credited_accounts.confirmed_at')
+                ->whereNotExists(fn ($lower) => $lower
+                    ->from('account_attributions as lower_accounts')
+                    ->whereColumn('lower_accounts.credited_attempt_id', 'credited_accounts.credited_attempt_id')
+                    ->whereNotNull('lower_accounts.confirmed_at')
+                    ->whereColumn('lower_accounts.user_id', '<', 'credited_accounts.user_id')))
+            ->leftJoin('game_email_captures', 'game_email_captures.attempt_id', '=', 'game_attempts.id');
+    }
+
+    /**
+     * The funnel of the assignments given per period and version, in
+     * PERIOD_FIGURES' order: each assignment once for every step any attempt
+     * of it reached, every attempt, and — with a cut — the confirmed accounts,
+     * the matured and the activated; without one, PERIOD_HOUR_FIGURES alone.
+     *
+     * @param  Builder<GameAssignment>  $assignments
+     * @return Builder<GameAssignment>
+     */
+    private function assignmentFigures(Builder $assignments, ?CarbonImmutable $maturedBefore): Builder
+    {
+        return $this->assignmentRows($assignments)
+            ->groupBy('game_assignments.period_id', 'game_assignments.version_id')
+            ->select('game_assignments.period_id', 'game_assignments.version_id')
+            ->selectRaw(
+                'COUNT(DISTINCT game_assignments.id) AS assigned,
+                COUNT(DISTINCT CASE WHEN game_attempts.id IS NOT NULL THEN game_assignments.id END) AS started,
+                COUNT(DISTINCT CASE WHEN game_attempts.status = ? THEN game_assignments.id END) AS completed,
+                COUNT(DISTINCT CASE WHEN EXISTS (SELECT 1 FROM game_events WHERE game_events.attempt_id = game_attempts.id AND game_events.type = ?) THEN game_assignments.id END) AS result_viewed,
+                COUNT(DISTINCT CASE WHEN game_email_captures.id IS NOT NULL THEN game_assignments.id END) AS emailed,
+                COUNT(DISTINCT CASE WHEN game_attempts.goal_reached_at IS NOT NULL THEN game_assignments.id END) AS goal,
+                COUNT(game_attempts.id) AS attempts,
+                SUM(CASE WHEN game_attempts.status = ? THEN 1 ELSE 0 END) AS attempts_completed',
+                [GameAttemptStatus::Completed->value, GameEventType::ResultViewed->value, GameAttemptStatus::Completed->value],
+            )
+            ->when($maturedBefore !== null, fn (Builder $query): Builder => $query->selectRaw(
+                'COUNT(DISTINCT credited_accounts.user_id) AS accounts,
+                COUNT(DISTINCT CASE WHEN credited_accounts.signed_up_at < ? THEN credited_accounts.user_id END) AS matured,
+                COUNT(DISTINCT CASE WHEN credited_accounts.signed_up_at < ? AND credited_accounts.activated_at IS NOT NULL THEN credited_accounts.user_id END) AS activated',
+                [$maturedBefore, $maturedBefore],
+            ));
     }
 
     /**

@@ -3,6 +3,7 @@
 namespace App\Actions\Games;
 
 use App\Actions\Analytics\MarkAnalyticsDayAction;
+use App\Actions\Analytics\MarkAnalyticsPeriodHourAction;
 use App\Actions\Analytics\RecordUserActivityAction;
 use App\Enums\GameAttemptStatus;
 use App\Enums\GameEventType;
@@ -43,6 +44,7 @@ final class StartGameAttemptAction
         private readonly GameMilestoneRecorder $milestones,
         private readonly RecordUserActivityAction $activity,
         private readonly MarkAnalyticsDayAction $analytics,
+        private readonly MarkAnalyticsPeriodHourAction $periodHours,
     ) {}
 
     /**
@@ -108,6 +110,9 @@ final class StartGameAttemptAction
                 'started_at' => now(),
                 'last_activity_at' => now(),
             ])->save();
+
+            // A visitor can come back to play on an assignment hours or days old: its period's funnel counts the start.
+            $this->periodHours->handle($assignment->assigned_at);
 
             if ($visit !== null && $visit->version_id === null && ($visit->game_id === null || (int) $visit->game_id === (int) $game->id)) {
                 TrafficVisit::query()->whereKey($visit->id)->whereNull('version_id')->update(['game_id' => $game->id, 'version_id' => $version->id]);

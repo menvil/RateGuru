@@ -330,7 +330,13 @@ and the user or the visitor's hash — ids and codes, never anything typed.
 An attempt's event carries the attempt's own game and the moment it was
 recorded, never earlier than the attempt's start: `GameMetricsQuery` reads an
 attempt's events by that game and from the window's start, so whatever writes
-events — an import or a backfill too — keeps to both.
+events — an import or a backfill too — keeps to both. Whatever changes what a
+period's funnel counts of an assignment — a play started from it, completed,
+a result seen (`GameEventRecorder` tells of `result_viewed` itself), an email
+left, the goal reached, an account credited to one of its plays confirmed or
+activated, or a row of any of them deleted — tells the funnel in the same
+transaction (`MarkAnalyticsPeriodHourAction`; docs/architecture/analytics.md,
+"The hours of a period's assignments"), an import or a backfill too.
 `step_viewed` (`result_viewed` for Full Result) names each step after the game
 an attempt enters, the one its last pick moves it on to included.
 `share_clicked` names where the result went, and is recorded on the attempt
@@ -417,7 +423,8 @@ Experiments (`hidden_at`) is still listed here.
 
 `games:purge-expired`, daily: game events after `games.retention_days.events`
 (400) and emails after `games.retention_days.email_captures` (365), in small
-batches. Attempts, answers and results stay. The retention lives in
+batches, each telling a period's funnel the hours of the assignments whose
+results seen and emails it deletes. Attempts, answers and results stay. The retention lives in
 `config/games.php` without environment variables.
 
 ## Switches and access
