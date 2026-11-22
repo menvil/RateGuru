@@ -30,9 +30,10 @@ use Illuminate\Support\Facades\DB;
  *     yesterday's for its first hour — up to a moment
  *     (GameCellDays::momentOf()), every GENERATION_MINUTES, at once when one
  *     of them was marked: a new count beside the ones before it, which are
- *     dropped KEEP_MINUTES later — a read that learned the earlier moment
- *     still finds its cells. Then the cells count as filled, and a game's
- *     figures read them;
+ *     dropped once KEEP_MINUTES older than it, never the one just before it
+ *     — a read that learned the earlier moment still finds its cells, however
+ *     long the refresh had stopped. Then the cells count as filled, and a
+ *     game's figures read them;
  *  4. when asked, the days of the last days given again, a check that
  *     nothing was missed.
  *
@@ -186,7 +187,9 @@ final class RefreshAnalyticsGameCellsAction
      * The days after the last counted whole, counted up to the moment, in one
      * transaction with the moment itself and the marks of those days taken
      * away: a read learns the moment and finds its cells together. The counts
-     * up to a moment KEEP_MINUTES before it go.
+     * up to a moment KEEP_MINUTES before it go, but never the latest before
+     * it — a read may have just learned that one, however long ago the refresh
+     * last ran.
      *
      * @param  array<string, string>  $marks  the tokens of the marks of those days, by day
      */
@@ -195,9 +198,15 @@ final class RefreshAnalyticsGameCellsAction
         DB::transaction(function () use ($state, $through, $moment, $marks, $now): void {
             self::lock();
             $first = GameCellDays::after($through);
+            $latest = AnalyticsRollupState::query()->whereKey(AnalyticsRollupState::ID)->value('game_cells_moment');
+            $keepFrom = $moment->subMinutes(GameCellDays::KEEP_MINUTES);
+
+            if ($latest !== null && CarbonImmutable::parse((string) $latest, 'UTC')->lessThan($keepFrom)) {
+                $keepFrom = CarbonImmutable::parse((string) $latest, 'UTC');
+            }
 
             AnalyticsGamePid::query()->insertUsing(['visitor_hash', 'pid'], $this->cells->freshNumbers(CarbonImmutable::parse($first, 'UTC'), $moment));
-            AnalyticsGameCell::query()->whereNotNull('moment')->where(fn (Builder $moments): Builder => $moments->where('moment', '<', $moment->subMinutes(GameCellDays::KEEP_MINUTES))->orWhere('moment', '>=', $moment))->delete();
+            AnalyticsGameCell::query()->whereNotNull('moment')->where(fn (Builder $moments): Builder => $moments->where('moment', '<', $keepFrom)->orWhere('moment', '>=', $moment))->delete();
 
             for ($day = $first; $day <= GameCellDays::dayOf($moment); $day = GameCellDays::after($day)) {
                 AnalyticsGameCell::query()->insertUsing(AnalyticsGameCellsQuery::columns(), $this->cells->day($day, $moment));

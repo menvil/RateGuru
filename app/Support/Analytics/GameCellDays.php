@@ -30,7 +30,7 @@ final class GameCellDays
     /** How often the open days are counted up to a newer moment. */
     public const int GENERATION_MINUTES = 5;
 
-    /** How long a count of the open days up to a moment is kept once a newer one is: longer than a read takes from learning the moment to reading the cells. */
+    /** How much older than the newest a count of the open days up to a moment is kept, and the one just before the newest whatever its age: longer than a read takes from learning the moment to reading the cells. */
     public const int KEEP_MINUTES = 10;
 
     /** The UTC day of a moment, Y-m-d. */

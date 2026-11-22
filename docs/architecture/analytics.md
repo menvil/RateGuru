@@ -432,9 +432,10 @@ day of what was played before — passing over days nothing was played on
 (`game_cells_through`); then the days after it — today, and yesterday for its
 first hour — up to a moment ten minutes ago, every five minutes, at once when
 one of them was marked (`game_cells_moment`): a new count beside the earlier
-ones, which go ten minutes later, so a read that learned the earlier moment
-still finds its cells. At night the last `analytics.rollup.recheck_days` days
-are counted again. Each count is read first and inserted after, under a lock
+ones, which go once ten minutes older than it — never the one just before it,
+however long the refresh had stopped — so a read that learned the earlier
+moment still finds its cells. At night the last
+`analytics.rollup.recheck_days` days are counted again. Each count is read first and inserted after, under a lock
 on the state's row the purge of the numbers takes too. Measured on 718,000
 views and 398,000 attempts of 30 days, the days take about half a second each,
 an open day's count up to its moment about as long.
@@ -822,7 +823,7 @@ action. A moderator sees neither.
 | The view each administrator last opened or chose — the period and the site's address (cache) | 24 hours from their latest (`analytics.read_ahead.idle_hours`) |
 | The accounts of each day by the post their session opened first (`analytics_first_post_cells`) | as the cells |
 | The hours of each period's assignments and their accounts (`analytics_period_hours`, `analytics_period_hour_accounts`) | as their assignments, kept for ever; an hour something of which is purged or removed is counted again |
-| The people of each game's days and the accounts their attempts signed in (`analytics_game_cells`) | as what they count: a day's visitors until its views go (`games:purge-expired`, 400 days), the day counted again without them; its attempts' people as long as the attempts; a count of an open day up to a moment ten minutes past a newer one |
+| The people of each game's days and the accounts their attempts signed in (`analytics_game_cells`) | as what they count: a day's visitors until its views go (`games:purge-expired`, 400 days), the day counted again without them; its attempts' people as long as the attempts; a count of an open day up to a moment until it is ten minutes older than the newest and not the one just before it |
 | A guest's number in a game's people (`analytics_game_pids`) | until no cell holds it, but the highest, which the next number counts on from (`games:purge-expired`) |
 | A day of a game's people changed since it was counted (`analytics_dirty_game_days`) | until it is counted again |
 | What Retention reads of the visit and attempt an account is credited to — its source key, device and game (`account_attributions.credited_source_key`, `credited_device`, `credited_game_id`) | as the attribution, the source key and device past the purge of the visit; the game until the attempt's pointer is let go |

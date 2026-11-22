@@ -473,14 +473,15 @@ it('counts the days from the first view’s or attempt’s, passing over days wi
         ->and(AnalyticsGameCell::query()->whereNotNull('moment')->distinct()->orderBy('moment')->pluck('moment')->map(fn (mixed $moment): string => CarbonImmutable::parse($moment)->toDateTimeString())->all())
         ->toBe(['2026-11-13 00:20:00', '2026-11-13 00:25:00']);
 
-    // The 12th closed and settled at 01:10: counted whole, and the counts up to a moment more than ten minutes before the newest go.
+    // The 12th closed and settled at 01:10: counted whole, and the counts up to a moment more than ten minutes before the
+    // newest go, but the one just before it.
     $this->travelTo('2026-11-13 01:10:00');
 
     expect(countGameCells())->toBe(2)
         ->and(gameCellsThrough())->toBe('2026-11-12')
         ->and(AnalyticsGameCell::query()->whereNull('moment')->orderBy('day')->pluck('day')->all())->toBe(['2026-11-10', '2026-11-12'])
         ->and(AnalyticsGameCell::query()->whereNotNull('moment')->distinct()->orderBy('moment')->pluck('moment')->map(fn (mixed $moment): string => CarbonImmutable::parse($moment)->toDateTimeString())->all())
-        ->toBe(['2026-11-13 01:00:00']);
+        ->toBe(['2026-11-13 00:25:00', '2026-11-13 01:00:00']);
 
     compareGameCells($version, [['2026-11-01 00:00:00', '2026-11-13 01:10:01']]);
 });
@@ -787,6 +788,47 @@ it('finds a guest’s play of an open day finished since its moment by when it f
     $scope = cellsScope($version, '2026-11-01 00:00:00', '2026-11-12 14:45:01');
 
     expect([cellsFunnels($scope)[0]->completed, cellsFunnels($scope)[0]->finishers])->toBe([1, 1]);
+});
+
+it('keeps the count a read just learned while a refresh that fell behind counts the open days up to a newer moment', function () {
+    $this->travelTo('2026-11-12 08:00:00');
+    $version = cellsGame();
+    cellsView($version, 'ann', '2026-11-12 09:00:00');
+    cellsAttempt($version, 'ann', '2026-11-12 09:01:00');
+    $this->travelTo('2026-11-12 12:00:00');
+    countGameCells();
+    // A quarter of an hour without a count, less than the open days may be behind before a game's figures stop reading them.
+    $this->travelTo('2026-11-12 12:15:00');
+    $scope = cellsScope($version, '2026-11-01 00:00:00', '2026-11-12 12:15:01');
+    config(['analytics.rollup.game_cells' => false]);
+    app()->forgetScopedInstances();
+    $live = app(GameMetricsQuery::class)->funnels($scope);
+    config(['analytics.rollup.game_cells' => true]);
+    app()->forgetScopedInstances();
+    // The refresh runs just as the read has learned the moment, before it reads the cells.
+    $raced = false;
+    DB::listen(function ($query) use (&$raced): void {
+        if (! $raced && str_contains($query->sql, 'analytics_dirty_game_days') && str_contains($query->sql, 'game_cells_moment')) {
+            $raced = true;
+            app(RefreshAnalyticsGameCellsAction::class)->handle(microtime(true) + 60);
+        }
+    });
+
+    expect(app(GameMetricsQuery::class)->funnels($scope))->toEqual($live)
+        ->and($raced)->toBe(app(AnalyticsRollupGate::class)->cellsKept())
+        ->and($live[0]->visitors)->toBe(1);
+
+    if (app(AnalyticsRollupGate::class)->cellsKept()) {
+        // Kept until a newer count replaces the one after it, and ten minutes are past.
+        $moments = fn (): array => AnalyticsGameCell::query()->whereNotNull('moment')->distinct()->orderBy('moment')->pluck('moment')->map(fn (CarbonImmutable $moment): string => $moment->toDateTimeString())->all();
+
+        expect($moments())->toBe(['2026-11-12 11:50:00', '2026-11-12 12:05:00']);
+
+        $this->travelTo('2026-11-12 12:21:00');
+        countGameCells();
+
+        expect($moments())->toBe(['2026-11-12 12:05:00', '2026-11-12 12:11:00']);
+    }
 });
 
 it('counts a game nobody saw, and one seen with no version but never played, the same both ways', function () {
