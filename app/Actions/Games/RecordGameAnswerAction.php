@@ -2,6 +2,7 @@
 
 namespace App\Actions\Games;
 
+use App\Actions\Analytics\MarkAnalyticsPeriodHourAction;
 use App\Actions\Traffic\MarkTrafficVisitAction;
 use App\Enums\GameAttemptStatus;
 use App\Enums\GameEventType;
@@ -35,6 +36,7 @@ final class RecordGameAnswerAction
         private readonly GameSignupFormRecorder $signupForm,
         private readonly GameMilestoneRecorder $milestones,
         private readonly MarkTrafficVisitAction $visits,
+        private readonly MarkAnalyticsPeriodHourAction $periodHours,
     ) {}
 
     /** @throws CannotPlayGameException */
@@ -111,6 +113,7 @@ final class RecordGameAnswerAction
                     'current_step_key' => $next?->key,
                 ]);
                 $this->events->record(GameEventType::Completed, (int) $locked->game_id, $visitor, attempt: $locked);
+                $this->periodHours->ofAttempt($locked);
                 $this->milestones->reach(GameMilestone::Completed, $locked, $visitor);
 
                 // Entering the step after the game is a step like any other the

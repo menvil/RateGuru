@@ -129,7 +129,13 @@ A new account records, as it signs up, what it will be credited to
 that no other account took, and the paid click holding the browser — within its
 source's window, 2 days for PopAds, 7 by default — else its latest unpaid
 visit to a game of those 7 days, else its latest unpaid visit, so the feed or
-the sign-up page visited after a game never takes the account from it. A
+the sign-up page visited after a game never takes the account from it. The
+same write copies what Analytics → Retention groups and filters the account
+by from what it credits — the visit's source key and device, the attempt's
+game (`credited_source_key`, `credited_device`, `credited_game_id`,
+`AccountAttribution::creditedKeys()`) — so Retention never reads a visit; a
+click passed to another browser before any page of it ran takes its new
+device to an account already credited to it. A
 sign-in and a sign-up form shown go, the same way, to the visit of the day the
 tracker counts before any visit to the rest of the site
 (`VisitorVisitQuery::latestTrackedFirst()`). A click whose window had closed is
@@ -286,6 +292,16 @@ same `APP_KEY` makes them unreadable, and the connection asks for the key
 again. Neither connector ever changes a bid or a budget or touches money, and
 both are unverified until checked on a real account
 (`config/traffic_presets.php`, "connectors").
+
+PopAds replaces a campaign's website list whole and refuses one to exclude
+without a site (a validation error, which PopAds sends with HTTP 500): the last
+site taken off turns the campaign's targeting off (`mode=none`) instead, and a
+list shared through `global` targeting that would be left empty is left alone
+(`TrafficConnectorFailure::SharedList`). An error PopAds explains in an
+`errors` list is a refusal (`Rejected`), whatever its status — never an API
+that is down. A block whose taking off the network refused stays `applied`
+with its `network_error`; Sites & zones shows that, and where every block on
+its way to or off a network stands.
 
 ## Sync
 
@@ -481,7 +497,9 @@ threshold, since impressions, not clicks, judge it.
 `traffic:purge-expired`, daily: visits, conversions, spend figures, the block
 log and members' activity days after 400 days, click details, the posts of a
 visit and postbacks after 90, all but the last 30 runs of chances. Sources, campaigns, prices and
-attributions stay. A purged unconfirmed account takes its attribution, browsers
+attributions stay — an attribution whose credited visit is purged keeps the
+source key and device copied from it, so Retention keeps the account's
+source and device. A purged unconfirmed account takes its attribution, browsers
 and activity days with it (docs/architecture/user-lifecycle.md).
 
 ## Privacy
@@ -492,7 +510,10 @@ Record site visits is on, on every page of the site it records. No consent is
 asked for it, so Record site visits ships off and switching it on is the
 owner's decision. No IP address is kept: only a keyed hash on the click's
 details, for 90 days. A visit keeps its session's source, campaign, creative,
-landing and campaign tags for as long as the visit, 400 days. The posts a
+landing and campaign tags for as long as the visit, 400 days; an account's
+attribution keeps the source key and the device of the visit it is credited
+to — a network and its class or a paid source, mobile or desktop — for as
+long as the attribution. The posts a
 browser opened and shared on a visit are kept 90 days from the first of them
 (`traffic_visit_posts`, `traffic.retention_days.visit_details`) — what a
 browser read is personal history to keep short, as the path and referrer of a

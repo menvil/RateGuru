@@ -547,6 +547,8 @@ it('lists only the traffic periods the version chosen had a share in, with every
     app(ApplyGameTrafficAction::class)->handle($this->draft['admin'], $game, GameAudience::Anonymous, [$v2->id => 100]);
     $c = $assign('guest-c', $v2);
     GameAttempt::factory()->create(['version_id' => $v2->id, 'assignment_id' => $b->id, 'visitor_hash' => $b->visitor_hash, 'status' => GameAttemptStatus::Completed, 'completed_at' => now()]);
+    // guest-b played again: a visitor once, an attempt more.
+    GameAttempt::factory()->create(['version_id' => $v2->id, 'assignment_id' => $b->id, 'visitor_hash' => $b->visitor_hash]);
     GameAttempt::factory()->create(['version_id' => $v2->id, 'assignment_id' => $c->id, 'visitor_hash' => $c->visitor_hash]);
     $this->actingAs($this->draft['admin']);
 
@@ -556,7 +558,7 @@ it('lists only the traffic periods the version chosen had a share in, with every
     expect($periods())->toHaveCount(3)
         ->and(collect($page->viewData('periodRows'))->map(fn (array $row): string => $row['visitors'].' | '.$row['figures'])->all())->toBe([
             '1 visitor | 1 started · 0 completed',
-            '2 visitors | 1 started · 1 completed',
+            '2 visitors | 2 started · 1 completed',
             '1 visitor | 0 started · 0 completed',
         ]);
 
@@ -570,7 +572,7 @@ it('lists only the traffic periods the version chosen had a share in, with every
     $page->set('version', $v2->id);
     expect(collect($page->viewData('periodRows'))->map(fn (array $row): string => $row['visitors'].' | '.$row['figures'])->all())->toBe([
         '1 visitor | V2: 1 started · 0 completed',
-        '1 visitor | V2: 1 started · 1 completed',
+        '1 visitor | V2: 2 started · 1 completed',
     ]);
 
     // Logged-in players were only ever sent to V1.

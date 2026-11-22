@@ -84,11 +84,12 @@ use UnitEnum;
  * campaign with its creative and tracking link, and another campaign the
  * creative and tracking link of the last. The
  * figures of the tabs slow to read on a busy site (READ_CACHED) are kept for
- * a few minutes once read, for the administrator alone (AnalyticsReadCache):
- * the page says when they were read and offers Refresh, and a segment or
- * tracking link saved, deleted or brought back reads them afresh. The page,
- * and every request it answers, is an active administrator's who may manage
- * traffic sources.
+ * a few minutes once read, for everyone who may open the page
+ * (AnalyticsReadCache), and read ahead of them for the views likeliest to be
+ * opened (readAhead(), analytics:warm-figures): the page says when they were
+ * read and offers Refresh, and a segment or tracking link saved, deleted or
+ * brought back reads them afresh. The page, and every request it answers, is
+ * an active administrator's who may manage traffic sources.
  */
 final class GrowthAnalyticsPage extends Page
 {
@@ -405,10 +406,18 @@ final class GrowthAnalyticsPage extends Page
         $this->rememberPeriod();
     }
 
-    /** Keeps the period as read as the administrator's last choice in the picker. */
+    /**
+     * Keeps the period as read as the administrator's last choice in the
+     * picker, and notes it as the view whose figures are read ahead for them.
+     */
     private function rememberPeriod(): void
     {
         ReportPeriodMemory::remember(self::PERIOD_MEMORY, (string) $this->period, (string) $this->from, (string) $this->to);
+        $user = auth()->id();
+
+        if ($user !== null) {
+            app(AnalyticsReadCache::class)->opened((int) $user, (string) $this->period, (string) $this->from, (string) $this->to);
+        }
     }
 
     /** A row of Overview's sources table: filters the page by its source, or — chosen already — by every source again. */
@@ -626,10 +635,8 @@ final class GrowthAnalyticsPage extends Page
             $period->toDay < $recordedSince->toDateString() => 'early',
             default => 'ready',
         };
-        $reader = auth()->user();
-        $keptFor = $reader instanceof User ? (int) $reader->id : null;
-        $shell = $view->shell($filter, $this->ready, $recordedSince, $keptFor, $this->fresh);
-        $read = $state === 'ready' ? $this->readTab($filter, $view, $keptFor) : ['data' => null, 'readAt' => null];
+        $shell = $view->shell($filter, $this->ready, $recordedSince, $this->fresh);
+        $read = $state === 'ready' ? $this->readTab($filter, $view) : ['data' => null, 'readAt' => null];
 
         // The top bar's days are the ones these figures are of: a period chosen moves them, and so does a preset that rolled over at midnight.
         $this->dispatch('rg-admin-analytics-range', text: $period->range());
@@ -658,26 +665,29 @@ final class GrowthAnalyticsPage extends Page
 
     /**
      * The open tab's figures: read now, or — a tab slow to read — as kept
-     * for the administrator since they were last read, with that moment.
+     * for everyone since they were last read, with that moment.
      *
      * @return array{data: array<string, mixed>, readAt: CarbonImmutable|null}
      */
-    private function readTab(AnalyticsFilter $filter, AnalyticsView $view, ?int $keptFor): array
+    private function readTab(AnalyticsFilter $filter, AnalyticsView $view): array
     {
         $tab = (string) $this->tab;
         $read = fn (): array => app()->make(self::TAB_DATA[$tab], ['view' => $view])->data($this, $filter);
 
-        if (! in_array($tab, self::READ_CACHED, true) || $keptFor === null || (int) config('analytics.read_cache_minutes') <= 0) {
+        if (! in_array($tab, self::READ_CACHED, true) || (int) config('analytics.read_cache_minutes') <= 0) {
             return ['data' => $read(), 'readAt' => null];
         }
 
-        return app(AnalyticsReadCache::class)->remember($keptFor, $tab, $this->readState($filter), $this->fresh, $read);
+        return app(AnalyticsReadCache::class)->remember($tab, $this->readState($filter), $this->fresh, $read);
     }
 
     /**
      * What the open tab's figures depend on: the days of the period as read
      * today, the address, and the rows of the Campaigns tree toggled — less
-     * what the tab ignores, so changing it reads nothing again.
+     * what the tab ignores, so changing it reads nothing again — and, on
+     * Games or with a tracking link's details open, whether the reader may
+     * manage games, which decides whether a traffic period leads to its
+     * results and the details to the link's game.
      *
      * @return array<string, mixed>
      */
@@ -701,7 +711,35 @@ final class GrowthAnalyticsPage extends Page
             unset($state['source'], $state['campaign'], $state['creative'], $state['link'], $state['segment']);
         }
 
+        if ($this->tab === 'games' || ($this->tab === 'links' && $this->show !== '')) {
+            $state['manageGames'] = Gate::allows('manage-games');
+        }
+
         return $state;
+    }
+
+    /**
+     * Reads ahead, into what is kept for everyone, the figures of a tab slow
+     * to read as the page shows them opened with nothing in its address but
+     * the tab and the period given — or the period given kept as the
+     * administrator's last choice, which an address naming none opens on —
+     * once in a browser, with what its filters offer: the page as mount()
+     * and load() settle it, so they are kept under the very keys the page
+     * asks for. Through the read cache bound: the one reading ahead
+     * (AnalyticsReadCache::ahead()) leaves alone figures kept long enough.
+     * Static, so no request to the page can call it.
+     */
+    public static function readAhead(string $tab, string $period, string $from, string $to): void
+    {
+        if (! in_array($tab, self::READ_CACHED, true)) {
+            return;
+        }
+
+        $page = new self;
+        [$page->tab, $page->period, $page->from, $page->to] = [$tab, $period, $from, $to];
+        $page->normalize();
+        $page->load();
+        $page->getViewData();
     }
 
     /** The filter every figure of the tab open reads. */

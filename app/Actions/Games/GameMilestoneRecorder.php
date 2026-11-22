@@ -2,6 +2,7 @@
 
 namespace App\Actions\Games;
 
+use App\Actions\Analytics\MarkAnalyticsPeriodHourAction;
 use App\Enums\GameEventType;
 use App\Enums\GameFlowGoal;
 use App\Enums\GameMilestone;
@@ -18,7 +19,10 @@ use App\Support\Games\Play\GameVisitor;
  */
 final class GameMilestoneRecorder
 {
-    public function __construct(private readonly GameEventRecorder $events) {}
+    public function __construct(
+        private readonly GameEventRecorder $events,
+        private readonly MarkAnalyticsPeriodHourAction $periodHours,
+    ) {}
 
     public function reach(GameMilestone $milestone, GameAttempt $attempt, GameVisitor $visitor): void
     {
@@ -45,6 +49,8 @@ final class GameMilestoneRecorder
 
         $attempt->setAttribute('goal_reached_at', now());
         $attempt->syncOriginalAttribute('goal_reached_at');
+        // An account confirmed days after the play can reach its goal: the period's funnel counts it.
+        $this->periodHours->ofAttempt($attempt);
         $this->events->record(GameEventType::GoalReached, (int) $attempt->game_id, $visitor, attempt: $attempt, detail: ['step_type' => $goal->value]);
         event(new GameMilestoneReached('goal', (int) $attempt->game_id, (int) $attempt->version_id, (int) $attempt->id, $attempt->traffic_visit_id, $visitor, (int) $attempt->version->round_count, $goal));
     }

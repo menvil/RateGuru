@@ -46,7 +46,9 @@ upgrade procedures.
 PostgreSQL deployments carry one extension, **roaringbitmap**
 (`pg_roaringbitmap`, from PGDG): Growth → Analytics keeps each day's people as a
 roaring bitmap, so a period's unique people are a union of days rather than a
-sort of every visit. It is an optional fast path, never a requirement — the
+sort of every visit — and each game's people of a day the same way, so a
+game's visitors and players are a union of days rather than a grouping of
+every view and attempt. It is an optional fast path, never a requirement — the
 application uses it where it finds it and otherwise reads exactly as SQLite and
 MariaDB do, so neither compatibility target is affected and no migration
 creates or needs it.

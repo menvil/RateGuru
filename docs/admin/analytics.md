@@ -59,10 +59,13 @@ choices — is kept in the page's address, so a link opens the same view.
 - **Campaign.** A paid campaign, or a campaign named by its `utm_campaign` tag.
   With a source chosen it lists that source's campaigns; choosing another source
   drops a campaign that isn't its.
-- **Figures read HH:MM UTC.** Every tab but Journeys keeps its figures for you
-  for 10 minutes once read, so visits that just arrived may not show yet.
-  Refresh reads them again now. Saving, deleting or restoring a segment, or
-  saving a tracking link, also reads them again.
+- **Figures read HH:MM UTC.** Every tab but Journeys keeps its figures for 10
+  minutes once read, for every administrator alike, so visits that just arrived
+  may not show yet. While anyone has opened Analytics in the last day, the
+  figures of the default period, and of the period each of you last chose, are
+  read again every five minutes before you ask, so those open at once.
+  Refresh reads them again now, for everyone. Saving, deleting or restoring a
+  segment, or saving a tracking link, also reads them again.
 
 A visit counts for the source, campaign and landing page its session began
 with: someone who came from Reddit to the feed and then opened a game counts

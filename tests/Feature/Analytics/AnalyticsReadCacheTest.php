@@ -1,14 +1,23 @@
 <?php
 
 use App\Actions\Analytics\SaveTrackingLinkAction;
+use App\Enums\GameStatus;
+use App\Filament\Pages\Analytics\AnalyticsReadCache;
+use App\Filament\Pages\Analytics\AnalyticsTab;
 use App\Filament\Pages\GrowthAnalyticsPage;
+use App\Models\Game;
 use App\Models\TrafficCampaign;
 use App\Models\TrafficSegment;
 use App\Models\TrafficSetting;
 use App\Models\TrafficSource;
 use App\Models\User;
 use Carbon\CarbonImmutable;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\URL;
+use Illuminate\Support\Sleep;
 use Livewire\Livewire;
 
 /*
@@ -16,9 +25,10 @@ use Livewire\Livewire;
  * figures for ten minutes once read: the page says when they were read and
  * offers Refresh; older figures and Refresh read them again, and a change the
  * page made itself reads everything kept again, on whichever tab, filter or
- * details come next. They are kept for each administrator and each filter
- * apart, a filter the tab ignores reading nothing again, and a tab quick to
- * read is always read afresh.
+ * details come next. They are kept for everyone who may open the page, read
+ * once however many ask at a time, and for each filter apart, a filter the
+ * tab ignores reading nothing again; a tab quick to read is always read
+ * afresh.
  */
 beforeEach(function () {
     $this->travelTo(CarbonImmutable::parse('2026-11-18 12:00:00'));
@@ -64,7 +74,7 @@ it('keeps a slow tab’s figures for ten minutes once read, saying when, and rea
     $page->assertSeeText('Figures read 12:16 UTC');
 });
 
-it('keeps the figures for each administrator and each filter apart, and never a tab quick to read', function () {
+it('keeps the figures for every administrator and each filter apart, and never a tab quick to read', function () {
     analyticsVisit('ann', ['device' => 'mobile']);
     $overview = fn (array $query = []): array => Livewire::withQueryParams(['period' => '7d', ...$query])->test(GrowthAnalyticsPage::class)->call('load')->viewData('data');
 
@@ -72,10 +82,10 @@ it('keeps the figures for each administrator and each filter apart, and never a 
 
     analyticsVisit('bob', ['device' => 'mobile']);
 
-    // Kept for this administrator alone: another reads them for themselves.
+    // Kept for everyone who may open the page: another administrator gets them as read.
     expect($overview()['kpis'][0]['value'])->toBe('1');
     $this->actingAs(User::factory()->admin()->create());
-    expect($overview()['kpis'][0]['value'])->toBe('2');
+    expect($overview()['kpis'][0]['value'])->toBe('1');
 
     // Another filter, another read.
     $this->actingAs($this->admin);
@@ -171,14 +181,18 @@ it('draws each tab it keeps the same from what was kept, through a store that se
     Cache::forgetDriver('array');
     analyticsVisit('ann', ['country' => 'DE', 'city' => 'Berlin', 'landing_key' => 'feed', 'source_key' => 'reddit:organic', 'campaign_key' => 'tag:spring', 'utm_campaign' => 'spring', 'utm_source' => 'reddit']);
     analyticsVisit('bob', ['country' => 'US', 'landing_key' => 'posts.show', 'account_at' => '2026-11-15 10:05:00', 'signup_at' => '2026-11-15 10:04:00']);
+    // An account whose first week is over, so Retention has shares to draw.
+    retentionAccount('2026-11-02 10:00:00', [1, 7]);
     $read = fn () => Livewire::withQueryParams(['tab' => $tab, 'period' => '7d'])->test(GrowthAnalyticsPage::class)->call('load');
 
     $first = $read();
     $this->travel(1)->minutes();
     $kept = $read();
 
+    // Plain values only: the store gives back no object.
     expect(GrowthAnalyticsPage::READ_CACHED)->toContain($tab)
         ->and($kept->viewData('data'))->toEqual($first->viewData('data'))
+        ->and(array_filter(Arr::dot($first->viewData('data')), 'is_object'))->toBe([])
         ->and($kept->viewData('readAt'))->toBe('12:00');
     $kept->assertSeeText('Figures read 12:00 UTC');
 })->with(GrowthAnalyticsPage::READ_CACHED);
@@ -201,4 +215,158 @@ it('keeps the sources and campaigns the filters offer the same way, read again o
 
     expect($offered('sourceOptions'))->toContain('reddit:organic', 'google:organic')
         ->and($offered('campaignOptions'))->toContain('tag:spring', 'tag:autumn');
+});
+
+it('reads a tab once for every administrator: the second to open it reads none of its figures, and Refresh reads them for everyone', function () {
+    analyticsVisit('ann');
+    $reads = 0;
+    app()->resolving(AnalyticsTab::class, function () use (&$reads): void {
+        $reads++;
+    });
+    $open = fn () => Livewire::withQueryParams(['period' => '7d'])->test(GrowthAnalyticsPage::class)->call('load');
+
+    $first = $open();
+
+    expect($reads)->toBe(1);
+
+    analyticsVisit('bob');
+    $this->travel(2)->minutes();
+    $this->actingAs(User::factory()->admin()->create());
+    DB::enableQueryLog();
+    $second = $open();
+    $statements = collect(DB::getQueryLog())->pluck('query');
+    DB::disableQueryLog();
+
+    // The visits are asked only when the first was recorded: nothing of the tab's own.
+    expect($reads)->toBe(1)
+        ->and($second->viewData('data'))->toEqual($first->viewData('data'))
+        ->and($second->viewData('readAt'))->toBe('12:00')
+        ->and($statements->filter(fn (string $sql): bool => preg_match('/traffic_visits|analytics_visits|analytics_cells|analytics_game_days/', $sql) === 1 && preg_match('/min\(.arrived_at.\)/', $sql) !== 1)->values()->all())->toBe([]);
+
+    // Refresh reads them now, for everyone.
+    $second->call('refreshFigures');
+    $this->actingAs($this->admin);
+    $third = $open();
+
+    expect($reads)->toBe(2)
+        ->and($third->viewData('data')['kpis'][0]['value'])->toBe('2')
+        ->and($third->viewData('readAt'))->toBe('12:02');
+});
+
+it('still refuses whoever may not manage traffic sources, though figures are kept', function () {
+    analyticsVisit('ann');
+    $page = Livewire::withQueryParams(['period' => '7d'])->test(GrowthAnalyticsPage::class)->call('load');
+
+    $this->actingAs(User::factory()->moderator()->create())->get(GrowthAnalyticsPage::getUrl(['period' => '7d']))->assertForbidden();
+    $page->call('$refresh')->assertForbidden();
+    $this->actingAs(User::factory()->admin()->limited()->create())->get(GrowthAnalyticsPage::getUrl(['period' => '7d']))->assertForbidden();
+});
+
+it('keeps a tracking link’s details apart for whoever may not manage games, which lead to its game only for those who may', function () {
+    $game = Game::factory()->status(GameStatus::Live)->create();
+    $link = app(SaveTrackingLinkAction::class)->handle($this->admin, null, ['destination' => 'game', 'game' => (string) $game->id, 'source' => 'reddit', 'medium' => 'organic_social', 'campaign' => 'versus_launch', 'content' => 'post_01', 'name' => 'To the game']);
+    $details = fn (): array => Livewire::withQueryParams(['tab' => 'links', 'period' => '7d', 'show' => (string) $link->id])->test(GrowthAnalyticsPage::class)->call('load')->viewData('data')['detail'];
+
+    expect($details()['game'])->not->toBeNull();
+
+    Gate::define('manage-games', fn (): bool => false);
+    $this->actingAs(User::factory()->admin()->create());
+
+    expect($details()['game'])->toBeNull();
+
+    // The list alone shows nobody anything of their own: kept for everyone.
+    $reads = 0;
+    app()->resolving(AnalyticsTab::class, function () use (&$reads): void {
+        $reads++;
+    });
+    Livewire::withQueryParams(['tab' => 'links', 'period' => '7d'])->test(GrowthAnalyticsPage::class)->call('load');
+    $this->actingAs($this->admin);
+    Livewire::withQueryParams(['tab' => 'links', 'period' => '7d'])->test(GrowthAnalyticsPage::class)->call('load');
+
+    expect($reads)->toBe(1);
+});
+
+it('keeps Games apart for whoever may not manage games, whose traffic periods lead to their results only for those who may', function () {
+    Game::factory()->status(GameStatus::Live)->create();
+    $reads = 0;
+    app()->resolving(AnalyticsTab::class, function () use (&$reads): void {
+        $reads++;
+    });
+    $open = fn () => Livewire::withQueryParams(['tab' => 'games', 'period' => '7d'])->test(GrowthAnalyticsPage::class)->call('load');
+
+    $open();
+    $open();
+
+    expect($reads)->toBe(1);
+
+    Gate::define('manage-games', fn (): bool => false);
+    $this->actingAs(User::factory()->admin()->create());
+    $open();
+
+    expect($reads)->toBe(2);
+});
+
+it('keeps the figures by the site’s address the page was asked at, every address in them starting with it', function () {
+    analyticsVisit('ann');
+    $open = fn () => Livewire::withQueryParams(['tab' => 'geo', 'period' => '7d'])->test(GrowthAnalyticsPage::class)->call('load');
+
+    expect($open()->viewData('data')['journeys'])->toStartWith(url('/').'/')
+        ->and(url('/'))->not->toBe('https://admin.example');
+
+    // As a request to another of the site's addresses builds every address.
+    URL::useOrigin('https://admin.example');
+    URL::forceScheme('https');
+
+    expect($open()->viewData('data')['journeys'])->toStartWith('https://admin.example/');
+});
+
+it('drops what is kept for everyone once any administrator changed a segment or tracking link', function () {
+    analyticsVisit('ann');
+    $open = fn () => Livewire::withQueryParams(['period' => '7d'])->test(GrowthAnalyticsPage::class)->call('load');
+    $open();
+
+    analyticsVisit('bob');
+    $this->actingAs(User::factory()->admin()->create());
+    $open()->dispatch('traffic-segment-saved', message: 'Segment saved');
+    $this->actingAs($this->admin);
+
+    expect($open()->viewData('data')['kpis'][0]['value'])->toBe('2');
+});
+
+it('waits for figures another request is reading, and takes them', function () {
+    $key = Closure::bind(fn (): string => AnalyticsReadCache::key('overview', ['days' => ['2026-11-12', '2026-11-18']]), null, AnalyticsReadCache::class)();
+    $other = Cache::lock($key.':reading', 120);
+    $other->get();
+    Sleep::fake();
+    // The other request finishes while this one waits.
+    Sleep::whenFakingSleep(function () use ($other, $key): void {
+        Cache::put($key, ['at' => '2026-11-18T11:59:58+00:00', 'data' => ['theirs']], 600);
+        $other->release();
+    });
+
+    $kept = app(AnalyticsReadCache::class)->remember('overview', ['days' => ['2026-11-12', '2026-11-18']], false, fn (): array => ['mine']);
+
+    expect($kept['data'])->toBe(['theirs'])
+        ->and($kept['readAt']->format('H:i:s'))->toBe('11:59:58');
+    Sleep::assertSleptTimes(1);
+});
+
+it('reads the figures itself once it waited as long as it may, and keeps them; Refresh never waits', function () {
+    $state = ['days' => ['2026-11-12', '2026-11-18']];
+    $key = Closure::bind(fn (): string => AnalyticsReadCache::key('overview', $state), null, AnalyticsReadCache::class)();
+    Cache::lock($key.':reading', 120)->get();
+    Sleep::fake(syncWithCarbon: true);
+
+    $read = app(AnalyticsReadCache::class)->remember('overview', $state, false, fn (): array => ['mine']);
+
+    // It waited as long as it may, and no longer.
+    expect($read['data'])->toBe(['mine'])
+        ->and(CarbonImmutable::parse('2026-11-18 12:00:00')->diffInSeconds(now()))->toBeGreaterThanOrEqual(AnalyticsReadCache::WAIT_SECONDS - 1)->toBeLessThanOrEqual(AnalyticsReadCache::WAIT_SECONDS + 1)
+        ->and(app(AnalyticsReadCache::class)->remember('overview', $state, false, fn (): array => ['again'])['data'])->toBe(['mine']);
+
+    Sleep::fake();
+    $refreshed = app(AnalyticsReadCache::class)->remember('overview', $state, true, fn (): array => ['refreshed']);
+
+    expect($refreshed['data'])->toBe(['refreshed']);
+    Sleep::assertNeverSlept();
 });

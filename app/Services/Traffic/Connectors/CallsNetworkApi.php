@@ -45,12 +45,18 @@ trait CallsNetworkApi
             return $response;
         }
 
-        throw new ConnectorException(match (true) {
+        throw new ConnectorException($this->failureOf($response), $response->status());
+    }
+
+    /** Why the network answered a call with an error, by its HTTP status: a network that says otherwise answers for itself. */
+    private function failureOf(Response $response): TrafficConnectorFailure
+    {
+        return match (true) {
             in_array($response->status(), [401, 403], true) => TrafficConnectorFailure::Auth,
             $response->status() === 429 => TrafficConnectorFailure::RateLimited,
             $response->serverError() => TrafficConnectorFailure::Unavailable,
             default => TrafficConnectorFailure::Rejected,
-        }, $response->status());
+        };
     }
 
     /**

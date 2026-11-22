@@ -1,5 +1,14 @@
 <?php
 
+use App\Enums\TrafficDevice;
+use App\Models\AccountAttribution;
+use App\Models\AnalyticsCell;
+use App\Models\AnalyticsCellAccount;
+use App\Models\AnalyticsDirtyDay;
+use App\Models\AnalyticsFirstPostCell;
+use App\Models\AnalyticsGameDay;
+use App\Models\AnalyticsPid;
+use App\Models\AnalyticsVisit;
 use App\Models\TrafficChanceRun;
 use App\Models\TrafficConversion;
 use App\Models\TrafficPostback;
@@ -18,7 +27,8 @@ use Illuminate\Support\Facades\DB;
  * traffic:purge-expired deletes what the tracker recorded past its retention
  * — visits after 400 days with their conversions, a click's details, the
  * posts of a visit and the outbox after 90, spend figures after 400 — in
- * small batches, and nothing younger.
+ * small batches, and nothing younger; an account credited to a purged visit
+ * keeps what Retention reads of it.
  */
 beforeEach(function () {
     CarbonImmutable::setTestNow('2026-11-17 03:00:00');
@@ -54,8 +64,31 @@ it('deletes what is past its retention and keeps the rest', function () {
         ->and(TrafficSpendDay::query()->pluck('id')->all())->toBe([$keptDay->id]);
 });
 
+it('deletes the cells of people and the sums of game days with their days’ visits, and a browser’s number once no visit names it, never the highest', function () {
+    $cell = fn (string $day): array => ['level' => 'device', 'network_day' => $day, 'device' => 'mobile'];
+    AnalyticsCell::query()->insert([$cell('2025-10-01'), $cell('2026-11-01')]);
+    AnalyticsCellAccount::query()->insert([[...$cell('2025-10-01'), 'signup_day' => '2025-10-01'], [...$cell('2026-11-01'), 'signup_day' => '2026-11-01']]);
+    $kept = TrafficVisit::factory()->create(['arrived_at' => now()->subDays(100)]);
+    AnalyticsVisit::query()->forceCreate(['id' => $kept->id, 'visitor_key' => 11, 'network_day' => '2026-08-09', 'arrived_at' => $kept->arrived_at, 'last_seen_at' => $kept->arrived_at, 'channel' => 'direct', 'device' => 'mobile']);
+    // 12's visits are gone; 13 has none either, but the next number counts on from it.
+    AnalyticsPid::query()->insert([['visitor_key' => 11, 'pid' => 1], ['visitor_key' => 12, 'pid' => 2], ['visitor_key' => 13, 'pid' => 3]]);
+
+    $gameDay = fn (string $day): array => ['level' => 'all', 'network_day' => $day, 'arrival_day' => $day, 'game_id' => 1, 'channel' => 'direct', 'device' => 'mobile', 'first_at' => $day.' 10:00:00'];
+    AnalyticsGameDay::query()->insert([$gameDay('2025-10-01'), $gameDay('2026-11-01')]);
+
+    $this->artisan('traffic:purge-expired', ['--chunk' => 1])->assertSuccessful()
+        ->expectsOutput('Deleted 1 cells of people.')
+        ->expectsOutput('Deleted 1 sums of game days.')
+        ->expectsOutput('Deleted 1 browser numbers.');
+
+    expect(AnalyticsCell::query()->pluck('network_day')->all())->toBe(['2026-11-01'])
+        ->and(AnalyticsCellAccount::query()->pluck('network_day')->all())->toBe(['2026-11-01'])
+        ->and(AnalyticsPid::query()->orderBy('pid')->pluck('pid')->all())->toBe([1, 3])
+        ->and(AnalyticsGameDay::query()->pluck('network_day')->all())->toBe(['2026-11-01']);
+});
+
 it('deletes the posts a visit opened after 90 days from the first, the visit staying', function () {
-    $visit = TrafficVisit::factory()->create(['arrived_at' => now()->subDays(91)]);
+    $visit = TrafficVisit::factory()->create(['arrived_at' => now()->subDays(91), 'network_day' => now()->subDays(91)->toDateString()]);
     $fresh = TrafficVisit::factory()->create();
     // The first of a visit's posts opened just before the 90 days were up, the second just after.
     TrafficVisitPost::query()->forceCreate(['visit_id' => $visit->id, 'post_id' => 11, 'views' => 2, 'first_at' => now()->subDays(90)->subMinute()]);
@@ -66,7 +99,9 @@ it('deletes the posts a visit opened after 90 days from the first, the visit sta
 
     expect(TrafficVisitPost::query()->orderBy('visit_id')->orderBy('post_id')->get(['visit_id', 'post_id'])->map(fn (TrafficVisitPost $row): array => [$row->visit_id, $row->post_id])->all())
         ->toBe([[$visit->id, 12], [$fresh->id, 11]])
-        ->and(TrafficVisit::query()->whereKey($visit->id)->exists())->toBeTrue();
+        ->and(TrafficVisit::query()->whereKey($visit->id)->exists())->toBeTrue()
+        // Analytics keeps what each visit did with posts: the visit's day is read again.
+        ->and(AnalyticsDirtyDay::query()->pluck('day')->all())->toContain(substr((string) $visit->network_day, 0, 10));
 });
 
 it('deletes the days members did something after 400 days, without a new environment variable', function () {
@@ -124,4 +159,41 @@ it('keeps the newest chance working-outs, and one begun while it purges', functi
     $this->artisan('traffic:purge-expired')->assertSuccessful()->expectsOutput('Deleted 2 chance runs.');
 
     expect(TrafficChanceRun::query()->orderBy('id')->pluck('id')->all())->toBe([$runs[2], $runs[3], $begun]);
+});
+
+it('marks the days of the visits credited with an account in the sessions whose opened posts go, and deletes their first posts’ cells with their days’ visits', function () {
+    $day = fn (int $daysAgo): array => ['arrived_at' => now()->subDays($daysAgo), 'network_day' => now()->subDays($daysAgo)->toDateString()];
+    // A session whose first post goes, credited on a later day; another whose post goes only voted on, never opened.
+    $entry = TrafficVisit::factory()->create($day(92));
+    $credited = TrafficVisit::factory()->create([...$day(85), 'entry_visit_id' => $entry->id, 'account_at' => now()->subDays(85)]);
+    $entry->forceFill(['entry_visit_id' => $entry->id])->save();
+    $voted = TrafficVisit::factory()->create($day(93));
+    $votedCredited = TrafficVisit::factory()->create([...$day(80), 'entry_visit_id' => $voted->id, 'account_at' => now()->subDays(80)]);
+    $voted->forceFill(['entry_visit_id' => $voted->id])->save();
+    TrafficVisitPost::query()->forceCreate(['visit_id' => $entry->id, 'post_id' => 11, 'views' => 1, 'first_at' => now()->subDays(91)]);
+    TrafficVisitPost::query()->forceCreate(['visit_id' => $voted->id, 'post_id' => 12, 'views' => 0, 'voted' => true, 'first_at' => now()->subDays(91)]);
+    AnalyticsFirstPostCell::query()->insert([
+        ['network_day' => '2025-10-01', 'device' => 'mobile', 'post_id' => 11],
+        ['network_day' => '2026-11-01', 'device' => 'mobile', 'post_id' => null],
+    ]);
+
+    $this->artisan('traffic:purge-expired', ['--chunk' => 1])->assertSuccessful()->expectsOutput('Deleted 1 cells of first posts.');
+
+    expect(AnalyticsDirtyDay::query()->pluck('day')->all())
+        ->toContain(substr((string) $credited->network_day, 0, 10))
+        ->not->toContain(substr((string) $votedCredited->network_day, 0, 10))
+        ->and(AnalyticsFirstPostCell::query()->pluck('network_day')->all())->toBe(['2026-11-01']);
+});
+
+it('keeps what Retention reads of a purged visit on the account credited to it, the pointer let go', function () {
+    $old = TrafficVisit::factory()->create(['arrived_at' => now()->subDays(401), 'source_key' => 'reddit:organic', 'device' => 'desktop']);
+    $attribution = AccountAttribution::factory()->confirmed()->create(['credited_visit_id' => $old->id, 'signed_up_at' => now()->subDays(401)]);
+
+    $this->artisan('traffic:purge-expired')->assertSuccessful();
+
+    expect(TrafficVisit::query()->find($old->id))->toBeNull()
+        ->and($attribution->fresh())
+        ->credited_visit_id->toBeNull()
+        ->credited_source_key->toBe('reddit:organic')
+        ->credited_device->toBe(TrafficDevice::Desktop);
 });

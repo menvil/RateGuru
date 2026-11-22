@@ -147,6 +147,25 @@ visit it is credited to — the key of the session that visit belonged to — it
 device that visit's, and its game the game of the attempt it is credited to.
 History starts with the first account recorded: there is nothing to backfill.
 
+All three are copied onto the attribution in the write that credits the
+account (`credited_source_key`, `credited_device`, `credited_game_id`,
+`AccountAttribution::creditedKeys()`), so Retention reads the accounts and
+their days and never a visit or an attempt. A visit purged after 400 days
+lets its attribution's `credited_visit_id` go and leaves the copies, so an
+account keeps its source and device for as long as its attribution — read
+through the visits it fell to "Direct / Unknown" and out of a device's
+cohorts. The game goes only with the attempt's pointer, which the purge of an
+unconfirmed account lets go when its attempts are erased; a paid click passed
+to another browser before any page of it ran takes its new device to an
+account already credited to it. An attribution written without them — only
+by the release before them, while a deploy runs between migrating and
+switching over — gets them on the next run of `analytics:refresh-visits`
+(`CopyCreditedKeysAction`), and the migration that added them copied them
+for every attribution before. Each account's days are joined once and folded
+into its row. Measured on 37,000 accounts over 181 days, with nothing kept
+from an earlier read, the cohorts of 30 or 90 days take 40 to 180
+milliseconds instead of two to three and a half seconds.
+
 ## How it is read
 
 ### People, not visits
@@ -206,13 +225,263 @@ to 31, else blocks of seven days from the first, the last as long as the days
 left (`FigureChange` says the change; "No earlier data" when the window before
 counted none).
 
-### Reading without rollups
+### What a tab reads
 
-Analytics keeps no totals aside: every figure is read
-straight from the visits, as conditional distinct counts and sums over the
-period's visits, through a wider span of arrivals so the arrival index narrows
-the scan first, as every traffic report reads it. What makes that hold is
-deliberate and kept together:
+A visit is wide — every moment of every step, its worth, its settling — and
+the people of a period are counted by sorting every visit of it, so Analytics
+reads its own narrow rows of the visits instead (`analytics_visits`, one per
+visit, the same id, gone with it): the browser as a number, the first 64 bits
+of its hash read as a signed integer (`AnalyticsVisitRow::key()`, worked out in
+PHP so every engine stores the same); each step a flag rather than the moment;
+the account's sign-up only once it confirmed, what decides whether its days to
+activate are over; the sums; and every column a split or a filter names. A
+second table keeps the first network day each browser's page ran
+(`analytics_people`), so whether a visitor of a period had come before it is a
+look-up, not a search of every earlier visit. Measured on 4.5 million visits
+over 90 days (50,000 a day), with nothing kept from an earlier read: every tab
+of 30 days together in about a minute instead of three, of 90 days in under two
+instead of seven; the figures of 30 days in about a second instead of eight,
+and a game's figures narrowed to a device in under half a minute instead of a
+minute and a half.
+
+`analytics:refresh-visits` alone writes them (`RefreshAnalyticsVisitsAction`),
+every minute for up to 45 seconds:
+
+- the network days whose visits still change by themselves — from the day
+  before the earliest day any time zone is on to the latest one
+  (`AnalyticsRollupWindow`) — today's UTC day and later every minute, the
+  earlier ones every fifth: each visit is made into its row and compared with
+  the one written before, and only a row that changed, or is new, is written,
+  so a day read again costs reading it, about two seconds for 50,000 visits;
+- the older days something changed — a late mark, a visit opened or counted on
+  days after it came, spend shared out again, a click id that came back — each
+  writer telling `MarkAnalyticsDayAction`, which keeps the day with a token
+  rewritten on every change, so a change made while the day is read leaves it
+  marked for the next run;
+- until every day has been, the days not filled yet, the earliest first, from
+  the first visit's.
+
+Once a night it reads the last `analytics.rollup.recheck_days` (60) days again,
+a check that nothing was missed. No index of the rows leads with the browser:
+a planner would walk it for the people's order instead of sorting, reading the
+table at random.
+
+The same rows serve the posts of Site engagement (`AnalyticsContentQuery`, the
+sessions joined by `entry_visit_id`) and a game's Analytics — its traffic figures
+(`TrafficReportQuery`'s game reads, by `game_id` and arrival) and the plays
+and visitors a device or country narrows to (`GameMetricsQuery`, which is why
+a tracked visit's row keeps its browser hash and when it was last seen).
+
+`AnalyticsVisitsQuery` and the others read these rows only once they are filled as far back
+as the visits go, while they were brought up to date within
+`analytics.rollup.stale_minutes` (30) and while `analytics.rollup.read` allows
+it (`AnalyticsRollupGate`, decided once a request); otherwise it reads the
+visits themselves, slower but never behind. The same conditions on the same
+days and arrivals give the same figures either way, and its tests read every
+call both ways and compare them.
+
+#### The cells of each day's people
+
+Counting a period's people still sorts every row of it. Where the database
+can keep them — PostgreSQL with the `roaringbitmap` extension (installed and
+created by the host's bootstrap scripts, and by CI) — Analytics also keeps each
+network day's people at nine levels of detail (`AnalyticsCellLevel`), every one
+by device: device alone; landing; the five campaign tags; country; city and
+country; source; source and campaign; source, campaign and creative; and
+source, campaign, creative and game. A cell (`analytics_cells`) holds, for every step, the set of its
+people as a roaring bitmap of short browser numbers (`analytics_pids`, given in
+turn and never given again), and the visits' sums — and every paid click's,
+its page run or not, so a cell of clicks none of whose pages ran has no set of
+visitors and is read only for what the figures leave out; the accounts of the same
+cells are kept apart by the UTC day each signed up on
+(`analytics_cell_accounts`), what decides whether an account's days to
+activate are over. A period's people are the size of the union of its days'
+sets, so no row is read again: the figures of 90 days in tens of
+milliseconds.
+
+`RefreshAnalyticsCellsAction` writes a day's cells again from its rows
+whenever `RefreshAnalyticsDayAction` changed a row of the day, when the day has
+none yet, whenever the day was marked as changed — a mark can be a deletion,
+which changes no row — and on the nightly recheck, in the same transaction as
+the day's rows, so a write that fails leaves the day to be written whole again; until every day has
+cells the refresh fills them in turn after the rows (`cells_through`,
+`cells_filled_at`). `AnalyticsVisitsQuery` reads them for `figures()`, `by()`,
+`top()`, days and blocks of days of `series()`, `of()`, `among()`, `pairs()`,
+`quality()`, `returning()`, `spend()` and `firstDays()` — and
+`AnalyticsContentQuery` its posts' figures, from what each visit did with posts
+kept on its row (`post_rows`, `post_views`, `post_viewed`, `post_voted`,
+`post_shares`, read again whenever a visit's row of a post changes, the day
+marked when the visit is days old), and the posts opened most from each post's
+people a day and device (`analytics_post_cells`) — when every column the
+read filters or splits by is in one level and it counts whole days
+(`AnalyticsFilter::countsWholeDays()`), taking the coarsest such level. The
+people who came back are a fold of the period's days — once by the days so
+far, twice by those already seen once (`WITH RECURSIVE`, `rb_or` and `rb_and`
+a day) — joined to the people of every day before the period, whatever the
+filter. A split no level holds — a game's version, a source with a country or
+a landing — and hours read the rows. Only while the rows are read, once the cells are filled, and
+while `analytics.rollup.cells` allows it (`AnalyticsRollupGate::readsCells()`);
+without the extension nothing is written and every read takes the rows. The
+query tests read every call from the visits, from the rows and, where they are
+kept, from the cells, and compare them.
+
+Measured on 5.2 million visits (3.3 million browsers) with nothing kept from
+an earlier read, every tab of 90 days together: 286 seconds from the rows,
+45 from the cells where they fit — the Overview 64 seconds to 2–3, Site
+engagement 22 to under 1, Campaigns 84 to under 1, Tracking links 10 to 2,
+Geo 27 to 1–2; what is left is mostly the games' own reads. Writing 181 days
+of cells at every level takes about a minute; they take 300 MB (12 MB of
+accounts), the numbers of 3.3 million browsers 300 MB.
+
+What was played on a visit is on its row too — the attempts started on it,
+the clicks on their results' share buttons and the attempts with such a click
+(`attempts`, `share_clicks`, `shared_results`; an attempt is started on one
+visit at most, so they add up to the different attempts) — and summed by the
+cells, so the Overview's attempts and the result shares of the Overview and
+Site engagement (`attempts()`, `resultShares()`) read an attempt or an event
+only while the visits are read. A visit's day is marked when an attempt starts
+on it or a share is clicked on one of its attempts (`StartGameAttemptAction`,
+`GameEventRecorder`), and when its attempts or their share clicks go
+(`games:purge-expired`, an unconfirmed account's purge). A visit credited with
+an account keeps the post its session opened first (`session_post_id`, read
+from every visit sharing its entry; none when the session opened none), and
+the cells keep each day's accounts by device and that post
+(`analytics_first_post_cells`), so Site engagement's accounts per first post
+and those whose session opened no post (`firstPostAccounts()`,
+`unattributedAccounts()`) read no session while the rows are read: a post
+first opened on any visit of a session marks the days of the session's
+credited visits (`RecordVisitPostAction`), and so does the purge of posts after
+90 days. Measured on the same 5.2 million visits, nothing kept from an earlier
+read: the Overview of 30 days 5–6 seconds to about half a second, of 90 days 3
+to under 1, Site engagement of 30 days 3.5–7 to about a third of a second.
+
+#### The sums of a game's days
+
+A game's figures — its traffic by type, source, version and device, its
+campaigns, sign-ups and countries (`TrafficReportQuery`'s game reads, on the
+Games tab and a game's own Analytics and Value) — are sums, so Analytics also
+keeps them a day at a time (`analytics_game_days`): the sums of the visits that
+share a network day, a UTC day of arrival and one set of keys — channel,
+source, campaign, version, device, country, signed in or not — with the first
+of them to arrive. A sign-up not confirmed keeps its moment as a key, so whether
+its window to confirm has closed is still a matter of when it is read; how
+soon each confirmed one confirmed is counted as it is written, the thresholds
+being constants. By country, and with every country together for a read that
+names none. Every engine, no extension.
+
+`RefreshAnalyticsGameDaysAction` writes a network day's sums again with its
+rows, under the same rule as the cells — for every UTC day its visits arrived
+on, a network day in another time zone running into the days on either side —
+and the refresh fills the days without in turn (`game_days_through`,
+`game_days_filled_at`). A game's figures read their whole UTC days from the sums
+and the part days at the ends of a stretch — today so far, a window that
+starts at a moment — from the rows, the same SQL, joined in one read
+(`ArrivalWindow`); only while the rows are read, once the sums are filled, and
+while `analytics.rollup.game_days` allows it
+(`AnalyticsRollupGate::readsGameDays()`). Measured on 2.4 million visits of
+one game, the four reads of a 90-day Games tab take about 60 milliseconds
+instead of 15 seconds.
+
+#### The people of a game's days
+
+What a game's sums leave is its people: the visitors, the people behind its
+attempts and what those attempts went on to — every one a count of different
+people over every view or attempt of the window (`GameMetricsQuery`), which
+the Games tab and a game's own Analytics read for the window, the window
+before it and each version. Where the cells of each day's people are kept,
+Analytics keeps these too, a UTC day at a time (`analytics_game_cells`): per
+game, audience and version, the people who saw it, who started an attempt
+that day, finished one of those attempts, reached the goal or started two or
+more, and those whose attempts were shared, began signing up, went on to a
+post, the feed, a page or the next game, or voted or rated there — each a
+roaring bitmap — the accounts those attempts signed in, and the attempts'
+sums: started, completed, goal reached, with a confirmed account credited,
+shared, and with nobody to tell them apart by. A period's people are the
+size of the union of its days' sets; the people who played again are a fold
+of the days and versions in turn, each one's people with two attempts or
+more and those it shares with the ones before it (`rb_or_agg` over them, as a
+window).
+
+A person is told apart exactly as `GameMetricsQuery` tells them apart: a
+guest by the hash of the browser's game cookie (`visitor_hash` of the view or
+attempt), a player by the account (`user_id`). A player is in a set by the
+account's own id — dense, never given to another account (a sequence never
+goes back), and within a set's 32 bits for the first two billion accounts. A
+guest's browser gets a number of its own (`analytics_game_pids`, by the whole
+hash): given in turn the first time a count sees the browser, never changed,
+never given again — the highest is never let go, the next counts on from it
+— and let go once no cell holds it. Neither number the site already had would
+do. The browser numbers of the visits' cells (`analytics_pids`) are given only
+to a browser with a recorded visit whose page ran — with Record visits off, or
+a play whose visit was not recorded, a guest of a game has none — they are
+keyed by 64 bits of the hash, so two browsers sharing those would be one
+person, and they go once the browser's visits are purged, after 400 days,
+while the sets of its plays are kept as long as the attempts. A browser's
+first assignment is no better: a game with no open period records a `view`
+with no assignment and no version, a replay can start from none, the purge of
+an unconfirmed account deletes assignments, and a browser's first is a search
+no index serves.
+
+`analytics:refresh-visits` counts them, a step of its own before the visits —
+one that fails is reported and the visits are still brought up to date
+(`RefreshAnalyticsGameCellsAction`): the days marked as changed; then every
+day once it is over and an hour more has passed (`GameCellDays`: a play begun
+late in a day mostly finishes then) and ten minutes since, longer than a
+change takes to be kept, counted whole, the earliest first — on deploy, every
+day of what was played before — passing over days nothing was played on
+(`game_cells_through`); then the days after it — today, and yesterday for its
+first hour — up to a moment ten minutes ago, every five minutes, at once when
+one of them was marked (`game_cells_moment`): a new count beside the earlier
+ones, which go once ten minutes older than it — never the one just before it,
+however long the refresh had stopped — so a read that learned the earlier
+moment still finds its cells. At night the last
+`analytics.rollup.recheck_days` days are counted again. Each count is read first and inserted after, under a lock
+on the state's row the purge of the numbers takes too. Measured on 718,000
+views and 398,000 attempts of 30 days, the days take about half a second each,
+an open day's count up to its moment about as long.
+
+A game's figures take the days counted whole and the open days up to their
+moment from the cells, and whatever they don't cover from the events and
+attempts themselves, the same SQL, in one read (`AnalyticsGameCellsQuery`,
+`GameCellWindow`): the part days at the ends, a day marked as changed, the
+time since the moment; and of the open days' attempts begun before it, what
+came of them since — found by the event every such change is recorded with
+(`completed`, `goal_reached`, `account_attributed` and what the funnel counts
+an attempt's events by), an account confirmed since by when it was, and an
+attempt completed, its goal reached or taken by an account since by the
+moment it keeps of it, which stays when the event goes (the purge of an
+unconfirmed account takes the events it recorded on a guest's play it never
+took). A
+person read live is looked up by their browser's number; one whose browser
+has none yet is in no cell, and counted on their own. So a game's figures
+are the same as reading every view and attempt, at any moment, however long
+ago the refresh last ran. Once a day has closed, every writer of what they
+count of it tells it in the change's own transaction
+(`MarkAnalyticsGameCellsAction`): `GameEventRecorder` for the events that
+come with every change after an attempt began, whichever action records them
+— an attempt completed, its goal reached, taken by an account, an account
+credited to it confirmed, shared, sent on, a sign-up begun — and, whatever the
+day, the deletions no moment tells: the views and the attempts' events
+`games:purge-expired` deletes, and the attempts, views and events of an
+unconfirmed account purged. An account taking a guest's play leaves it the
+guest's, counted by the browser; deleting an account deletes only the emails
+of its plays, which the cells don't count. The figures of a device or a
+country, a window within a day that is over (no cell fits it: Today's window
+before), more than 31 days marked at once, and open days counted longer ago
+than `analytics.rollup.stale_minutes` read every view and attempt; so does
+everything while the cells of each day's people aren't read, before the game
+cells are filled, or while `analytics.rollup.game_cells` is off. Its tests
+read every figure both ways on every engine, and compare them.
+
+Measured on the same 5.2 million visits, the Games tab — with its option lists,
+nothing kept from an earlier read — of 30 days about a quarter of a second
+instead of two (four on a first run), of 90 days a quarter to a third of a
+second instead of two; a game's own Analytics of 30 or 90 days about a fifth
+of a second instead of nearly two. A first read with nothing in memory takes
+about a second. The numbers of 685,000 guests take 163 MB, the cells of 30
+days under 2 MB.
+
+Everything else that keeps a tab quick is deliberate and kept together:
 
 - the session's keys and tags are columns of each visit, so no read joins the
   visit a session began with;
@@ -226,19 +495,13 @@ deliberate and kept together:
   links, segments, posts or visitors there are, each checked by a test;
 - the tabs slow to read on a busy site — every tab but Journeys
   (`GrowthAnalyticsPage::READ_CACHED`) — and the Source and Campaign options are
-  kept for one administrator for `analytics.read_cache_minutes` (10) minutes
-  once read (`AnalyticsReadCache`), keyed by the tab and what in the address its
-  figures depend on (a filter the tab ignores is left out); the page says
-  "Figures read HH:MM UTC" and offers Refresh, and saving, deleting or restoring
-  a segment, or saving a tracking link, drops everything kept, for every
-  administrator, so it is read afresh.
-
-The limit for this way of reading was set before it was built: measured over 90
-days of visits and the window before on PostgreSQL, a tab slower than two
-seconds gets a short-lived read cache that says when its figures were read, and
-one slower than five needs a rollup of its own before Record site visits is
-switched on in production. The read cache is in place: each tab it keeps took
-over two seconds on 4.5 million visits over 90 days.
+  kept for everyone who may open the page for `analytics.read_cache_minutes`
+  (10) minutes once read (`AnalyticsReadCache`), keyed by the tab and what in
+  the address its figures depend on (a filter the tab ignores is left out), and
+  read ahead of the administrators for the views likeliest to be opened (below);
+  the page says "Figures read HH:MM UTC" and offers Refresh, and saving,
+  deleting or restoring a segment, or saving a tracking link, drops everything
+  kept, so it is read afresh.
 
 Other thresholds, each a product rule in `config/analytics.php`: a city needs
 20 visitors for a row of its own, the rest of its country counted together; the
@@ -248,6 +511,66 @@ at most six things — a version published, a paid campaign's first click, a
 comparison started; a segment needs 100 new visitors before its rate is shown
 and its source ten accounts before it gets a verdict; a creative needs 500
 visitors before it can be named a campaign's best.
+
+#### The figures kept, and read ahead
+
+What a tab slow to read shows, and what the filters offer, is kept once for
+everyone who may open the page (`manage-traffic-sources`), not once per
+administrator: nothing a tab, the shell (`AnalyticsView`) or a query under them
+returns depends on who reads it. None asks for the account, the session or a
+policy, with two exceptions, both kept apart: a tracking link's details lead to
+its game, and Games' traffic periods to their results in Experiments, only for
+someone who may manage games, so on Games and with details open that
+permission is part of the key (`GrowthAnalyticsPage::readState()`) — Games'
+link to Record visits asks for `manage-traffic-sources`, which everyone who may
+open the page has; and every
+address in the figures — Open Tracking, a game's or a link's page — starts with
+the site's address the page was asked at, so that is part of every key too. The
+period an administrator last chose (`ReportPeriodMemory`, in their session) only
+decides which period the page opens on, and the period is part of the key.
+What is kept holds plain values only: the cache gives back no object
+(`cache.serializable_classes` is false), so Retention's rows leave out the
+share each sentence is phrased from, and a test checks every tab for objects.
+
+Figures being read are read once: a request asking for the same key while
+another reads it — a second administrator, or the read ahead — waits for it, at
+most `AnalyticsReadCache::WAIT_SECONDS` (30), and reads the figures itself only
+when none were kept by then (a cache lock per key, held at most 120 seconds, as
+long as a request may take). Refresh never waits, reads now, and keeps what it
+read for everyone. The store is the target's `CACHE_STORE` — the host's Redis
+on a deployed target (the environment contract's Cache / Redis section), the
+file store on a developer's machine; Redis, database and file locks all hold
+across processes.
+
+`analytics:warm-figures` reads them ahead, every five minutes
+(`AnalyticsWarmFiguresCommand::EVERY_MINUTES`, in the background, never two runs
+at once): each tab slow to read, with the options, for the views likeliest to
+be opened. Those are the page's default period with no filter, at each site's
+address an administrator opened it at, then each administrator's latest period,
+the latest first, at most `analytics.read_ahead.views` (4) views; every view's
+Overview is read before any view's next tab. Each view is read signed in as the
+administrator who last opened it — the schedule signs nobody in, and a tab read
+as nobody would leave out what its readers may open — and a view whose
+administrator may no longer open the page is not read. It builds the page as `mount()` and `load()` settle it for such a view
+(`GrowthAnalyticsPage::readAhead()`), so it keeps the figures under the very
+keys the page asks for, and builds every address as a request to that site's
+address would. Opening the page, or choosing a period, notes the view
+(`AnalyticsReadCache::opened()`, one cache entry of every administrator's latest
+view). Figures still kept a minute past the next run are not read again, so
+what an administrator just read is left alone and everything read ahead is read
+again before it lapses: the figures of a view read ahead are at most five
+minutes old. A run reads nothing once no administrator opened the page for
+`analytics.read_ahead.idle_hours` (24), nor while the tabs read the visits
+themselves (`AnalyticsRollupGate::reads()` false): every read would then be the
+slowest there is. It starts no read after `--seconds` (240), so a run ends
+before the next is due, and logs each run (`analytics.figures.read_ahead`: the
+views, the figures read and found kept, the failures, the milliseconds).
+Measured on 5.2 million visits over 181 days, a run reading the default 30 days
+cold takes about 21 seconds and keeps 11 entries (the nine tabs and the two
+options), the default and 90 days together about 75 seconds and 21 entries
+(Experiments, of no period, once); opening every tab after it takes about a
+tenth of a second in all, instead of the 21 to 27 seconds the first
+administrator to open a cold view waited.
 
 ### Filters
 
@@ -272,23 +595,37 @@ registered boundary in `tools/phpstan/architecture.neon`, with its reason in
 docs/architecture/http-and-database-boundaries.md and a behaviour test:
 
 - `AnalyticsVisitsQuery` — the people of the period's visits, in all, per
-  dimension with the rest counted together, per bucket, and who came back;
+  dimension with the rest counted together, per bucket, and who came back,
+  from Analytics' own rows of the visits or from the visits themselves, and
+  where they fit from the cells of each day's people (`rb_or_agg`);
+- `AnalyticsCellsQuery` — a day's cells, every level in one `GROUPING SETS`
+  pass, each step's people `rb_build_agg` of the browsers' numbers, for
+  `RefreshAnalyticsCellsAction` to insert;
 - `AnalyticsContentQuery` — the posts the period's visits opened, and the
   accounts whose session opened each first;
 - `TrafficSegmentsQuery` — a paid source's segments, each click's segment
   worked out once and every segment counted in one read;
 - `RetentionQuery` — weekly cohorts as conditional sums over one read of the
-  accounts;
+  accounts, each account's days joined once and folded by a conditional
+  `MAX`;
 - `TrackingLinksQuery` and `ComparisonPeriodsQuery` — literal searches with
   `ESCAPE`;
 - `GameMetricsQuery::periodFunnel()` — how far the visitors each period sent to
-  each version got.
+  each version got: once counted, the sums of the hours of its assignments
+  (`analytics_period_hours`) beside the assignments of the hours since and of
+  those changed, joined by `UNION ALL` in one read;
+- `AnalyticsGameCellsQuery` — the people of a game's days, each step's people
+  `rb_build_agg` of their numbers per day, game, audience and version; and in
+  `GameMetricsQuery`'s place, a window's people as `rb_cardinality(rb_or_agg(…))`
+  over the cells beside the views and attempts read live, the people who
+  played again as a fold of the cells (`rb_or_agg` as a window function).
 
-`JourneyQuery`, `LandingExperiencesQuery` and `AnalyticsMarkersQuery` are
-Eloquent alone. Everywhere every value is bound, every grouping column comes
+`JourneyQuery`, `LandingExperiencesQuery`, `AnalyticsMarkersQuery` and
+`AnalyticsRollupQuery` are Eloquent alone. Everywhere every value is bound, every grouping column comes
 from `AnalyticsDimension` or `SegmentParameter`, and there is neither date
 arithmetic nor a branch per engine, so each read means the same on PostgreSQL,
-SQLite and MariaDB.
+SQLite and MariaDB — the cells alone are PostgreSQL's, with the rows read
+everywhere else.
 
 ## Experiments
 
@@ -356,6 +693,53 @@ they assign nobody. Value, postbacks and Traffic sources stay per game.
 A test link to a version (docs/architecture/games.md, "Test links") plays it
 through the preview and records nothing — no click, cookie, assignment,
 attempt or event — so it never reaches Experiments or Analytics.
+
+### The hours of a period's assignments
+
+A period's funnel counts every assignment the period ever made, and a period
+runs as long as its shares stay — weeks of a busy site's visitors. Every
+assignment is of one period, one version and one UTC hour, so the funnel is
+also kept an hour of assignments at a time (`analytics_period_hours`): of the
+assignments a period made to a version in the hour, how many there were and
+how many of them started, completed, saw a result, left an email and reached
+the goal, and their attempts and the completed among them; beside them, the
+confirmed accounts credited to their attempts by the UTC day each signed up
+on, with the activated among them (`analytics_period_hour_accounts`) — the
+day decides whether an account has matured, the cut always being a midnight.
+Every engine, no extension.
+
+An hour stays open while it or the hour after it is the current one
+(`PeriodFunnelHours`): what the plays of its assignments start, finish and
+lead to mostly happens then, and nothing tells of it. Once it is closed, every
+writer of what the funnel counts of one of its assignments marks the hour in
+the change's own transaction (`MarkAnalyticsPeriodHourAction`, the token new
+on every change): a play started from an assignment hours or days old, an
+attempt completed, a result seen (whichever action records it), an email
+left, the goal reached, an account credited to one of its plays confirmed or
+activated, and the results seen and emails `games:purge-expired` deletes, the
+plays and assignments of an unconfirmed account removed — with the results it
+saw on a guest's play it went on with — and the emails of an account deleted. `analytics:refresh-visits` counts them first every minute
+(`RefreshAnalyticsPeriodHoursAction`): the hours marked, each unmarked once
+counted unless it changed again meanwhile; then every hour closed ten minutes
+since — longer than a change takes to be kept — the earliest first, from the
+first assignment's (on deploy, every hour of the assignments already made),
+passing over hours nobody was assigned in (`period_hours_through`); and at
+night the hours of the last `analytics.rollup.recheck_days` days again, a
+check that nothing was missed. An hour is read first and written after, so
+counting never holds a lock on what playing writes.
+
+`GameMetricsQuery::periodFunnel()` takes the hours counted from their sums,
+and the hours since — two or three — and the hours marked from the
+assignments themselves, the same SQL, in one read (the marked hours read
+first): the same figures as reading every assignment, at any moment, however
+long ago the refresh last ran, so nothing waits on it and no staleness
+decides. A cut inside a day, and more than 100 hours marked at once, read
+every assignment; so does everything while `analytics.rollup.period_hours` is
+off or no hour is counted yet. Measured on 696,000 assignments of 30 days
+(24,000 a day): the funnel of a period of 500,000 assignments in tens of
+milliseconds instead of two to three seconds — Landings' comparison and
+Experiments read one period, the Games tab up to 20 — and every hour of them
+counted in six seconds.
 
 ## Segments and tracking links
 
@@ -430,7 +814,19 @@ action. A moderator sees neither.
 | Segments, a deleted one only marked | for ever |
 | Tracking links, never deleted | for ever |
 | Hidden periods | for ever, as every period |
-| A tab's figures and the filter options, per administrator (cache) | 10 minutes (`analytics.read_cache_minutes`), or until Refresh, a segment saved, deleted or restored, or a tracking link saved |
+| Analytics' own rows of the visits (`analytics_visits`) | as long as their visit |
+| Each browser's first day (`analytics_people`) | 400 days from that day, as the visits (`traffic:purge-expired`) |
+| The cells of each day's people, their accounts and each post's people (`analytics_cells`, `analytics_cell_accounts`, `analytics_post_cells`) | until every visit of the day is gone (`traffic:purge-expired`); a day the cutoff runs through is written again from the visits left |
+| A browser's number (`analytics_pids`) | until no row of Analytics names it, but the highest, which the next number counts on from |
+| The sums of each day's games' visits (`analytics_game_days`) | as the cells |
+| A tab's figures and the filter options, for everyone who may open the page (cache) | 10 minutes (`analytics.read_cache_minutes`), or until Refresh, a segment saved, deleted or restored, or a tracking link saved |
+| The view each administrator last opened or chose — the period and the site's address (cache) | 24 hours from their latest (`analytics.read_ahead.idle_hours`) |
+| The accounts of each day by the post their session opened first (`analytics_first_post_cells`) | as the cells |
+| The hours of each period's assignments and their accounts (`analytics_period_hours`, `analytics_period_hour_accounts`) | as their assignments, kept for ever; an hour something of which is purged or removed is counted again |
+| The people of each game's days and the accounts their attempts signed in (`analytics_game_cells`) | as what they count: a day's visitors until its views go (`games:purge-expired`, 400 days), the day counted again without them; its attempts' people as long as the attempts; a count of an open day up to a moment until it is ten minutes older than the newest and not the one just before it |
+| A guest's number in a game's people (`analytics_game_pids`) | until no cell holds it, but the highest, which the next number counts on from (`games:purge-expired`) |
+| A day of a game's people changed since it was counted (`analytics_dirty_game_days`) | until it is counted again |
+| What Retention reads of the visit and attempt an account is credited to — its source key, device and game (`account_attributions.credited_source_key`, `credited_device`, `credited_game_id`) | as the attribution, the source key and device past the purge of the visit; the game until the attempt's pointer is let go |
 
 The privacy page is the owner's to update before Record site visits is switched
 on (docs/admin/traffic-sources.md, "Privacy page").
