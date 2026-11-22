@@ -537,7 +537,10 @@ another reads it — a second administrator, or the read ahead — waits for it,
 most `AnalyticsReadCache::WAIT_SECONDS` (30), and reads the figures itself only
 when none were kept by then (a cache lock per key, held at most 120 seconds, as
 long as a request may take). Refresh never waits, reads now, and keeps what it
-read for everyone. The store is the target's `CACHE_STORE` — the host's Redis
+read for everyone. Figures are as of the moment their read began — the time the
+page says — and a read that ends after one begun later, such as a read ahead
+still reading when an administrator pressed Refresh, keeps nothing over the
+later one's figures. The store is the target's `CACHE_STORE` — the host's Redis
 on a deployed target (the environment contract's Cache / Redis section), the
 file store on a developer's machine; Redis, database and file locks all hold
 across processes.

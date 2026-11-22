@@ -370,3 +370,24 @@ it('reads the figures itself once it waited as long as it may, and keeps them; R
     expect($refreshed['data'])->toBe(['refreshed']);
     Sleep::assertNeverSlept();
 });
+
+it('keeps what a Refresh read while an earlier read was still reading, not the earlier read finishing after it', function () {
+    $state = ['days' => ['2026-11-12', '2026-11-18']];
+
+    // A read ahead begins at 12:00:00; an administrator's Refresh, two seconds into it, reads and keeps its figures before it ends.
+    $earlier = AnalyticsReadCache::ahead(CarbonImmutable::now('UTC')->addMinutes(6))->remember('overview', $state, false, function () use ($state): array {
+        $this->travel(2)->seconds();
+        $refreshed = app(AnalyticsReadCache::class)->remember('overview', $state, true, fn (): array => ['refreshed']);
+        expect($refreshed['readAt']->format('H:i:s'))->toBe('12:00:02');
+        $this->travel(3)->seconds();
+
+        return ['earlier'];
+    });
+    $kept = app(AnalyticsReadCache::class)->remember('overview', $state, false, fn (): array => ['again']);
+
+    expect($kept['data'])->toBe(['refreshed'])
+        ->and($kept['readAt']->format('H:i:s'))->toBe('12:00:02')
+        // The earlier read still shows what it read, as of when it began.
+        ->and($earlier['data'])->toBe(['earlier'])
+        ->and($earlier['readAt']->format('H:i:s'))->toBe('12:00:00');
+});
