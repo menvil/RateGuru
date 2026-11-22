@@ -107,6 +107,14 @@ comment or reply, a follow, a post) say to confirm the address
 (`User::needsAddressConfirmation()`: living and unsanctioned, lacking only
 that). A sanctioned account reads its own notice instead.
 
+Whoever signs up can type anyone's address, so mail to an address not yet
+confirmed carries nothing the account wrote: it opens with a plain greeting
+(`MailAddressee::greetingFor()`) and leaves out a connected provider's
+address. A name or display name typed at sign-up or on the profile may not
+contain a link (`ContainsNoLink`), though an account keeps one it already has
+until it changes it. A name a provider supplies is not held to this: it is
+only ever mailed to an address that is confirmed.
+
 A week after signing up (`UnconfirmedAccountsQuery::GRACE_DAYS`) an account
 still unconfirmed is removed by the daily `users:purge-unconfirmed`
 (`--dry-run` lists who would go). It is an account of the User role, living,

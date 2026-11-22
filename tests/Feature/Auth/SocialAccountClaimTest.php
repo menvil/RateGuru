@@ -125,6 +125,46 @@ it('takes over an unconfirmed account, revoking everything its creator could sti
     $this->assertGuest();
 })->with(['google', 'facebook']);
 
+it('replaces what the creator of an unconfirmed account wrote about it', function () {
+    $squatter = User::factory()->unverified()->create([
+        'email' => 'ivan@example.com',
+        'name' => '[Claim your prize](https://spam.example/name)',
+        'display_name' => 'Spam display',
+        'bio' => 'Spam bio',
+        'profile_website_url' => 'https://spam.example/site',
+    ]);
+    $identity = confirmedIdentity('google', 'ivan@example.com');
+    $identity->name = 'Ivan Owner';
+    Socialite::fake('google', $identity);
+
+    $this->get(socialCallbackUrl('google'))->assertRedirect(route('dashboard', absolute: false));
+    $this->assertAuthenticatedAs($squatter);
+
+    expect($squatter->fresh())
+        ->name->toBe('Ivan Owner')
+        ->display_name->toBeNull()
+        ->bio->toBeNull()
+        ->profile_website_url->toBeNull();
+});
+
+it('keeps the profile of an already confirmed account the provider signs in to', function () {
+    $owner = User::factory()->create([
+        'email' => 'ivan@example.com',
+        'name' => 'Chosen Name',
+        'display_name' => 'Chosen display',
+        'bio' => 'Chosen bio',
+    ]);
+    Socialite::fake('google', confirmedIdentity('google', 'ivan@example.com'));
+
+    $this->get(socialCallbackUrl('google'))->assertRedirect(route('dashboard', absolute: false));
+    $this->assertAuthenticatedAs($owner);
+
+    expect($owner->fresh())
+        ->name->toBe('Chosen Name')
+        ->display_name->toBe('Chosen display')
+        ->bio->toBe('Chosen bio');
+});
+
 it('ends the session of whoever was signed in to the unconfirmed account before', function () {
     $squatter = User::factory()->unverified()->create(['email' => 'ivan@example.com']);
 
