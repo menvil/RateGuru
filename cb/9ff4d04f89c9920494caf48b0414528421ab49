@@ -1,0 +1,144 @@
+app/Http/Requests/Auth/RegisterUserRequest.php
+  s_6a0f90a935e849::t_93dfe4a5c00259 5,9,23-26
+lang/it/auth.php
+  s_6a0f90a935e849::t_93dfe4a5c00259 34
+lang/hr/auth.php
+  s_6a0f90a935e849::t_93dfe4a5c00259 34
+resources/views/components/auth/register-form.blade.php
+  s_6a0f90a935e849::t_93dfe4a5c00259 91-93
+lang/lv/auth.php
+  s_6a0f90a935e849::t_93dfe4a5c00259 34
+lang/sk/auth.php
+  s_6a0f90a935e849::t_93dfe4a5c00259 34
+lang/tr/auth.php
+  s_6a0f90a935e849::t_93dfe4a5c00259 34
+lang/cnr/auth.php
+  s_6a0f90a935e849::t_93dfe4a5c00259 34
+docs/dev/auth-modal.md
+  s_6a0f90a935e849::t_93dfe4a5c00259 118-143
+resources/views/components/auth/registration-guard.blade.php
+  s_6a0f90a935e849::t_23b9d94609c594 1-17
+lang/fil/auth.php
+  s_6a0f90a935e849::t_93dfe4a5c00259 34
+lang/pt/auth.php
+  s_6a0f90a935e849::t_93dfe4a5c00259 34
+lang/es/auth.php
+  s_6a0f90a935e849::t_93dfe4a5c00259 34
+lang/ka/auth.php
+  s_6a0f90a935e849::t_93dfe4a5c00259 34
+.env.example
+  s_6a0f90a935e849::t_93dfe4a5c00259 119-122
+lang/sq/auth.php
+  s_6a0f90a935e849::t_93dfe4a5c00259 34
+lang/fi/auth.php
+  s_6a0f90a935e849::t_93dfe4a5c00259 34
+resources/views/livewire/games/steps/signup.blade.php
+  s_6a0f90a935e849::t_93dfe4a5c00259 107,110-113
+lang/ru/auth.php
+  s_6a0f90a935e849::t_93dfe4a5c00259 34
+lang/nb/auth.php
+  s_6a0f90a935e849::t_93dfe4a5c00259 34
+lang/bg/auth.php
+  s_6a0f90a935e849::t_93dfe4a5c00259 34
+app/Enums/RegistrationScreeningMode.php
+  s_6a0f90a935e849::t_0d2db5b7207a80 1-21
+lang/th/auth.php
+  s_6a0f90a935e849::t_93dfe4a5c00259 34
+lang/el/auth.php
+  s_6a0f90a935e849::t_93dfe4a5c00259 34
+lang/fr/auth.php
+  s_6a0f90a935e849::t_93dfe4a5c00259 34
+app/Support/Observability/GuestVoteAttemptLog.php
+  s_6a0f90a935e849::t_d96dc510047c7e 6-9,19,27-30
+lang/lt/auth.php
+  s_6a0f90a935e849::t_93dfe4a5c00259 34
+app/Http/Controllers/Auth/RegisteredUserController.php
+  s_6a0f90a935e849::t_93dfe4a5c00259 6,31,38-46
+lang/et/auth.php
+  s_6a0f90a935e849::t_93dfe4a5c00259 34
+lang/hu/auth.php
+  s_6a0f90a935e849::t_93dfe4a5c00259 34
+lang/sr/auth.php
+  s_6a0f90a935e849::t_93dfe4a5c00259 34
+lang/zh/auth.php
+  s_6a0f90a935e849::t_93dfe4a5c00259 34
+infrastructure/templates/environment/staging.env.example
+  s_6a0f90a935e849::t_93dfe4a5c00259 152
+app/Support/AbuseGuards/RateLimitKey.php
+  s_6a0f90a935e849::t_93dfe4a5c00259 24-49
+lang/pl/auth.php
+  s_6a0f90a935e849::t_93dfe4a5c00259 34
+lang/sv/auth.php
+  s_6a0f90a935e849::t_93dfe4a5c00259 34
+lang/cs/auth.php
+  s_6a0f90a935e849::t_93dfe4a5c00259 34
+lang/uk/auth.php
+  s_6a0f90a935e849::t_93dfe4a5c00259 34
+infrastructure/config/environment-contract.json
+  s_6a0f90a935e849::t_93dfe4a5c00259 430-434
+lang/ms/auth.php
+  s_6a0f90a935e849::t_93dfe4a5c00259 34
+lang/nl/auth.php
+  s_6a0f90a935e849::t_93dfe4a5c00259 34
+phpunit.xml
+  s_6a0f90a935e849::t_93dfe4a5c00259 65-66
+lang/en/auth.php
+  s_6a0f90a935e849::t_93dfe4a5c00259 34
+tests/Pest.php
+  s_6a0f90a935e849::t_3e6fcbc7889206 14811,14813,14815-14819
+  s_6a0f90a935e849::t_627f939ba6340d 169,179,14803-14810,14812,14814
+lang/is/auth.php
+  s_6a0f90a935e849::t_93dfe4a5c00259 34
+lang/da/auth.php
+  s_6a0f90a935e849::t_93dfe4a5c00259 34
+tests/Feature/Auth/RegistrationScreeningTest.php
+  s_6a0f90a935e849::t_0349ba67034f30 1-9,12-35,38,44-75,80-146,148-152,154-155,158-164,166-172,174-176,178,181-183,185-187,189-222,224,228-250,252,257,259
+  s_6a0f90a935e849::t_403f35ddc5b42a 251
+  s_6a0f90a935e849::t_4c9ffea324eee1 253,256
+  s_6a0f90a935e849::t_2c05d261b6e3c7 225-227
+  s_6a0f90a935e849::t_73331cd3c6071c 254-255
+  s_6a0f90a935e849::t_7d768c3381b271 258
+  s_6a0f90a935e849::t_627f939ba6340d 10-11,36-37,39-43,76-79,147,153,156-157,165,173,177,179-180,184,188,223
+lang/mk/auth.php
+  s_6a0f90a935e849::t_93dfe4a5c00259 34
+lang/ro/auth.php
+  s_6a0f90a935e849::t_93dfe4a5c00259 34
+lang/sl/auth.php
+  s_6a0f90a935e849::t_93dfe4a5c00259 34
+lang/bs/auth.php
+  s_6a0f90a935e849::t_93dfe4a5c00259 34
+app/Support/Observability/SecurityLog.php
+  s_6a0f90a935e849::t_fd9da418bdb86b 1-87
+config/rate_limits.php
+  s_6a0f90a935e849::t_93dfe4a5c00259 16-22
+app/Support/Auth/RegistrationFormStamp.php
+  s_6a0f90a935e849::t_c8cc731a7accbc 1-52
+infrastructure/templates/environment/tits-guru.env.example
+  s_6a0f90a935e849::t_93dfe4a5c00259 152
+lang/vi/auth.php
+  s_6a0f90a935e849::t_93dfe4a5c00259 34
+lang/ja/auth.php
+  s_6a0f90a935e849::t_93dfe4a5c00259 34
+lang/de/auth.php
+  s_6a0f90a935e849::t_93dfe4a5c00259 34
+app/Actions/Auth/ScreenRegistrationAction.php
+  s_6a0f90a935e849::t_7e1320732559b7 1-149
+config/registration.php
+  s_6a0f90a935e849::t_b376b69f9d37e5 1-11
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "cb9ff4d04f89c9920494caf48b0414528421ab49",
+  "prompts": {},
+  "sessions": {
+    "s_6a0f90a935e849": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0c534e04-92e1-423d-8dc4-9f4bf22e3c99",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
