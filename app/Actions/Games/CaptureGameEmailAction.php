@@ -2,6 +2,7 @@
 
 namespace App\Actions\Games;
 
+use App\Actions\Analytics\MarkAnalyticsPeriodHourAction;
 use App\Enums\GameEventType;
 use App\Enums\GameFlowStepType;
 use App\Enums\GameMilestone;
@@ -29,6 +30,7 @@ final class CaptureGameEmailAction
         private readonly ActionRateLimiter $limiter,
         private readonly GameEventRecorder $events,
         private readonly GameMilestoneRecorder $milestones,
+        private readonly MarkAnalyticsPeriodHourAction $periodHours,
     ) {}
 
     /** @throws CannotPlayGameException */
@@ -55,6 +57,7 @@ final class CaptureGameEmailAction
             $snapshotStep = $locked->version->read()->step($step->key);
 
             $capture = GameEmailCapture::query()->where('attempt_id', $locked->id)->first() ?? new GameEmailCapture;
+            $first = ! $capture->exists;
             $capture->forceFill([
                 'attempt_id' => $locked->id,
                 'game_id' => $locked->game_id,
@@ -63,6 +66,11 @@ final class CaptureGameEmailAction
                 'consent_label' => $consentShown ? mb_substr((string) $snapshotStep?->text('consent_label', $locked->locale), 0, 300) : null,
                 'captured_at' => now(),
             ])->save();
+
+            // The attempt's first email is a step of its period's funnel; another replaces it.
+            if ($first) {
+                $this->periodHours->ofAttempt($locked);
+            }
 
             $this->events->record(GameEventType::EmailCaptured, (int) $locked->game_id, $visitor, attempt: $locked);
             $this->milestones->reach(GameMilestone::Email, $locked, $visitor);

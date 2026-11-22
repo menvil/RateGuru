@@ -885,6 +885,13 @@ final class GameAnalyticsView
      * share in, each still with every version's share, but with that
      * version's visitors and attempts alone.
      *
+     * The visitors and attempts are the period's figures per version
+     * (GameMetricsQuery::periodFunnel()), summed over its versions or that
+     * version's alone: each visitor is an assignment of the period, and an
+     * attempt is started from the visitor's assignment, on its game and its
+     * version (StartGameAttemptAction), so these are every assignment and
+     * every attempt of the period.
+     *
      * @return list<array<string, mixed>>
      */
     private static function periodRows(Game $game, GameAudience $audience, GameMetricsQuery $metrics, ?GameVersion $version): array
@@ -894,20 +901,26 @@ final class GameAnalyticsView
             ->where('audience', $audience->value)
             ->when($version !== null, fn (Builder $query) => $query->whereHas('versions', fn (Builder $shared) => $shared->whereKey($version->id)))
             ->with('versions')
-            ->withCount(['assignments' => fn (Builder $query) => $query->when($version !== null, fn (Builder $own) => $own->where('version_id', $version->id))])
             ->orderByDesc('started_at')
             ->orderByDesc('id')
             ->limit(20)
             ->get();
-        $attempts = $metrics->periods((int) $game->id, $version?->id);
         $funnels = $metrics->periodFunnel($periods->map(fn (GameTrafficPeriod $period): int => (int) $period->id)->all(), ExperimentsView::maturedBefore());
         $results = ExperimentsPage::canAccess();
         $scopes = app(TrafficPeriodScopesQuery::class)->labels($periods);
 
         return $periods
-            ->map(function (GameTrafficPeriod $period) use ($attempts, $funnels, $audience, $version, $results, $scopes): array {
-                $visitors = (int) $period->assignments_count;
-                $comparison = ExperimentsView::comparison($period, $audience, $funnels[(int) $period->id] ?? []);
+            ->map(function (GameTrafficPeriod $period) use ($funnels, $audience, $version, $results, $scopes): array {
+                $byVersion = $funnels[(int) $period->id] ?? [];
+                [$visitors, $started, $completed] = [0, 0, 0];
+
+                foreach ($version !== null ? array_intersect_key($byVersion, [(int) $version->id => true]) : $byVersion as $funnel) {
+                    $visitors += $funnel->assigned;
+                    $started += $funnel->attempts;
+                    $completed += $funnel->attemptsCompleted;
+                }
+
+                $comparison = ExperimentsView::comparison($period, $audience, $byVersion);
                 $state = $comparison->versions === [] ? null : $comparison->state();
 
                 return [
@@ -915,8 +928,8 @@ final class GameAnalyticsView
                     'scope' => $scopes[(int) $period->id] ?? null,
                     'shares' => $period->versions->map(fn (GameVersion $each): string => $each->label().' '.((int) $each->getRelation('pivot')->getAttribute('share_percent')).'%')->implode(' · ') ?: 'No traffic',
                     'figures' => ($version !== null ? $version->label().': ' : '')
-                        .number_format($attempts[(int) $period->id]['started'] ?? 0).' started · '
-                        .number_format($attempts[(int) $period->id]['completed'] ?? 0).' completed',
+                        .number_format($started).' started · '
+                        .number_format($completed).' completed',
                     'visitors' => number_format($visitors).' '.str('visitor')->plural($visitors),
                     'badge' => $state === null ? null : ['label' => $state->label(), 'tone' => $state->tone()],
                     'current' => $period->ended_at === null,

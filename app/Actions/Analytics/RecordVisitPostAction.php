@@ -31,6 +31,14 @@ use Illuminate\Database\Eloquent\Builder;
  * (`first_at`) when it is made, and again at the first view of a row a
  * vote, comment or share made: the moment the post was first opened, which
  * decides the post a session opened first (AnalyticsContentQuery).
+ *
+ * A row opened or shared is of a visit Analytics keeps the posts of
+ * (AnalyticsVisitRow): its day is marked to be read again once the row is
+ * written (MarkAnalyticsDayAction) — the visit can be a paid click days old.
+ * A vote or a comment is marked by the activity it comes with
+ * (RecordUserActivityAction). A post first opened on a visit can be the first
+ * its session opened, which each visit of the session credited with an
+ * account keeps (AnalyticsVisitRow::sessionPost()): their days are marked too.
  */
 final class RecordVisitPostAction
 {
@@ -40,6 +48,7 @@ final class RecordVisitPostAction
     public function __construct(
         private readonly VisitorVisitQuery $visits,
         private readonly PublishedPostDetailsQuery $posts,
+        private readonly MarkAnalyticsDayAction $analytics,
     ) {}
 
     /** The browser opened the post, which its own page would show. */
@@ -49,6 +58,7 @@ final class RecordVisitPostAction
 
         if ($visit !== null && $this->posts->isPublished($postId)) {
             $this->view((int) $visit->id, $postId, $now);
+            $this->analytics->handle($visit->network_day, $now);
         }
     }
 
@@ -59,10 +69,11 @@ final class RecordVisitPostAction
      */
     public function viewedOn(int $visitId, int $postId, CarbonImmutable $now): void
     {
-        $flags = TrafficVisit::query()->whereKey($visitId)->value('bot_flags');
+        $visit = TrafficVisit::query()->whereKey($visitId)->toBase()->first(['bot_flags', 'network_day']);
 
-        if ($flags !== null && ! BotSignals::isCrawler((int) $flags)) {
+        if ($visit !== null && ! BotSignals::isCrawler((int) $visit->bot_flags)) {
             $this->view($visitId, $postId, $now);
+            $this->analytics->handle((string) $visit->network_day, $now);
         }
     }
 
@@ -77,6 +88,7 @@ final class RecordVisitPostAction
 
         $this->row((int) $visit->id, $postId, $now);
         $this->rowOf((int) $visit->id, $postId)->whereNull('shared_at')->update(['shared_at' => $now]);
+        $this->analytics->handle($visit->network_day, $now);
     }
 
     /** A member voted on the post or commented on it on the given visit: the flag of its row. */
@@ -122,7 +134,8 @@ final class RecordVisitPostAction
      * One view more of the visit's row of the post: the first begins the row
      * then, the row of a post voted on, commented on or shared before it was
      * opened too. Of two first views at once, the one that finds the row
-     * opened already adds one instead.
+     * opened already adds one instead. A first view marks the days of the
+     * session's visits credited with an account.
      */
     private function view(int $visitId, int $postId, CarbonImmutable $now): void
     {
@@ -131,6 +144,17 @@ final class RecordVisitPostAction
 
         if ($opened === 0) {
             $this->rowOf($visitId, $postId)->where('views', '>', 0)->where('views', '<', self::MOST)->increment('views');
+
+            return;
+        }
+
+        // The visits of the session credited with an account keep the post it opened first, now perhaps this one.
+        foreach (TrafficVisit::query()
+            ->where('entry_visit_id', TrafficVisit::query()->whereKey($visitId)->select('entry_visit_id'))
+            ->whereNotNull('account_at')
+            ->distinct()
+            ->pluck('network_day') as $day) {
+            $this->analytics->handle((string) $day, $now);
         }
     }
 

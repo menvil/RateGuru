@@ -11,7 +11,9 @@ use App\Enums\PeriodMetric;
  * saw a result, left an email, reached the flow's goal — and the confirmed
  * accounts credited to those attempts; of the accounts old enough for their
  * activation to be settled (signed up before the activation days were over),
- * those matured and those activated.
+ * those matured and those activated. Beside the visitors, the attempts they
+ * started and the completed among them, each attempt counted — a replay one
+ * more.
  */
 final readonly class PeriodVersionFunnel
 {
@@ -25,6 +27,8 @@ final readonly class PeriodVersionFunnel
         public int $accounts = 0,
         public int $matured = 0,
         public int $activated = 0,
+        public int $attempts = 0,
+        public int $attemptsCompleted = 0,
     ) {}
 
     /** The count a metric reads. */
