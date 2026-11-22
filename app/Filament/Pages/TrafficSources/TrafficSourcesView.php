@@ -868,7 +868,8 @@ final class TrafficSourcesView
         $count = (int) ($block->getAttribute('lists_holding') ?? $on->count());
         $holding = $count === 0 ? '' : ' · on '.$count.' '.($count === 1 ? 'campaign’s list' : 'campaigns’ lists');
         $notOn = fn (TrafficBlockListing $listing): string => 'not on '.$name($listing).'’s: '.match ($listing->error) {
-            null => 'not sent there yet — Push again sends it.',
+            // RateGuru's own block goes by itself to a campaign it is missing from, within minutes.
+            null, TrafficBlockListing::PENDING => 'not sent there yet — it goes there within minutes.',
             TrafficBlockListing::TAKEN_OFF => 'taken off its list in the '.$network.' panel, not by RateGuru.',
             default => (string) $why($listing->error),
         };

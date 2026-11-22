@@ -26,8 +26,10 @@ use Illuminate\Support\Facades\DB;
 
 /**
  * Applies the blocks waiting for a source's network — to the campaign each
- * names, or every campaign of the source not archived — one change per
- * campaign with all its sites or zones, and takes the ones being unblocked
+ * names, or every campaign of the source not archived, or only those a
+ * block was missing from and is marked for (TrafficBlockListing::PENDING),
+ * its standing on the others kept — one change per campaign with the sites
+ * or zones it is to get, and takes the ones being unblocked
  * off the campaigns whose lists hold them (docs/architecture/traffic.md,
  * "Blocking"). Each site or zone is judged on its own by the list each
  * campaign reads back, and where it stands on each is kept
@@ -97,6 +99,10 @@ final class ApplyTrafficBlocksAction
         $targets = $first->campaign_id === null ? $running : array_values(array_intersect($running, [(int) $first->campaign_id]));
         $pending = $group->where('network_state', TrafficBlockNetworkState::Pending)->values();
         $removing = $group->where('network_state', TrafficBlockNetworkState::Removing)->values();
+        // A block waiting goes to the running campaigns marked for it alone — those it was missing from (QueueMissingTrafficBlocksAction) —
+        // and keeps where it stands on the others; any other, to every running campaign it is for.
+        $marked = $pending->mapWithKeys(fn (TrafficBlock $block): array => [(int) $block->id => $block->listings->where('error', TrafficBlockListing::PENDING)->pluck('campaign_id')->map(fn (mixed $id): int => (int) $id)->values()->all()])->all();
+        $to = $pending->mapWithKeys(fn (TrafficBlock $block): array => [(int) $block->id => $marked[(int) $block->id] === [] ? $targets : array_values(array_intersect($targets, $marked[(int) $block->id]))])->all();
         // A block being unblocked comes off the campaigns whose lists hold it; while where it stands isn't known, off every running one it is
         // for — or the one it names, ended or not, as it was put there.
         $from = $removing->mapWithKeys(fn (TrafficBlock $block): array => [(int) $block->id => array_values(array_filter(
@@ -107,14 +113,14 @@ final class ApplyTrafficBlocksAction
             },
             fn (int $id): bool => isset($external[$id]),
         ))])->all();
-        $calls = array_values(array_unique([...($pending->isEmpty() ? [] : $targets), ...array_merge([], ...array_values($from))]));
+        $calls = array_values(array_unique([...array_merge([], ...array_values($to)), ...array_merge([], ...array_values($from))]));
         sort($calls);
 
         /** @var array<int, BlockDeltaResult|ConnectorException> $results */
         $results = [];
 
         foreach ($calls as $campaignId) {
-            $add = in_array($campaignId, $targets, true) ? $pending->map(fn (TrafficBlock $block): string => (string) $block->ref)->all() : [];
+            $add = $pending->filter(fn (TrafficBlock $block): bool => in_array($campaignId, $to[(int) $block->id], true))->map(fn (TrafficBlock $block): string => (string) $block->ref)->values()->all();
             $remove = $removing->filter(fn (TrafficBlock $block): bool => in_array($campaignId, $from[(int) $block->id], true))->map(fn (TrafficBlock $block): string => (string) $block->ref)->values()->all();
 
             try {
@@ -129,7 +135,7 @@ final class ApplyTrafficBlocksAction
         $row = fn (TrafficBlock $block, int $campaignId, bool $listed, ?string $error): array => ['block_id' => (int) $block->id, 'campaign_id' => $campaignId, 'listed' => $listed, 'error' => $error, 'checked_at' => $now];
 
         foreach ($pending as $block) {
-            foreach ($targets as $campaignId) {
+            foreach ($to[(int) $block->id] as $campaignId) {
                 $result = $results[$campaignId];
                 $listings[] = match (true) {
                     $result instanceof BlockDeltaResult => in_array((string) $block->ref, $result->listed, true)
@@ -157,7 +163,7 @@ final class ApplyTrafficBlocksAction
         $done = count(array_filter($results, fn (BlockDeltaResult|ConnectorException $result): bool => $result instanceof BlockDeltaResult && $result->applied));
 
         // Where the blocks stand, their new states and the batch's line of the log, together: a log line that can't be written leaves the blocks waiting, to be sent again.
-        DB::transaction(function () use ($connection, $group, $first, $pending, $removing, $targets, $listings, $status, $done, $calls): void {
+        DB::transaction(function () use ($connection, $group, $first, $pending, $removing, $targets, $marked, $to, $listings, $status, $done, $calls): void {
             // The source, then its blocks, in the order every writer of blocks locks them (LocksTrafficRecords): an unblock, a push or a read
             // of the lists waits for this batch, or this batch for it, and none of them can delete a block under the listings written here.
             $this->lockSource((int) $connection->source_id);
@@ -169,18 +175,27 @@ final class ApplyTrafficBlocksAction
                 TrafficBlockListing::query()->upsert($chunk, ['block_id', 'campaign_id'], ['listed', 'error', 'checked_at']);
             }
 
-            // A block sent again is no longer for a campaign it wasn't sent to that doesn't hold it.
-            if ($pending->isNotEmpty()) {
-                TrafficBlockListing::query()->whereIn('block_id', $pending->pluck('id')->all())->whereNotIn('campaign_id', $targets)->where('listed', false)->delete();
+            // A block sent to every campaign is no longer for one it wasn't sent to that doesn't hold it; one sent to those it was missing from
+            // keeps where it stands on the others. Nothing is on its way anywhere once the batch is written: a campaign marked that ended
+            // meanwhile, or a block unblocked since it was marked, is no longer waited for.
+            $everywhere = $pending->filter(fn (TrafficBlock $block): bool => $marked[(int) $block->id] === [])->pluck('id')->all();
+
+            if ($everywhere !== []) {
+                TrafficBlockListing::query()->whereIn('block_id', $everywhere)->whereNotIn('campaign_id', $targets)->where('listed', false)->delete();
             }
+
+            TrafficBlockListing::query()->whereIn('block_id', $group->pluck('id')->all())->where('error', TrafficBlockListing::PENDING)->delete();
 
             $standing = TrafficBlockListing::query()->whereIn('block_id', $group->pluck('id')->all())->orderBy('campaign_id')->get()->groupBy('block_id');
             $outcomes = [];
             $updates = [];
 
             foreach ($pending as $block) {
-                $stands = BlockStanding::of($standing->get($block->id, collect()));
-                $outcomes[] = match ($stands['state']) {
+                $listings = $standing->get($block->id, collect());
+                $stands = BlockStanding::of($listings);
+                // The batch is judged by what it sent: a block sent only where it was missing went all the way once those campaigns took it.
+                $sent = $marked[(int) $block->id] === [] || $to[(int) $block->id] === [] ? $stands : BlockStanding::of($listings->whereIn('campaign_id', $to[(int) $block->id]));
+                $outcomes[] = match ($sent['state']) {
                     TrafficBlockNetworkState::Applied => 'blocked',
                     TrafficBlockNetworkState::Partial => 'partly blocked',
                     default => 'not blocked',

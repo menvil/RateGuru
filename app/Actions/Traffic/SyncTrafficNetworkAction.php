@@ -18,6 +18,7 @@ use App\Models\TrafficVisit;
 use App\Services\Traffic\Connectors\ConnectorException;
 use App\Services\Traffic\Connectors\ConnectorRegistry;
 use App\Services\Traffic\Connectors\ConnectorSession;
+use App\Services\Traffic\Connectors\EditsBlockLists;
 use App\Services\Traffic\Connectors\NetworkCampaign;
 use App\Services\Traffic\Connectors\ReadsBlockLists;
 use App\Services\Traffic\Connectors\ReadsCampaigns;
@@ -36,13 +37,15 @@ use Throwable;
  * first click is named within minutes; and every six hours each campaign's
  * block list, read and never written (ReadTrafficBlockListsAction), so what
  * was blocked or unblocked in the network's own panel shows — a list that
- * can't be read failing nothing but itself, short of a refused key. A turn
- * comes every five minutes. Only campaigns RateGuru saw a
- * click of are read and kept: a network account can hold campaigns sent
- * elsewhere. A failure waits longer each time; a refused key, an account not
- * in dollars or five failures running need the administrator. A connection
- * reconnected or disconnected during a turn keeps its new state: how the
- * turn went is the old connection's.
+ * can't be read failing nothing but itself, short of a refused key; then
+ * RateGuru's own blocks queued for the running campaigns they are missing
+ * from (QueueMissingTrafficBlocksAction), a campaign that came since among
+ * them, for the next apply to send. A turn comes every five minutes. Only
+ * campaigns RateGuru saw a click of are read and kept: a network account can
+ * hold campaigns sent elsewhere. A failure waits longer each time; a refused
+ * key, an account not in dollars or five failures running need the
+ * administrator. A connection reconnected or disconnected during a turn
+ * keeps its new state: how the turn went is the old connection's.
  */
 final class SyncTrafficNetworkAction
 {
@@ -61,6 +64,7 @@ final class SyncTrafficNetworkAction
         private readonly ReplaceSpendSliceAction $slices,
         private readonly RecordTrafficCampaignEventAction $history,
         private readonly ReadTrafficBlockListsAction $lists,
+        private readonly QueueMissingTrafficBlocksAction $missing,
     ) {}
 
     public function handle(TrafficApiConnection $connection, CarbonImmutable $now): void
@@ -101,6 +105,12 @@ final class SyncTrafficNetworkAction
             if ($connector instanceof ReadsBlockLists && ($connection->block_lists_read_at === null || $connection->block_lists_read_at->addHours(self::READ_LISTS_EVERY_HOURS)->lessThanOrEqualTo($now))) {
                 $this->readLists((int) $source->id, $connector, $session);
                 $connection->block_lists_read_at = $now;
+            }
+
+            // RateGuru's own blocks are for every running campaign: one that came since — its first click — or whose list was just read
+            // without one, nothing refused there, is sent it.
+            if ($connector instanceof EditsBlockLists) {
+                $this->missing->handle((int) $source->id, $connector->blockLevels());
             }
 
             $this->settle($connection, $fence, fn (): array => [

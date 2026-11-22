@@ -11,7 +11,8 @@ use App\Models\TrafficBlockListing;
  * one, blocked; on some, partly blocked; on none, taken off in the network's
  * panel where a list held it before, else not blocked on the network. With
  * the reason that goes with it: on a list still holding it, why taking it
- * off failed; else why a campaign refused it. A block found in the
+ * off failed; else why a campaign refused it — never a list it is on its
+ * way to, nor one it was taken off in the panel. A block found in the
  * network's own panel is blocked there while any list holds it — RateGuru
  * never sent it to the others — with why taking it off failed, if it did;
  * once none does it goes, which is the caller's to do. A pure function, so
@@ -37,7 +38,7 @@ final class BlockStanding
         }
 
         $stuck = array_values(array_filter($on, fn (?string $error): bool => $error !== null))[0] ?? null;
-        $refused = array_values(array_filter($off, fn (?string $error): bool => $error !== null && $error !== TrafficBlockListing::TAKEN_OFF))[0] ?? null;
+        $refused = array_values(array_filter($off, fn (?string $error): bool => ! in_array($error, [null, TrafficBlockListing::TAKEN_OFF, TrafficBlockListing::PENDING], true)))[0] ?? null;
 
         return match (true) {
             $panel => ['state' => TrafficBlockNetworkState::Applied, 'error' => $stuck],

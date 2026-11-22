@@ -6,13 +6,18 @@ use App\Enums\TrafficActor;
 use App\Enums\TrafficBlockLevel;
 use App\Enums\TrafficBlockMethod;
 use App\Enums\TrafficBlockNetworkState;
+use App\Enums\TrafficCampaignStatus;
+use App\Models\TrafficBlock;
 use App\Models\TrafficBlockEvent;
 use App\Models\TrafficChanceRun;
 use App\Models\TrafficSource;
 use App\Models\TrafficStepChance;
+use App\Support\Traffic\Blocking\BlockStanding;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Query\JoinClause;
+use Illuminate\Support\Collection;
 
 /**
  * What the block rule (traffic:block-losers) and a source's Blocking pane
@@ -23,7 +28,8 @@ use Illuminate\Database\Eloquent\Builder;
  * entries in the blocks log, so a block taken off again still counts; the
  * sites and zones an administrator unblocked lately — in RateGuru or in the
  * network's own panel — which the rule leaves alone; and how many accounts
- * the worth stands on, which decides whether losing is judged at all.
+ * the worth stands on, which decides whether losing is judged at all; and
+ * the running campaigns RateGuru's own blocks are still to be sent to.
  */
 final class TrafficBlocksQuery
 {
@@ -121,6 +127,52 @@ final class TrafficBlocksQuery
             ->map(fn (mixed $ref): string => (string) $ref)
             ->unique()
             ->values()
+            ->all();
+    }
+
+    /**
+     * The campaigns each of a source's blocks sent through the API by
+     * RateGuru — by an administrator or the rule — is still to be sent to:
+     * every running campaign it is for, all the source's or the one it
+     * names, whose list doesn't hold it and says nothing against it — one
+     * that came after the block, or whose list was read without it. Never
+     * one that refused it or had it taken off in the network's panel; never
+     * a block marked by hand or found in the panel, one on its way to or off
+     * the lists, one taken off them all, nor one whose unblock failed on a
+     * list still holding it — an administrator wants that one off. A block
+     * whose listings aren't known yet waits for the read of the lists to
+     * know them, but for one sent while the source had no campaign. One
+     * query, in the order the blocks and campaigns came.
+     *
+     * @param  list<TrafficBlockLevel>  $levels  the levels the source's API blocks
+     * @return array<int, list<int>> the campaigns, by the block
+     */
+    public function missingFromCampaigns(int $sourceId, array $levels): array
+    {
+        if ($levels === []) {
+            return [];
+        }
+
+        return TrafficBlock::query()
+            ->join('traffic_campaigns as targets', fn (JoinClause $join): JoinClause => $join
+                ->on('targets.source_id', '=', 'traffic_blocks.source_id')
+                ->where('targets.status', '!=', TrafficCampaignStatus::Archived->value)
+                ->where(fn (JoinClause $for): JoinClause => $for->whereNull('traffic_blocks.campaign_id')->orWhereColumn('traffic_blocks.campaign_id', 'targets.id')))
+            ->leftJoin('traffic_block_listings as standing', fn (JoinClause $join): JoinClause => $join
+                ->on('standing.block_id', '=', 'traffic_blocks.id')
+                ->on('standing.campaign_id', '=', 'targets.id'))
+            ->where('traffic_blocks.source_id', $sourceId)
+            ->whereIn('traffic_blocks.level', array_map(fn (TrafficBlockLevel $level): string => $level->value, $levels))
+            ->whereIn('traffic_blocks.method', [TrafficBlockMethod::Api->value, TrafficBlockMethod::Auto->value])
+            ->whereIn('traffic_blocks.network_state', [TrafficBlockNetworkState::Applied->value, TrafficBlockNetworkState::Partial->value, TrafficBlockNetworkState::Failed->value])
+            ->where(fn (Builder $lacking): Builder => $lacking->whereNull('standing.id')->orWhere(fn (Builder $nothing): Builder => $nothing->where('standing.listed', false)->whereNull('standing.error')))
+            ->where(fn (Builder $known): Builder => $known->whereHas('listings')->orWhere('traffic_blocks.network_error', BlockStanding::NO_CAMPAIGN))
+            ->whereDoesntHave('listings', fn (Builder $stuck): Builder => $stuck->where('listed', true)->whereNotNull('error'))
+            ->orderBy('traffic_blocks.id')
+            ->orderBy('targets.id')
+            ->get(['traffic_blocks.id as missing_block_id', 'targets.id as missing_campaign_id'])
+            ->groupBy(fn (TrafficBlock $row): int => (int) $row->getAttribute('missing_block_id'))
+            ->map(fn (Collection $rows): array => $rows->map(fn (TrafficBlock $row): int => (int) $row->getAttribute('missing_campaign_id'))->values()->all())
             ->all();
     }
 

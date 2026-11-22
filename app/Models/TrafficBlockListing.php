@@ -12,8 +12,9 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * Where a block stands on one campaign's list, as RateGuru last wrote or read
  * that list: on it or not. One not on it says why — the network refused it
  * (a TrafficConnectorFailure), it was taken off in the network's panel
- * (TAKEN_OFF), or nothing: never sent there, or taken off by RateGuru. One on
- * it says why taking it off failed, if it did.
+ * (TAKEN_OFF), it is on its way there (PENDING), or nothing: never sent
+ * there, or taken off by RateGuru. One on it says why taking it off failed,
+ * if it did.
  *
  * @property int $id
  * @property int $block_id
@@ -29,6 +30,14 @@ class TrafficBlockListing extends Model
 
     /** Off the campaign's list since RateGuru last saw it there: taken off in the network's panel. */
     public const string TAKEN_OFF = 'taken_off';
+
+    /**
+     * Not on the campaign's list yet, and on its way there alone: a block of
+     * RateGuru's own waiting for a campaign that came after it, or whose list
+     * was read without it, goes to the campaigns marked so and leaves where it
+     * stands on the others as it is (ApplyTrafficBlocksAction).
+     */
+    public const string PENDING = 'pending';
 
     protected $table = 'traffic_block_listings';
 
