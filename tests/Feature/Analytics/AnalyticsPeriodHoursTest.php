@@ -329,6 +329,28 @@ it('reads an hour changed since it was counted from its assignments until it is 
         ->and(hoursFunnel($period)[$period->id][$version->id]->attempts)->toBe(2);
 });
 
+it('reads an hour changed since it was counted from its assignments beside the sums of an hour unchanged, in one read', function () {
+    $this->travelTo('2026-11-10 10:15:00');
+    [, $version, $period] = hoursGame();
+    $changed = periodVisitor($period, $version, ['started' => true]);
+    $this->travelTo('2026-11-10 11:15:00');
+    $unchanged = periodVisitor($period, $version, ['started' => true]);
+    $this->travelTo('2026-11-12 12:00:00');
+    countPeriodHours();
+
+    // A play more on each assignment, no writer telling of it: the sums of both hours leave it out.
+    foreach ([$changed, $unchanged] as $assignment) {
+        GameAttempt::factory()->create(['version_id' => $version->id, 'assignment_id' => $assignment->id, 'visitor_hash' => $assignment->visitor_hash]);
+    }
+
+    app(MarkAnalyticsPeriodHourAction::class)->handle(CarbonImmutable::parse('2026-11-10 10:15:00'));
+    app()->forgetScopedInstances();
+
+    // The earlier hour's two plays from its assignments, the later hour's one from its sums: neither every sum (2) nor every assignment (4).
+    expect(markedPeriodHours())->toBe(['2026-11-10 10:00:00'])
+        ->and(app(GameMetricsQuery::class)->periodFunnel([(int) $period->id], CarbonImmutable::parse('2026-11-05'))[$period->id][$version->id]->attempts)->toBe(3);
+});
+
 it('never writes over an hour another run counted with what this one read of it before', function () {
     $this->travelTo('2026-11-10 10:15:00');
     [, $version, $period] = hoursGame();
