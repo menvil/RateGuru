@@ -726,7 +726,11 @@ first assignment's (on deploy, every hour of the assignments already made),
 passing over hours nobody was assigned in (`period_hours_through`); and at
 night the hours of the last `analytics.rollup.recheck_days` days again, a
 check that nothing was missed. An hour is read first and written after, so
-counting never holds a lock on what playing writes.
+counting never holds a lock on what playing writes — under the lock on the
+state's row the people of the games' days are counted under too, taken before
+the hour is read: a run started by hand beside the scheduler's counts an hour
+only once the other is done with it, so it never writes what it read before
+the other's count over it, nor adds its sums to the other's.
 
 `GameMetricsQuery::periodFunnel()` takes the hours counted from their sums,
 and the hours since — two or three — and the hours marked from the

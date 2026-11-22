@@ -329,6 +329,42 @@ it('reads an hour changed since it was counted from its assignments until it is 
         ->and(hoursFunnel($period)[$period->id][$version->id]->attempts)->toBe(2);
 });
 
+it('never writes over an hour another run counted with what this one read of it before', function () {
+    $this->travelTo('2026-11-10 10:15:00');
+    [, $version, $period] = hoursGame();
+    $assignment = periodVisitor($period, $version, ['started' => true]);
+    $this->travelTo('2026-11-12 12:00:00');
+    countPeriodHours();
+    $attempt = GameAttempt::query()->where('assignment_id', $assignment->id)->firstOrFail();
+    app(MarkAnalyticsPeriodHourAction::class)->ofAttempt($attempt);
+
+    // A run started by hand gets in as early as this run's count of the marked hour lets it: the attempt
+    // is completed, its hour marked again, and that run counts the hour and takes the newer mark away.
+    $raced = false;
+    DB::listen(function (QueryExecuted $query) use (&$raced, $attempt): void {
+        $sql = strtolower(str_replace(['"', '`'], '', $query->sql));
+
+        if ($raced || ! (str_contains($sql, 'for update') || (str_contains($sql, 'from game_assignments') && str_contains($sql, 'game_attempts')))) {
+            return;
+        }
+
+        $raced = true;
+        GameAttempt::query()->whereKey($attempt->id)->update(['status' => 'completed', 'completed_at' => now()]);
+        app(MarkAnalyticsPeriodHourAction::class)->ofAttempt($attempt);
+        countPeriodHours();
+    });
+
+    countPeriodHours();
+
+    expect($raced)->toBeTrue()
+        ->and(markedPeriodHours())->toBe([])
+        ->and(AnalyticsPeriodHour::query()->sole()->completed)->toBe(1)
+        ->and(hoursFunnel($period)[$period->id][$version->id]->completed)->toBe(1);
+})->skip(
+    fn (): bool => config('database.default') === 'sqlite',
+    'SQLite takes no row locks, and one writer holds the whole database at a time.',
+);
+
 it('marks an hour only once it closed, with a new token each time, keeping when it was first marked', function () {
     $mark = app(MarkAnalyticsPeriodHourAction::class);
     $now = CarbonImmutable::parse('2026-11-18 12:00:00');

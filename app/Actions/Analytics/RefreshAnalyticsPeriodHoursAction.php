@@ -31,7 +31,12 @@ use Illuminate\Support\Facades\DB;
  *
  * Each hour is counted in one transaction: its sums written again from its
  * assignments (GameMetricsQuery::periodHour()), read first and then inserted,
- * so counting never holds a lock on what playing writes.
+ * so counting never holds a lock on what playing writes — under a lock on the
+ * state's row taken before the hour is read, the one the people of the games'
+ * days are counted under too: a run started by hand beside the scheduler's
+ * counts an hour only once the other is done with it, so it neither writes
+ * what it read before the other's count over it nor adds its sums to the
+ * other's.
  */
 final class RefreshAnalyticsPeriodHoursAction
 {
@@ -113,6 +118,7 @@ final class RefreshAnalyticsPeriodHoursAction
     private function count(CarbonImmutable $hour, ?string $token = null): void
     {
         DB::transaction(function () use ($hour, $token): void {
+            AnalyticsRollupState::query()->whereKey(AnalyticsRollupState::ID)->lockForUpdate()->first();
             ['figures' => $figures, 'accounts' => $accounts] = $this->metrics->periodHour($hour);
 
             AnalyticsPeriodHour::query()->where('assigned_hour', $hour)->delete();
