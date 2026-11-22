@@ -1,0 +1,30 @@
+tests/Feature/Analytics/AnalyticsGameCellsTest.php
+  s_4b9dc6ab6b25d3::t_e309f4d951f6da 754
+  s_4b9dc6ab6b25d3::t_f2df62a0922938 781,784-785,787,789
+  s_4b9dc6ab6b25d3::t_b5fd2c2d11b77e 755-780,782-783,786,788,790-808
+docs/architecture/games.md
+  s_4b9dc6ab6b25d3::t_98262e37521a07 348-350
+docs/architecture/analytics.md
+  s_4b9dc6ab6b25d3::t_55f23fe8686f0e 449-453
+app/Queries/Analytics/AnalyticsGameCellsQuery.php
+  s_4b9dc6ab6b25d3::t_49b83071c4e19a 286-287
+  s_4b9dc6ab6b25d3::t_ff767f924d1a47 288-289
+  s_4b9dc6ab6b25d3::t_d997851f6fb08f 290-293
+  s_4b9dc6ab6b25d3::t_4f44f2e764ca77 327-328,330-334
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "e7de6096f982c350cf564db63f57ef85189110ea",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "unknown"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
