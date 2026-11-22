@@ -20,7 +20,8 @@ use Illuminate\Support\Collection;
  * recorded, read through the arrival index, with what each did with posts,
  * what was played on it and its session's first post; the rows already
  * written for them; the first days already known of their browsers; and the
- * days marked as changed. Read-only.
+ * days marked as changed. And what traffic:purge-expired moves a browser's
+ * first day on to once the visits before it are gone. Read-only.
  */
 final class AnalyticsRollupQuery
 {
@@ -152,6 +153,33 @@ final class AnalyticsRollupQuery
             ->pluck('first_day', 'visitor_key')
             ->map(fn (mixed $day): string => (string) $day)
             ->all();
+    }
+
+    /**
+     * The browsers whose first day known is before the day given that still
+     * have a row whose page ran, each with the earliest network day of those
+     * rows, by their number — for traffic:purge-expired once the visits
+     * before it are gone. One read of every row, no index of them leading
+     * with the browser: each browser's days, the earliest first.
+     *
+     * @return array<int, string>
+     */
+    public function firstDaysLeft(string $before): array
+    {
+        $first = [];
+        $days = AnalyticsVisit::query()
+            ->whereIn('visitor_key', AnalyticsPerson::query()->where('first_day', '<', $before)->select('visitor_key'))
+            ->where('opened', true)
+            ->distinct()
+            ->orderBy('network_day')
+            ->toBase()
+            ->get(['visitor_key', 'network_day']);
+
+        foreach ($days as $day) {
+            $first[(int) $day->visitor_key] ??= (string) $day->network_day;
+        }
+
+        return $first;
     }
 
     /**

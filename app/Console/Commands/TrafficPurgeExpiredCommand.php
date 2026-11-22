@@ -19,6 +19,7 @@ use App\Models\TrafficVisit;
 use App\Models\TrafficVisitDetail;
 use App\Models\TrafficVisitPost;
 use App\Models\UserActivityDay;
+use App\Queries\Analytics\AnalyticsRollupQuery;
 use App\Support\Traffic\Reports\TrafficReportFilter;
 use Carbon\CarbonImmutable;
 use Closure;
@@ -29,8 +30,9 @@ use Illuminate\Support\Facades\DB;
 /**
  * Deletes what the tracker recorded once it is past its retention
  * (config/traffic.php): visits after traffic.retention_days.visits (400) with
- * their conversions and Analytics' own rows of them, and each browser's first
- * day, the cells of each day's people, posts and first posts and the sums of
+ * their conversions and Analytics' own rows of them — each browser's first
+ * day moved on to the earliest of its visits left, or gone with the last of
+ * them — and the cells of each day's people, posts and first posts and the sums of
  * its games' visits once every visit of their day is gone — a day the cutoff
  * runs through is marked for analytics:refresh-visits to write again from the
  * visits left — and a browser's number once no visit of it is left; a
@@ -52,6 +54,9 @@ use Illuminate\Support\Facades\DB;
 final class TrafficPurgeExpiredCommand extends Command
 {
     private const int MAX_CHUNK_SIZE = 10_000;
+
+    /** First days moved on in one statement: well under every engine's limit on bound values. */
+    private const int FIRST_DAYS_WRITE = 400;
 
     protected $signature = 'traffic:purge-expired
         {--chunk=1000 : Rows deleted per batch}';
@@ -97,8 +102,8 @@ final class TrafficPurgeExpiredCommand extends Command
             'posts of visits' => $this->purge(TrafficVisitPost::query()->where('first_at', '<', $now->subDays($days['visit_details'])), $chunk, 'visit_id', self::postDays(...), $now),
             'postbacks' => $this->purge(TrafficPostback::query()->where('created_at', '<', $now->subDays($days['postbacks'])), $chunk),
             'visits' => $this->purge(TrafficVisit::query()->where('arrived_at', '<', $now->subDays($days['visits'])), $chunk),
-            // Analytics' own row of a visit goes with it; a browser's first day goes once visits that old are gone.
-            'first days of browsers' => $this->purge(AnalyticsPerson::query()->where('first_day', '<', $now->subDays($days['visits'])->format('Y-m-d')), $chunk, 'visitor_key'),
+            // Analytics' own row of a visit goes with it; a browser's first day moves on once visits that old are gone.
+            'first days of browsers' => $this->purgeFirstDays($now->subDays($days['visits'])->format('Y-m-d'), $chunk),
             // The cells of a day go with its visits; a browser's number once no row of Analytics names it — never the
             // highest, which the next number counts on from: a number given again would make two browsers one person.
             'cells of people' => $this->purge(AnalyticsCell::query()->where('network_day', '<=', $lastGone), $chunk),
@@ -176,6 +181,47 @@ final class TrafficPurgeExpiredCommand extends Command
             ->pluck('network_day');
 
         return $visits->merge($credited)->map(fn (mixed $day): string => substr((string) $day, 0, 10))->values()->all();
+    }
+
+    /**
+     * Each browser's first day from before the visits kept, once its visits
+     * are gone: moved on to the earliest network day its page ran among the
+     * visits left — what the rows' count of the people who came back takes
+     * for seen before a period, as the visits' count reads the visits left —
+     * or deleted with the last of them. The days left are read for all of
+     * them at once (AnalyticsRollupQuery::firstDaysLeft()).
+     */
+    private function purgeFirstDays(string $before, int $chunk): int
+    {
+        $left = app(AnalyticsRollupQuery::class)->firstDaysLeft($before);
+
+        foreach (array_chunk($left, self::FIRST_DAYS_WRITE, true) as $block) {
+            AnalyticsPerson::query()->upsert(array_map(fn (int|string $key, string $day): array => ['visitor_key' => (int) $key, 'first_day' => $day], array_keys($block), $block), ['visitor_key'], ['first_day']);
+        }
+
+        $deleted = 0;
+        $after = null;
+
+        // By key from the last batch on: a day moved on that is still before the cutoff — a network day runs past its UTC day — stays.
+        do {
+            $keys = AnalyticsPerson::query()
+                ->where('first_day', '<', $before)
+                ->when($after !== null, fn (Builder $later): Builder => $later->where('visitor_key', '>', $after))
+                ->orderBy('visitor_key')
+                ->limit($chunk)
+                ->pluck('visitor_key')
+                ->all();
+
+            if ($keys === []) {
+                break;
+            }
+
+            $after = end($keys);
+            $gone = array_values(array_filter($keys, fn (mixed $key): bool => ! isset($left[(int) $key])));
+            $deleted += $gone === [] ? 0 : AnalyticsPerson::query()->whereIn('visitor_key', $gone)->where('first_day', '<', $before)->delete();
+        } while (count($keys) === $chunk);
+
+        return $deleted;
     }
 
     /**

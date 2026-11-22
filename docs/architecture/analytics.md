@@ -822,7 +822,7 @@ action. A moderator sees neither.
 | Tracking links, never deleted | for ever |
 | Hidden periods | for ever, as every period |
 | Analytics' own rows of the visits (`analytics_visits`) | as long as their visit |
-| Each browser's first day (`analytics_people`) | 400 days from that day, as the visits (`traffic:purge-expired`) |
+| Each browser's first day (`analytics_people`) | 400 days from that day, as the visits; then moved on to the earliest day of its visits left, and gone with the last of them (`traffic:purge-expired`) |
 | The cells of each day's people, their accounts and each post's people (`analytics_cells`, `analytics_cell_accounts`, `analytics_post_cells`) | until every visit of the day is gone (`traffic:purge-expired`); a day the cutoff runs through is written again from the visits left |
 | A browser's number (`analytics_pids`) | until no row of Analytics names it, but the highest, which the next number counts on from |
 | The sums of each day's games' visits (`analytics_game_days`) | as the cells |
