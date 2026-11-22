@@ -82,7 +82,28 @@ it('reads the part days at the ends, the days changed since they were counted an
         ->and(cellStretches($changed->late))->toBe([['2026-11-17 00:00:00', '2026-11-18 00:00:00']]);
 });
 
-it('reads no cell for a window within a day, after every day counted with nothing counted up to a moment, or for all time before the first', function () {
+it('reads today alone, or from a part day before it, from the open day up to the moment, and a window starting later in the open day live', function () {
+    $today = cellWindow('2026-11-18 00:00:00', '2026-11-18 14:30:01');
+
+    expect([$today->closedFrom, $today->openFrom, $today->openThrough, $today->moment?->toDateTimeString()])->toBe([null, '2026-11-18', '2026-11-18', '2026-11-18 14:20:00'])
+        ->and(cellStretches($today->live))->toBe([['2026-11-18 14:20:00', '2026-11-18 14:30:01']])
+        ->and(cellStretches($today->late))->toBe([['2026-11-18 00:00:00', '2026-11-18 14:20:00']])
+        ->and($today->readsCells())->toBeTrue();
+
+    // Two part days with no whole one between: the day counted whole is not read, the open day is.
+    $since = cellWindow('2026-11-17 06:00:00', '2026-11-18 14:30:01');
+
+    expect([$since->closedFrom, $since->openFrom])->toBe([null, '2026-11-18'])
+        ->and(cellStretches($since->live))->toBe([['2026-11-17 06:00:00', '2026-11-18 00:00:00'], ['2026-11-18 14:20:00', '2026-11-18 14:30:01']]);
+
+    // The cells count the open day from its midnight: a window starting after it can't take them.
+    $later = cellWindow('2026-11-18 06:00:00', '2026-11-18 14:30:01');
+
+    expect($later->readsCells())->toBeFalse()
+        ->and(cellStretches($later->live))->toBe([['2026-11-18 06:00:00', '2026-11-18 14:30:01']]);
+});
+
+it('reads no cell for a window within a day that is over, after every day counted with nothing counted up to a moment, or for all time before the first', function () {
     expect(cellWindow('2026-11-10 06:00:00', '2026-11-10 18:00:00')->readsCells())->toBeFalse()
         ->and(cellStretches(cellWindow('2026-11-10 06:00:00', '2026-11-10 18:00:00')->live))->toBe([['2026-11-10 06:00:00', '2026-11-10 18:00:00']])
         ->and(cellWindow('2026-11-18 00:00:00', '2026-11-18 14:30:01', moment: null)->readsCells())->toBeFalse()

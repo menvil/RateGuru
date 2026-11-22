@@ -367,6 +367,8 @@ it('reads the cells, never every view and attempt, while they are kept, and the 
 
     expect($read())->toBe($kept)
         ->and($read('flow'))->toBe($kept)
+        // Today alone, a day not over: its cells up to the moment.
+        ->and($read(of: cellsScope($version, '2026-11-12 00:00:00', '2026-11-12 12:00:01')))->toBe($kept)
         // A device or a country is the recorded visits', which the cells don't keep.
         ->and($read('device'))->toBeFalse()
         ->and($read(of: cellsScope($version, '2026-11-01 00:00:00', '2026-11-12 12:00:01', visits: new VisitFilter(TrafficDevice::Mobile))))->toBeFalse()
