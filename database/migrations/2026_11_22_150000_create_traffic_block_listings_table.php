@@ -2,12 +2,19 @@
 
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
 {
     public function up(): void
     {
+        // Its foreign keys lock traffic_blocks and traffic_campaigns while
+        // they are made: waited for briefly, never behind a long write.
+        if (DB::getDriverName() === 'pgsql') {
+            DB::statement("set local lock_timeout = '5s'");
+        }
+
         // Where a block stands on each campaign's list, as RateGuru last wrote
         // or read that list (docs/architecture/traffic.md, "Blocking"): on it
         // or not, and why — the network refused it, or it was taken off in
