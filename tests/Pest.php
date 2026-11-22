@@ -14962,6 +14962,52 @@ function liveGame(array $draft): GameVersion
 }
 
 /**
+ * Makes each round of the draft's flow wait for its Next button, so a browser
+ * test's click never races the round's timer.
+ *
+ * @param  array{admin: User, game: Game, set: GameContentSet, flow: GameFlow}  $draft
+ */
+function buttonPacedGame(array $draft): void
+{
+    GameFlowStep::query()->where('flow_id', $draft['flow']->id)->where('type', GameFlowStepType::Game->value)->get()
+        ->each(fn (GameFlowStep $step) => $step->forceFill(['settings' => [...$step->settings, 'advance' => 'button']])->save());
+}
+
+/**
+ * A game's page open in the browser at this width, once Livewire has it —
+ * asked for in this language by the browser (Accept-Language) when one is
+ * given.
+ */
+function visitGame(string $slug, int $width = 1440, ?string $locale = null): mixed
+{
+    $pending = visit('/games/'.$slug);
+
+    if ($locale !== null) {
+        $pending = $pending->withLocale($locale);
+    }
+
+    $page = $pending->resize($width, 900);
+
+    waitForScript($page, "!! window.Livewire && window.Livewire.all().length > 0 && !! document.querySelector('[data-testid=\"game-page\"]')", true, 10.0);
+
+    return $page;
+}
+
+/** Picks an option and waits for the reveal's Next button. */
+function pickInGame(mixed $page, int $position): void
+{
+    $page->click('[data-testid="game-option-'.$position.'"]');
+    waitForScript($page, "!! document.querySelector('[data-testid=\"game-next\"]')", true, 10.0);
+}
+
+/** Presses the reveal's Next button and waits until the expression holds. */
+function nextInGame(mixed $page, string $until): void
+{
+    $page->click('[data-testid="game-next"]');
+    waitForScript($page, $until, true, 10.0);
+}
+
+/**
  * A split of a game's anonymous visitors for a source or one of its
  * campaigns, applied as the Traffic tab applies it (version id => share):
  * its open period.

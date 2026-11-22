@@ -3,53 +3,25 @@
 use App\Actions\Games\ChangeGameFlowAction;
 use App\Enums\GameAccountOutcome;
 use App\Enums\GameEventType;
-use App\Enums\GameFlowStepType;
 use App\Models\GameAttempt;
 use App\Models\GameEmailCapture;
 use App\Models\GameEvent;
-use App\Models\GameFlowStep;
 use App\Models\ProjectSettings;
 use App\Models\User;
 use App\Support\Games\Flow\GameFlowTemplate;
 use Illuminate\Auth\Events\Registered;
 use Illuminate\Support\Facades\Event;
 
-/**
+/*
  * A live game in a real browser: a guest plays it through at every width,
  * the page never wider than the screen; a refresh in the middle carries on
  * from the next pair; the email step keeps the address; a guest signs up on
  * the result in two steps and comes back to it signed in, the result theirs;
  * and logging in instead opens the site's own dialog.
  *
- * Each round waits for its Next button, so no timer races a click.
+ * Each round waits for its Next button (buttonPacedGame()), so no timer races
+ * a click.
  */
-function buttonPacedGame(array $draft): void
-{
-    GameFlowStep::query()->where('flow_id', $draft['flow']->id)->where('type', GameFlowStepType::Game->value)->get()
-        ->each(fn (GameFlowStep $step) => $step->forceFill(['settings' => [...$step->settings, 'advance' => 'button']])->save());
-}
-
-function visitGame(string $slug, int $width = 1440): mixed
-{
-    $page = visit('/games/'.$slug)->resize($width, 900);
-
-    waitForScript($page, "!! window.Livewire && window.Livewire.all().length > 0 && !! document.querySelector('[data-testid=\"game-page\"]')", true, 10.0);
-
-    return $page;
-}
-
-/** Picks an option and waits for the reveal's Next button. */
-function pickInGame(mixed $page, int $position): void
-{
-    $page->click('[data-testid="game-option-'.$position.'"]');
-    waitForScript($page, "!! document.querySelector('[data-testid=\"game-next\"]')", true, 10.0);
-}
-
-function nextInGame(mixed $page, string $until): void
-{
-    $page->click('[data-testid="game-next"]');
-    waitForScript($page, $until, true, 10.0);
-}
 
 beforeEach(function () {
     ProjectSettings::factory()->create();
