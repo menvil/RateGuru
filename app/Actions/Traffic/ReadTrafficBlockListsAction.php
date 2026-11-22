@@ -7,6 +7,7 @@ use App\Enums\TrafficBlockLevel;
 use App\Enums\TrafficBlockMethod;
 use App\Enums\TrafficBlockNetworkState;
 use App\Enums\TrafficCampaignStatus;
+use App\Enums\TrafficConnectorFailure;
 use App\Models\TrafficBlock;
 use App\Models\TrafficBlockEvent;
 use App\Models\TrafficBlockListing;
@@ -14,7 +15,7 @@ use App\Models\TrafficCampaign;
 use App\Models\TrafficSource;
 use App\Services\Traffic\Connectors\ConnectorException;
 use App\Services\Traffic\Connectors\ConnectorSession;
-use App\Services\Traffic\Connectors\EditsBlockLists;
+use App\Services\Traffic\Connectors\ReadsBlockLists;
 use App\Support\Traffic\Blocking\BlockStanding;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Collection;
@@ -33,14 +34,18 @@ use Illuminate\Support\Str;
  * list holding one has it, one taken off a list since is marked taken off
  * there — never put back, which would undo what an administrator did in the
  * panel — so a block off some lists is partly blocked, and off all of them
- * taken off. A block only marked here, or on its way to or off the lists,
- * is left to its own way. One line of the blocks log for what was found,
- * one for what was taken off.
+ * taken off. A campaign that ended without taking a block is no longer one
+ * it is for. A block from before where blocks stand was kept starts from
+ * what it said: an unblock that failed on the lists holding it, a refusal
+ * on those that don't. A block only marked here, or on its way to or off
+ * the lists, is left to its own way. One line of the blocks log for what
+ * was found, one for what was taken off. It is given the connector as a
+ * ReadsBlockLists alone, so it can't write a list.
  */
 final class ReadTrafficBlockListsAction
 {
     /** @throws ConnectorException */
-    public function handle(int $sourceId, EditsBlockLists $connector, ConnectorSession $session): void
+    public function handle(int $sourceId, ReadsBlockLists $connector, ConnectorSession $session): void
     {
         // RateGuru's campaign by its ID with the network.
         $campaigns = TrafficCampaign::query()->where('source_id', $sourceId)->where('status', '!=', TrafficCampaignStatus::Archived)->orderBy('id')
@@ -93,10 +98,13 @@ final class ReadTrafficBlockListsAction
             }
 
             [$listings, $touched, $taken] = $this->standings($blocks, $read, $now);
+            $ended = $this->endedWithout($sourceId, $blocks);
 
             foreach ($this->recordFound($sourceId, $level, array_map('strval', array_keys($found)), $now) as $ref => $id) {
                 foreach ($read as $campaignId => $held) {
-                    $listings[] = ['block_id' => $id, 'campaign_id' => $campaignId, 'listed' => isset($held[$ref]), 'error' => null, 'checked_at' => $now];
+                    if (isset($held[$ref])) {
+                        $listings[] = ['block_id' => $id, 'campaign_id' => $campaignId, 'listed' => true, 'error' => null, 'checked_at' => $now];
+                    }
                 }
             }
 
@@ -104,7 +112,11 @@ final class ReadTrafficBlockListsAction
                 TrafficBlockListing::query()->upsert($chunk, ['block_id', 'campaign_id'], ['listed', 'error', 'checked_at']);
             }
 
-            $this->settle($blocks->whereIn('id', $touched), $now);
+            foreach (array_chunk(array_keys($ended), 500) as $chunk) {
+                TrafficBlockListing::query()->whereKey($chunk)->delete();
+            }
+
+            $this->settle($blocks->whereIn('id', array_values(array_unique([...$touched, ...array_values($ended)]))), $now);
             $this->log($sourceId, $level, array_map('strval', array_keys($found)), TrafficBlockMethod::Panel, 'found', 'On the network’s list, blocked in its panel, not by RateGuru', $now);
             $this->log($sourceId, $level, $taken, TrafficBlockMethod::Panel, 'gone', 'Taken off the network’s list in its panel', $now);
         });
@@ -112,9 +124,10 @@ final class ReadTrafficBlockListsAction
 
     /**
      * Where each block that is on the lists, or meant to be, now stands on
-     * each list read that it is for — a block found in the panel is for
-     * every campaign — written only where it changed; the blocks whose
-     * standing changed; and those a list held before and holds no longer.
+     * each list read that it is for — a block found in the panel on those
+     * that hold it or held it — written only where it changed; the blocks
+     * whose standing changed; and those a list held before and holds no
+     * longer.
      *
      * @param  Collection<string, TrafficBlock>  $blocks
      * @param  array<int, array<array-key, true>>  $read
@@ -138,12 +151,19 @@ final class ReadTrafficBlockListsAction
 
                 $before = $block->listings->firstWhere('campaign_id', $campaignId);
                 $listed = isset($held[(string) $ref]);
-                // A list holding it has it; one that held it and holds it no longer had it taken off in the panel; one that never held it, still doesn't.
+
+                // A block found in the panel is kept against the lists that hold it, or held it: it was never for the others.
+                if ($block->method === TrafficBlockMethod::Panel && ! $listed && $before === null) {
+                    continue;
+                }
+
+                // A list holding it has it; one that held it and holds it no longer had it taken off in the panel; one that never held it, still
+                // doesn't. A block from before where blocks stand was kept starts from what it said.
                 [$onList, $error] = match (true) {
-                    $listed => [true, $before?->listed === true ? $before->error : null],
+                    $listed => [true, $before !== null ? ($before->listed ? $before->error : null) : $this->said($block, TrafficBlockNetworkState::Applied)],
                     $before?->listed === true => [false, TrafficBlockListing::TAKEN_OFF],
                     $before !== null => [false, $before->error],
-                    default => [false, null],
+                    default => [false, $this->said($block, TrafficBlockNetworkState::Failed)],
                 };
 
                 if ($before !== null && $before->listed === $onList && $before->error === $error) {
@@ -160,6 +180,54 @@ final class ReadTrafficBlockListsAction
         }
 
         return [$listings, array_keys($touched), array_map('strval', array_keys($taken))];
+    }
+
+    /**
+     * What a block from before where blocks stand was kept said, carried to
+     * a list read for the first time: an unblock that failed, for a list
+     * holding a block still applied; a campaign's refusal, for a list not
+     * holding a block that failed. Nothing for a block whose listings are
+     * kept, or one that said something else.
+     */
+    private function said(TrafficBlock $block, TrafficBlockNetworkState $state): ?string
+    {
+        return $block->listings->isEmpty() && $block->network_state === $state && TrafficConnectorFailure::tryFrom((string) $block->network_error) !== null
+            ? $block->network_error
+            : null;
+    }
+
+    /**
+     * The listings saying a campaign that has ended doesn't hold a block of
+     * RateGuru's: a block is no longer for a campaign that ended without
+     * taking it, so it isn't partly blocked for ever. A list that holds one
+     * is kept — an unblock takes it off there — and so is a block on its way
+     * to or off the lists, whose listings its sync writes.
+     *
+     * @param  Collection<string, TrafficBlock>  $blocks
+     * @return array<int, int> each listing's block, by the listing
+     */
+    private function endedWithout(int $sourceId, Collection $blocks): array
+    {
+        $ended = array_flip(TrafficCampaign::query()->where('source_id', $sourceId)->where('status', TrafficCampaignStatus::Archived)->pluck('id')->map(fn (mixed $id): int => (int) $id)->all());
+        $listings = [];
+
+        if ($ended === []) {
+            return [];
+        }
+
+        foreach ($blocks as $block) {
+            if (in_array($block->network_state, [TrafficBlockNetworkState::ByHand, TrafficBlockNetworkState::Pending, TrafficBlockNetworkState::Removing], true)) {
+                continue;
+            }
+
+            foreach ($block->listings as $listing) {
+                if (! $listing->listed && isset($ended[(int) $listing->campaign_id])) {
+                    $listings[(int) $listing->id] = (int) $block->id;
+                }
+            }
+        }
+
+        return $listings;
     }
 
     /**
@@ -198,8 +266,9 @@ final class ReadTrafficBlockListsAction
 
     /**
      * Each block whose standing changed, judged again: one found in the
-     * panel that no list holds any more goes; RateGuru's own takes the state
-     * its lists give it.
+     * panel that no list holds any more goes, and stays blocked there while
+     * one does; RateGuru's own takes the state its lists give it. Each is
+     * written only over the state it was read in.
      *
      * @param  Collection<string, TrafficBlock>  $blocks
      */
@@ -214,16 +283,15 @@ final class ReadTrafficBlockListsAction
 
         foreach ($blocks as $block) {
             $listings = $standing->get($block->id, collect());
+            $panel = $block->method === TrafficBlockMethod::Panel;
 
-            if ($block->method === TrafficBlockMethod::Panel) {
-                if (! $listings->contains('listed', true)) {
-                    $gone[] = $block->id;
-                }
+            if ($panel && ! $listings->contains('listed', true)) {
+                $gone[$block->network_state->value][] = (int) $block->id;
 
                 continue;
             }
 
-            $stands = BlockStanding::of($listings);
+            $stands = BlockStanding::of($listings, $panel);
 
             if ($stands['state'] !== $block->network_state || $stands['error'] !== $block->network_error) {
                 TrafficBlock::query()->whereKey($block->id)->where('network_state', $block->network_state)
@@ -231,8 +299,10 @@ final class ReadTrafficBlockListsAction
             }
         }
 
-        if ($gone !== []) {
-            TrafficBlock::query()->whereKey($gone)->where('method', TrafficBlockMethod::Panel)->where('network_state', TrafficBlockNetworkState::Applied)->delete();
+        foreach ($gone as $state => $ids) {
+            foreach (array_chunk($ids, 500) as $chunk) {
+                TrafficBlock::query()->whereKey($chunk)->where('method', TrafficBlockMethod::Panel)->where('network_state', $state)->delete();
+            }
         }
     }
 
