@@ -2,6 +2,7 @@
 
 namespace App\Actions\Traffic;
 
+use App\Actions\Traffic\Concerns\LocksTrafficRecords;
 use App\Enums\TrafficActor;
 use App\Enums\TrafficBlockMethod;
 use App\Enums\TrafficBlockNetworkState;
@@ -33,7 +34,8 @@ use Illuminate\Support\Facades\DB;
  * (TrafficBlockListing): on every list it is applied, on some partial, on
  * none failed with the reason (`network_error` keeps the
  * TrafficConnectorFailure, or `no_campaign`); one unblocked goes once no
- * list holds it, and stays with the reason where one still does. A call
+ * list holds it, and stays with the reason where one still does — one found
+ * in the network's panel stays blocked there (BlockStanding). A call
  * that failed changed nothing: a list that held a site holds it still. One
  * line of the log per batch, with the HTTP code and how many campaigns took
  * it all, saying whether it went all the way or part of it. Safe to repeat:
@@ -42,6 +44,8 @@ use Illuminate\Support\Facades\DB;
  */
 final class ApplyTrafficBlocksAction
 {
+    use LocksTrafficRecords;
+
     public function __construct(private readonly ConnectorRegistry $registry) {}
 
     public function handle(TrafficApiConnection $connection): void
@@ -93,9 +97,14 @@ final class ApplyTrafficBlocksAction
         $targets = $first->campaign_id === null ? $running : array_values(array_intersect($running, [(int) $first->campaign_id]));
         $pending = $group->where('network_state', TrafficBlockNetworkState::Pending)->values();
         $removing = $group->where('network_state', TrafficBlockNetworkState::Removing)->values();
-        // A block being unblocked comes off the campaigns whose lists hold it; off every one it is for while where it stands isn't known.
+        // A block being unblocked comes off the campaigns whose lists hold it; while where it stands isn't known, off every running one it is
+        // for — or the one it names, ended or not, as it was put there.
         $from = $removing->mapWithKeys(fn (TrafficBlock $block): array => [(int) $block->id => array_values(array_filter(
-            $block->listings->isEmpty() ? $targets : $block->listings->where('listed', true)->pluck('campaign_id')->map(fn (mixed $id): int => (int) $id)->all(),
+            match (true) {
+                $block->listings->isNotEmpty() => $block->listings->where('listed', true)->pluck('campaign_id')->map(fn (mixed $id): int => (int) $id)->all(),
+                $block->campaign_id !== null => [(int) $block->campaign_id],
+                default => $targets,
+            },
             fn (int $id): bool => isset($external[$id]),
         ))])->all();
         $calls = array_values(array_unique([...($pending->isEmpty() ? [] : $targets), ...array_merge([], ...array_values($from))]));
@@ -149,8 +158,11 @@ final class ApplyTrafficBlocksAction
 
         // Where the blocks stand, their new states and the batch's line of the log, together: a log line that can't be written leaves the blocks waiting, to be sent again.
         DB::transaction(function () use ($connection, $group, $first, $pending, $removing, $targets, $listings, $status, $done, $calls): void {
+            // The source, then its blocks, in the order every writer of blocks locks them (LocksTrafficRecords): an unblock, a push or a read
+            // of the lists waits for this batch, or this batch for it, and none of them can delete a block under the listings written here.
+            $this->lockSource((int) $connection->source_id);
             // What the lists hold is kept for every block still there, whatever became of it meanwhile: an unblock takes it off the lists these say hold it.
-            $present = array_flip(TrafficBlock::query()->whereKey($group->pluck('id')->all())->pluck('id')->map(fn (mixed $id): int => (int) $id)->all());
+            $present = array_flip(TrafficBlock::query()->whereKey($group->pluck('id')->all())->orderBy('id')->lockForUpdate()->pluck('id')->map(fn (mixed $id): int => (int) $id)->all());
             $kept = array_values(array_filter($listings, fn (array $listing): bool => isset($present[$listing['block_id']])));
 
             foreach (array_chunk($kept, 500) as $chunk) {
@@ -193,7 +205,7 @@ final class ApplyTrafficBlocksAction
                     continue;
                 }
 
-                $stands = BlockStanding::of($standing->get($block->id, collect()));
+                $stands = BlockStanding::of($standing->get($block->id, collect()), $block->method === TrafficBlockMethod::Panel);
                 $updates[TrafficBlockNetworkState::Removing->value][$stands['state']->value.'|'.$stands['error']][] = $block->id;
             }
 
