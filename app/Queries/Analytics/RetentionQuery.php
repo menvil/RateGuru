@@ -3,7 +3,6 @@
 namespace App\Queries\Analytics;
 
 use App\Contracts\Persistence\RawSqlPersistenceBoundary;
-use App\Enums\AnalyticsDimension;
 use App\Enums\TrafficDevice;
 use App\Enums\UserRole;
 use App\Models\AccountAttribution;
@@ -12,6 +11,7 @@ use App\Support\Analytics\AnalyticsPeriod;
 use Carbon\CarbonImmutable;
 use Closure;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Query\JoinClause;
 
 /**
  * Analytics → Retention, read from the accounts themselves rather than from
@@ -22,9 +22,10 @@ use Illuminate\Database\Eloquent\Builder;
  * account's source is the key of the visit it is credited to — the key of
  * the visit its session began with, copied onto every visit of the session —
  * its device that visit's, and its game the game of the attempt it is
- * credited to. Every week and the period are bound boundaries of moments,
- * never arithmetic on dates, and every column of the visit comes from
- * AnalyticsDimension.
+ * credited to, each copied onto the attribution as it was credited
+ * (AccountAttribution::creditedKeys()), so no visit or attempt is read, and
+ * a visit purged since leaves them. Every week and the period are bound
+ * boundaries of moments, never arithmetic on dates.
  *
  *  - groups()      per source and game, the accounts of each week given and
  *                  how many of them came back on day 1, day 7, day 30 and any
@@ -145,9 +146,7 @@ final class RetentionQuery implements RawSqlPersistenceBoundary
             ->from('user_activity_days as days')
             ->join('users', 'users.id', '=', 'days.user_id')
             ->leftJoin('account_attributions as accounts', 'accounts.user_id', '=', 'days.user_id')
-            ->when($device !== null, fn (Builder $query) => $query
-                ->join('traffic_visits as credited', 'credited.id', '=', 'accounts.credited_visit_id')
-                ->where('credited.'.AnalyticsDimension::Device->columns()[0], $device?->value))
+            ->when($device !== null, fn (Builder $query) => $query->where('accounts.credited_device', $device?->value))
             ->where('users.role', UserRole::User->value)
             ->whereBetween('days.day', [$period->fromDay, $period->toDay])
             ->where('days.day_number', '>=', 1)
@@ -161,41 +160,39 @@ final class RetentionQuery implements RawSqlPersistenceBoundary
      * cohorts' weeks or in the period — with a device given, only those
      * whose credited visit was on it: the moment, the source key of its
      * credited visit, the game of its credited attempt, and — for each
-     * return of RETURNS — whether it came back on a day in its range, as the
-     * id of a member who did or none.
+     * return of RETURNS — whether it came back on a day in its range, as 1
+     * or none. The account's days within the returns' range are joined once
+     * and folded into its one row, rather than looked up again for every
+     * return of every week.
      *
      * @return Builder<AccountAttribution>
      */
     private function signups(CarbonImmutable $weeksFrom, CarbonImmutable $weeksTo, CarbonImmutable $periodFrom, CarbonImmutable $periodTo, ?TrafficDevice $device): Builder
     {
-        $source = AnalyticsDimension::Source->columns()[0];
-        $game = AnalyticsDimension::Game->columns()[0];
         $between = fn (CarbonImmutable $from, CarbonImmutable $to): Closure => fn (Builder $query) => $query
             ->where('accounts.signed_up_at', '>=', $from->format(self::MOMENT))
             ->where('accounts.signed_up_at', '<', $to->format(self::MOMENT));
+        $returns = [];
+        $bindings = [];
 
-        $query = AccountAttribution::query()
+        foreach (self::RETURNS as $return => [$first, $last]) {
+            $returns[] = 'MAX(CASE WHEN days.day_number >= ? AND days.day_number <= ? THEN 1 END) AS '.$return;
+            array_push($bindings, $first, $last);
+        }
+
+        return AccountAttribution::query()
             ->from('account_attributions as accounts')
             ->join('users', 'users.id', '=', 'accounts.user_id')
-            ->leftJoin('traffic_visits as credited', 'credited.id', '=', 'accounts.credited_visit_id')
-            ->leftJoin('game_attempts as attempts', 'attempts.id', '=', 'accounts.credited_attempt_id')
+            ->leftJoin('user_activity_days as days', fn (JoinClause $join) => $join
+                ->on('days.user_id', '=', 'accounts.user_id')
+                ->where('days.day_number', '>=', min(array_column(self::RETURNS, 0)))
+                ->where('days.day_number', '<=', max(array_column(self::RETURNS, 1))))
             ->where('users.role', UserRole::User->value)
             ->whereNotNull('accounts.confirmed_at')
             ->where(fn (Builder $query) => $query->where($between($weeksFrom, $weeksTo))->orWhere($between($periodFrom, $periodTo)))
-            ->when($device !== null, fn (Builder $query) => $query->where('credited.'.AnalyticsDimension::Device->columns()[0], $device?->value))
-            ->select('accounts.signed_up_at', 'credited.'.$source.' as source_key', 'attempts.'.$game.' as game_id');
-
-        foreach (self::RETURNS as $return => [$first, $last]) {
-            $query->selectSub(
-                UserActivityDay::query()
-                    ->select('user_activity_days.user_id')
-                    ->whereColumn('user_activity_days.user_id', 'accounts.user_id')
-                    ->whereBetween('user_activity_days.day_number', [$first, $last])
-                    ->limit(1),
-                $return,
-            );
-        }
-
-        return $query;
+            ->when($device !== null, fn (Builder $query) => $query->where('accounts.credited_device', $device?->value))
+            ->groupBy('accounts.id', 'accounts.signed_up_at', 'accounts.credited_source_key', 'accounts.credited_game_id')
+            ->select('accounts.signed_up_at', 'accounts.credited_source_key as source_key', 'accounts.credited_game_id as game_id')
+            ->selectRaw(implode(', ', $returns), $bindings);
     }
 }

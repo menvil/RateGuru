@@ -327,6 +327,30 @@ transaction as the change it records: `view`, `assigned`, `step_viewed`,
 `share_clicked`, `replay`, `exit`, `post_opened`, `post_voted`, `post_rated`,
 `feed_voted`, `goal_reached`, `account_confirmed` and `post_sign_in_form`. Each row carries the game, version, attempt, assignment, audience
 and the user or the visitor's hash — ids and codes, never anything typed.
+An attempt's event carries the attempt's own game and the moment it was
+recorded, never earlier than the attempt's start: `GameMetricsQuery` reads an
+attempt's events by that game and from the window's start, so whatever writes
+events — an import or a backfill too — keeps to both. Whatever changes what a
+period's funnel counts of an assignment — a play started from it, completed,
+a result seen (`GameEventRecorder` tells of `result_viewed` itself), an email
+left, the goal reached, an account credited to one of its plays confirmed or
+activated, or a row of any of them deleted — tells the funnel in the same
+transaction (`MarkAnalyticsPeriodHourAction`; docs/architecture/analytics.md,
+"The hours of a period's assignments"), an import or a backfill too. Every
+change to an attempt after it began that a game's people count — completed,
+its goal reached, taken by an account, an account credited to it confirmed,
+shared, sent on, a sign-up begun — comes with its event, recorded now
+(`completed`, `goal_reached`, `account_attributed`, `account_confirmed` and the
+events the funnel counts people by): `GameEventRecorder` tells the people of
+the attempt's day of it once the day has closed (`MarkAnalyticsGameCellsAction`;
+docs/architecture/analytics.md, "The people of a game's days"), and a game's
+figures find an open day's attempts changed since it was counted by those
+events, and by the moments the attempt keeps of them (`completed_at`,
+`goal_reached_at`, `account_outcome_at`), which stay when an event goes. So
+whatever changes those columns of an attempt records the event
+with the change, at the same moment or after it — an import or a backfill too
+— and whatever deletes views, attempts or their events tells the people of
+their days first.
 `step_viewed` (`result_viewed` for Full Result) names each step after the game
 an attempt enters, the one its last pick moves it on to included.
 `share_clicked` names where the result went, and is recorded on the attempt
@@ -337,7 +361,12 @@ how signing up began: `email` or a provider on the sign-up set into Full
 Result, or `register` / `login` for the site's dialog; `exit` names where the
 visitor was actually sent.
 
-`GameMetricsQuery` reads the figures back (a registered raw-SQL boundary):
+`GameMetricsQuery` reads the figures back (a registered raw-SQL boundary) —
+the visitors, the people behind the attempts, the accounts they signed in and
+what their events tell, from the people of the game's days where those are
+kept and read (PostgreSQL with the roaringbitmap extension;
+docs/architecture/analytics.md, "The people of a game's days"), the same
+figures:
 
 | Figure | Definition |
 | --- | --- |
@@ -362,7 +391,14 @@ player by an account the browser signed up or in on (`account_browsers`) or
 by the visit a play of theirs came on. A play with no recorded visit is left
 out, and a visitor who came from two places counts in each. A country group
 is the current price set's: the countries it names, or for the last group
-every country the others don't name and an unknown one.
+every country the others don't name and an unknown one. A visit counts in a
+window while it arrived before the window ends and was last seen after it
+begins; no visit is seen on past the longest attribution window a source can
+have (30 days), so only arrivals from a day more than that before the window
+are read — a click id that came back later counts in the window it began in.
+The visits are Analytics' own rows of them (`analytics_visits`, which keep a
+tracked visit's browser hash and when it was last seen) once those are filled
+and up to date (docs/architecture/analytics.md, "What a tab reads").
 
 The funnel counts people at every step, and each step's rate names the step it
 is a share of — not always the one above it: Sign-up begun and New accounts
@@ -406,8 +442,13 @@ Experiments (`hidden_at`) is still listed here.
 
 `games:purge-expired`, daily: game events after `games.retention_days.events`
 (400) and emails after `games.retention_days.email_captures` (365), in small
-batches. Attempts, answers and results stay. The retention lives in
-`config/games.php` without environment variables.
+batches, each telling a period's funnel the hours of the assignments whose
+results seen and emails it deletes, and the people of the games' days the
+days of the views it deletes and of the attempts whose shares, sign-ups begun
+and ways on go; then the numbers of the guests' browsers no cell of those
+people holds any more are let go, never the highest. Attempts, answers and
+results stay. The retention lives in `config/games.php` without environment
+variables.
 
 ## Switches and access
 

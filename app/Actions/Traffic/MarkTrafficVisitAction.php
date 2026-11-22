@@ -2,6 +2,7 @@
 
 namespace App\Actions\Traffic;
 
+use App\Actions\Analytics\MarkAnalyticsDayAction;
 use App\Enums\TrafficEvent;
 use App\Enums\TrafficPostbackStatus;
 use App\Enums\TrafficSourceStatus;
@@ -44,7 +45,10 @@ use Carbon\CarbonImmutable;
  */
 final class MarkTrafficVisitAction
 {
-    public function __construct(private readonly TrafficVisitWorth $worth) {}
+    public function __construct(
+        private readonly TrafficVisitWorth $worth,
+        private readonly MarkAnalyticsDayAction $analytics,
+    ) {}
 
     /**
      * Whether this call was the first to mark it.
@@ -70,6 +74,8 @@ final class MarkTrafficVisitAction
 
         $values = $visit->isTracked() ? $this->worth->values($visit, $at) : VisitValue::nothing();
         $visit->forceFill(['value_real' => $values['real'], 'value_expected' => $values['expected']])->save();
+        // A mark long after the visit's day: Analytics reads that day again.
+        $this->analytics->handle($visit->network_day);
 
         $this->convert($visit, $event, $at, $context ?? new MilestoneContext);
 

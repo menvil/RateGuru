@@ -133,17 +133,17 @@ parameters:
                 status: approved
             -
                 class: App\Queries\Games\GameMetricsQuery
-                methods: [selectRaw, havingRaw]
-                reason: 'A game''s figures need conditional and distinct counts of its attempts, answers, emails and events — per version, flow or content set, per device, country or country group of the recorded visits behind them, or per traffic period and version from the visitors each period assigned — and the people with more than one attempt, without hydrating the rows; every value is bound.'
+                methods: [selectRaw]
+                reason: 'A game''s figures need conditional and distinct counts of its attempts, answers, emails and events — per version, flow or content set, per device, country or country group of the recorded visits behind them, or per traffic period and version from the visitors each period assigned — and its visitors and players, the people with more than one attempt among them, counted from rows grouped by person first, without hydrating the rows; every value is bound.; a period''s funnel over the hours of its assignments counted is the sums of those hours (analytics_period_hours) summed again, the assignments of the hours since and of those changed read the same way and joined by UNION ALL in one read'
                 bindings: required
-                behaviorTests: [tests/Feature/Queries/GameMetricsQueryTest.php]
+                behaviorTests: [tests/Feature/Queries/GameMetricsQueryTest.php, tests/Feature/Analytics/AnalyticsPeriodHoursTest.php]
                 status: approved
             -
                 class: App\Queries\Traffic\TrafficReportQuery
                 methods: [selectRaw, havingRaw, orderByRaw]
-                reason: 'Traffic reports need conditional sums and counts of the visits of a period — per level of the tree, site or zone, campaign, stage and a game''s versions, and their sign-ups per dimension against a bound cutoff — ordered by the accounts or sign-ups they brought, without hydrating up to millions of visit rows; every value is bound and every column comes from TrafficDimension.'
+                reason: 'Traffic reports need conditional sums and counts of the visits of a period — per level of the tree, site or zone, campaign, stage and a game''s versions, and their sign-ups per dimension against a bound cutoff — ordered by the accounts or sign-ups they brought, without hydrating up to millions of visit rows; every value is bound and every column comes from TrafficDimension.; a game''s figures over whole UTC days are the sums of its days (analytics_game_days) summed again, the part days at the ends read from the rows the same way and joined by UNION ALL in one read'
                 bindings: required
-                behaviorTests: [tests/Feature/Traffic/TrafficReportsTest.php]
+                behaviorTests: [tests/Feature/Traffic/TrafficReportsTest.php, tests/Feature/Analytics/AnalyticsGameDaysTest.php]
                 status: approved
             -
                 class: App\Queries\Traffic\TrafficSpendQuery
@@ -168,17 +168,38 @@ parameters:
                 status: approved
             -
                 class: App\Queries\Analytics\AnalyticsVisitsQuery
-                methods: [selectRaw, orderByRaw]
-                reason: 'Growth → Analytics counts people, not visits: conditional COUNT(DISTINCT CASE WHEN … THEN visitor_hash END) and sums over a period''s visits — per source, campaign, creative, landing, device, country, city, game or version with the people past the top groups, or too few to list, counted together and those of no value counted apart or left out when asked, per value asked for, per group of a dimension''s columns among values of its first — the five campaign tags of the sessions of some campaigns —, per pair of two dimensions'' values, per day, per hour or per block of days between bound boundaries — ordered by the people of each group; the sums of what the paid clicks cost per dimension or nested dimensions; the first day each value came on; and the result shares of the attempts played on them, without hydrating up to millions of visit rows; every value is bound and every grouping column comes from AnalyticsDimension.'
+                methods: [selectRaw, orderByRaw, fromRaw, havingRaw]
+                reason: 'Growth → Analytics counts people, not visits: conditional COUNT(DISTINCT CASE WHEN … THEN visitor_hash END) and sums over a period''s visits — per source, campaign, creative, landing, device, country, city, game or version with the people past the top groups, or too few to list, counted together and those of no value counted apart or left out when asked, per value asked for, per group of a dimension''s columns among values of its first — the five campaign tags of the sessions of some campaigns —, per pair of two dimensions'' values, per day, per hour or per block of days between bound boundaries — ordered by the people of each group; the sums of what the paid clicks cost per dimension or nested dimensions; the first day each value came on; and the result shares of the attempts played on them, without hydrating up to millions of visit rows; and, where the cells of each day''s people fit a read, the same figures, splits and lists as the size of the union of the cells'' roaring bitmaps (rb_cardinality(rb_or_agg(…))) and their sums, the people who came back as a recursive fold of the period''s days (WITH RECURSIVE, rb_or and rb_and a day) read through fromRaw, and what the figures leave out, what the paid clicks cost (HAVING a paid click) and the first day of each value from every paid click''s sums and the people the cells keep; every value is bound and every grouping column comes from AnalyticsDimension.'
                 bindings: required
-                behaviorTests: [tests/Feature/Queries/AnalyticsVisitsQueryTest.php]
+                behaviorTests: [tests/Feature/Queries/AnalyticsVisitsQueryTest.php, tests/Feature/Analytics/AnalyticsCellsTest.php]
+                status: approved
+            -
+                class: App\Queries\Analytics\AnalyticsGameDaysQuery
+                methods: [selectRaw, groupByRaw]
+                reason: 'The sums of a game''s days are read from a network day''s rows of games'' visits that arrived on one UTC day, for RefreshAnalyticsGameDaysAction to insert: the level, the days and the keys as bound values and columns, the moment of a sign-up not confirmed as a CASE expression grouped by, the first arrival and every sum the very SQL TrafficReportQuery reads a game''s visits with; then those sums summed again with every country together — portable, every value bound and every column named by the query.'
+                bindings: required
+                behaviorTests: [tests/Feature/Analytics/AnalyticsGameDaysTest.php]
+                status: approved
+            -
+                class: App\Queries\Analytics\AnalyticsGameCellsQuery
+                methods: [selectRaw, whereRaw]
+                reason: 'The people of a game''s days are read from a UTC day''s views and attempts for RefreshAnalyticsGameCellsAction to insert, whole or up to a bound moment: each person''s attempts summed up first, then each step''s people a roaring bitmap built of their numbers (rb_build_agg … FILTER), the accounts they signed in, and the attempts'' sums; the next numbers given to the day''s new browsers by ROW_NUMBER() over them; and in GameMetricsQuery''s place a window''s visitors and the people behind its attempts and their events as the size of the union of the cells'' sets (rb_cardinality(rb_or_agg(…))) beside the views and attempts of every stretch the cells don''t cover, a person read live counted only when no cell holds them, and the people who played again as a fold of the cells in turn (rb_or_agg over the cells before, as a window); and the numbers no cell holds (NOT rb_contains). PostgreSQL with the roaringbitmap extension only; every value is bound and every grouping column comes from GameMetricsQuery::GROUPS.'
+                bindings: required
+                behaviorTests: [tests/Feature/Analytics/AnalyticsGameCellsTest.php, tests/Feature/Queries/GameMetricsQueryTest.php]
+                status: approved
+            -
+                class: App\Queries\Analytics\AnalyticsCellsQuery
+                methods: [selectRaw, groupByRaw]
+                reason: 'The cells of a day''s people are read from that day''s rows in one pass apiece, for RefreshAnalyticsCellsAction to insert: GROUPING SETS over every level of detail, each step''s people a roaring bitmap built of the browsers'' numbers (rb_build_agg … FILTER), the sums beside them and every paid click''s, its page run or not; and the next numbers given to the day''s new browsers by ROW_NUMBER() over them — inserted with insertUsing, PostgreSQL with the roaringbitmap extension only; every value is bound and every column comes from AnalyticsCellLevel.; and each post''s people of the day by device, from the rows of the posts of the day''s visits, for analytics_post_cells'
+                bindings: required
+                behaviorTests: [tests/Feature/Analytics/AnalyticsCellsTest.php]
                 status: approved
             -
                 class: App\Queries\Analytics\AnalyticsContentQuery
                 methods: [selectRaw, havingRaw, orderByRaw]
-                reason: 'Site engagement counts the posts a period''s visits opened: conditional COUNT(DISTINCT CASE WHEN … THEN visitor_hash END) and sums over the rows each visit keeps of its posts — in all, per source, and per post with only the posts opened at all, the most opened first — and the different browsers of the accounts whose session first opened each post, without hydrating up to millions of rows; every value is bound and every column of the visit comes from AnalyticsDimension.'
+                reason: 'Site engagement counts the posts a period''s visits opened: conditional COUNT(DISTINCT CASE WHEN … THEN visitor_hash END) and sums over the rows each visit keeps of its posts — in all, per source, and per post with only the posts opened at all, the most opened first — and the different browsers of the accounts whose session first opened each post, without hydrating up to millions of rows; every value is bound and every column of the visit comes from AnalyticsDimension.; and, where the cells of each day''s people fit a read, the posts'' figures as the cells'' sums and the union of their sets of those who opened and voted on a post (HAVING a row of a post), each post''s people as the union of its own cells'' sets'
                 bindings: required
-                behaviorTests: [tests/Feature/Queries/AnalyticsContentQueryTest.php]
+                behaviorTests: [tests/Feature/Queries/AnalyticsContentQueryTest.php, tests/Feature/Analytics/AnalyticsCellsTest.php]
                 status: approved
             -
                 class: App\Queries\Analytics\TrafficSegmentsQuery
@@ -190,7 +211,7 @@ parameters:
             -
                 class: App\Queries\Analytics\RetentionQuery
                 methods: [selectRaw]
-                reason: 'Retention follows new accounts in weekly cohorts: per source and game, conditional SUM(CASE WHEN … THEN 1 ELSE 0 END) of the confirmed accounts that signed up between each week''s bound boundaries, of those of them that came back on day 1, day 7, day 30 and any of days 1–7, of those inside the period, and of the period''s, over one read of the accounts, without hydrating a row per account or doing arithmetic on dates; every value is bound and every column of the visit comes from AnalyticsDimension.'
+                reason: 'Retention follows new accounts in weekly cohorts: per source and game, conditional SUM(CASE WHEN … THEN 1 ELSE 0 END) of the confirmed accounts that signed up between each week''s bound boundaries, of those of them that came back on day 1, day 7, day 30 and any of days 1–7 (each account''s days joined once and folded by a conditional MAX over bound day numbers), of those inside the period, and of the period''s, over one read of the accounts and the source, device and game copied onto them, without hydrating a row per account or doing arithmetic on dates; every value is bound.'
                 bindings: required
                 behaviorTests: [tests/Feature/Queries/RetentionQueryTest.php]
                 status: approved

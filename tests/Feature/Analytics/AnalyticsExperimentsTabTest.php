@@ -398,8 +398,8 @@ it('needs no recorded visit, says nothing about recording, and reads a bounded n
     $older = comparisonPeriod($this->game, [7 => 50, 8 => 50], '2026-06-01 09:30:00', '2026-06-20 09:30:00');
     $named = $queries(['exp' => (string) $older->id]);
 
-    // The comparisons and their games, the chosen one's versions, flows and content sets, its funnel, and the shell's filters.
-    expect($few)->toBeLessThanOrEqual(10)
+    // The comparisons and their games, the chosen one's versions, flows and content sets, its funnel and how far the hours it is summed from are counted, and the shell's filters.
+    expect($few)->toBeLessThanOrEqual(11)
         ->and($many)->toBe($few)
         ->and($named)->toBeLessThanOrEqual($few + 3);
 });

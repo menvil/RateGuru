@@ -5,10 +5,14 @@ namespace App\Queries\Analytics;
 use App\Contracts\Persistence\RawSqlPersistenceBoundary;
 use App\Enums\AnalyticsDimension;
 use App\Enums\GameEventType;
+use App\Models\AnalyticsCell;
+use App\Models\AnalyticsCellAccount;
+use App\Models\AnalyticsVisit;
 use App\Models\GameAttempt;
 use App\Models\GameEvent;
 use App\Models\TrafficVisit;
 use App\Support\Analytics\ActivityDay;
+use App\Support\Analytics\AnalyticsCellLevel;
 use App\Support\Analytics\AnalyticsFilter;
 use App\Support\Analytics\AnalyticsPeriod;
 use App\Support\Analytics\AnalyticsSource;
@@ -17,7 +21,9 @@ use App\Support\Traffic\Capture\BotSignals;
 use App\Support\Traffic\Money\TrafficMoney;
 use App\Support\Traffic\Reports\TrafficReportFilter;
 use Carbon\CarbonImmutable;
+use Closure;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Model;
 use InvalidArgumentException;
 
 /**
@@ -34,6 +40,17 @@ use InvalidArgumentException;
  * span of arrivals so the arrival index narrows the scan first, as every
  * traffic report reads it.
  *
+ * The visits are read from Analytics' own narrow rows of them
+ * (analytics_visits: the browser a number, each step a flag) whenever
+ * AnalyticsRollupGate says they are filled and up to date, and from
+ * traffic_visits otherwise — the same figures either way, from the same
+ * conditions on the same days and arrivals. And where the gate allows the
+ * cells of each day's people (analytics_cells) and a read fits one of their
+ * levels — its whole days, every column it filters or splits by in the level
+ * (AnalyticsCellLevel) — figures(), by() and top() read those instead: each
+ * day's people a roaring bitmap, a period's the union of its days', the same
+ * figures again, in a fraction of the time.
+ *
  *  - figures()       the people of the filter and what they did;
  *  - by()            the same per source, campaign, country … the most
  *                    people first, and the people of every group past the
@@ -45,8 +62,9 @@ use InvalidArgumentException;
  *                    referrer names, and the paid clicks that were crawlers
  *                    or whose page never ran, with their spend;
  *  - attempts()      the attempts played on the period's visits;
- *  - resultShares()  the clicks on a result's share buttons, and the results;
- *  - top()           the values a dimension's people came through, the most
+ *  - resultShares()  the clicks on a result's share buttons, and the results
+ *                    — both kept on each visit's row and summed by the cells;
+ *  - top()           the values a dimension's visits came by, the most
  *                    first, with nothing counted — those beginning as asked,
  *                    when asked: what a filter offers;
  *  - of()            the figures of each of the values given of a dimension;
@@ -84,12 +102,34 @@ final class AnalyticsVisitsQuery implements RawSqlPersistenceBoundary
     /** How many groups the rest of a split leaves out in one block of its test (excluding()). */
     private const int EXCLUDED_BLOCK = 100;
 
+    /** @var array<string, array{0: string, 1: string}> each test a figure makes of a visit, on traffic_visits and on Analytics' own rows */
+    private const array TESTS = [
+        'opened' => ['opened_at IS NOT NULL', 'opened'],
+        'started' => ['started_at IS NOT NULL', 'started'],
+        'completed' => ['completed_at IS NOT NULL', 'completed'],
+        'goal' => ['goal_at IS NOT NULL', 'goal'],
+        'signup_form' => ['signup_form_at IS NOT NULL', 'signup_form'],
+        'signed_up' => ['signup_at IS NOT NULL', 'signed_up'],
+        'account' => ['account_at IS NOT NULL', 'account'],
+        'activated' => ['activated_at IS NOT NULL', 'activated'],
+        'matured' => ['account_at IS NOT NULL AND signup_at < ?', 'account AND signup_at < ?'],
+        'tagged' => ['utm_source IS NOT NULL OR utm_medium IS NOT NULL', 'tagged'],
+        'paid' => ['source_id IS NOT NULL', 'source_id IS NOT NULL'],
+        'crawler' => ['(bot_flags & ?) <> 0', 'crawler'],
+        'not_crawler' => ['(bot_flags & ?) = 0', 'NOT crawler'],
+        'unopened' => ['opened_at IS NULL', 'NOT opened'],
+    ];
+
+    public function __construct(private readonly AnalyticsRollupGate $gate) {}
+
     /** The figures of every visit the filter admits. */
     public function figures(AnalyticsFilter $filter): VisitorFigures
     {
-        [$metrics, $bindings] = self::metrics($filter);
+        $level = $this->level($filter);
+        [$metrics, $bindings] = $this->metrics($filter, $level);
+        $figures = VisitorFigures::fromRow((array) $this->rows($filter, $level)->selectRaw($metrics, $bindings)->toBase()->first());
 
-        return VisitorFigures::fromRow((array) $this->visits($filter)->selectRaw($metrics, $bindings)->toBase()->first());
+        return $level === null ? $figures : $figures->withMaturedAccounts($this->matured($this->accountsOf($filter, $level)));
     }
 
     /**
@@ -126,18 +166,20 @@ final class AnalyticsVisitsQuery implements RawSqlPersistenceBoundary
             throw new InvalidArgumentException("No split treats the visits of no value as [{$unnamed}].");
         }
 
-        [$metrics, $bindings] = self::metrics($filter);
         $columns = $dimension->columns();
+        $level = $this->level($filter, $columns);
+        [$metrics, $bindings] = $this->metrics($filter, $level);
         $limit = max(1, min($limit ?? self::MOST_GROUPS, self::MOST_GROUPS));
         $least = max(1, $least);
         $named = fn (Builder $query): Builder => $unnamed === self::UNNAMED_LISTED ? $query : $query->whereNotNull($columns[0]);
 
-        $read = $named($this->visits($filter))
+        $read = $named($this->rows($filter, $level))
             ->groupBy(...$columns)
             ->select($columns)
             ->selectRaw($metrics, $bindings)
-            ->orderByRaw('COUNT(DISTINCT visitor_hash) DESC', [])
-            ->orderBy($columns[0])
+            ->orderByRaw($this->peopleOrder($level).' DESC', [])
+            // Groups that tie, by every column: one order whichever rows are read, so the same groups make the limit.
+            ->tap(fn (Builder $query) => self::byEveryColumn($query, $columns))
             ->limit($limit)
             ->toBase()
             ->get()
@@ -146,22 +188,38 @@ final class AnalyticsVisitsQuery implements RawSqlPersistenceBoundary
             ->all();
         // The most people first: a group too small to be listed is followed only by others as small.
         $rows = array_values(array_filter($read, fn (array $row): bool => $row['figures']->visitors >= $least));
-        $rows = $this->keeping($filter, $columns, $read, $rows, $keep, $limit, $unnamed);
+        $rows = $this->keeping($filter, $level, $columns, $read, $rows, $keep, $limit, $unnamed);
         $left = count($read) >= $limit || count($rows) < count($read) || $unnamed === self::UNNAMED_IN_REST;
+        $listed = array_column($rows, 'keys');
         $rest = null;
 
         if ($left) {
-            $rest = self::counted((array) self::excluding(in_array($unnamed, [self::UNNAMED_APART, self::UNNAMED_LEFT_OUT], true) ? $named($this->visits($filter)) : $this->visits($filter), $columns, array_column($rows, 'keys'))
+            $rest = self::counted((array) self::restOf($this->rows($filter, $level), $columns, $listed, $unnamed)
                 ->selectRaw($metrics, $bindings)
                 ->toBase()
                 ->first());
         }
 
-        $none = $unnamed !== self::UNNAMED_APART ? null : self::counted((array) $this->visits($filter)
+        $none = $unnamed !== self::UNNAMED_APART ? null : self::counted((array) $this->rows($filter, $level)
             ->whereNull($columns[0])
             ->selectRaw($metrics, $bindings)
             ->toBase()
             ->first());
+
+        // The cells keep no account's sign-up day beside its visit's: the
+        // matured accounts of each group, of the rest and of no value come
+        // from the accounts kept by that day, the same groups and conditions.
+        if ($level !== null) {
+            $rows = $this->maturing($rows, $filter, $level, $columns);
+
+            if ($rest !== null) {
+                $rest['figures'] = $rest['figures']->withMaturedAccounts($this->matured(self::restOf($this->accountsOf($filter, $level), $columns, $listed, $unnamed)));
+            }
+
+            if ($none !== null) {
+                $none['figures'] = $none['figures']->withMaturedAccounts($this->matured($this->accountsOf($filter, $level)->whereNull($columns[0])));
+            }
+        }
 
         return [
             'rows' => $rows,
@@ -187,11 +245,14 @@ final class AnalyticsVisitsQuery implements RawSqlPersistenceBoundary
             return [];
         }
 
+        // Hours are moments of arrival, which the cells don't keep: only days and blocks of them read the cells.
+        $level = $buckets[0]['unit'] === AnalyticsPeriod::HOUR ? null : $this->level($filter);
+
         if ($buckets[0]['unit'] === AnalyticsPeriod::DAY) {
-            $byDay = $this->visits($filter)
+            $byDay = $this->rows($filter, $level)
                 ->groupBy('network_day')
                 ->select('network_day')
-                ->selectRaw('COUNT(DISTINCT visitor_hash) AS visitors', [])
+                ->selectRaw($this->peopleOrder($level).' AS visitors', [])
                 ->toBase()
                 ->get()
                 ->mapWithKeys(fn (object $row): array => [(string) $row->network_day => (int) $row->visitors]);
@@ -214,11 +275,13 @@ final class AnalyticsVisitsQuery implements RawSqlPersistenceBoundary
                 $bounds = ['network_day >= ? AND network_day <= ?', [$bucket['fromDay'], $bucket['toDay']]];
             }
 
-            $counts[] = 'COUNT(DISTINCT CASE WHEN '.$bounds[0].' THEN visitor_hash END) AS bucket_'.$index;
+            $counts[] = ($level === null
+                ? 'COUNT(DISTINCT CASE WHEN '.$bounds[0].' THEN '.$this->person().' END)'
+                : 'COALESCE(rb_cardinality(rb_or_agg(visitors::roaringbitmap) FILTER (WHERE '.$bounds[0].')), 0)').' AS bucket_'.$index;
             array_push($bindings, ...$bounds[1]);
         }
 
-        $row = (array) $this->visits($filter)->selectRaw(implode(', ', $counts), $bindings)->toBase()->first();
+        $row = (array) $this->rows($filter, $level)->selectRaw(implode(', ', $counts), $bindings)->toBase()->first();
 
         return array_map(fn (int $index): int => (int) ($row['bucket_'.$index] ?? 0), array_keys($buckets));
     }
@@ -230,10 +293,27 @@ final class AnalyticsVisitsQuery implements RawSqlPersistenceBoundary
      */
     public function returning(AnalyticsFilter $filter): int
     {
+        $level = $this->level($filter);
+
+        if ($level !== null) {
+            return $this->returningFromCells($filter, $level);
+        }
+
+        $person = $this->person();
         $people = $this->visits($filter)
-            ->groupBy('visitor_hash')
-            ->select('visitor_hash')
+            ->groupBy($person)
+            ->select($person)
             ->selectRaw('COUNT(DISTINCT network_day) AS days', []);
+
+        // Analytics' own rows know each browser's first day: seen before is a first day before the period's.
+        if ($this->gate->reads()) {
+            return AnalyticsVisit::query()
+                ->fromSub($people, 'period_people')
+                ->join('analytics_people as person', 'person.visitor_key', '=', 'period_people.visitor_key')
+                ->where(fn (Builder $either) => $either->where('period_people.days', '>', 1)->orWhere('person.first_day', '<', $filter->fromDay()))
+                ->count();
+        }
+
         $earlier = TrafficVisit::query()
             ->from('traffic_visits as earlier')
             ->whereColumn('earlier.visitor_hash', 'period_people.visitor_hash')
@@ -257,18 +337,9 @@ final class AnalyticsVisitsQuery implements RawSqlPersistenceBoundary
      */
     public function quality(AnalyticsFilter $filter): array
     {
-        $row = (array) $this->visits($filter, openedOnly: false)
-            ->selectRaw(implode(', ', [
-                'COUNT(DISTINCT CASE WHEN opened_at IS NOT NULL THEN visitor_hash END) AS visitors',
-                'COUNT(DISTINCT CASE WHEN opened_at IS NOT NULL AND source_key = ? THEN visitor_hash END) AS direct',
-                'SUM(CASE WHEN source_id IS NOT NULL THEN 1 ELSE 0 END) AS paid_clicks',
-                'SUM(CASE WHEN source_id IS NOT NULL AND (bot_flags & ?) <> 0 THEN 1 ELSE 0 END) AS crawlers',
-                'SUM(CASE WHEN source_id IS NOT NULL AND opened_at IS NULL AND (bot_flags & ?) = 0 THEN 1 ELSE 0 END) AS never_ran',
-                'SUM(CASE WHEN source_id IS NOT NULL THEN spend ELSE 0 END) AS spend',
-                'SUM(CASE WHEN source_id IS NOT NULL AND spend_estimated THEN spend ELSE 0 END) AS spend_estimated',
-            ]), [AnalyticsSource::DIRECT, BotSignals::CRAWLER, BotSignals::CRAWLER])
-            ->toBase()
-            ->first();
+        // The cells keep every paid click's sums beside the people: where they fit, the people of Direct need the source in the level.
+        $level = $this->level($filter, ['source_key']);
+        $row = $level === null ? $this->qualityOfRows($filter) : $this->qualityOfCells($filter, $level);
 
         return [
             'visitors' => (int) ($row['visitors'] ?? 0),
@@ -281,38 +352,91 @@ final class AnalyticsVisitsQuery implements RawSqlPersistenceBoundary
         ];
     }
 
-    /** How many attempts were started on the visits the filter admits: a game's starters play some more than once. */
+    /** @return array<string, mixed> what the figures leave out, read from every visit the filter admits */
+    private function qualityOfRows(AnalyticsFilter $filter): array
+    {
+        return (array) $this->visits($filter, openedOnly: false)
+            ->selectRaw(implode(', ', [
+                'COUNT(DISTINCT CASE WHEN '.$this->test('opened').' THEN '.$this->person().' END) AS visitors',
+                'COUNT(DISTINCT CASE WHEN '.$this->test('opened').' AND source_key = ? THEN '.$this->person().' END) AS direct',
+                'SUM(CASE WHEN '.$this->test('paid').' THEN 1 ELSE 0 END) AS paid_clicks',
+                'SUM(CASE WHEN '.$this->test('paid').' AND '.$this->test('crawler').' THEN 1 ELSE 0 END) AS crawlers',
+                'SUM(CASE WHEN '.$this->test('paid').' AND '.$this->test('unopened').' AND '.$this->test('not_crawler').' THEN 1 ELSE 0 END) AS never_ran',
+                'SUM(CASE WHEN '.$this->test('paid').' THEN spend ELSE 0 END) AS spend',
+                'SUM(CASE WHEN '.$this->test('paid').' AND spend_estimated THEN spend ELSE 0 END) AS spend_estimated',
+            ]), $this->gate->reads() ? [AnalyticsSource::DIRECT] : [AnalyticsSource::DIRECT, BotSignals::CRAWLER, BotSignals::CRAWLER])
+            ->toBase()
+            ->first();
+    }
+
+    /** @return array<string, mixed> what the figures leave out, read from the cells of a level holding the source */
+    private function qualityOfCells(AnalyticsFilter $filter, AnalyticsCellLevel $level): array
+    {
+        return (array) self::ofCells(AnalyticsCell::query(), $filter, $level)
+            ->selectRaw(implode(', ', [
+                'COALESCE(rb_cardinality(rb_or_agg(visitors::roaringbitmap)), 0) AS visitors',
+                'COALESCE(rb_cardinality(rb_or_agg(visitors::roaringbitmap) FILTER (WHERE source_key = ?)), 0) AS direct',
+                'COALESCE(SUM(paid_clicks), 0) AS paid_clicks',
+                'COALESCE(SUM(crawlers), 0) AS crawlers',
+                'COALESCE(SUM(never_ran), 0) AS never_ran',
+                'COALESCE(SUM(paid_spend), 0) AS spend',
+                'COALESCE(SUM(paid_spend_estimated), 0) AS spend_estimated',
+            ]), [AnalyticsSource::DIRECT])
+            ->toBase()
+            ->first();
+    }
+
+    /**
+     * How many attempts were started on the visits the filter admits: a
+     * game's starters play some more than once. Each visit's row keeps its
+     * attempts, and each cell their sum: the attempts themselves are read
+     * only while the visits are.
+     */
     public function attempts(AnalyticsFilter $filter): int
     {
-        return GameAttempt::query()->whereIn('traffic_visit_id', $this->visitIds($filter))->count();
+        if (! $this->gate->reads()) {
+            return GameAttempt::query()->whereIn('traffic_visit_id', $this->visitIds($filter))->count();
+        }
+
+        return (int) $this->rows($filter, $this->level($filter))->sum('attempts');
     }
 
     /**
      * The clicks on a result's share buttons, of the attempts started on the
      * visits the filter admits, and how many results they shared — different
-     * attempts with a click.
+     * attempts with a click. Each visit's row keeps both for its attempts,
+     * and each cell their sums — an attempt is started on one visit at most,
+     * so the visits' results add up to the different attempts: the events
+     * themselves are read only while the visits are.
      *
      * @return array{clicks: int, results: int}
      */
     public function resultShares(AnalyticsFilter $filter): array
     {
-        $row = (array) GameEvent::query()
-            ->where('type', GameEventType::ShareClicked->value)
-            ->whereIn('attempt_id', GameAttempt::query()->whereIn('traffic_visit_id', $this->visitIds($filter))->select('id'))
-            ->selectRaw('COUNT(*) AS clicks, COUNT(DISTINCT attempt_id) AS results', [])
-            ->toBase()
-            ->first();
+        if ($this->gate->reads()) {
+            $read = $this->rows($filter, $this->level($filter))
+                ->selectRaw('COALESCE(SUM(share_clicks), 0) AS clicks, COALESCE(SUM(shared_results), 0) AS results', []);
+        } else {
+            $read = GameEvent::query()
+                ->where('type', GameEventType::ShareClicked->value)
+                ->whereIn('attempt_id', GameAttempt::query()->whereIn('traffic_visit_id', $this->visitIds($filter))->select('id'))
+                ->selectRaw('COUNT(*) AS clicks, COUNT(DISTINCT attempt_id) AS results', []);
+        }
+
+        $row = (array) $read->toBase()->first();
 
         return ['clicks' => (int) ($row['clicks'] ?? 0), 'results' => (int) ($row['results'] ?? 0)];
     }
 
     /**
-     * The groups of a dimension the most people came through, the most first
-     * and then by the value, at most the limit given: only their values, by
-     * column, what a filter of the page offers to choose from. Given a
-     * beginning, only the groups whose first column begins with it are
-     * ranked — the campaigns named by their tags ("tag:"), say — so none of
-     * the others takes a place of the limit; a beginning that is empty or
+     * The groups of a dimension the most visits came by, the most first and
+     * then by the value, at most the limit given: only their values, by
+     * column, what a filter of the page offers to choose from. Ranked by
+     * visits, not people: a list to choose from needs no browser counted
+     * once, and counting each browser once sorts every visit of the period.
+     * Given a beginning, only the groups whose first column begins with it
+     * are ranked — the campaigns named by their tags ("tag:"), say — so none
+     * of the others takes a place of the limit; a beginning that is empty or
      * holds a LIKE wildcard (% or _) or a backslash is refused, since it
      * would match more than itself.
      *
@@ -326,12 +450,14 @@ final class AnalyticsVisitsQuery implements RawSqlPersistenceBoundary
             throw new InvalidArgumentException("No values are offered by the beginning [{$prefix}].");
         }
 
-        return $this->visits($filter)
+        $level = $this->level($filter, $columns);
+
+        return $this->rows($filter, $level)
             ->when($prefix !== null, fn (Builder $begins) => $begins->where($columns[0], 'like', $prefix.'%'))
             ->groupBy(...$columns)
             ->select($columns)
-            ->orderByRaw('COUNT(DISTINCT visitor_hash) DESC', [])
-            ->orderBy($columns[0])
+            ->orderByRaw($level === null ? 'COUNT(*) DESC' : 'SUM(visits) DESC', [])
+            ->tap(fn (Builder $query) => self::byEveryColumn($query, $columns))
             ->limit(max(1, min($limit, self::MOST_GROUPS)))
             ->toBase()
             ->get()
@@ -356,14 +482,25 @@ final class AnalyticsVisitsQuery implements RawSqlPersistenceBoundary
             return [];
         }
 
-        [$metrics, $bindings] = self::metrics($filter);
+        $level = $this->level($filter, [$column]);
+        [$metrics, $bindings] = $this->metrics($filter, $level);
+        $read = $this->rows($filter, $level)
+            ->whereIn($column, $values)
+            ->groupBy($column)
+            ->select($column)
+            ->selectRaw($metrics, $bindings)
+            ->toBase()
+            ->get()
+            ->map(fn (object $row): array => ['keys' => self::keys((array) $row, [$column]), ...self::counted((array) $row)])
+            ->values()
+            ->all();
         $groups = [];
 
-        foreach ($this->visits($filter)->whereIn($column, $values)->groupBy($column)->select($column)->selectRaw($metrics, $bindings)->toBase()->get() as $row) {
-            $value = self::keys((array) $row, [$column])[$column];
+        foreach ($this->maturing($read, $filter, $level, [$column], fn (Builder $accounts): Builder => $accounts->whereIn($column, $values)) as $row) {
+            $value = $row['keys'][$column];
 
             if ($value !== null) {
-                $groups[$value] = self::counted((array) $row);
+                $groups[$value] = ['figures' => $row['figures'], 'visits' => $row['visits'], 'tagged' => $row['tagged']];
             }
         }
 
@@ -392,27 +529,31 @@ final class AnalyticsVisitsQuery implements RawSqlPersistenceBoundary
             return [];
         }
 
-        [$metrics, $bindings] = self::metrics($filter);
-
-        $query = $this->visits($filter)
+        $level = $this->level($filter, $columns);
+        [$metrics, $bindings] = $this->metrics($filter, $level);
+        $narrow = fn (Builder $query): Builder => $query
             ->whereIn($columns[0], $firstValues)
-            ->when($only !== [], fn (Builder $asked) => self::ofGroups($asked, $columns, $only))
+            ->when($only !== [], fn (Builder $asked) => self::ofGroups($asked, $columns, $only));
+
+        $query = $narrow($this->rows($filter, $level))
             ->groupBy(...$columns)
             ->select($columns)
             ->selectRaw($metrics, $bindings)
-            ->orderByRaw('COUNT(DISTINCT visitor_hash) DESC', []);
+            ->orderByRaw($this->peopleOrder($level).' DESC', []);
 
         foreach ($columns as $column) {
             $query->orderBy($column);
         }
 
-        return $query
+        $read = $query
             ->limit(self::MOST_GROUPS)
             ->toBase()
             ->get()
             ->map(fn (object $row): array => ['keys' => self::keys((array) $row, $columns), ...self::counted((array) $row)])
             ->values()
             ->all();
+
+        return $this->maturing($read, $filter, $level, $columns, $narrow);
     }
 
     /**
@@ -433,13 +574,15 @@ final class AnalyticsVisitsQuery implements RawSqlPersistenceBoundary
             return [];
         }
 
-        return $this->visits($filter)
+        $level = $this->level($filter, $columns);
+
+        return $this->rows($filter, $level)
             ->whereIn($columns[0], $firstValues)
             ->whereNotNull($columns[1])
             ->groupBy(...$columns)
             ->select($columns)
-            ->selectRaw('COUNT(DISTINCT visitor_hash) AS visitors', [])
-            ->orderByRaw('COUNT(DISTINCT visitor_hash) DESC', [])
+            ->selectRaw($this->peopleOrder($level).' AS visitors', [])
+            ->orderByRaw($this->peopleOrder($level).' DESC', [])
             ->orderBy($columns[0])
             ->orderBy($columns[1])
             ->limit(self::MOST_GROUPS)
@@ -471,13 +614,25 @@ final class AnalyticsVisitsQuery implements RawSqlPersistenceBoundary
             return [];
         }
 
-        return $this->visits($filter, openedOnly: false)
-            ->whereNotNull('source_id')
+        $level = $this->level($filter, $columns);
+        // The cells keep every paid click's spend, its page run or not: a group with a paid click is one the visits list too.
+        $read = $level === null
+            ? $this->visits($filter, openedOnly: false)
+                ->whereNotNull('source_id')
+                ->selectRaw('SUM(spend) AS spend, SUM(CASE WHEN spend_estimated THEN spend ELSE 0 END) AS spend_estimated', [])
+            : self::ofCells(AnalyticsCell::query(), $filter, $level)
+                ->selectRaw('SUM(paid_spend) AS spend, SUM(paid_spend_estimated) AS spend_estimated', [])
+                ->havingRaw('SUM(paid_clicks) > ?', [0]);
+
+        foreach ($columns as $column) {
+            $read->orderBy($column);
+        }
+
+        return $read
             ->whereNotNull($columns[0])
             ->when($firstValues !== null, fn (Builder $among) => $among->whereIn($columns[0], $firstValues))
             ->groupBy(...$columns)
-            ->select($columns)
-            ->selectRaw('SUM(spend) AS spend, SUM(CASE WHEN spend_estimated THEN spend ELSE 0 END) AS spend_estimated', [])
+            ->addSelect($columns)
             ->toBase()
             ->get()
             ->map(fn (object $row): array => [
@@ -507,13 +662,18 @@ final class AnalyticsVisitsQuery implements RawSqlPersistenceBoundary
         }
 
         $window = new TrafficReportFilter($fromDay, $toDay);
+        $level = $this->gate->readsCells() ? AnalyticsCellLevel::covering([$column]) : null;
         $days = [];
+        // Whole days whatever a filter narrows: the cells of the level holding the column, those with anyone whose page ran.
+        $read = $level !== null
+            ? AnalyticsCell::query()->where('level', $level->value)->whereBetween('network_day', [$fromDay, $toDay])->whereNotNull('visitors')
+            : $this->model()::query()
+                ->whereBetween('network_day', [$fromDay, $toDay])
+                ->where('arrived_at', '>=', $window->arrivedFrom())
+                ->where('arrived_at', '<', $window->arrivedBefore())
+                ->when($this->gate->reads(), fn (Builder $opened) => $opened->where('opened', true), fn (Builder $opened) => $opened->whereNotNull('opened_at'));
 
-        foreach (TrafficVisit::query()
-            ->whereBetween('network_day', [$fromDay, $toDay])
-            ->where('arrived_at', '>=', $window->arrivedFrom())
-            ->where('arrived_at', '<', $window->arrivedBefore())
-            ->whereNotNull('opened_at')
+        foreach ($read
             ->whereIn($column, $values)
             ->groupBy($column)
             ->select($column)
@@ -564,14 +724,15 @@ final class AnalyticsVisitsQuery implements RawSqlPersistenceBoundary
         return $day === null ? null : substr((string) $day, 0, 10);
     }
 
-    /** @return Builder<TrafficVisit> */
+    /** @return Builder<TrafficVisit>|Builder<AnalyticsVisit> */
     private function visits(AnalyticsFilter $filter, bool $openedOnly = true): Builder
     {
-        $query = TrafficVisit::query()
+        $query = $this->model()::query()
             ->whereBetween('network_day', [$filter->fromDay(), $filter->toDay()])
             ->where('arrived_at', '>=', $filter->arrivedFrom())
             ->where('arrived_at', '<', $filter->arrivedBefore())
-            ->when($openedOnly, fn (Builder $opened) => $opened->whereNotNull('opened_at'));
+            ->when($openedOnly && $this->gate->reads(), fn (Builder $opened) => $opened->where('opened', true))
+            ->when($openedOnly && ! $this->gate->reads(), fn (Builder $opened) => $opened->whereNotNull('opened_at'));
 
         foreach ($filter->conditions() as [$column, $value]) {
             $value === null ? $query->whereNull($column) : $query->where($column, $value);
@@ -592,7 +753,7 @@ final class AnalyticsVisitsQuery implements RawSqlPersistenceBoundary
         return $columns[0];
     }
 
-    /** @return Builder<TrafficVisit> the ids of the visits the filter admits */
+    /** @return Builder<TrafficVisit>|Builder<AnalyticsVisit> the ids of the visits the filter admits */
     private function visitIds(AnalyticsFilter $filter): Builder
     {
         return $this->visits($filter)->select('id');
@@ -611,7 +772,7 @@ final class AnalyticsVisitsQuery implements RawSqlPersistenceBoundary
      * @param  list<array<string, int|string|null>>  $keep
      * @return list<array{keys: array<string, int|string|null>, figures: VisitorFigures, visits: int, tagged: int}>
      */
-    private function keeping(AnalyticsFilter $filter, array $columns, array $read, array $rows, array $keep, int $limit, string $unnamed): array
+    private function keeping(AnalyticsFilter $filter, ?AnalyticsCellLevel $level, array $columns, array $read, array $rows, array $keep, int $limit, string $unnamed): array
     {
         $kept = [];
 
@@ -634,14 +795,15 @@ final class AnalyticsVisitsQuery implements RawSqlPersistenceBoundary
         $unread = array_values(array_filter($wanted, fn (array $keys): bool => ! in_array($keys, array_column($found, 'keys'), true)));
 
         if ($unread !== [] && count($read) >= $limit) {
-            [$metrics, $bindings] = self::metrics($filter);
+            [$metrics, $bindings] = $this->metrics($filter, $level);
 
             // Past every group read, so after those found among them: the most people first still.
-            array_push($found, ...self::ofGroups($this->visits($filter), $columns, $unread)
+            array_push($found, ...self::ofGroups($this->rows($filter, $level), $columns, $unread)
                 ->groupBy(...$columns)
                 ->select($columns)
                 ->selectRaw($metrics, $bindings)
-                ->orderByRaw('COUNT(DISTINCT visitor_hash) DESC', [])
+                ->orderByRaw($this->peopleOrder($level).' DESC', [])
+                ->tap(fn (Builder $query) => self::byEveryColumn($query, $columns))
                 ->toBase()
                 ->get()
                 ->map(fn (object $row): array => ['keys' => self::keys((array) $row, $columns), ...self::counted((array) $row)])
@@ -663,13 +825,32 @@ final class AnalyticsVisitsQuery implements RawSqlPersistenceBoundary
     }
 
     /**
+     * The rest of a split (by()): the visits of none of the groups listed —
+     * and, while the visits of no value are counted apart or not at all,
+     * none of those either.
+     *
+     * @param  Builder<covariant Model>  $query
+     * @param  list<string>  $columns
+     * @param  list<array<string, int|string|null>>  $listed
+     * @return Builder<covariant Model>
+     */
+    private static function restOf(Builder $query, array $columns, array $listed, string $unnamed): Builder
+    {
+        if (in_array($unnamed, [self::UNNAMED_APART, self::UNNAMED_LEFT_OUT], true)) {
+            $query->whereNotNull($columns[0]);
+        }
+
+        return self::excluding($query, $columns, $listed);
+    }
+
+    /**
      * The visits of any of the groups given: a visit whose columns all hold
      * a group's values — a null value by being null.
      *
-     * @param  Builder<TrafficVisit>  $query
+     * @param  Builder<covariant Model>  $query
      * @param  list<string>  $columns
      * @param  list<array<string, int|string|null>>  $groups
-     * @return Builder<TrafficVisit>
+     * @return Builder<covariant Model>
      */
     private static function ofGroups(Builder $query, array $columns, array $groups): Builder
     {
@@ -691,10 +872,10 @@ final class AnalyticsVisitsQuery implements RawSqlPersistenceBoundary
      * The groups are tested a block of EXCLUDED_BLOCK at a time, so even
      * MOST_GROUPS of them nest no deeper than SQLite's parser allows (1,000).
      *
-     * @param  Builder<TrafficVisit>  $query
+     * @param  Builder<covariant Model>  $query
      * @param  list<string>  $columns
      * @param  list<array<string, int|string|null>>  $groups
-     * @return Builder<TrafficVisit>
+     * @return Builder<covariant Model>
      */
     private static function excluding(Builder $query, array $columns, array $groups): Builder
     {
@@ -727,31 +908,239 @@ final class AnalyticsVisitsQuery implements RawSqlPersistenceBoundary
      *
      * @return array{0: string, 1: list<mixed>}
      */
-    private static function metrics(AnalyticsFilter $filter): array
+    private function metrics(AnalyticsFilter $filter, ?AnalyticsCellLevel $level = null): array
     {
+        if ($level !== null) {
+            return [self::cellMetrics(), []];
+        }
+
+        $person = $this->person();
+        $people = fn (string $test): string => 'COUNT(DISTINCT CASE WHEN '.$test.' THEN '.$person.' END)';
         $parts = [
-            ['COUNT(DISTINCT visitor_hash) AS visitors', []],
-            ['COUNT(DISTINCT CASE WHEN NOT known THEN visitor_hash END) AS new_visitors', []],
-            ['COUNT(DISTINCT CASE WHEN started_at IS NOT NULL THEN visitor_hash END) AS starters', []],
-            ['COUNT(DISTINCT CASE WHEN completed_at IS NOT NULL THEN visitor_hash END) AS completers', []],
-            ['COUNT(DISTINCT CASE WHEN goal_at IS NOT NULL THEN visitor_hash END) AS goal', []],
-            ['COUNT(DISTINCT CASE WHEN signup_form_at IS NOT NULL THEN visitor_hash END) AS signup_form', []],
-            ['COUNT(DISTINCT CASE WHEN signup_at IS NOT NULL THEN visitor_hash END) AS signups', []],
-            ['COUNT(DISTINCT CASE WHEN account_at IS NOT NULL THEN visitor_hash END) AS accounts', []],
-            ['COUNT(DISTINCT CASE WHEN activated_at IS NOT NULL THEN visitor_hash END) AS activated', []],
-            ['COUNT(DISTINCT CASE WHEN account_at IS NOT NULL AND signup_at < ? THEN visitor_hash END) AS matured_accounts', [ActivityDay::maturedBefore($filter->period->today, (int) config('analytics.activation_days'))]],
+            ['COUNT(DISTINCT '.$person.') AS visitors', []],
+            [$people('NOT known').' AS new_visitors', []],
+            [$people($this->test('started')).' AS starters', []],
+            [$people($this->test('completed')).' AS completers', []],
+            [$people($this->test('goal')).' AS goal', []],
+            [$people($this->test('signup_form')).' AS signup_form', []],
+            [$people($this->test('signed_up')).' AS signups', []],
+            [$people($this->test('account')).' AS accounts', []],
+            [$people($this->test('activated')).' AS activated', []],
+            [$people($this->test('matured')).' AS matured_accounts', [ActivityDay::maturedBefore($filter->period->today, (int) config('analytics.activation_days'))]],
             ['SUM(votes) AS votes', []],
-            ['COUNT(DISTINCT CASE WHEN votes > ? THEN visitor_hash END) AS voters', [0]],
+            [$people('votes > ?').' AS voters', [0]],
             ['SUM(comments) AS comments', []],
-            ['COUNT(DISTINCT CASE WHEN comments > ? THEN visitor_hash END) AS commenters', [0]],
+            [$people('comments > ?').' AS commenters', [0]],
             ['SUM(posts_created) AS posts', []],
             ['SUM(spend) AS spend', []],
             ['SUM(CASE WHEN spend_estimated THEN spend ELSE 0 END) AS spend_estimated', []],
             ['COUNT(*) AS visits', []],
-            ['SUM(CASE WHEN utm_source IS NOT NULL OR utm_medium IS NOT NULL THEN 1 ELSE 0 END) AS tagged', []],
+            ['SUM(CASE WHEN '.$this->test('tagged').' THEN 1 ELSE 0 END) AS tagged', []],
         ];
 
         return [implode(', ', array_column($parts, 0)), array_merge(...array_column($parts, 1))];
+    }
+
+    /**
+     * The cells a read of the filter, split by the columns given, can count
+     * from — those of the coarsest level holding every column it filters or
+     * splits by, with anyone whose page ran — or none when such a read takes
+     * the rows (level()): for a read of another query that adds up the same
+     * people (AnalyticsContentQuery).
+     *
+     * @param  list<string>  $splitBy
+     * @return Builder<AnalyticsCell>|null
+     */
+    public function cellsFor(AnalyticsFilter $filter, array $splitBy = []): ?Builder
+    {
+        $level = $this->level($filter, $splitBy);
+
+        return $level === null ? null : self::ofCells(AnalyticsCell::query(), $filter, $level)->whereNotNull('visitors');
+    }
+
+    /**
+     * The level of the cells a read of the filter, split by the columns
+     * given, takes its people from: the coarsest that holds every column it
+     * filters or splits by, over whole days, where the gate allows the cells
+     * at all; none when the read takes the rows (or the visits).
+     *
+     * @param  list<string>  $splitBy
+     */
+    private function level(AnalyticsFilter $filter, array $splitBy = []): ?AnalyticsCellLevel
+    {
+        if (! $this->gate->readsCells() || ! $filter->countsWholeDays()) {
+            return null;
+        }
+
+        return AnalyticsCellLevel::covering(array_values(array_unique([...array_column($filter->conditions(), 0), ...$splitBy])));
+    }
+
+    /** @return Builder<TrafficVisit>|Builder<AnalyticsVisit>|Builder<AnalyticsCell> what a read counts over: the cells of its level, or the visits */
+    private function rows(AnalyticsFilter $filter, ?AnalyticsCellLevel $level): Builder
+    {
+        // A cell of paid clicks none of whose pages ran has no visitors: the rows read only visits whose page ran.
+        return $level === null ? $this->visits($filter) : self::ofCells(AnalyticsCell::query(), $filter, $level)->whereNotNull('visitors');
+    }
+
+    /** @return Builder<AnalyticsCellAccount> the accounts of the cells a read counts over, those whose days to activate are over by today */
+    private function accountsOf(AnalyticsFilter $filter, AnalyticsCellLevel $level): Builder
+    {
+        $before = ActivityDay::maturedBefore($filter->period->today, (int) config('analytics.activation_days'));
+
+        return self::ofCells(AnalyticsCellAccount::query(), $filter, $level)->where('signup_day', '<', $before->format('Y-m-d'));
+    }
+
+    /**
+     * @template TModel of AnalyticsCell|AnalyticsCellAccount
+     *
+     * @param  Builder<TModel>  $query
+     * @return Builder<TModel> the cells of a level on the filter's days whose columns hold the filter's values
+     */
+    private static function ofCells(Builder $query, AnalyticsFilter $filter, AnalyticsCellLevel $level): Builder
+    {
+        $query->where('level', $level->value)->whereBetween('network_day', [$filter->fromDay(), $filter->toDay()]);
+
+        foreach ($filter->conditions() as [$column, $value]) {
+            $value === null ? $query->whereNull($column) : $query->where($column, $value);
+        }
+
+        return $query;
+    }
+
+    /** @param  Builder<covariant Model>  $accounts cell accounts (accountsOf()), narrowed or not: their people, each once */
+    private function matured(Builder $accounts): int
+    {
+        return (int) ($accounts->selectRaw('COALESCE(rb_cardinality(rb_or_agg(accounts::roaringbitmap)), 0) AS matured', [])->toBase()->value('matured') ?? 0);
+    }
+
+    /**
+     * @param  Builder<covariant Model>  $accounts  cell accounts (accountsOf())
+     * @param  list<string>  $columns
+     * @return array<string, int> the people among accounts of each group, by its key (groupKey())
+     */
+    private function maturedBy(Builder $accounts, array $columns): array
+    {
+        $matured = [];
+
+        foreach ($accounts->groupBy(...$columns)->select($columns)->selectRaw('COALESCE(rb_cardinality(rb_or_agg(accounts::roaringbitmap)), 0) AS matured', [])->toBase()->get() as $row) {
+            $matured[self::groupKey(self::keys((array) $row, $columns))] = (int) $row->matured;
+        }
+
+        return $matured;
+    }
+
+    /**
+     * The groups of a split read from the cells with their matured accounts:
+     * the people among the accounts kept by sign-up day whose days to
+     * activate are over, of the same groups, conditions and narrowing. The
+     * rows' groups as they are when the split reads the visits.
+     *
+     * @param  list<array{keys: array<string, int|string|null>, figures: VisitorFigures, visits: int, tagged: int}>  $rows
+     * @param  list<string>  $columns
+     * @param  (Closure(Builder<covariant Model>): Builder<covariant Model>)|null  $narrow  what else the split read narrows the cells by
+     * @return list<array{keys: array<string, int|string|null>, figures: VisitorFigures, visits: int, tagged: int}>
+     */
+    private function maturing(array $rows, AnalyticsFilter $filter, ?AnalyticsCellLevel $level, array $columns, ?Closure $narrow = null): array
+    {
+        if ($level === null || $rows === []) {
+            return $rows;
+        }
+
+        $accounts = $this->accountsOf($filter, $level);
+        $matured = $this->maturedBy($narrow === null ? $accounts : $narrow($accounts), $columns);
+
+        foreach ($rows as $index => $row) {
+            $rows[$index]['figures'] = $row['figures']->withMaturedAccounts($matured[self::groupKey($row['keys'])] ?? 0);
+        }
+
+        return $rows;
+    }
+
+    /**
+     * The people of the filter who came back, from the cells: each day's
+     * people folded in turn — once by the days so far, twice by those already
+     * seen once — and the people of every day before the period, whatever the
+     * filter, as those seen before it. A union and an intersection a day,
+     * never a row.
+     */
+    private function returningFromCells(AnalyticsFilter $filter, AnalyticsCellLevel $level): int
+    {
+        $days = self::ofCells(AnalyticsCell::query(), $filter, $level)
+            ->whereNotNull('visitors')
+            ->groupBy('network_day')
+            ->selectRaw('ROW_NUMBER() OVER (ORDER BY network_day) AS n, rb_or_agg(visitors::roaringbitmap) AS people', []);
+        $before = AnalyticsCell::query()
+            ->where('level', AnalyticsCellLevel::Device->value)
+            ->where('network_day', '<', $filter->fromDay())
+            ->whereNotNull('visitors')
+            ->selectRaw('COALESCE(rb_or_agg(visitors::roaringbitmap), rb_build(ARRAY[]::integer[]))', []);
+        $folded = 'WITH RECURSIVE days AS ('.$days->toSql().'),'
+            .' fold AS (SELECT n, people AS once, rb_build(ARRAY[]::integer[]) AS twice FROM days WHERE n = 1'
+            .' UNION ALL SELECT days.n, rb_or(fold.once, days.people), rb_or(fold.twice, rb_and(fold.once, days.people)) FROM fold JOIN days ON days.n = fold.n + 1)'
+            .' SELECT rb_cardinality(rb_or(twice, rb_and(once, ('.$before->toSql().')))) AS came_back FROM fold ORDER BY n DESC LIMIT 1';
+
+        return (int) (AnalyticsCell::query()->fromRaw('('.$folded.') AS folded', [...$days->getBindings(), ...$before->getBindings()])->value('came_back') ?? 0);
+    }
+
+    /**
+     * @param  Builder<covariant Model>  $query
+     * @param  list<string>  $columns  what a split's groups are ordered by after its own order, in turn
+     */
+    private static function byEveryColumn(Builder $query, array $columns): void
+    {
+        foreach ($columns as $column) {
+            $query->orderBy($column);
+        }
+    }
+
+    /** @param  array<string, int|string|null>  $keys a group's values, as one key */
+    private static function groupKey(array $keys): string
+    {
+        return (string) json_encode(array_values($keys));
+    }
+
+    /** What a split orders its groups by: their people, counted on the rows or as the union of the cells' sets. */
+    private function peopleOrder(?AnalyticsCellLevel $level): string
+    {
+        return $level === null ? 'COUNT(DISTINCT '.$this->person().')' : 'COALESCE(rb_cardinality(rb_or_agg(visitors::roaringbitmap)), 0)';
+    }
+
+    /** The figures of a row as SQL over cells: each step's people the size of the union of the cells' sets, the sums summed. */
+    private static function cellMetrics(): string
+    {
+        $parts = [];
+
+        foreach (['visitors', 'new_visitors', 'starters', 'completers', 'goal', 'signup_form', 'signups', 'accounts', 'activated', 'voters', 'commenters'] as $people) {
+            $parts[] = 'COALESCE(rb_cardinality(rb_or_agg('.$people.'::roaringbitmap)), 0) AS '.$people;
+        }
+
+        foreach (['votes', 'comments', 'posts', 'spend', 'spend_estimated', 'visits', 'tagged'] as $sum) {
+            $parts[] = 'COALESCE(SUM('.$sum.'), 0) AS '.$sum;
+        }
+
+        return implode(', ', $parts);
+    }
+
+    /**
+     * The model the visits are read from: Analytics' own rows of them once they are filled and up to date, else the visits.
+     *
+     * @return class-string<TrafficVisit>|class-string<AnalyticsVisit>
+     */
+    private function model(): string
+    {
+        return $this->gate->reads() ? AnalyticsVisit::class : TrafficVisit::class;
+    }
+
+    /** The column a browser is counted by: its number on Analytics' own rows, its hash on the visits. */
+    private function person(): string
+    {
+        return $this->gate->reads() ? 'visitor_key' : 'visitor_hash';
+    }
+
+    /** A test of a visit (TESTS), as SQL on the rows read. */
+    private function test(string $name): string
+    {
+        return self::TESTS[$name][$this->gate->reads() ? 1 : 0];
     }
 
     /**

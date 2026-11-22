@@ -83,6 +83,33 @@ The reviewed boundaries are:
   the browser; the sums of what the paid clicks cost, their pages run or not,
   per dimension or nested dimensions; the first day each value came on, as
   `MIN(network_day)`; and the result shares of the attempts played on the visits.
+  Where the cells of each day's people (`analytics_cells`) fit a read — its
+  whole days, every column it filters or splits by in one level — the same
+  figures, splits and lists come from them instead: each step's people as
+  `rb_cardinality(rb_or_agg(…))` over the cells' roaring bitmaps, the sums
+  summed, and the people who came back as a `WITH RECURSIVE` fold of the
+  period's days through `fromRaw` (PostgreSQL with the roaringbitmap
+  extension only).
+- `AnalyticsCellsQuery` for what those cells are written from — and each
+  post's people of a day by device (`analytics_post_cells`) — a day's rows of
+  `analytics_visits`: one `SELECT` with `GROUPING SETS` over every level, each
+  step's people `rb_build_agg(pid) FILTER (WHERE …)`, the sums beside them
+  and the paid clicks' own, and the next browser numbers by
+  `ROW_NUMBER()` — inserted by `RefreshAnalyticsCellsAction` through
+  `insertUsing`, never `DB::statement`.
+- `AnalyticsGameCellsQuery` for the people of a game's days
+  (`analytics_game_cells`): a UTC day's views and attempts of every game,
+  whole or up to a bound moment, each person's attempts summed up first and
+  then each step's people `rb_build_agg(pid) FILTER (WHERE …)` beside the
+  accounts they signed in and the attempts' sums, and the next browser numbers
+  by `ROW_NUMBER()` — inserted by `RefreshAnalyticsGameCellsAction` through
+  `insertUsing`; in `GameMetricsQuery`'s place, a window's visitors and the
+  people behind its attempts and their events as
+  `rb_cardinality(rb_or_agg(…))` over the cells beside the views and attempts
+  of every stretch they don't cover, the people who played again as a fold of
+  the cells (`rb_or_agg` over the cells before, as a window function); and the
+  numbers no cell holds (`NOT rb_contains`) for the purge (PostgreSQL with the
+  roaringbitmap extension only).
 - `CommentListQuery` for arithmetic comment ranking.
 - `ComparisonPeriodsQuery` for literal LIKE searches over the titles, internal
   names and slugs of the games whose traffic periods Growth → Experiments lists.
@@ -92,11 +119,16 @@ The reviewed boundaries are:
   per device, country or country group of the recorded visits behind them, or
   per traffic period and version from the visitors each period assigned — the
   result screens among them read with an `EXISTS` on the attempt's events —
-  and the people who started more than one attempt; and of the attempts sent
+  and the visitors, the people behind the attempts and those who started more
+  than one, counted over rows grouped by person first rather than by a
+  distinct count of every row; and of the attempts sent
   to a post, the people who saw a sign-in form or signed up there within 30
   minutes of the attempt's way on, and of those, whose account is confirmed —
   the moment 30 minutes on, with the minutes bound, written per engine
-  (`minutesAfter()`).
+  (`minutesAfter()`); and, per traffic period and version, the sums of the
+  hours of its assignments once counted (`analytics_period_hours`) beside the
+  assignments of the hours since and of those changed, joined by `UNION ALL`
+  in one read.
 - `GamePostPickerQuery` for literal LIKE searches over the titles and author usernames of the posts a game round may show.
 - `GamesQuery` for literal LIKE searches over game titles, internal names and slugs.
 - `MatchedUsersQuery` for literal LIKE searches.
@@ -119,9 +151,11 @@ The reviewed boundaries are:
   weekly cohorts: per source and game, conditional sums of the confirmed
   accounts that signed up between each week's bound boundaries, of those of
   them that came back on day 1, day 7, day 30 and any of days 1–7 — whether
-  one did read from its days of activity by a correlated subquery — of those
-  inside the period, and of the period's, over one read of the accounts,
-  never a row per account and never arithmetic on dates.
+  one did read from its days of activity, joined once and folded per account
+  by a conditional `MAX` over bound day numbers — of those inside the period,
+  and of the period's, over one read of the accounts, the source, device and
+  game copied onto each attribution as it was credited so that no visit is
+  read, never a row per account and never arithmetic on dates.
 - `StudioPlansQuery` for literal LIKE searches over publication plan titles and
   over their authors' usernames, display names and names.
 - `StudioActionsQuery` for literal LIKE searches over the Action queue: the
@@ -141,6 +175,15 @@ The reviewed boundaries are:
   game's versions, ordered by the accounts they brought; and their sign-ups —
   confirmed, never confirmed or still waiting against a bound cutoff, and how
   soon confirmed — per dimension, only groups with a sign-up, the most first.
+  A game's figures over whole UTC days sum the sums of its days
+  (`analytics_game_days`) again, the part days at the ends read from the rows
+  the same way, the parts joined by `UNION ALL` in one read.
+- `AnalyticsGameDaysQuery` for what those sums are written from: a network
+  day's rows of games' visits that arrived on one UTC day, grouped by every
+  key a game's figures read and by the moment of a sign-up not confirmed (a
+  `CASE`), each sum the very SQL `TrafficReportQuery` reads a game's visits
+  with; and those summed again with every country together — inserted by
+  `RefreshAnalyticsGameDaysAction` through `insertUsing`.
 - `TrafficSegmentsQuery` for a paid source's segments on Analytics →
   Campaigns: which segment each of the source's clicks is in, each segment's
   conditions bound once in a `CASE`, then the people of the whole source, of
@@ -154,6 +197,14 @@ The reviewed boundaries are:
   call's status, and the UTC hour or day a call falls in, written per engine;
   and, per provider and model, the calls inside a period counted beside the
   latest `completed_at` of all its calls.
+- `AnalyticsVisitsQuery` and `AnalyticsContentQuery` again, for what each
+  visit's row keeps of the attempts started on it and, credited with an
+  account, of the post its session opened first: the sums of its attempts,
+  share clicks and shared results over the rows or the cells, and the
+  different browsers of the accounts per first post — `COUNT(DISTINCT
+  visitor_key)` over the credited rows, or the size of the union of the
+  roaring bitmaps `AnalyticsCellsQuery` builds of a day's credited visits by
+  device and first post (`analytics_first_post_cells`, `rb_build_agg(pid)`).
 
 Literal LIKE searches use `LikePattern` and an explicit SQL `ESCAPE` clause so
 user-supplied `%` and `_` characters are not interpreted as wildcards.

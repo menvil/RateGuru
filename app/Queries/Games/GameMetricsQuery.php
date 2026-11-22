@@ -11,15 +11,22 @@ use App\Enums\GameEventType;
 use App\Enums\GameOnwardKind;
 use App\Enums\TrafficDimension;
 use App\Models\AccountAttribution;
+use App\Models\AnalyticsPeriodHour;
+use App\Models\AnalyticsPeriodHourAccount;
+use App\Models\AnalyticsVisit;
 use App\Models\GameAnswer;
 use App\Models\GameAssignment;
 use App\Models\GameAttempt;
 use App\Models\GameEmailCapture;
 use App\Models\GameEvent;
 use App\Models\TrafficVisit;
+use App\Queries\Analytics\AnalyticsGameCellsQuery;
+use App\Queries\Analytics\AnalyticsRollupGate;
+use App\Support\Analytics\GameCellWindow;
 use App\Support\Analytics\PeriodVersionFunnel;
 use App\Support\Games\Analytics\GameFunnel;
 use App\Support\Games\Analytics\GameMetricsScope;
+use App\Support\Traffic\Presets\PresetSchema;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Query\JoinClause;
@@ -45,7 +52,9 @@ use LogicException;
  *  - results()      the completed attempts of a version by result;
  *  - periods()      the attempts started and completed in each traffic period;
  *  - periodFunnel() per traffic period and version, how far the visitors it
- *                   assigned got, what the versions are compared by;
+ *                   assigned got, what the versions are compared by — and
+ *                   periodHour() what each hour of assignments is counted as
+ *                   for it;
  *  - library()      per game, the starts, completions, anonymous visitors and
  *                   new accounts of a window.
  *
@@ -63,7 +72,15 @@ use LogicException;
  * own, the same on PostgreSQL, MariaDB and SQLite but for a moment some
  * minutes on, which each engine writes its own way (minutesAfter()), every
  * value in it bound and every visit column named by TrafficDimension.
- * Read-only.
+ *
+ * Where the people of the games' days are kept and read
+ * (AnalyticsRollupGate::gameCells()), funnels()' visitors, its attempts with
+ * the people behind them, the accounts they signed in and what their events
+ * tell — shares, sign-ups begun, the ways on — in all, or split by version,
+ * flow or content set, of every device and country, and visitors(), are the
+ * cells of the window's days beside the events and attempts of whatever the
+ * cells don't cover (AnalyticsGameCellsQuery): the same figures, read without
+ * grouping every view, attempt and event of the window by person. Read-only.
  */
 final class GameMetricsQuery implements RawSqlPersistenceBoundary
 {
@@ -86,14 +103,24 @@ final class GameMetricsQuery implements RawSqlPersistenceBoundary
         'group' => TrafficDimension::Country,
     ];
 
+    /** Of periodFunnel()'s figures, those each assignment counts in once, and its attempts: what an hour of assignments keeps (analytics_period_hours). */
+    public const array PERIOD_HOUR_FIGURES = ['assigned', 'started', 'completed', 'result_viewed', 'emailed', 'goal', 'attempts', 'attempts_completed'];
+
+    /** Every figure of periodFunnel(), in the order each part of its read selects them. */
+    private const array PERIOD_FIGURES = [...self::PERIOD_HOUR_FIGURES, 'accounts', 'matured', 'activated'];
+
     /** How long after a way on sent a visitor to a post what they do there is still the play's, as CreditGameSiteActivityAction credits it. */
     private const int ON_SITE_MINUTES = 30;
 
     /** @var array<int, CarbonImmutable|null> each game's first `post_sign_in_form`, null for none yet, by game: read once (beforeFirstSignInForm()) */
     private array $firstSignInForms = [];
 
-    /** The events of an attempt funnels() counts people by: shares, sign-ups begun, and the ways on and what came of them. */
-    private const FUNNEL_EVENTS = [
+    /**
+     * The events of an attempt funnels() counts people by: shares, sign-ups begun, and the ways on and what came of them.
+     *
+     * @var list<GameEventType>
+     */
+    public const array FUNNEL_EVENTS = [
         GameEventType::ShareClicked,
         GameEventType::RegistrationCtaClicked,
         GameEventType::PostOpened,
@@ -102,6 +129,11 @@ final class GameMetricsQuery implements RawSqlPersistenceBoundary
         GameEventType::FeedVoted,
         GameEventType::Exit,
     ];
+
+    public function __construct(
+        private readonly AnalyticsRollupGate $gate,
+        private readonly AnalyticsGameCellsQuery $gameCells,
+    ) {}
 
     /**
      * The funnel of the scope, in all (keyed 0) or split by version, flow or
@@ -132,22 +164,20 @@ final class GameMetricsQuery implements RawSqlPersistenceBoundary
         }
 
         $split = fn (Builder $query, string $versionColumn, bool $views = false): Builder => $this->grouped($query, $versionColumn, $by, $scope, $countryGroups, $views);
-        [$visitorSql, $visitorBindings] = self::visitorCount();
-        $visitors = $this->counts($split($this->viewEvents($scope), 'game_events.version_id', true)->selectRaw($visitorSql, $visitorBindings));
+        $cells = $this->cellsWindow($scope, $by);
+        $visitors = $this->counts($cells !== null
+            ? $this->gameCells->visitors($scope, $by, $cells)
+            : $this->visitorCounts($this->grouped($this->viewEvents($scope), 'game_events.version_id', $by, $scope, $countryGroups, true), $scope, $by !== null));
         $person = self::person($scope);
-        $attempts = $this->counts(
-            $split($this->withConfirmedAccounts($this->attempts($scope)), 'game_attempts.version_id')
-                ->selectRaw(
-                    "COUNT(*) AS started,
-                    SUM(CASE WHEN game_attempts.status = ? THEN 1 ELSE 0 END) AS completed,
-                    COUNT(DISTINCT {$person}) AS starters,
-                    COUNT(DISTINCT CASE WHEN game_attempts.status = ? THEN {$person} END) AS finishers,
-                    COUNT(DISTINCT confirmed_accounts.user_id) AS registered,
-                    COUNT(DISTINCT CASE WHEN game_attempts.account_outcome = ? THEN game_attempts.user_id END) AS signed_in,
-                    SUM(CASE WHEN game_attempts.goal_reached_at IS NOT NULL THEN 1 ELSE 0 END) AS goal_reached,
-                    COUNT(DISTINCT CASE WHEN game_attempts.goal_reached_at IS NOT NULL THEN {$person} END) AS goal_people",
-                    [GameAttemptStatus::Completed->value, GameAttemptStatus::Completed->value, GameAccountOutcome::SignedIn->value],
-                ),
+        $attempts = $this->counts($cells !== null
+            ? $this->gameCells->attempts($scope, $by, $cells)
+            : $this->attemptCounts($this->grouped($this->withConfirmedAccounts($this->attempts($scope)), 'game_attempts.version_id', $by, $scope, $countryGroups, false), $scope, $by !== null));
+        // Signed in counts accounts, while a guest is told apart by the browser — two browsers can sign in
+        // to one account — so it is read apart from the people above, over the attempts that signed in;
+        // the cells keep those accounts beside the people.
+        $signedIn = $cells !== null ? $attempts : $this->counts(
+            $split($this->attempts($scope)->where('game_attempts.account_outcome', GameAccountOutcome::SignedIn->value), 'game_attempts.version_id')
+                ->selectRaw('COUNT(DISTINCT game_attempts.user_id) AS signed_in', []),
         );
         $emails = $this->counts(
             $split($this->cohortJoin(GameEmailCapture::query(), 'game_email_captures.attempt_id', $scope), 'game_attempts.version_id')
@@ -156,9 +186,10 @@ final class GameMetricsQuery implements RawSqlPersistenceBoundary
         // A way on is the exit the flow's own way on recorded, on a play it sent there: never the
         // link to the feed every screen has, nor the feed a post no longer published falls back to.
         $wayOn = 'game_events.type = ? AND game_events.step_type = ? AND game_attempts.onward_kind = ?';
-        $events = $this->counts(
+        // The cells keep the people of each event, and the attempts shared, beside the people of the attempts.
+        $events = $cells !== null ? $attempts : $this->counts(
             $split(
-                $this->cohortJoin(GameEvent::query(), 'game_events.attempt_id', $scope)->whereIn('game_events.type', array_map(fn (GameEventType $type): string => $type->value, self::FUNNEL_EVENTS)),
+                $this->attemptEvents($scope)->whereIn('game_events.type', array_map(fn (GameEventType $type): string => $type->value, self::FUNNEL_EVENTS)),
                 'game_attempts.version_id',
             )->selectRaw(
                 "COUNT(DISTINCT CASE WHEN game_events.type = ? THEN game_events.attempt_id END) AS shared,
@@ -202,9 +233,8 @@ final class GameMetricsQuery implements RawSqlPersistenceBoundary
                 [...$windowBindings, ...$markedBindings, ...$windowBindings, ...$windowBindings, ...$windowBindings],
             ),
         );
-        $replayers = $this->replayers($this->grouped($this->attempts($scope), 'game_attempts.version_id', $by, $scope, $countryGroups, false), $scope, $by !== null);
 
-        $buckets = array_unique([...array_keys($visitors), ...array_keys($attempts), ...array_keys($emails), ...array_keys($events), ...array_keys($onPost), ...array_keys($replayers)]);
+        $buckets = array_unique([...array_keys($visitors), ...array_keys($attempts), ...array_keys($signedIn), ...array_keys($emails), ...array_keys($events), ...array_keys($onPost)]);
         sort($buckets);
 
         if ($by === null) {
@@ -220,9 +250,9 @@ final class GameMetricsQuery implements RawSqlPersistenceBoundary
                 completed: $attempts[$bucket]['completed'] ?? 0,
                 emails: $emails[$bucket]['emails'] ?? 0,
                 registered: $attempts[$bucket]['registered'] ?? 0,
-                signedIn: $attempts[$bucket]['signed_in'] ?? 0,
+                signedIn: $signedIn[$bucket]['signed_in'] ?? 0,
                 shared: $events[$bucket]['shared'] ?? 0,
-                replayers: $replayers[$bucket] ?? 0,
+                replayers: $attempts[$bucket]['replayers'] ?? 0,
                 starters: $attempts[$bucket]['starters'] ?? 0,
                 finishers: $attempts[$bucket]['finishers'] ?? 0,
                 emailers: $emails[$bucket]['emailers'] ?? 0,
@@ -249,9 +279,29 @@ final class GameMetricsQuery implements RawSqlPersistenceBoundary
     /** The scope's visitors alone, each person once: what the audience switch counts beside each audience. */
     public function visitors(GameMetricsScope $scope): int
     {
-        [$sql, $bindings] = self::visitorCount();
+        $cells = $this->cellsWindow($scope, null);
 
-        return $this->counts($this->viewEvents($scope)->selectRaw($sql, $bindings))[0]['visitors'] ?? 0;
+        return $this->counts($cells !== null ? $this->gameCells->visitors($scope, null, $cells) : $this->visitorCounts($this->viewEvents($scope), $scope, false))[0]['visitors'] ?? 0;
+    }
+
+    /**
+     * The window's days as the people of the games' days give them — what
+     * their cells cover and what is read live (GameCellWindow) — when they
+     * are kept and read, the figures fit them — in all or split by version,
+     * flow or content set, of every device and country — and the window
+     * reads some cell. None otherwise: the events and attempts are read, as
+     * for a window within a day that is over, which no cell covers.
+     */
+    private function cellsWindow(GameMetricsScope $scope, ?string $by): ?GameCellWindow
+    {
+        if (($by !== null && ! array_key_exists($by, self::GROUPS)) || $scope->visits->narrows()) {
+            return null;
+        }
+
+        $cells = $this->gate->gameCells();
+        $window = $cells === null ? null : GameCellWindow::of($scope->from, $scope->to, $cells['through'], $cells['moment'], $cells['changed']);
+
+        return $window !== null && $window->readsCells() ? $window : null;
     }
 
     /**
@@ -289,7 +339,7 @@ final class GameMetricsQuery implements RawSqlPersistenceBoundary
             return 0;
         }
 
-        return $this->cohortJoin(GameEvent::query(), 'game_events.attempt_id', $scope)
+        return $this->attemptEvents($scope)
             ->where('game_events.type', GameEventType::PostOpened->value)
             ->whereIn('game_attempts.version_id', $versionIds)
             ->distinct()
@@ -392,8 +442,20 @@ final class GameMetricsQuery implements RawSqlPersistenceBoundary
      * Accounts are the confirmed accounts credited to those attempts, as
      * everywhere else (withConfirmedAccounts); matured are those signed up
      * before `$maturedBefore`, whose seven days to activate are over, and
-     * activated those of them that did. One query for every period asked
-     * for; a version nobody was sent to in a period is absent from it.
+     * activated those of them that did. Beside them, the attempts started
+     * from those assignments and how many of those were completed — every
+     * attempt, a replay one more. One query for every period asked for; a
+     * version nobody was sent to in a period is absent from it.
+     *
+     * Every assignment is of one period, one version and one UTC hour, so
+     * the hours of a period add up to it: once they are counted
+     * (AnalyticsRollupGate::periodHours()), the hours counted come from their
+     * sums (analytics_period_hours, and the accounts by the day each signed
+     * up on), and the hours since and those changed since they were counted
+     * (analytics_dirty_period_hours, read first) from the assignments
+     * themselves, the same SQL, all in one read — the same figures as reading
+     * every assignment. A cut inside a day, which the accounts kept by their
+     * day can't tell, reads every assignment.
      *
      * @param  list<int>  $periodIds
      * @return array<int, array<int, PeriodVersionFunnel>>
@@ -404,26 +466,15 @@ final class GameMetricsQuery implements RawSqlPersistenceBoundary
             return [];
         }
 
-        $rows = $this->withConfirmedAccounts(GameAssignment::query()->leftJoin('game_attempts', 'game_attempts.assignment_id', '=', 'game_assignments.id'))
-            ->leftJoin('account_attributions as credited_accounts', 'credited_accounts.user_id', '=', 'confirmed_accounts.user_id')
-            ->leftJoin('game_email_captures', 'game_email_captures.attempt_id', '=', 'game_attempts.id')
-            ->whereIn('game_assignments.period_id', $periodIds)
-            ->groupBy('game_assignments.period_id', 'game_assignments.version_id')
-            ->select('game_assignments.period_id', 'game_assignments.version_id')
-            ->selectRaw(
-                'COUNT(DISTINCT game_assignments.id) AS assigned,
-                COUNT(DISTINCT CASE WHEN game_attempts.id IS NOT NULL THEN game_assignments.id END) AS started,
-                COUNT(DISTINCT CASE WHEN game_attempts.status = ? THEN game_assignments.id END) AS completed,
-                COUNT(DISTINCT CASE WHEN EXISTS (SELECT 1 FROM game_events WHERE game_events.attempt_id = game_attempts.id AND game_events.type = ?) THEN game_assignments.id END) AS result_viewed,
-                COUNT(DISTINCT CASE WHEN game_email_captures.id IS NOT NULL THEN game_assignments.id END) AS emailed,
-                COUNT(DISTINCT CASE WHEN game_attempts.goal_reached_at IS NOT NULL THEN game_assignments.id END) AS goal,
-                COUNT(DISTINCT confirmed_accounts.user_id) AS accounts,
-                COUNT(DISTINCT CASE WHEN credited_accounts.signed_up_at < ? THEN confirmed_accounts.user_id END) AS matured,
-                COUNT(DISTINCT CASE WHEN credited_accounts.signed_up_at < ? AND credited_accounts.activated_at IS NOT NULL THEN confirmed_accounts.user_id END) AS activated',
-                [GameAttemptStatus::Completed->value, GameEventType::ResultViewed->value, $maturedBefore, $maturedBefore],
-            )
-            ->toBase()
-            ->get();
+        $hours = $maturedBefore->utc()->equalTo($maturedBefore->utc()->startOfDay()) ? $this->gate->periodHours() : null;
+        $rows = ($hours !== null
+            ? GameAssignment::query()
+                ->fromSub($this->periodHourParts($periodIds, $maturedBefore, $hours['through'], $hours['changed']), 'parts')
+                ->groupBy('parts.period_id', 'parts.version_id')
+                ->select('parts.period_id', 'parts.version_id')
+                ->selectRaw(implode(', ', array_map(fn (string $figure): string => "SUM(parts.{$figure}) AS {$figure}", self::PERIOD_FIGURES)), [])
+            : $this->assignmentFigures(GameAssignment::query()->whereIn('game_assignments.period_id', $periodIds), $maturedBefore)
+        )->toBase()->get();
         $periods = [];
 
         foreach ($rows as $row) {
@@ -437,10 +488,168 @@ final class GameMetricsQuery implements RawSqlPersistenceBoundary
                 accounts: (int) $row->accounts,
                 matured: (int) $row->matured,
                 activated: (int) $row->activated,
+                attempts: (int) $row->attempts,
+                attemptsCompleted: (int) $row->attempts_completed,
             );
         }
 
         return $periods;
+    }
+
+    /**
+     * What an hour of assignments is counted as (RefreshAnalyticsPeriodHoursAction):
+     * per period and version, the figures of periodFunnel() each assignment
+     * made in the UTC hour counts in once, and its attempts (PERIOD_HOUR_FIGURES);
+     * and the confirmed accounts credited to their attempts by the UTC day
+     * each signed up on, with the activated among them — the same rows
+     * periodFunnel() reads, so the hours add up to what it reads of every
+     * assignment.
+     *
+     * @return array{figures: list<array<string, int|string>>, accounts: list<array<string, int|string>>}
+     */
+    public function periodHour(CarbonImmutable $hour): array
+    {
+        $hour = $hour->utc();
+        $assignments = fn (): Builder => GameAssignment::query()
+            ->where('game_assignments.assigned_at', '>=', $hour)
+            ->where('game_assignments.assigned_at', '<', $hour->addHour());
+        $figures = [];
+
+        foreach ($this->assignmentFigures($assignments(), null)->toBase()->get() as $row) {
+            $figures[] = ['period_id' => (int) $row->period_id, 'version_id' => (int) $row->version_id, 'assigned_hour' => $hour->toDateTimeString(), ...array_map(fn (string $figure): int => (int) $row->{$figure}, array_combine(self::PERIOD_HOUR_FIGURES, self::PERIOD_HOUR_FIGURES))];
+        }
+
+        // One row a confirmed account: an attempt has one at most and an account is credited to one attempt.
+        $accounts = [];
+        $rows = $this->assignmentRows($assignments())
+            ->whereNotNull('credited_accounts.user_id')
+            ->select('game_assignments.period_id', 'game_assignments.version_id', 'credited_accounts.signed_up_at', 'credited_accounts.activated_at')
+            ->toBase()
+            ->get();
+
+        foreach ($rows as $row) {
+            $day = substr((string) $row->signed_up_at, 0, 10);
+            $key = "{$row->period_id}|{$row->version_id}|{$day}";
+            $accounts[$key] ??= ['period_id' => (int) $row->period_id, 'version_id' => (int) $row->version_id, 'assigned_hour' => $hour->toDateTimeString(), 'signup_day' => $day, 'accounts' => 0, 'activated' => 0];
+            $accounts[$key]['accounts']++;
+            $accounts[$key]['activated'] += $row->activated_at === null ? 0 : 1;
+        }
+
+        return ['figures' => $figures, 'accounts' => array_values($accounts)];
+    }
+
+    /**
+     * The parts of periodFunnel() once the hours are counted, each selecting
+     * PERIOD_FIGURES per period and version, for one outer read to sum: the
+     * sums of the hours counted and not changed since, their accounts — the
+     * matured those that signed up on a day before the cut's — and the
+     * assignments of the hours since and of those changed, read as every
+     * assignment is, each changed hour between bound moments.
+     *
+     * @param  list<int>  $periodIds
+     * @param  list<CarbonImmutable>  $changed  the hours counted that changed since
+     * @return Builder<AnalyticsPeriodHour>
+     */
+    private function periodHourParts(array $periodIds, CarbonImmutable $maturedBefore, CarbonImmutable $through, array $changed): Builder
+    {
+        $unchanged = fn (Builder $query, string $table): Builder => $query
+            ->whereIn("{$table}.period_id", $periodIds)
+            ->where("{$table}.assigned_hour", '<=', $through)
+            ->when($changed !== [], fn (Builder $query): Builder => $query->whereNotIn("{$table}.assigned_hour", $changed))
+            ->groupBy("{$table}.period_id", "{$table}.version_id")
+            ->select("{$table}.period_id", "{$table}.version_id");
+        $none = fn (array $figures): string => implode(', ', array_map(fn (string $figure): string => "0 AS {$figure}", $figures));
+        $day = $maturedBefore->utc()->toDateString();
+
+        $hours = $unchanged(AnalyticsPeriodHour::query(), 'analytics_period_hours')->selectRaw(
+            implode(', ', array_map(fn (string $figure): string => "SUM({$figure}) AS {$figure}", self::PERIOD_HOUR_FIGURES)).', '.$none(['accounts', 'matured', 'activated']),
+            [],
+        );
+        $accounts = $unchanged(AnalyticsPeriodHourAccount::query(), 'analytics_period_hour_accounts')->selectRaw(
+            $none(self::PERIOD_HOUR_FIGURES).', SUM(accounts) AS accounts, SUM(CASE WHEN signup_day < ? THEN accounts ELSE 0 END) AS matured, SUM(CASE WHEN signup_day < ? THEN activated ELSE 0 END) AS activated',
+            [$day, $day],
+        );
+        $open = $this->assignmentFigures(
+            GameAssignment::query()->whereIn('game_assignments.period_id', $periodIds)->where('game_assignments.assigned_at', '>=', $through->addHour()),
+            $maturedBefore,
+        );
+        $parts = $hours->unionAll($accounts)->unionAll($open);
+
+        if ($changed === []) {
+            return $parts;
+        }
+
+        // Every hour changed is one counted, before the hours since: no assignment is read twice.
+        return $parts->unionAll($this->assignmentFigures(
+            GameAssignment::query()
+                ->whereIn('game_assignments.period_id', $periodIds)
+                ->where(function (Builder $hours) use ($changed): void {
+                    foreach ($changed as $hour) {
+                        $hours->orWhere(fn (Builder $within): Builder => $within->where('game_assignments.assigned_at', '>=', $hour)->where('game_assignments.assigned_at', '<', $hour->addHour()));
+                    }
+                }),
+            $maturedBefore,
+        ));
+    }
+
+    /**
+     * The assignments given with their attempts, each attempt's confirmed
+     * account's attribution (credited_accounts) — of two credited to it, the
+     * lower id's, the account withConfirmedAccounts() takes — and its email.
+     * An attempt is one row: it has one such account at most, and one email
+     * (its unique attempt_id). Each attempt's account is looked up by the
+     * attempt (account_attributions_attempt_index) rather than every
+     * confirmed account grouped, so reading a few hours costs what they hold.
+     *
+     * @param  Builder<GameAssignment>  $assignments
+     * @return Builder<GameAssignment>
+     */
+    private function assignmentRows(Builder $assignments): Builder
+    {
+        return $assignments
+            ->leftJoin('game_attempts', 'game_attempts.assignment_id', '=', 'game_assignments.id')
+            ->leftJoin('account_attributions as credited_accounts', fn (JoinClause $join): JoinClause => $join
+                ->on('credited_accounts.credited_attempt_id', '=', 'game_attempts.id')
+                ->whereNotNull('credited_accounts.confirmed_at')
+                ->whereNotExists(fn ($lower) => $lower
+                    ->from('account_attributions as lower_accounts')
+                    ->whereColumn('lower_accounts.credited_attempt_id', 'credited_accounts.credited_attempt_id')
+                    ->whereNotNull('lower_accounts.confirmed_at')
+                    ->whereColumn('lower_accounts.user_id', '<', 'credited_accounts.user_id')))
+            ->leftJoin('game_email_captures', 'game_email_captures.attempt_id', '=', 'game_attempts.id');
+    }
+
+    /**
+     * The funnel of the assignments given per period and version, in
+     * PERIOD_FIGURES' order: each assignment once for every step any attempt
+     * of it reached, every attempt, and — with a cut — the confirmed accounts,
+     * the matured and the activated; without one, PERIOD_HOUR_FIGURES alone.
+     *
+     * @param  Builder<GameAssignment>  $assignments
+     * @return Builder<GameAssignment>
+     */
+    private function assignmentFigures(Builder $assignments, ?CarbonImmutable $maturedBefore): Builder
+    {
+        return $this->assignmentRows($assignments)
+            ->groupBy('game_assignments.period_id', 'game_assignments.version_id')
+            ->select('game_assignments.period_id', 'game_assignments.version_id')
+            ->selectRaw(
+                'COUNT(DISTINCT game_assignments.id) AS assigned,
+                COUNT(DISTINCT CASE WHEN game_attempts.id IS NOT NULL THEN game_assignments.id END) AS started,
+                COUNT(DISTINCT CASE WHEN game_attempts.status = ? THEN game_assignments.id END) AS completed,
+                COUNT(DISTINCT CASE WHEN EXISTS (SELECT 1 FROM game_events WHERE game_events.attempt_id = game_attempts.id AND game_events.type = ?) THEN game_assignments.id END) AS result_viewed,
+                COUNT(DISTINCT CASE WHEN game_email_captures.id IS NOT NULL THEN game_assignments.id END) AS emailed,
+                COUNT(DISTINCT CASE WHEN game_attempts.goal_reached_at IS NOT NULL THEN game_assignments.id END) AS goal,
+                COUNT(game_attempts.id) AS attempts,
+                SUM(CASE WHEN game_attempts.status = ? THEN 1 ELSE 0 END) AS attempts_completed',
+                [GameAttemptStatus::Completed->value, GameEventType::ResultViewed->value, GameAttemptStatus::Completed->value],
+            )
+            ->when($maturedBefore !== null, fn (Builder $query): Builder => $query->selectRaw(
+                'COUNT(DISTINCT credited_accounts.user_id) AS accounts,
+                COUNT(DISTINCT CASE WHEN credited_accounts.signed_up_at < ? THEN credited_accounts.user_id END) AS matured,
+                COUNT(DISTINCT CASE WHEN credited_accounts.signed_up_at < ? AND credited_accounts.activated_at IS NOT NULL THEN credited_accounts.user_id END) AS activated',
+                [$maturedBefore, $maturedBefore],
+            ));
     }
 
     /**
@@ -519,7 +728,7 @@ final class GameMetricsQuery implements RawSqlPersistenceBoundary
     public function signUpMethods(GameMetricsScope $scope): array
     {
         $person = self::person($scope);
-        $rows = $this->cohortJoin(GameEvent::query(), 'game_events.attempt_id', $scope)
+        $rows = $this->attemptEvents($scope)
             ->where('game_events.type', GameEventType::RegistrationCtaClicked->value)
             ->whereNotNull('game_events.provider')
             ->groupBy('game_events.provider')
@@ -549,46 +758,76 @@ final class GameMetricsQuery implements RawSqlPersistenceBoundary
         return $scope->audience === GameAudience::Anonymous ? 'game_events.visitor_hash' : 'game_events.user_id';
     }
 
-    /** @return array{0: string, 1: list<mixed>} the visitors of `view` events, each person once, as SQL */
-    private static function visitorCount(): array
+    /**
+     * The visitors of `view` events — already split, or not — each person
+     * once: the events grouped by person first, then the people of each group
+     * counted. The same number a distinct count of the people gives, read by
+     * grouping rather than by sorting every event. The scope's views are of
+     * its one audience, so a person is that audience's viewer column; a view
+     * without one is nobody.
+     *
+     * @param  Builder<GameEvent>  $views
+     * @return Builder<GameEvent>
+     */
+    private function visitorCounts(Builder $views, GameMetricsScope $scope, bool $split): Builder
     {
-        return [
-            'COUNT(DISTINCT CASE WHEN game_events.audience = ? THEN game_events.visitor_hash END)
-            + COUNT(DISTINCT CASE WHEN game_events.audience = ? THEN game_events.user_id END) AS visitors',
-            [GameAudience::Anonymous->value, GameAudience::Authenticated->value],
-        ];
+        $viewer = self::viewer($scope);
+        $people = $views->addSelect("{$viewer} as person")->groupBy($viewer);
+
+        return GameEvent::query()
+            ->fromSub($people->toBase(), 'people')
+            ->when($split, fn (Builder $query) => $query->groupBy('people.bucket')->select('people.bucket'))
+            ->selectRaw('COUNT(people.person) AS visitors', []);
     }
 
     /**
-     * People who started more than one attempt in the scope, by group: each
-     * person's attempts — already split, or not — counted first, then those
-     * with more than one.
+     * The attempts' figures — already split, or not — in one read: each
+     * person's attempts summed up first, then the people of each group
+     * counted and their sums added. A starter is a person with an attempt, a
+     * finisher one with a completed attempt, a person who reached the goal
+     * one with an attempt that did — as a distinct count of the person
+     * counts them, attempts nobody can be told apart by (no person) left
+     * out. Played again counts the people with more than one attempt, and
+     * the attempts with no person as one more when there are several of
+     * them, since grouping by person puts them together. Accounts are summed
+     * rather than counted distinct: an attempt has one confirmed account at
+     * most and an account is credited to one attempt
+     * (account_attributions_user_unique), so no account is in two people's
+     * sums.
      *
-     * @param  Builder<GameAttempt>  $attempts
-     * @return array<int|string, int>
+     * @param  Builder<GameAttempt>  $attempts  with their confirmed accounts (withConfirmedAccounts())
+     * @return Builder<GameAttempt>
      */
-    private function replayers(Builder $attempts, GameMetricsScope $scope, bool $split): array
+    private function attemptCounts(Builder $attempts, GameMetricsScope $scope, bool $split): Builder
     {
-        $identity = self::person($scope);
+        $person = self::person($scope);
         $people = $attempts
-            ->addSelect("{$identity} as person")
-            ->groupBy($identity)
-            ->havingRaw('COUNT(*) > ?', [1]);
+            ->addSelect("{$person} as person")
+            ->groupBy($person)
+            ->selectRaw(
+                'COUNT(*) AS attempts,
+                SUM(CASE WHEN game_attempts.status = ? THEN 1 ELSE 0 END) AS completed,
+                MAX(CASE WHEN game_attempts.status = ? THEN 1 ELSE 0 END) AS finished,
+                COUNT(confirmed_accounts.user_id) AS registered,
+                SUM(CASE WHEN game_attempts.goal_reached_at IS NOT NULL THEN 1 ELSE 0 END) AS goal_reached,
+                MAX(CASE WHEN game_attempts.goal_reached_at IS NOT NULL THEN 1 ELSE 0 END) AS reached_goal',
+                [GameAttemptStatus::Completed->value, GameAttemptStatus::Completed->value],
+            );
 
-        $rows = GameAttempt::query()
+        return GameAttempt::query()
             ->fromSub($people->toBase(), 'people')
             ->when($split, fn (Builder $query) => $query->groupBy('people.bucket')->select('people.bucket'))
-            ->selectRaw('COUNT(*) AS replayers', [])
-            ->toBase()
-            ->get();
-
-        $replayers = [];
-
-        foreach ($rows as $row) {
-            $replayers[$split ? self::bucket($row->bucket) : 0] = (int) $row->replayers;
-        }
-
-        return $replayers;
+            ->selectRaw(
+                'SUM(people.attempts) AS started,
+                SUM(people.completed) AS completed,
+                COUNT(people.person) AS starters,
+                SUM(CASE WHEN people.person IS NOT NULL THEN people.finished ELSE 0 END) AS finishers,
+                SUM(people.registered) AS registered,
+                SUM(people.goal_reached) AS goal_reached,
+                SUM(CASE WHEN people.person IS NOT NULL THEN people.reached_goal ELSE 0 END) AS goal_people,
+                SUM(CASE WHEN people.attempts > ? THEN 1 ELSE 0 END) AS replayers',
+                [1],
+            );
     }
 
     /** @return Builder<GameEvent> the scope's `view` events, of the people with a visit the filter admits when it narrows */
@@ -619,37 +858,53 @@ final class GameMetricsQuery implements RawSqlPersistenceBoundary
      */
     private function people(GameMetricsScope $scope, bool $withPlace): Builder
     {
-        $place = $withPlace ? ['traffic_visits.'.TrafficDimension::Device->columns()[0], 'traffic_visits.'.TrafficDimension::Country->columns()[0]] : [];
-        // Visits of the window only: one that ran into it from before counts, one long over does not.
-        $visits = fn (): Builder => TrafficVisit::query()->tracked()->matching($scope->visits)
-            ->where('traffic_visits.arrived_at', '<', $scope->to)
-            ->where('traffic_visits.last_seen_at', '>=', $scope->from);
+        // Analytics' own rows of the visits once filled and up to date: the same visits, narrower to read.
+        $table = $this->gate->reads() ? 'analytics_visits' : 'traffic_visits';
+        $place = $withPlace ? [$table.'.'.TrafficDimension::Device->columns()[0], $table.'.'.TrafficDimension::Country->columns()[0]] : [];
+        // Visits of the window only: one that ran into it from before counts, one long over does not —
+        // and none runs on past the longest attribution window, so older arrivals are never read.
+        $visits = fn (): Builder => ($this->gate->reads() ? AnalyticsVisit::query() : TrafficVisit::query())->tracked()->matching($scope->visits)
+            ->where($table.'.arrived_at', '>=', self::earliestArrival($scope))
+            ->where($table.'.arrived_at', '<', $scope->to)
+            ->where($table.'.last_seen_at', '>=', $scope->from);
 
         if ($scope->audience === GameAudience::Anonymous) {
             // A guest by a visit of this game, or by the visit a play of theirs came on — a paid click
             // landing on another game holds the browser, and the play is counted by it.
             $plays = $visits()
-                ->join('game_attempts', 'game_attempts.traffic_visit_id', '=', 'traffic_visits.id')
+                ->join('game_attempts', 'game_attempts.traffic_visit_id', '=', $table.'.id')
                 ->where('game_attempts.game_id', $scope->gameId)
-                ->select(['traffic_visits.visitor_hash as person', ...$place]);
+                ->select([$table.'.visitor_hash as person', ...$place]);
 
             return $visits()
-                ->where('traffic_visits.game_id', $scope->gameId)
-                ->select(['traffic_visits.visitor_hash as person', ...$place])
+                ->where($table.'.game_id', $scope->gameId)
+                ->select([$table.'.visitor_hash as person', ...$place])
                 ->union($plays);
         }
 
         $browsers = $visits()
-            ->join('account_browsers', 'account_browsers.visitor_hash', '=', 'traffic_visits.visitor_hash')
-            ->where('traffic_visits.game_id', $scope->gameId)
+            ->join('account_browsers', 'account_browsers.visitor_hash', '=', $table.'.visitor_hash')
+            ->where($table.'.game_id', $scope->gameId)
             ->select(['account_browsers.user_id as person', ...$place]);
 
         return $visits()
-            ->join('game_attempts', 'game_attempts.traffic_visit_id', '=', 'traffic_visits.id')
+            ->join('game_attempts', 'game_attempts.traffic_visit_id', '=', $table.'.id')
             ->where('game_attempts.game_id', $scope->gameId)
             ->whereNotNull('game_attempts.user_id')
             ->select(['game_attempts.user_id as person', ...$place])
             ->union($browsers);
+    }
+
+    /**
+     * The earliest a visit of the scope can have arrived: a visit is seen —
+     * a play, a step — only while it holds its browser, never longer than the
+     * longest attribution window a source can have, so a day more than that
+     * before the window is as far back as a visit that ran into it began.
+     * A click id that came back later is counted from the window it began in.
+     */
+    private static function earliestArrival(GameMetricsScope $scope): CarbonImmutable
+    {
+        return $scope->from->subDays(max(PresetSchema::ATTRIBUTION_DAYS) + 1);
     }
 
     /** @return Builder<GameAttempt> the attempts started in the scope */
@@ -748,6 +1003,25 @@ final class GameMetricsQuery implements RawSqlPersistenceBoundary
     }
 
     /**
+     * The events of the attempts started in the scope. Every event of an
+     * attempt is recorded on the attempt's own game at the moment it happens
+     * (GameEventRecorder, called with the attempt's game by every action that
+     * records one), so never before the attempt started: the event's game and
+     * the window's start keep every event the join keeps, and let the read
+     * range over the game's events from the window on (game_id, type,
+     * occurred_at) rather than over every event of the types ever recorded.
+     * Nothing bounds it above — an attempt's events go on after the window.
+     *
+     * @return Builder<GameEvent>
+     */
+    private function attemptEvents(GameMetricsScope $scope): Builder
+    {
+        return $this->cohortJoin(GameEvent::query(), 'game_events.attempt_id', $scope)
+            ->where('game_events.game_id', $scope->gameId)
+            ->where('game_events.occurred_at', '>=', $scope->from);
+    }
+
+    /**
      * Rows of another table that belong to an attempt started in the scope.
      *
      * @template TModel of \Illuminate\Database\Eloquent\Model
@@ -774,10 +1048,13 @@ final class GameMetricsQuery implements RawSqlPersistenceBoundary
             ->where('game_attempts.started_at', '>=', $scope->from)
             ->where('game_attempts.started_at', '<', $scope->to)
             ->when($scope->versionId !== null, fn (Builder $inner) => $inner->where('game_attempts.version_id', $scope->versionId))
-            // Of a play's own visit, whichever game it landed on.
+            // Of a play's own visit, whichever game it landed on: one that arrived before the play, within the longest attribution window.
             ->when($scope->visits->narrows(), fn (Builder $inner) => $inner->whereIn(
                 'game_attempts.traffic_visit_id',
-                TrafficVisit::query()->tracked()->matching($scope->visits)->select('traffic_visits.id'),
+                ($this->gate->reads() ? AnalyticsVisit::query() : TrafficVisit::query())->tracked()->matching($scope->visits)
+                    ->where('arrived_at', '>=', self::earliestArrival($scope))
+                    ->where('arrived_at', '<', $scope->to)
+                    ->select('id'),
             ));
     }
 
@@ -809,7 +1086,7 @@ final class GameMetricsQuery implements RawSqlPersistenceBoundary
 
         $views
             ? $query->joinSub($this->people($scope, true), 'visit_people', 'visit_people.person', '=', self::viewer($scope))
-            : $query->join('traffic_visits as play_visits', 'play_visits.id', '=', 'game_attempts.traffic_visit_id');
+            : $query->join(($this->gate->reads() ? 'analytics_visits' : 'traffic_visits').' as play_visits', 'play_visits.id', '=', 'game_attempts.traffic_visit_id');
         $column = ($views ? 'visit_people.' : 'play_visits.').self::VISIT_GROUPS[$by]->columns()[0];
 
         if ($by !== 'group') {

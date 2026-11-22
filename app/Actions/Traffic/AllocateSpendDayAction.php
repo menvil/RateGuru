@@ -2,6 +2,7 @@
 
 namespace App\Actions\Traffic;
 
+use App\Actions\Analytics\MarkAnalyticsDayAction;
 use App\Actions\Traffic\Concerns\WorksOutClickSpend;
 use App\Enums\TrafficSpendBasis;
 use App\Enums\TrafficSpendMode;
@@ -42,6 +43,8 @@ final class AllocateSpendDayAction
 
     private const array ALLOCATED = TrafficSpendBasis::ALLOCATED;
 
+    public function __construct(private readonly MarkAnalyticsDayAction $analytics) {}
+
     public function handle(TrafficSource $source, string $day, CarbonImmutable $now): void
     {
         $facts = TrafficSpendDay::query()->where('source_id', $source->id)->where('network_day', $day)->orderBy('id')->get();
@@ -57,7 +60,7 @@ final class AllocateSpendDayAction
             ->where('network_day', $day);
 
         if ($origin === null) {
-            if ($this->backToClicks($source, $day, $drawnFrom, $ofDay()->whereIn('spend_basis', self::ALLOCATED)->orderBy('id')->get(['id', 'campaign_id', 'cost', 'device', 'arrived_at', 'spend', 'spend_basis', 'spend_estimated']))) {
+            if ($this->backToClicks($source, $day, $drawnFrom, $ofDay()->whereIn('spend_basis', self::ALLOCATED)->orderBy('id')->get(['id', 'campaign_id', 'cost', 'device', 'arrived_at', 'spend', 'spend_basis', 'spend_estimated']), $now)) {
                 $this->markFacts($source, $day, $drawnFrom, $facts, collect(), ['facts' => []], $now);
             }
 
@@ -71,7 +74,7 @@ final class AllocateSpendDayAction
         $counted = $facts->where('origin', $origin)->reject(fn (TrafficSpendDay $fact): bool => in_array($fact->campaign_id, $ownPriced, true))->values();
 
         // Their clicks priced by a figure since removed go back to their own prices.
-        if ($ownPriced !== [] && ! $this->backToClicks($source, $day, $drawnFrom, $ofDay()->whereIn('campaign_id', $ownPriced)->whereIn('spend_basis', self::ALLOCATED)->orderBy('id')->get(['id', 'campaign_id', 'cost', 'device', 'arrived_at', 'spend', 'spend_basis', 'spend_estimated']))) {
+        if ($ownPriced !== [] && ! $this->backToClicks($source, $day, $drawnFrom, $ofDay()->whereIn('campaign_id', $ownPriced)->whereIn('spend_basis', self::ALLOCATED)->orderBy('id')->get(['id', 'campaign_id', 'cost', 'device', 'arrived_at', 'spend', 'spend_basis', 'spend_estimated']), $now)) {
             return;
         }
 
@@ -94,7 +97,7 @@ final class AllocateSpendDayAction
         $estimated = $origin === TrafficSpendOrigin::Fixed && $start->addDay()->greaterThan($now);
 
         foreach ($visits->chunk(self::BATCH) as $batch) {
-            $written = DB::transaction(function () use ($source, $day, $drawnFrom, $batch, $plan, $basis, $estimated): bool {
+            $written = DB::transaction(function () use ($source, $day, $drawnFrom, $batch, $plan, $basis, $estimated, $now): bool {
                 if (! $this->stillDrawnFrom($source, $day, $drawnFrom)) {
                     return false;
                 }
@@ -103,6 +106,12 @@ final class AllocateSpendDayAction
 
                 foreach ($moved->groupBy(fn (TrafficVisit $visit): string => $plan['visits'][(int) $visit->id]) as $spend => $same) {
                     TrafficVisit::query()->whereKey($same->pluck('id')->all())->update(['spend' => (string) $spend, 'spend_basis' => $basis, 'spend_estimated' => $estimated]);
+                }
+
+                // Spend shared out again on a day long past: Analytics reads
+                // that day again — marked with the writes, never before them.
+                if ($moved->isNotEmpty()) {
+                    $this->analytics->handle($day, $now);
                 }
 
                 return true;
@@ -167,12 +176,12 @@ final class AllocateSpendDayAction
      * @param  Collection<int, TrafficVisit>  $visits
      * @return bool whether every batch was written: false once the day's figures changed
      */
-    private function backToClicks(TrafficSource $source, string $day, array $drawnFrom, Collection $visits): bool
+    private function backToClicks(TrafficSource $source, string $day, array $drawnFrom, Collection $visits, CarbonImmutable $now): bool
     {
         $campaigns = TrafficCampaign::query()->whereKey($visits->pluck('campaign_id')->filter()->unique()->all())->get()->keyBy('id');
 
         foreach ($visits->chunk(self::BATCH) as $batch) {
-            $written = DB::transaction(function () use ($batch, $source, $day, $drawnFrom, $campaigns): bool {
+            $written = DB::transaction(function () use ($batch, $source, $day, $drawnFrom, $campaigns, $now): bool {
                 if (! $this->stillDrawnFrom($source, $day, $drawnFrom)) {
                     return false;
                 }
@@ -187,6 +196,12 @@ final class AllocateSpendDayAction
 
                 foreach ($bySpend as $same) {
                     TrafficVisit::query()->whereKey($same['ids'])->update($same['spend']);
+                }
+
+                // The day's spend back on its clicks: Analytics reads that day
+                // again — marked with the writes, never before them.
+                if ($bySpend !== []) {
+                    $this->analytics->handle($day, $now);
                 }
 
                 return true;

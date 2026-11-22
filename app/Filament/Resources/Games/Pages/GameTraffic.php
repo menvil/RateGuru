@@ -10,6 +10,7 @@ use App\Enums\GameVersionStatus;
 use App\Enums\TrafficCampaignStatus;
 use App\Enums\TrafficSourceStatus;
 use App\Exceptions\Games\CannotManageGameException;
+use App\Filament\Pages\Experiments\ExperimentsView;
 use App\Filament\Pages\ExperimentsPage;
 use App\Filament\Pages\TrafficSourcesPage;
 use App\Filament\Resources\Games\Concerns\InteractsWithGameEditor;
@@ -455,6 +456,34 @@ final class GameTraffic extends Page
         return $active->reject(fn (GameVersion $version): bool => array_key_exists((int) $version->id, $shares))->map(fn (GameVersion $version): array => ['id' => (int) $version->id, 'label' => $version->label()])->values()->all();
     }
 
+    /**
+     * Per period given, the visitors it assigned and the attempts they
+     * started and completed, from its funnel (GameMetricsQuery::periodFunnel())
+     * summed over its versions: each visitor is an assignment of the period,
+     * and an attempt is started from the visitor's assignment, on its game and
+     * its version (StartGameAttemptAction), so these are every assignment and
+     * every attempt of the period — read from the hours of its assignments
+     * once they are counted.
+     *
+     * @param  list<GameTrafficPeriod>  $periods
+     * @return array<int, array{visitors: int, started: int, completed: int}>
+     */
+    private static function figures(array $periods): array
+    {
+        $figures = [];
+        $funnels = app(GameMetricsQuery::class)->periodFunnel(array_values(array_unique(array_map(fn (GameTrafficPeriod $period): int => (int) $period->id, $periods))), ExperimentsView::maturedBefore());
+
+        foreach ($funnels as $periodId => $versions) {
+            foreach ($versions as $funnel) {
+                $figures[$periodId]['visitors'] = ($figures[$periodId]['visitors'] ?? 0) + $funnel->assigned;
+                $figures[$periodId]['started'] = ($figures[$periodId]['started'] ?? 0) + $funnel->attempts;
+                $figures[$periodId]['completed'] = ($figures[$periodId]['completed'] ?? 0) + $funnel->attemptsCompleted;
+            }
+        }
+
+        return $figures;
+    }
+
     /** A period's versions with their shares: “V1 50% · V2 50%”. */
     private static function mix(GameTrafficPeriod $period): string
     {
@@ -500,8 +529,8 @@ final class GameTraffic extends Page
             ];
         }
 
-        $periods = GameTrafficPeriod::query()->where('game_id', $game->id)->with('versions')->withCount('assignments')->orderByDesc('started_at')->orderByDesc('id')->limit(50)->get();
-        $attempts = app(GameMetricsQuery::class)->periods((int) $game->id);
+        $periods = GameTrafficPeriod::query()->where('game_id', $game->id)->with('versions')->orderByDesc('started_at')->orderByDesc('id')->limit(50)->get();
+        $figures = self::figures([...$periods, ...$splits]);
         $scopes = app(TrafficPeriodScopesQuery::class)->labels($periods);
 
         return [
@@ -515,7 +544,7 @@ final class GameTraffic extends Page
                 'scope' => (string) $period->scopeLabel(),
                 'shares' => self::mix($period),
                 'since' => $period->started_at->format('d M Y, H:i'),
-                'visitors' => (int) $period->assignments_count,
+                'visitors' => $figures[(int) $period->id]['visitors'] ?? 0,
                 // A split none of whose versions can be played sends its clicks on to the next split that covers them.
                 'idle' => $period->versions->every(fn (GameVersion $version): bool => ! $version->isActive() || in_array((int) $version->id, $unplayable, true)),
                 'resultsUrl' => $results ? ExperimentsPage::getUrl(['period' => $period->id]) : null,
@@ -530,9 +559,9 @@ final class GameTraffic extends Page
                 'from' => $period->started_at->format('d M Y, H:i'),
                 'to' => $period->ended_at?->format('d M Y, H:i'),
                 'shares' => self::mix($period) ?: 'No traffic',
-                'visitors' => (int) $period->assignments_count,
-                'started' => $attempts[(int) $period->id]['started'] ?? 0,
-                'completed' => $attempts[(int) $period->id]['completed'] ?? 0,
+                'visitors' => $figures[(int) $period->id]['visitors'] ?? 0,
+                'started' => $figures[(int) $period->id]['started'] ?? 0,
+                'completed' => $figures[(int) $period->id]['completed'] ?? 0,
                 // A period with shares has results in Growth → Experiments.
                 'resultsUrl' => $results && $period->versions->isNotEmpty() ? ExperimentsPage::getUrl(['period' => $period->id]) : null,
             ])->all(),

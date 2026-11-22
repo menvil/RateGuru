@@ -6,15 +6,20 @@ use App\Contracts\Persistence\RawSqlPersistenceBoundary;
 use App\Enums\TrafficChannel;
 use App\Enums\TrafficDimension;
 use App\Enums\TrafficKnownReason;
+use App\Models\AnalyticsGameDay;
+use App\Models\AnalyticsVisit;
 use App\Models\TrafficCampaignStagePeriod;
 use App\Models\TrafficVisit;
+use App\Queries\Analytics\AnalyticsRollupGate;
 use App\Queries\Users\UnconfirmedAccountsQuery;
+use App\Support\Analytics\ArrivalWindow;
 use App\Support\Traffic\Reports\ReportFigures;
 use App\Support\Traffic\Reports\SignupFigures;
 use App\Support\Traffic\Reports\TrafficReportFilter;
 use App\Support\Traffic\Reports\VisitFilter;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
+use Closure;
 use Illuminate\Database\Eloquent\Builder;
 
 /**
@@ -36,9 +41,39 @@ use Illuminate\Database\Eloquent\Builder;
  * confirm has closed — the account is removed then, with everything it did
  * — and still waiting before; the moment the window closed for sign-ups is
  * bound, as UnconfirmedAccountsQuery::cutoff() gives it.
+ *
+ * A game's figures read its whole UTC days from the sums of its days
+ * (analytics_game_days) where AnalyticsRollupGate allows them, and only the
+ * part days at the ends of a stretch from the visits (ArrivalWindow): the
+ * same figures, sums being sums.
  */
 final class TrafficReportQuery implements RawSqlPersistenceBoundary
 {
+    /** @var array<string, string> what a figure tests on a visit, as the same test on Analytics' own rows of the visits */
+    private const array ROLLUP_TESTS = [
+        'opened_at IS NOT NULL' => 'opened',
+        'started_at IS NOT NULL' => 'started',
+        'completed_at IS NOT NULL' => 'completed',
+        'goal_at IS NOT NULL' => 'goal',
+        'account_at IS NOT NULL' => 'account',
+        'account_at IS NULL' => 'NOT account',
+        'post_published_at IS NOT NULL' => 'post_published',
+        'returned_at IS NOT NULL' => 'returned',
+        'signup_at IS NOT NULL' => 'signed_up',
+    ];
+
+    /** The figures a game's sums keep, as ReportFigures reads them. */
+    private const array FIGURES = [
+        'visits', 'opened', 'started', 'completed', 'goal', 'accounts', 'posted', 'returned', 'known_opened',
+        'spend', 'spend_estimated', 'known_spend', 'value_real', 'value_accounts', 'value_expected',
+    ];
+
+    private const string SIGNED_UP = 'SUM(CASE WHEN signup_at IS NOT NULL THEN 1 ELSE 0 END) AS signed_up';
+
+    private const string CONFIRMED = 'SUM(CASE WHEN account_at IS NOT NULL THEN 1 ELSE 0 END) AS confirmed';
+
+    public function __construct(private readonly AnalyticsRollupGate $gate) {}
+
     public const int MOST_GROUPS = 2000;
 
     /**
@@ -69,6 +104,9 @@ final class TrafficReportQuery implements RawSqlPersistenceBoundary
             ->groupBy('device', 'channel')
             ->select('device', 'channel')
             ->selectRaw(implode(', ', [$metrics, $signups, ...$path]), [...$bindings, ...$signupBindings, 'game', 'post', 'feed', 'other', 600, 3600, 86400])
+            // In one order whatever plan the database picks: the same visits give the same list.
+            ->orderBy('device')
+            ->orderBy('channel')
             ->toBase()
             ->get()
             ->map(fn (object $row): array => [
@@ -156,8 +194,7 @@ final class TrafficReportQuery implements RawSqlPersistenceBoundary
             ->select(...$columns)
             ->selectRaw('MIN(campaign_id) AS campaign_id, COUNT(DISTINCT campaign_id) AS campaigns, MIN(arrived_at) AS first_at, '.$metrics, $bindings)
             ->havingRaw('COUNT(*) >= ?', [$minVisits])
-            ->orderBy('source_id')
-            ->orderBy('site_ref')
+            ->tap(fn (Builder $query) => self::byEveryColumn($query, $columns))
             ->toBase()
             ->get()
             ->map(fn (object $row): array => [
@@ -277,17 +314,30 @@ final class TrafficReportQuery implements RawSqlPersistenceBoundary
      */
     public function gameBreakdown(int $gameId, CarbonImmutable $since, ?CarbonImmutable $until = null, ?VisitFilter $visits = null): array
     {
-        [$metrics, $bindings] = self::metrics();
+        // Moments as the visits keep them, in UTC, whichever way they are read.
+        [$since, $until] = [$since->utc(), $until?->utc()];
+        $keys = ['channel', 'source_id', 'version_id', 'device'];
+        [$metrics, $bindings] = $this->ofGame(self::metrics());
+        $read = fn (Builder $visitsOf): Builder => $visitsOf
+            ->groupBy(...$keys)
+            ->select($keys)
+            ->selectRaw('MIN(arrived_at) AS first_at, '.$metrics, $bindings);
 
-        return TrafficVisit::query()
-            ->tracked()
-            ->where('game_id', $gameId)
-            ->where('arrived_at', '>=', $since)
-            ->when($until !== null, fn (Builder $query) => $query->where('arrived_at', '<', $until))
-            ->when($visits !== null, fn (Builder $query) => $query->matching($visits))
-            ->groupBy('channel', 'source_id', 'version_id', 'device')
-            ->select('channel', 'source_id', 'version_id', 'device')
-            ->selectRaw('MIN(arrived_at) AS first_at, '.$metrics, $bindings)
+        $query = $this->gate->readsGameDays()
+            ? $this->ofGameDays($gameId, $since, $until, $visits, $keys, 'MIN(first_at) AS first_at, '.self::summed(self::FIGURES), $read)
+                ->groupBy(...$keys)
+                ->select($keys)
+                ->selectRaw('MIN(first_at) AS first_at, '.self::summed(self::FIGURES), [])
+            : $read($this->gameVisits($gameId, $visits)
+                ->where('arrived_at', '>=', $since)
+                ->when($until !== null, fn (Builder $query) => $query->where('arrived_at', '<', $until)));
+
+        return $query
+            // In one order whichever rows are read.
+            ->orderBy('channel')
+            ->orderBy('source_id')
+            ->orderBy('version_id')
+            ->orderBy('device')
             ->toBase()
             ->get()
             ->map(fn (object $row): array => [
@@ -308,17 +358,20 @@ final class TrafficReportQuery implements RawSqlPersistenceBoundary
      */
     public function gameCampaigns(int $gameId, CarbonImmutable $since, CarbonImmutable $until, ?VisitFilter $visits = null): array
     {
-        return TrafficVisit::query()
-            ->tracked()
-            ->where('game_id', $gameId)
-            ->where('arrived_at', '>=', $since)
-            ->where('arrived_at', '<', $until)
-            ->when($visits !== null, fn (Builder $query) => $query->matching($visits))
+        // Moments as the visits keep them, in UTC, whichever way they are read.
+        [$since, $until] = [$since->utc(), $until->utc()];
+        $read = fn (Builder $visitsOf): Builder => $visitsOf
             ->whereNotNull('campaign_id')
             ->distinct()
-            ->get(['source_id', 'campaign_id'])
-            ->countBy(fn (TrafficVisit $visit): int => (int) $visit->source_id)
-            ->all();
+            ->select(['source_id', 'campaign_id']);
+
+        $pairs = $this->gate->readsGameDays()
+            ? $this->ofGameDays($gameId, $since, $until, $visits, ['source_id', 'campaign_id'], null, $read, narrow: fn (Builder $days): Builder => $days->whereNotNull('campaign_id'))
+                ->distinct()
+                ->select(['source_id', 'campaign_id'])
+            : $read($this->gameVisits($gameId, $visits)->where('arrived_at', '>=', $since)->where('arrived_at', '<', $until));
+
+        return $pairs->toBase()->get()->countBy(fn (object $pair): int => (int) $pair->source_id)->all();
     }
 
     /**
@@ -331,19 +384,33 @@ final class TrafficReportQuery implements RawSqlPersistenceBoundary
      */
     public function gameSignups(int $gameId, CarbonImmutable $since, CarbonImmutable $until, ?int $versionId = null, ?CarbonInterface $unconfirmedBefore = null, ?VisitFilter $visits = null): array
     {
-        [$signups, $bindings] = self::signupMetrics($unconfirmedBefore ?? UnconfirmedAccountsQuery::cutoff());
-        $row = (array) TrafficVisit::query()
-            ->tracked()
-            ->where('game_id', $gameId)
-            ->where('arrived_at', '>=', $since)
-            ->where('arrived_at', '<', $until)
+        // Moments as the visits keep them, in UTC, whichever way they are read.
+        [$since, $until] = [$since->utc(), $until->utc()];
+        $cutoff = $unconfirmedBefore ?? UnconfirmedAccountsQuery::cutoff();
+        [$signups, $bindings] = $this->ofGame(self::signupMetrics($cutoff));
+        $read = fn (Builder $visitsOf): Builder => $visitsOf
             ->when($versionId !== null, fn (Builder $query) => $query->where('version_id', $versionId))
-            ->when($visits !== null, fn (Builder $query) => $query->matching($visits))
             // The anonymous visitors' view: a visitor signed in when they came is a logged-in player, not one of them.
-            ->where(fn (Builder $query) => $query->whereNull('known_reason')->orWhere('known_reason', '<>', TrafficKnownReason::SignedIn->value))
-            ->selectRaw('COUNT(*) AS visits, '.$signups, $bindings)
-            ->toBase()
-            ->first();
+            ->when(
+                $this->gate->reads(),
+                fn (Builder $query) => $query->where('signed_in', false),
+                fn (Builder $query) => $query->where(fn (Builder $either) => $either->whereNull('known_reason')->orWhere('known_reason', '<>', TrafficKnownReason::SignedIn->value)),
+            )
+            ->selectRaw('COUNT(*) AS visits, '.$signups, $bindings);
+
+        if ($this->gate->readsGameDays()) {
+            // A day's sums keep each unconfirmed sign-up's moment: whether its window to confirm has closed is read now.
+            $sums = 'SUM(visits) AS visits, '.self::summed(['signed_up', 'confirmed']).', SUM(CASE WHEN unconfirmed_at <= ? THEN visits ELSE 0 END) AS never_confirmed, '
+                .'SUM(CASE WHEN unconfirmed_at > ? THEN visits ELSE 0 END) AS waiting, '.self::summed(['confirmed_10_minutes', 'confirmed_hour', 'confirmed_day']);
+            $row = (array) $this->ofGameDays($gameId, $since, $until, $visits, [], $sums, $read, [$cutoff, $cutoff], fn (Builder $days): Builder => $days
+                ->where('signed_in', false)
+                ->when($versionId !== null, fn (Builder $query) => $query->where('version_id', $versionId)))
+                ->selectRaw('SUM(visits) AS visits, '.self::summed(['signed_up', 'confirmed', 'never_confirmed', 'waiting', 'confirmed_10_minutes', 'confirmed_hour', 'confirmed_day']), [])
+                ->toBase()
+                ->first();
+        } else {
+            $row = (array) $read($this->gameVisits($gameId, $visits)->where('arrived_at', '>=', $since)->where('arrived_at', '<', $until))->toBase()->first();
+        }
 
         return ['visits' => (int) ($row['visits'] ?? 0), 'figures' => SignupFigures::fromRow($row)];
     }
@@ -359,9 +426,8 @@ final class TrafficReportQuery implements RawSqlPersistenceBoundary
     {
         $country = TrafficDimension::Country->columns()[0];
 
-        return TrafficVisit::query()
-            ->tracked()
-            ->where('game_id', $gameId)
+        // Every day of the game's visits is summed by country once the gate reads the sums.
+        return ($this->gate->readsGameDays() ? AnalyticsGameDay::query()->where('level', AnalyticsGameDay::BY_COUNTRY)->where('game_id', $gameId) : $this->gameVisits($gameId))
             ->whereNotNull($country)
             ->distinct()
             ->orderBy($country)
@@ -369,6 +435,97 @@ final class TrafficReportQuery implements RawSqlPersistenceBoundary
             ->map(fn (mixed $code): string => (string) $code)
             ->values()
             ->all();
+    }
+
+    /**
+     * The visits of a game the tracker counts: from Analytics' own rows of
+     * them once AnalyticsRollupGate says they are filled and up to date, else
+     * from the visits — the same rows either way.
+     *
+     * @return Builder<TrafficVisit>|Builder<AnalyticsVisit> narrowed to the device and countries of a filter when one is given
+     */
+    private function gameVisits(int $gameId, ?VisitFilter $visits = null): Builder
+    {
+        return ($this->gate->reads() ? AnalyticsVisit::query() : TrafficVisit::query())
+            ->tracked()
+            ->where('game_id', $gameId)
+            ->when($visits !== null, fn (Builder $query) => $query->matching($visits));
+    }
+
+    /**
+     * A game's figures over a stretch of arrivals from the sums of its days:
+     * the whole UTC days from the sums (by country when the visits are narrowed
+     * to some), the part days at the ends from the visits, read the same way
+     * (ArrivalWindow) — each part grouped by the keys given, then together in
+     * one outer read, which the caller groups and selects from.
+     *
+     * @param  list<string>  $keys  what each part is grouped by and selects first
+     * @param  string|null  $sums  what each part of the sums selects after the keys; none for a list of distinct keys
+     * @param  Closure(Builder<TrafficVisit>|Builder<AnalyticsVisit>): (Builder<TrafficVisit>|Builder<AnalyticsVisit>)  $read  the same read of the visits — already narrowed to the filter's device and countries — selected as a part
+     * @param  list<mixed>  $bindings  what $sums binds
+     * @param  (Closure(Builder<AnalyticsGameDay>): Builder<AnalyticsGameDay>)|null  $narrow  what else narrows the sums
+     * @return Builder<AnalyticsGameDay>
+     */
+    private function ofGameDays(int $gameId, CarbonImmutable $since, ?CarbonImmutable $until, ?VisitFilter $visits, array $keys, ?string $sums, Closure $read, array $bindings = [], ?Closure $narrow = null): Builder
+    {
+        $window = ArrivalWindow::of($since, $until);
+        $parts = null;
+
+        if ($window->hasWholeDays()) {
+            $days = AnalyticsGameDay::query()
+                ->where('level', $visits?->countries !== null ? AnalyticsGameDay::BY_COUNTRY : AnalyticsGameDay::ALL)
+                ->where('game_id', $gameId)
+                ->where('arrival_day', '>=', $window->fromDay)
+                ->when($window->beforeDay !== null, fn (Builder $query) => $query->where('arrival_day', '<', $window->beforeDay))
+                ->when($visits !== null, fn (Builder $query) => $query->matching($visits))
+                ->when($narrow !== null, fn (Builder $query) => $narrow($query));
+            $parts = $sums === null
+                ? $days->distinct()->select($keys)
+                : ($keys === [] ? $days : $days->groupBy(...$keys)->select($keys))->selectRaw($sums, $bindings);
+        }
+
+        foreach ($window->parts as [$from, $before]) {
+            $part = $read($this->gameVisits($gameId, $visits)->where('arrived_at', '>=', $from)->where('arrived_at', '<', $before));
+            $parts = $parts === null ? $part : $parts->unionAll($part);
+        }
+
+        // A stretch of no time at all reads no visit: none is of the game and of no game.
+        return AnalyticsGameDay::query()->fromSub($parts ?? $read($this->gameVisits($gameId, $visits)->whereNull('game_id')), 'parts');
+    }
+
+    /** @param  list<string>  $columns  @return string each column summed under its own name */
+    private static function summed(array $columns): string
+    {
+        return implode(', ', array_map(fn (string $column): string => 'SUM('.$column.') AS '.$column, $columns));
+    }
+
+    /**
+     * The sums of a game day (analytics_game_days) as SQL over Analytics' own
+     * rows of the visits, in AnalyticsGameDaysQuery::SUMS' order: the figures
+     * of a game's visits and their sign-ups — signed up, confirmed, and each
+     * confirmed one by how long it took — the very tests a read of the rows
+     * makes, so a day's sums are what that read would add up.
+     *
+     * @return array{0: string, 1: list<mixed>}
+     */
+    public static function gameDaySums(): array
+    {
+        [$metrics] = self::metrics();
+        [$confirmed, $bindings] = self::confirmedWithin();
+
+        return [strtr(implode(', ', [$metrics, self::SIGNED_UP, self::CONFIRMED, ...$confirmed]), self::ROLLUP_TESTS), $bindings];
+    }
+
+    /**
+     * Figures as SQL (metrics(), signupMetrics()) for the rows gameVisits()
+     * reads: on Analytics' own rows each test of a moment is its flag.
+     *
+     * @param  array{0: string, 1: list<mixed>}  $figures
+     * @return array{0: string, 1: list<mixed>}
+     */
+    private function ofGame(array $figures): array
+    {
+        return $this->gate->reads() ? [strtr($figures[0], self::ROLLUP_TESTS), $figures[1]] : $figures;
     }
 
     /** @return Builder<TrafficVisit> */
@@ -436,14 +593,30 @@ final class TrafficReportQuery implements RawSqlPersistenceBoundary
      */
     private static function signupMetrics(CarbonInterface $unconfirmedBefore): array
     {
+        [$confirmed, $bindings] = self::confirmedWithin();
+
         return [implode(', ', [
-            'SUM(CASE WHEN signup_at IS NOT NULL THEN 1 ELSE 0 END) AS signed_up',
-            'SUM(CASE WHEN account_at IS NOT NULL THEN 1 ELSE 0 END) AS confirmed',
+            self::SIGNED_UP,
+            self::CONFIRMED,
             'SUM(CASE WHEN signup_at IS NOT NULL AND account_at IS NULL AND signup_at <= ? THEN 1 ELSE 0 END) AS never_confirmed',
             'SUM(CASE WHEN signup_at IS NOT NULL AND account_at IS NULL AND signup_at > ? THEN 1 ELSE 0 END) AS waiting',
+            ...$confirmed,
+        ]), [$unconfirmedBefore, $unconfirmedBefore, ...$bindings]];
+    }
+
+    /**
+     * The confirmed sign-ups by how long after signing up they confirmed —
+     * within ten minutes, an hour, a day — as SQL, and what it binds: constants,
+     * so a game day's sums can keep them (gameDaySums()).
+     *
+     * @return array{0: list<string>, 1: list<int>}
+     */
+    private static function confirmedWithin(): array
+    {
+        return [[
             'SUM(CASE WHEN account_at IS NOT NULL AND account_after_seconds <= signup_after_seconds + ? THEN 1 ELSE 0 END) AS confirmed_10_minutes',
             'SUM(CASE WHEN account_at IS NOT NULL AND account_after_seconds > signup_after_seconds + ? AND account_after_seconds <= signup_after_seconds + ? THEN 1 ELSE 0 END) AS confirmed_hour',
             'SUM(CASE WHEN account_at IS NOT NULL AND account_after_seconds > signup_after_seconds + ? AND account_after_seconds <= signup_after_seconds + ? THEN 1 ELSE 0 END) AS confirmed_day',
-        ]), [$unconfirmedBefore, $unconfirmedBefore, 600, 600, 3600, 3600, 86400]];
+        ], [600, 600, 3600, 3600, 86400]];
     }
 }

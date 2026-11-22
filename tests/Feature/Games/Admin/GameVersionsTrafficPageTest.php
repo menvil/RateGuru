@@ -8,10 +8,13 @@ use App\Enums\GameAudience;
 use App\Filament\Resources\Games\GameResource;
 use App\Filament\Resources\Games\Pages\GameTraffic;
 use App\Filament\Resources\Games\Pages\GameVersions;
+use App\Models\GameAttempt;
 use App\Models\GameRoundOption;
 use App\Models\GameTrafficPeriod;
 use App\Models\GameVersion;
 use App\Models\ProjectSettings;
+use App\Models\TrafficSource;
+use App\Support\Games\Traffic\TrafficScope;
 use Illuminate\Support\Facades\DB;
 use Livewire\Livewire;
 
@@ -169,4 +172,23 @@ it('says the versions are all archived, rather than that there are none', functi
         ->set('showRetired', true)
         ->assertDontSee('No active versions')
         ->assertSee('wire:key="version-'.$version->id.'"', false);
+});
+
+it('lists each period with the visitors it assigned and the plays they started and completed, and each split with its visitors', function () {
+    $version = liveGame($this->draft);
+    $period = GameTrafficPeriod::query()->where('game_id', $version->game_id)->where('audience', GameAudience::Anonymous->value)->firstOrFail();
+    $split = gameSplit($this->draft, TrafficScope::source(TrafficSource::factory()->create()->id), [$version->id => 100]);
+    $replayed = periodVisitor($period, $version, ['completed' => true]);
+    GameAttempt::factory()->create(['version_id' => $version->id, 'assignment_id' => $replayed->id, 'visitor_hash' => $replayed->visitor_hash]);
+    periodVisitor($period, $version, ['started' => true]);
+    periodVisitor($period, $version);
+    periodVisitor($split, $version, ['completed' => true]);
+    periodVisitor($split, $version);
+    // A play from no assignment is no period's.
+    GameAttempt::factory()->create(['version_id' => $version->id]);
+
+    Livewire::test(GameTraffic::class, ['record' => $this->draft['game']->id])
+        ->assertSee('3 visitors assigned · 3 started · 1 completed')
+        ->assertSee('2 visitors assigned · 1 started · 1 completed')
+        ->assertSee('Since '.$split->started_at->format('d M Y, H:i').' · 2 visitors assigned');
 });

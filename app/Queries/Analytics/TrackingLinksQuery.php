@@ -49,6 +49,20 @@ final class TrackingLinksQuery implements RawSqlPersistenceBoundary
     /** How many links the list holds at most, the newest first: a search finds the rest. */
     public const int MOST_LISTED = 200;
 
+    /**
+     * The ways a visit's content and term can be a link's (anyVisit()), by
+     * the column each is read as: whether the content is the link's '' and
+     * the visit's none rather than the same text, and whether the term is.
+     *
+     * @var array<string, array{bool, bool}>
+     */
+    private const array VISIT_FORMS = [
+        'visit_same' => [false, false],
+        'visit_no_term' => [false, true],
+        'visit_no_content' => [true, false],
+        'visit_no_tags' => [true, true],
+    ];
+
     public function __construct(private readonly AnalyticsVisitsQuery $visits) {}
 
     /**
@@ -97,12 +111,18 @@ final class TrackingLinksQuery implements RawSqlPersistenceBoundary
         // Only the links listed are completed: their game, their maker, and whether a visit came.
         if ($links->isNotEmpty()) {
             $links->load(['game:id,title,slug,status', 'createdBy:id,name,username,status']);
-            $visited = TrackingLink::query()
-                ->whereKey($links->modelKeys())
-                ->select('tracking_links.id')
-                ->addSelect(['visit_id' => self::anyVisit()])
-                ->toBase()
-                ->pluck('visit_id', 'id');
+            $visited = [];
+
+            foreach (TrackingLink::query()->whereKey($links->modelKeys())->select('tracking_links.id')->addSelect(self::anyVisit())->toBase()->get() as $row) {
+                $row = (array) $row;
+                $id = (int) $row['id'];
+                $visited[$id] = null;
+
+                foreach (array_keys(self::VISIT_FORMS) as $form) {
+                    $visited[$id] ??= $row[$form];
+                }
+            }
+
             $links->each(fn (TrackingLink $link) => $link->setAttribute('visit_id', $visited[$link->id] ?? null));
         }
 
@@ -302,23 +322,42 @@ final class TrackingLinksQuery implements RawSqlPersistenceBoundary
         return AnalyticsSource::keyFor(TrafficChannel::Direct, null, null, $link->utm_source, $link->utm_medium);
     }
 
-    /** The id of a visit — any one — that came through the tracking link the query reads, as a column of it. */
-    private static function anyVisit(): Builder
+    /**
+     * The id of a visit — any one — that came through the tracking link the
+     * query reads, as the four columns VISIT_FORMS names: each holds a visit
+     * that came by its way, and all four are none while no visit came.
+     *
+     * A visit's content is the link's when it is the same text, or when the
+     * link's is '' and the visit's none, and so is its term. Asked as one
+     * condition, the two ORs keep the five tags from being looked up in
+     * their index, and every visit of the campaign is read instead. Taken
+     * apart into the four ways they combine, each way names all five tags
+     * of the visit — the link's, or none — so it is one look at the index.
+     * Together the four hold exactly the visits the one condition holds.
+     *
+     * @return array<string, Builder<TrafficVisit>>
+     */
+    private static function anyVisit(): array
     {
-        $visits = TrafficVisit::query()
-            ->select('traffic_visits.id')
-            ->whereColumn('traffic_visits.utm_campaign', 'tracking_links.utm_campaign')
-            ->whereColumn('traffic_visits.utm_source', 'tracking_links.utm_source')
-            ->whereColumn('traffic_visits.utm_medium', 'tracking_links.utm_medium');
+        $forms = [];
 
-        // A link's '' is a visit's none; anything else is the same text.
-        foreach (['utm_content', 'utm_term'] as $column) {
-            $visits->where(fn (Builder $same) => $same
-                ->where(fn (Builder $none) => $none->where('tracking_links.'.$column, '')->whereNull('traffic_visits.'.$column))
-                ->orWhereColumn('traffic_visits.'.$column, 'tracking_links.'.$column));
+        foreach (self::VISIT_FORMS as $form => [$noContent, $noTerm]) {
+            $visits = TrafficVisit::query()
+                ->select('traffic_visits.id')
+                ->whereColumn('traffic_visits.utm_campaign', 'tracking_links.utm_campaign')
+                ->whereColumn('traffic_visits.utm_source', 'tracking_links.utm_source')
+                ->whereColumn('traffic_visits.utm_medium', 'tracking_links.utm_medium');
+
+            foreach (['utm_content' => $noContent, 'utm_term' => $noTerm] as $column => $none) {
+                $none
+                    ? $visits->where('tracking_links.'.$column, '')->whereNull('traffic_visits.'.$column)
+                    : $visits->whereColumn('traffic_visits.'.$column, 'tracking_links.'.$column);
+            }
+
+            $forms[$form] = $visits->limit(1);
         }
 
-        return $visits->limit(1);
+        return $forms;
     }
 
     /**
