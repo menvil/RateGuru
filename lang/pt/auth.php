@@ -31,6 +31,7 @@ return [
     'register' => [
         'title' => 'Cadastrar-se',
         'action' => 'Cadastrar-se',
+        'refused' => 'Não foi possível concluir seu cadastro. Tente novamente mais tarde.',
     ],
 
     'divider' => 'ou',

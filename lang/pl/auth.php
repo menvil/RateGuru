@@ -31,6 +31,7 @@ return [
     'register' => [
         'title' => 'Zarejestruj się',
         'action' => 'Zarejestruj się',
+        'refused' => 'Nie udało się dokończyć rejestracji. Spróbuj ponownie później.',
     ],
 
     'divider' => 'lub',

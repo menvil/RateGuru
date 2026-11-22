@@ -31,6 +31,7 @@ return [
     'register' => [
         'title' => 'Mag-sign up',
         'action' => 'Mag-sign up',
+        'refused' => 'Hindi namin natapos ang iyong pagpaparehistro. Subukang muli mamaya.',
     ],
 
     'divider' => 'o',

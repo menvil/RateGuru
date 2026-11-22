@@ -31,6 +31,7 @@ return [
     'register' => [
         'title' => 'Reģistrācija',
         'action' => 'Reģistrēties',
+        'refused' => 'Neizdevās pabeigt reģistrāciju. Mēģiniet vēlreiz vēlāk.',
     ],
 
     'divider' => 'vai',

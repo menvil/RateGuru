@@ -31,6 +31,7 @@ return [
     'register' => [
         'title' => 'Nýskráning',
         'action' => 'Nýskrá',
+        'refused' => 'Ekki tókst að ljúka skráningunni. Reyndu aftur síðar.',
     ],
 
     'divider' => 'eða',

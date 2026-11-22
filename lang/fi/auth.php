@@ -31,6 +31,7 @@ return [
     'register' => [
         'title' => 'Rekisteröidy',
         'action' => 'Rekisteröidy',
+        'refused' => 'Rekisteröitymistäsi ei voitu viimeistellä. Yritä myöhemmin uudelleen.',
     ],
 
     'divider' => 'tai',

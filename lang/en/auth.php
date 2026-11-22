@@ -31,6 +31,7 @@ return [
     'register' => [
         'title' => 'Sign up',
         'action' => 'Sign up',
+        'refused' => 'We could not finish signing you up. Please try again later.',
     ],
 
     'divider' => 'or',

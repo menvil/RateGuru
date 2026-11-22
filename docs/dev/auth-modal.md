@@ -115,6 +115,39 @@ ended in an expected failure or a pending link
 the page never open it, and its own errors live in the `authModal` bag so
 they never appear in another form.
 
+## Screening a sign-up
+
+`POST /register` is the one way to sign up with a password, from the modal,
+the standalone page and the form inside a game. After its fields are valid
+and before an account exists, `App\Actions\Auth\ScreenRegistrationAction`
+checks, in this order:
+
+1. a hidden field people never fill in (`<x-auth.registration-guard>`);
+2. how long the form took: a stamp signed for this session, at least two
+   seconds old, kept when the form is drawn again after an error;
+3. about how many accounts the network created: five an hour and fifteen a
+   day per IPv4 address or IPv6 `/64`. A typo spends nothing, and a sign-up
+   that loses its address to another one gives its count back, unless it is
+   the only one counted in that window. The count is close rather than exact:
+   a database failure just before the insert keeps its count, and a release
+   landing just after a window ended takes one from the next.
+
+`REGISTRATION_SCREENING_MODE` says what happens to what they find:
+
+| mode | effect |
+|---|---|
+| `off` | nothing is checked (the test suite) |
+| `report` | written to the security log, and the sign-up goes through |
+| `enforce` | written to the security log, and refused with one generic message |
+
+A blank or unknown value reads as `report`. The log line carries the reasons
+and the browser's bot flags, never the name or the address. Signing in with
+Google or Facebook is not screened.
+
+When the cache holding the counts cannot be reached, the log line gives the
+reason `limits_unavailable`. `report` still lets the sign-up through, and
+`enforce` refuses it, because the limits could not be applied.
+
 ## The shared modal
 
 `<x-ui.modal>` gained opt-in props, all off by default:

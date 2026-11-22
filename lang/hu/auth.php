@@ -31,6 +31,7 @@ return [
     'register' => [
         'title' => 'Regisztráció',
         'action' => 'Regisztráció',
+        'refused' => 'Nem sikerült befejezni a regisztrációdat. Próbáld újra később.',
     ],
 
     'divider' => 'vagy',
