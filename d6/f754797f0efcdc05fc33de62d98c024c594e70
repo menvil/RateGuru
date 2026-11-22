@@ -1,0 +1,25 @@
+tests/Feature/I18n/LocaleManagerTest.php
+  s_4b9dc6ab6b25d3::t_3ccfdedee19298 67-102
+resources/css/app.css
+  s_4b9dc6ab6b25d3::t_7eb724f98a5a3d 51-55,64-65,71-109
+  s_4b9dc6ab6b25d3::t_53c57d0a1140e4 56-63,66-70
+  s_4b9dc6ab6b25d3::t_616bd1d71f4318 369-373
+tests/Pest.php
+  s_4b9dc6ab6b25d3::t_7ec260c209b113 8738-8752
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "d6f754797f0efcdc05fc33de62d98c024c594e70",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
