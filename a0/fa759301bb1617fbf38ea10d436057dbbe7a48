@@ -1,0 +1,35 @@
+tests/Unit/Support/Analytics/PeriodFunnelHoursTest.php
+  s_4b9dc6ab6b25d3::t_a91457e04f53f5 1-38
+app/Queries/Games/GameMetricsQuery.php
+  s_4b9dc6ab6b25d3::t_a05a28457d0fe7 14-15
+  s_4b9dc6ab6b25d3::t_b95715522eefb9 96-101
+  s_4b9dc6ab6b25d3::t_1d6131a0c728e3 53-55
+  s_4b9dc6ab6b25d3::t_5721e83a15209a 404-405,413,425,427-431
+  s_4b9dc6ab6b25d3::t_7f697769b69c21 454-475,477-478,480-500,502-506,508-511,513-529,538-539,545,547-550,557-562,573-601,605-608
+tests/Feature/Analytics/AnalyticsPeriodHoursTest.php
+  s_4b9dc6ab6b25d3::t_c3ddd6b48e9799 1-113,116-117,119-132,136-155,157-177,179-423,425-428,430-559,561-604
+database/migrations/2026_11_22_110000_create_analytics_period_hours_tables.php
+  s_4b9dc6ab6b25d3::t_92227253bc7d38 1-52,55-88
+app/Actions/Analytics/MarkAnalyticsPeriodHourAction.php
+  s_4b9dc6ab6b25d3::t_2c8b78a9b458d5 1-45,47-83
+app/Actions/Analytics/RefreshAnalyticsPeriodHoursAction.php
+  s_4b9dc6ab6b25d3::t_5baa4caf29055a 1-142
+app/Support/Analytics/PeriodFunnelHours.php
+  s_4b9dc6ab6b25d3::t_60c0ef85938d8a 1-44
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "a0fa759301bb1617fbf38ea10d436057dbbe7a48",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
