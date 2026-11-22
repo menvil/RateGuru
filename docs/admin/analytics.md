@@ -61,9 +61,12 @@ choices — is kept in the page's address, so a link opens the same view.
   drops a campaign that isn't its.
 - **Figures read HH:MM UTC.** Every tab but Journeys keeps its figures for 10
   minutes once read, for every administrator alike, so visits that just arrived
-  may not show yet. While anyone has opened Analytics in the last day, the
-  figures of the default period, and of the period each of you last chose, are
-  read again every five minutes before you ask, so those open at once.
+  may not show yet. While anyone has opened Analytics in the last day, some
+  figures are read again every five minutes before you ask, so they usually
+  open at once: those of the default period, then of the period each of you
+  last chose, the latest chooser first, with no other filter — four periods at
+  most, the default included, so with several administrators an older choice
+  may not be among them.
   Refresh reads them again now, for everyone. Saving, deleting or restoring a
   segment, or saving a tracking link, also reads them again.
 
