@@ -1,0 +1,26 @@
+docs/architecture/analytics.md
+  s_4b9dc6ab6b25d3::t_84883d7dc4e495 540-543
+tests/Feature/Analytics/AnalyticsReadCacheTest.php
+  s_4b9dc6ab6b25d3::t_ff1806e3bd62f6 388-392
+  s_4b9dc6ab6b25d3::t_434d6c4da4b660 373-387,393
+app/Filament/Pages/Analytics/AnalyticsReadCache.php
+  s_4b9dc6ab6b25d3::t_01712e465653a1 233-245
+  s_4b9dc6ab6b25d3::t_642972c8c2b883 44-46
+  s_4b9dc6ab6b25d3::t_f0c77ef4e46b0e 116,118-124
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "61636115612328271471896e8227d4fecad0a78d",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
