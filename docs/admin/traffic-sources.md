@@ -139,7 +139,8 @@ marked here, since RateGuru can't see the network's own blacklist. **See
 blocked in Sites & zones** and **Open the blocks log** open the list and
 Logs → Blocks for the source in a new tab. The Blocked segment of Sites & zones
 lists every block in force, whatever the period: one that sent no click in it
-shows with no figures.
+shows with no figures. **Active**, next to All, lists every site or zone not
+blocked, whatever its segment.
 
 ## Period
 

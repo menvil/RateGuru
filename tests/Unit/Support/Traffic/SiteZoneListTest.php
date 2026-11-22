@@ -32,8 +32,10 @@ it('puts each site in its segment and counts the segments over what is visible',
 
     $list = SiteZoneList::of($rows, 'all', '', 0, 'spend', 'desc', 1);
 
-    expect($list['counts'])->toBe(['all' => 8, 'block' => 4, 'profit' => 1, 'watch' => 1, 'early' => 1, 'blocked' => 1])
+    expect($list['counts'])->toBe(['all' => 8, 'active' => 7, 'block' => 4, 'profit' => 1, 'watch' => 1, 'early' => 1, 'blocked' => 1])
         ->and(SiteZoneList::of($rows, 'block', '', 0, 'spend', 'desc', 1)['matching'])->toBe(['1:site:2', '1:site:1', '1:site:3', '1:site:8'])
+        // Active: every one not blocked, whatever its segment.
+        ->and(SiteZoneList::of($rows, 'active', '', 0, 'spend', 'desc', 1)['matching'])->toBe(['1:site:2', '1:site:4', '1:site:5', '1:site:1', '1:site:3', '1:site:8', '1:site:6'])
         // Under 100 clicks: hidden, but for Low reach, which its paid impressions judge.
         ->and(SiteZoneList::of($rows, 'all', '', 100, 'spend', 'desc', 1))->counts->toMatchArray(['all' => 4, 'block' => 2])->hidden->toBe(4);
 });

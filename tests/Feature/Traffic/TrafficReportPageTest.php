@@ -154,6 +154,14 @@ it('ticks sites across pages and blocks them by hand, then unblocks them from Bl
         ->call('unblockSelected');
 
     expect(TrafficBlock::query()->count())->toBe(26);
+
+    // Active: every site not blocked — here the one just unblocked — kept in the address.
+    $page->set('segment', 'active')
+        ->assertSet('segment', 'active')
+        ->assertSee('site 70001')
+        ->assertDontSee('site 70002');
+
+    expect($page->viewData('list')['counts'])->toMatchArray(['all' => 27, 'active' => 1, 'blocked' => 26]);
 });
 
 it('says on a blocked site where the network’s list stands: on its way there or off it, refused, or a taking off that failed', function () {
