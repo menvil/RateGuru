@@ -91,6 +91,8 @@ it('reads every tab slow to read ahead for the page’s default view, under the 
 
 it('reads ahead the period each administrator last chose, a range too, which the page opens on', function () {
     Livewire::withQueryParams(['period' => '7d'])->test(GrowthAnalyticsPage::class);
+    // A minute later, so the range is the latest choice.
+    $this->travel(1)->minutes();
     $other = User::factory()->admin()->create();
     $this->actingAs($other);
     Livewire::withQueryParams([])->test(GrowthAnalyticsPage::class)->call('applyRange', '2026-11-01', '2026-11-16');
@@ -100,17 +102,18 @@ it('reads ahead the period each administrator last chose, a range too, which the
     // The default, then the latest choice first — Experiments once, of no period.
     expect($this->reads)->toBe(3 * (count(GrowthAnalyticsPage::READ_CACHED) - 1) + 1);
 
+    // Opened again, a minute apart, the range first: opening the page, not only choosing, makes the 7 days the latest.
     $this->reads = 0;
+    $theirs = Livewire::withQueryParams(['tab' => 'geo'])->test(GrowthAnalyticsPage::class)->assertSet('from', '2026-11-01')->assertSet('to', '2026-11-16')->call('load');
+    $this->travel(1)->minutes();
     $this->actingAs($this->admin);
     $mine = Livewire::withQueryParams([])->test(GrowthAnalyticsPage::class)->assertSet('period', '7d')->call('load');
-    $this->actingAs($other);
-    $theirs = Livewire::withQueryParams(['tab' => 'geo'])->test(GrowthAnalyticsPage::class)->assertSet('from', '2026-11-01')->assertSet('to', '2026-11-16')->call('load');
 
     expect($this->reads)->toBe(0)
-        ->and($mine->viewData('readAt'))->toBe('12:00')
-        ->and($theirs->viewData('readAt'))->toBe('12:00');
+        ->and($mine->viewData('readAt'))->toBe('12:01')
+        ->and($theirs->viewData('readAt'))->toBe('12:01');
 
-    // No more views than it reads at once.
+    // No more views than it reads at once: the default and the period opened last; the range, chosen later but opened earlier, keeps what it read before.
     config(['analytics.read_ahead.views' => 2]);
     $this->reads = 0;
     $this->travel(5)->minutes();
@@ -118,6 +121,14 @@ it('reads ahead the period each administrator last chose, a range too, which the
     $this->artisan('analytics:warm-figures')->assertSuccessful();
 
     expect($this->reads)->toBe(2 * (count(GrowthAnalyticsPage::READ_CACHED) - 1) + 1);
+
+    $this->reads = 0;
+    $readAt = fn (array $query): mixed => Livewire::withQueryParams($query)->test(GrowthAnalyticsPage::class)->call('load')->viewData('readAt');
+
+    expect($readAt(['period' => AnalyticsPeriod::DEFAULT]))->toBe('12:07')
+        ->and($readAt(['period' => '7d']))->toBe('12:07')
+        ->and($readAt(['from' => '2026-11-01', 'to' => '2026-11-16']))->toBe('12:01')
+        ->and($this->reads)->toBe(0);
 });
 
 it('reads the figures again only once they would lapse before the next run', function () {

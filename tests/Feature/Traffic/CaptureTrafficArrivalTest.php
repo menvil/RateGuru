@@ -506,7 +506,7 @@ it('gives an account credited to a click no browser has run the device of the br
         ->and($another->fresh()->credited_device)->toBe(TrafficDevice::Desktop);
 });
 
-it('leaves an account credited to a click no browser has run, written without its copies, for the copy step to fill whole once the click passes', function () {
+it('fills whole an account credited to a click no browser has run, written without its copies, once the click passes, leaving the copy step none half-filled to miss', function () {
     clickOn('/games/'.$this->slug.'?rg_src=exo&cid=tag-copy', 'prefetchprefetchprefetchprefetchprefetch');
     $click = TrafficVisit::query()->sole();
     // As the release before the copies wrote it, while a deploy ran between migrating and switching over.
@@ -516,6 +516,7 @@ it('leaves an account credited to a click no browser has run, written without it
         'User-Agent' => 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1',
         'Sec-CH-UA-Mobile' => '?1',
     ]);
+    // The copy step skips an attribution with a device: given the device alone, its source would stay empty for good.
     app(CopyCreditedKeysAction::class)->handle();
 
     expect($click->fresh()->source_key)->not->toBeNull()

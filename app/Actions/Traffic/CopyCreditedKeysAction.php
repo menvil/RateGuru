@@ -15,7 +15,8 @@ use Illuminate\Support\Facades\DB;
  * moments a deploy runs between migrating and switching over. Every
  * attribution written since carries them (RecordAccountSignupAction), so
  * this finds nothing on any other run. Each found is locked and read again
- * before it is written, so a pointer let go meanwhile is never copied from.
+ * before it is written, so a pointer let go meanwhile is never copied from,
+ * and the source and device of a visit let go stay as its purge left them.
  * For analytics:refresh-visits, a few hundred a run, found by one scan of
  * the attributions in any order — a few milliseconds when there are none.
  */
@@ -41,10 +42,11 @@ final class CopyCreditedKeysAction
                     return;
                 }
 
-                $attribution->forceFill(AccountAttribution::creditedKeys(
-                    $attribution->credited_visit_id === null ? null : TrafficVisit::query()->find($attribution->credited_visit_id),
-                    $attribution->credited_attempt_id === null ? null : GameAttempt::query()->find($attribution->credited_attempt_id),
-                ))->save();
+                $visit = $attribution->credited_visit_id === null ? null : TrafficVisit::query()->find($attribution->credited_visit_id);
+                $keys = AccountAttribution::creditedKeys($visit, $attribution->credited_attempt_id === null ? null : GameAttempt::query()->find($attribution->credited_attempt_id));
+
+                // A visit purged leaves the source and device copied from it: with none, only the game is written.
+                $attribution->forceFill($visit === null ? ['credited_game_id' => $keys['credited_game_id']] : $keys)->save();
             });
         }
 

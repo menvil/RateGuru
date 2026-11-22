@@ -329,6 +329,64 @@ it('reads an hour changed since it was counted from its assignments until it is 
         ->and(hoursFunnel($period)[$period->id][$version->id]->attempts)->toBe(2);
 });
 
+it('reads an hour changed since it was counted from its assignments beside the sums of an hour unchanged, in one read', function () {
+    $this->travelTo('2026-11-10 10:15:00');
+    [, $version, $period] = hoursGame();
+    $changed = periodVisitor($period, $version, ['started' => true]);
+    $this->travelTo('2026-11-10 11:15:00');
+    $unchanged = periodVisitor($period, $version, ['started' => true]);
+    $this->travelTo('2026-11-12 12:00:00');
+    countPeriodHours();
+
+    // A play more on each assignment, no writer telling of it: the sums of both hours leave it out.
+    foreach ([$changed, $unchanged] as $assignment) {
+        GameAttempt::factory()->create(['version_id' => $version->id, 'assignment_id' => $assignment->id, 'visitor_hash' => $assignment->visitor_hash]);
+    }
+
+    app(MarkAnalyticsPeriodHourAction::class)->handle(CarbonImmutable::parse('2026-11-10 10:15:00'));
+    app()->forgetScopedInstances();
+
+    // The earlier hour's two plays from its assignments, the later hour's one from its sums: neither every sum (2) nor every assignment (4).
+    expect(markedPeriodHours())->toBe(['2026-11-10 10:00:00'])
+        ->and(app(GameMetricsQuery::class)->periodFunnel([(int) $period->id], CarbonImmutable::parse('2026-11-05'))[$period->id][$version->id]->attempts)->toBe(3);
+});
+
+it('never writes over an hour another run counted with what this one read of it before', function () {
+    $this->travelTo('2026-11-10 10:15:00');
+    [, $version, $period] = hoursGame();
+    $assignment = periodVisitor($period, $version, ['started' => true]);
+    $this->travelTo('2026-11-12 12:00:00');
+    countPeriodHours();
+    $attempt = GameAttempt::query()->where('assignment_id', $assignment->id)->firstOrFail();
+    app(MarkAnalyticsPeriodHourAction::class)->ofAttempt($attempt);
+
+    // A run started by hand gets in as early as this run's count of the marked hour lets it: the attempt
+    // is completed, its hour marked again, and that run counts the hour and takes the newer mark away.
+    $raced = false;
+    DB::listen(function (QueryExecuted $query) use (&$raced, $attempt): void {
+        $sql = strtolower(str_replace(['"', '`'], '', $query->sql));
+
+        if ($raced || ! (str_contains($sql, 'for update') || (str_contains($sql, 'from game_assignments') && str_contains($sql, 'game_attempts')))) {
+            return;
+        }
+
+        $raced = true;
+        GameAttempt::query()->whereKey($attempt->id)->update(['status' => 'completed', 'completed_at' => now()]);
+        app(MarkAnalyticsPeriodHourAction::class)->ofAttempt($attempt);
+        countPeriodHours();
+    });
+
+    countPeriodHours();
+
+    expect($raced)->toBeTrue()
+        ->and(markedPeriodHours())->toBe([])
+        ->and(AnalyticsPeriodHour::query()->sole()->completed)->toBe(1)
+        ->and(hoursFunnel($period)[$period->id][$version->id]->completed)->toBe(1);
+})->skip(
+    fn (): bool => config('database.default') === 'sqlite',
+    'SQLite takes no row locks, and one writer holds the whole database at a time.',
+);
+
 it('marks an hour only once it closed, with a new token each time, keeping when it was first marked', function () {
     $mark = app(MarkAnalyticsPeriodHourAction::class);
     $now = CarbonImmutable::parse('2026-11-18 12:00:00');
@@ -370,10 +428,19 @@ it('is counted by analytics:refresh-visits before the visits', function () {
     [, $version, $period] = hoursGame();
     periodVisitor($period, $version);
     $this->travelTo('2026-11-12 12:00:00');
+    analyticsVisit('ann', ['network_day' => '2026-11-12', 'arrived_at' => '2026-11-12 11:00:00']);
+    // Each step's table, in the order the steps first write to them.
+    $written = [];
+    DB::listen(function (QueryExecuted $query) use (&$written): void {
+        if (preg_match('/^insert into ["`]?(analytics_period_hours|analytics_visits)["`]? /i', $query->sql, $table) === 1 && ! in_array($table[1], $written, true)) {
+            $written[] = $table[1];
+        }
+    });
 
     $this->artisan('analytics:refresh-visits')->assertSuccessful();
 
-    expect(periodHoursThrough())->toBe('2026-11-12 09:00:00')
+    expect($written)->toBe(['analytics_period_hours', 'analytics_visits'])
+        ->and(periodHoursThrough())->toBe('2026-11-12 09:00:00')
         ->and(AnalyticsPeriodHour::query()->sole()->assigned)->toBe(1);
 });
 
@@ -603,6 +670,8 @@ it('counts the emails of an account’s plays gone when the account is deleted',
     GameAttempt::query()->where('assignment_id', $assignment->id)->update(['user_id' => $member->id]);
     $this->travelTo('2026-11-12 12:00:00');
     countPeriodHours();
+
+    expect(hoursFunnel($period)[$period->id][$version->id]->emailed)->toBe(1);
 
     app(AnonymizeUserAccountAction::class)->execute($member);
 

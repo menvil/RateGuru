@@ -41,7 +41,9 @@ use Illuminate\Support\Str;
  * Read once for all: someone asking for figures another request is reading
  * at that moment — a second administrator, or the figures being read ahead
  * (analytics:warm-figures) — waits for them, at most WAIT_SECONDS, and reads
- * them only when none were kept by then. Refresh never waits. Each view an
+ * them only when none were kept by then. Refresh never waits. Figures are as
+ * of the moment their read began, and a read that ends after one begun later
+ * — a Refresh while it read — leaves the later one's kept. Each view an
  * administrator opens or chooses is noted (opened()), so the figures of the
  * views most likely to be opened next are read ahead before anyone asks,
  * each as an administrator who opened it reads it (recentViews(), ahead()).
@@ -111,9 +113,15 @@ final class AnalyticsReadCache
                 return $kept;
             }
 
-            $data = $read();
+            // Figures are as of the moment their read began: the visits as they were then.
             $at = CarbonImmutable::now('UTC')->startOfSecond();
-            Cache::put($key, ['at' => $at->toIso8601String(), 'data' => $data], $at->addMinutes((int) config('analytics.read_cache_minutes')));
+            $data = $read();
+
+            // Figures a read begun later kept meanwhile — a Refresh, which never waits for this one — are newer, and stay.
+            if (! self::keptLater($key, $at)) {
+                Cache::put($key, ['at' => $at->toIso8601String(), 'data' => $data], $at->addMinutes((int) config('analytics.read_cache_minutes')));
+            }
+
             $this->tally['read']++;
 
             return ['data' => $data, 'readAt' => $at];
@@ -220,6 +228,19 @@ final class AnalyticsReadCache
         $this->tally['kept']++;
 
         return ['data' => $kept['data'], 'readAt' => $at];
+    }
+
+    /**
+     * Whether what is kept under the key was read from a later moment than
+     * the one given. Looking and keeping are two steps, not one: only two
+     * reads finishing within that instant can still leave the earlier's.
+     */
+    private static function keptLater(string $key, CarbonImmutable $at): bool
+    {
+        $kept = Cache::get($key);
+
+        return is_array($kept) && is_array($kept['data'] ?? null) && is_string($kept['at'] ?? null)
+            && CarbonImmutable::parse($kept['at'])->utc()->greaterThan($at);
     }
 
     /** Waits for whoever is reading the same figures, at most WAIT_SECONDS: whether the read is now this request's. */

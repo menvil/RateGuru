@@ -198,8 +198,10 @@ final class AnalyticsGameCellsQuery implements RawSqlPersistenceBoundary
 
         [$pid, $pidBindings] = self::number('a');
         [$flags, $flagBindings] = self::flags($moment === null ? 'whole' : 'until', $moment);
+        // The events of the day's own attempts alone, whenever recorded: not every attempt's since the day began.
+        $started = GameAttempt::query()->where('started_at', '>=', $from)->where('started_at', '<', $before)->select('id');
         $attempts = $this->numbered(GameAttempt::query()->from('game_attempts as a'), 'a')
-            ->leftJoinSub(self::events(null, $from, $moment), 'ev', 'ev.attempt_id', '=', 'a.id')
+            ->leftJoinSub(self::events(null, $from, $moment, of: $started), 'ev', 'ev.attempt_id', '=', 'a.id')
             ->where('a.started_at', '>=', $from)
             ->where('a.started_at', '<', $before)
             ->select('a.game_id', 'a.audience', 'a.version_id')
@@ -478,13 +480,16 @@ final class AnalyticsGameCellsQuery implements RawSqlPersistenceBoundary
      * The events funnels() counts people by (EVENT_PEOPLE), as flags per
      * attempt (`attempt_id`), for flags() to read as `ev`: of those recorded
      * from a moment on — no attempt's events are earlier than it began — of
-     * one game when given, and before a moment when given; beside them,
-     * whether the attempt was shared before and since a moment, when one is
-     * given for that.
+     * one game when given, before a moment when given, and of the attempts
+     * given alone (their ids) when given, so a day counted long after it
+     * groups its own attempts' events rather than every one since; beside
+     * them, whether the attempt was shared before and since a moment, when
+     * one is given for that.
      *
+     * @param  Builder<GameAttempt>|null  $of
      * @return Builder<GameEvent>
      */
-    private static function events(?int $gameId, CarbonImmutable $since, ?CarbonImmutable $until = null, ?CarbonImmutable $sharedSince = null): Builder
+    private static function events(?int $gameId, CarbonImmutable $since, ?CarbonImmutable $until = null, ?CarbonImmutable $sharedSince = null, ?Builder $of = null): Builder
     {
         $flags = [];
         $bindings = [];
@@ -506,6 +511,7 @@ final class AnalyticsGameCellsQuery implements RawSqlPersistenceBoundary
             ->whereIn('f.type', array_map(fn (GameEventType $type): string => $type->value, GameMetricsQuery::FUNNEL_EVENTS))
             ->where('f.occurred_at', '>=', $since)
             ->when($until !== null, fn (Builder $query): Builder => $query->where('f.occurred_at', '<', $until))
+            ->when($of !== null, fn (Builder $query): Builder => $query->whereIn('f.attempt_id', $of))
             ->whereNotNull('f.attempt_id')
             ->groupBy('f.attempt_id')
             ->select('f.attempt_id')

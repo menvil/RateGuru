@@ -40,12 +40,14 @@ final class AnalyticsRollupWindow
 
     /**
      * Whether a change to a day made now is read without being told: the day
-     * is among them now and still is when the whole of them is read next, at
-     * most WHOLE_MINUTES away. The earliest day leaves the window as time
-     * passes, so one among them now can be gone before that read.
+     * is among them now and still is when the whole of them has been read
+     * twice more, at most twice WHOLE_MINUTES away — one whole read missed, a
+     * run of the minute before still busy or one that failed, leaves the
+     * next to read it. The earliest day leaves the window as time passes, so
+     * one among them now can be gone before those reads.
      */
     public static function readsChangeMadeAt(string $day, CarbonImmutable $now): bool
     {
-        return self::covers($day, $now) && self::covers($day, $now->addMinutes(self::WHOLE_MINUTES));
+        return self::covers($day, $now) && self::covers($day, $now->addMinutes(2 * self::WHOLE_MINUTES));
     }
 }

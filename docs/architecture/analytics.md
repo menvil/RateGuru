@@ -434,7 +434,13 @@ first hour — up to a moment ten minutes ago, every five minutes, at once when
 one of them was marked (`game_cells_moment`): a new count beside the earlier
 ones, which go once ten minutes older than it — never the one just before it,
 however long the refresh had stopped — so a read that learned the earlier
-moment still finds its cells. At night the last
+moment still finds its cells after the next count. A count after that can
+take them: while the refresh keeps up, only four minutes or more after the
+next one; once the refresh had stopped for ten minutes or more, as soon as
+its next run, a minute later. A read still going then finds none of the open
+days' cells, and its figures come out short rather than read from the events
+and attempts — but a read is one of a game's figures (`GameMetricsQuery`), a
+query or two, well under a second at the sizes measured below. At night the last
 `analytics.rollup.recheck_days` days are counted again. Each count is read first and inserted after, under a lock
 on the state's row the purge of the numbers takes too. Measured on 718,000
 views and 398,000 attempts of 30 days, the days take about half a second each,
@@ -455,7 +461,8 @@ took). A
 person read live is looked up by their browser's number; one whose browser
 has none yet is in no cell, and counted on their own. So a game's figures
 are the same as reading every view and attempt, at any moment, however long
-ago the refresh last ran. Once a day has closed, every writer of what they
+ago the refresh last ran — but for a read still going when the count it
+learned is taken, above. Once a day has closed, every writer of what they
 count of it tells it in the change's own transaction
 (`MarkAnalyticsGameCellsAction`): `GameEventRecorder` for the events that
 come with every change after an attempt began, whichever action records them
@@ -537,7 +544,10 @@ another reads it — a second administrator, or the read ahead — waits for it,
 most `AnalyticsReadCache::WAIT_SECONDS` (30), and reads the figures itself only
 when none were kept by then (a cache lock per key, held at most 120 seconds, as
 long as a request may take). Refresh never waits, reads now, and keeps what it
-read for everyone. The store is the target's `CACHE_STORE` — the host's Redis
+read for everyone. Figures are as of the moment their read began — the time the
+page says — and a read that ends after one begun later, such as a read ahead
+still reading when an administrator pressed Refresh, keeps nothing over the
+later one's figures. The store is the target's `CACHE_STORE` — the host's Redis
 on a deployed target (the environment contract's Cache / Redis section), the
 file store on a developer's machine; Redis, database and file locks all hold
 across processes.
@@ -726,7 +736,11 @@ first assignment's (on deploy, every hour of the assignments already made),
 passing over hours nobody was assigned in (`period_hours_through`); and at
 night the hours of the last `analytics.rollup.recheck_days` days again, a
 check that nothing was missed. An hour is read first and written after, so
-counting never holds a lock on what playing writes.
+counting never holds a lock on what playing writes — under the lock on the
+state's row the people of the games' days are counted under too, taken before
+the hour is read: a run started by hand beside the scheduler's counts an hour
+only once the other is done with it, so it never writes what it read before
+the other's count over it, nor adds its sums to the other's.
 
 `GameMetricsQuery::periodFunnel()` takes the hours counted from their sums,
 and the hours since — two or three — and the hours marked from the
@@ -815,7 +829,7 @@ action. A moderator sees neither.
 | Tracking links, never deleted | for ever |
 | Hidden periods | for ever, as every period |
 | Analytics' own rows of the visits (`analytics_visits`) | as long as their visit |
-| Each browser's first day (`analytics_people`) | 400 days from that day, as the visits (`traffic:purge-expired`) |
+| Each browser's first day (`analytics_people`) | 400 days from that day, as the visits; then moved on to the earliest day of its visits left, and gone with the last of them (`traffic:purge-expired`) |
 | The cells of each day's people, their accounts and each post's people (`analytics_cells`, `analytics_cell_accounts`, `analytics_post_cells`) | until every visit of the day is gone (`traffic:purge-expired`); a day the cutoff runs through is written again from the visits left |
 | A browser's number (`analytics_pids`) | until no row of Analytics names it, but the highest, which the next number counts on from |
 | The sums of each day's games' visits (`analytics_game_days`) | as the cells |
