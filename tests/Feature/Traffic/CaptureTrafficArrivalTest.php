@@ -9,6 +9,7 @@ use App\Enums\TrafficSourceStatus;
 use App\Enums\TrafficSpendBasis;
 use App\Enums\TrafficSpendMode;
 use App\Http\Middleware\CaptureTrafficArrival;
+use App\Models\AccountAttribution;
 use App\Models\GameResultProfile;
 use App\Models\Post;
 use App\Models\ProjectSettings;
@@ -484,4 +485,22 @@ it('records nothing for a HEAD request', function () {
         ->assertOk();
 
     expect(TrafficVisit::query()->count())->toBe(0);
+});
+
+it('gives an account credited to a click no browser has run the device of the browser the click passes to', function () {
+    clickOn('/games/'.$this->slug.'?rg_src=exo&cid=tag-device', 'prefetchprefetchprefetchprefetchprefetch');
+    $click = TrafficVisit::query()->sole();
+    $credited = AccountAttribution::factory()->confirmed()->create(['credited_visit_id' => $click->id]);
+    $another = AccountAttribution::factory()->confirmed()->create(['credited_visit_id' => TrafficVisit::factory()->create(['device' => 'desktop'])->id]);
+
+    expect($credited->fresh()->credited_device)->toBe(TrafficDevice::Desktop);
+
+    clickOn('/games/'.$this->slug.'?rg_src=exo&cid=tag-device', 'personApersonApersonApersonApersonAperso', [
+        'User-Agent' => 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1',
+        'Sec-CH-UA-Mobile' => '?1',
+    ]);
+
+    expect($click->fresh()->device)->toBe(TrafficDevice::Mobile)
+        ->and($credited->fresh()->credited_device)->toBe(TrafficDevice::Mobile)
+        ->and($another->fresh()->credited_device)->toBe(TrafficDevice::Desktop);
 });

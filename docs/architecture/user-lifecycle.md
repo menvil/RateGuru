@@ -127,7 +127,7 @@ erases what it did before tombstoning it through `AnonymizeUserAccountAction`:
 | Its votes (post / comment / rating) | delete; counts on what others wrote are counted again |
 | Reports it filed, and reports about it | delete; report counts counted again |
 | Its game attempts, answers, emails, events and assignments | delete |
-| What the tracker credited it to (`account_attributions`) and the browsers it was known by (`account_browsers`) | delete; the visit it signed up on keeps the sign-up, as one never confirmed, and conversions or other accounts' attributions naming its attempts let them go |
+| What the tracker credited it to (`account_attributions`) and the browsers it was known by (`account_browsers`) | delete; the visit it signed up on keeps the sign-up, as one never confirmed, and conversions or other accounts' attributions naming its attempts let them go — an attribution with the game it copied from the attempt (`credited_game_id`) |
 | The days it did something on the site (`user_activity_days`) | delete |
 | Everything account deletion removes | as account deletion (table below) |
 | Moderation logs | retain (audit history) |

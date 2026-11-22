@@ -295,9 +295,10 @@ final class PurgeUnconfirmedAccountAction
         GameEmailCapture::query()->whereIn('attempt_id', $attempts)->delete();
         // What the tracker recorded of these attempts stays, without them: a
         // paid click's conversions are what was sent to its network, and an
-        // attribution of another account names an attempt only as a pointer.
+        // attribution of another account names an attempt only as a pointer —
+        // the game copied from it goes with it, as Retention read it.
         TrafficConversion::query()->whereIn('attempt_id', $attempts)->update(['attempt_id' => null]);
-        AccountAttribution::query()->whereIn('credited_attempt_id', $attempts)->update(['credited_attempt_id' => null]);
+        AccountAttribution::query()->whereIn('credited_attempt_id', $attempts)->update(['credited_attempt_id' => null, 'credited_game_id' => null]);
         GameAttempt::query()->whereIn('id', $attempts)->delete();
         GameAssignment::query()->whereIn('id', $assignments)->delete();
 

@@ -11,6 +11,7 @@ use App\Enums\TrafficChannel;
 use App\Enums\TrafficKnownReason;
 use App\Enums\TrafficSourceType;
 use App\Enums\TrafficSpendBasis;
+use App\Models\AccountAttribution;
 use App\Models\Game;
 use App\Models\TrafficCampaign;
 use App\Models\TrafficCampaignEvent;
@@ -201,7 +202,8 @@ final class RecordPaidClickAction
      * The same click asked for again: by the same browser, it is the same
      * visit; by another browser, it passes to that browser while no browser
      * has run its page — priced for that browser's device, unless its spend
-     * was taken from a day's figures — and is no click for it once one has.
+     * was taken from a day's figures, and with the device of an account
+     * already credited to it — and is no click for it once one has.
      *
      * @param  array<string, mixed>  $attributes
      */
@@ -246,6 +248,8 @@ final class RecordPaidClickAction
                 $visit->arrived_at,
             )),
         ])->save();
+        // An account the click was credited to while it was the other browser's reads its device as it is now.
+        AccountAttribution::query()->where('credited_visit_id', $visit->id)->update(['credited_device' => $visit->device->value]);
         // A click id can come again any time later: Analytics reads the old click's day again.
         $this->analytics->handle($visit->network_day, $now);
 

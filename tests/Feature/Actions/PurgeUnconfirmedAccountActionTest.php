@@ -200,13 +200,18 @@ it('lets go of what the tracker credited to an account that never confirmed, and
     $keptConversion = TrafficConversion::factory()->create(['attempt_id' => $kept->id]);
     $keptAttribution = AccountAttribution::factory()->create(['user_id' => User::factory(), 'credited_attempt_id' => $kept->id]);
 
+    expect($others->credited_game_id)->toBe($attempt->game_id);
+
     expect(purgeUnconfirmed($bot))->toBe(UnconfirmedAccountPurgeOutcome::Purged)
         ->and(AccountAttribution::query()->where('user_id', $bot->id)->exists())->toBeFalse()
         ->and(AccountBrowser::query()->where('user_id', $bot->id)->exists())->toBeFalse()
         ->and($others->fresh()->credited_attempt_id)->toBeNull()
+        // The game copied from the attempt goes with the pointer, as Retention read it.
+        ->and($others->fresh()->credited_game_id)->toBeNull()
         ->and($conversion->fresh()->attempt_id)->toBeNull()
         ->and($keptConversion->fresh()->attempt_id)->toBe($kept->id)
         ->and($keptAttribution->fresh()->credited_attempt_id)->toBe($kept->id)
+        ->and($keptAttribution->fresh()->credited_game_id)->toBe($kept->game_id)
         ->and($visit->fresh()->signup_at)->not->toBeNull()
         ->and($visit->fresh()->account_at)->toBeNull();
 });

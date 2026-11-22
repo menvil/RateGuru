@@ -4,12 +4,14 @@ use App\Actions\Auth\LinkSocialAccountAction;
 use App\Actions\Auth\RegisterSocialUserAction;
 use App\Actions\Auth\VerifyEmailAction;
 use App\Actions\Traffic\RecordAccountBonusAction;
+use App\Actions\Traffic\RecordAccountSignupAction;
 use App\Data\Auth\SocialIdentity;
 use App\Enums\AccountSignupMethod;
 use App\Enums\AccountSignupPlace;
 use App\Enums\GameEventType;
 use App\Enums\SocialProvider;
 use App\Enums\TrafficChannel;
+use App\Enums\TrafficDevice;
 use App\Enums\TrafficKnownReason;
 use App\Livewire\Games\PlayGame;
 use App\Models\AccountAttribution;
@@ -381,4 +383,59 @@ it('notices a new account coming back on another day, from any page', function (
     $this->actingAs($member)->get('/')->assertOk();
 
     expect(AccountAttribution::query()->sole()->returned_at)->not->toBeNull();
+});
+
+it('copies what Retention reads of the click and the play an account is credited to in the write that credits them', function () {
+    recordTraffic();
+    $attempt = finishGameIn($this->token);
+    $click = TrafficVisit::factory()->create(['visitor_hash' => $this->hash, 'arrived_at' => now()->subHour(), 'source_key' => 'paid:9', 'device' => 'mobile']);
+    $writes = [];
+    DB::listen(function (QueryExecuted $query) use (&$writes): void {
+        if (preg_match('/^(insert into|update) .account_attributions/i', $query->sql) === 1) {
+            $writes[] = strtolower(strtok($query->sql, ' '));
+        }
+    });
+
+    registerIn($this->token);
+
+    expect(AccountAttribution::query()->sole())
+        ->credited_visit_id->toBe($click->id)
+        ->credited_attempt_id->toBe($attempt->id)
+        ->credited_source_key->toBe('paid:9')
+        ->credited_device->toBe(TrafficDevice::Mobile)
+        ->credited_game_id->toBe($attempt->game_id)
+        ->and($writes)->toBe(['insert']);
+});
+
+it('copies the source and device of the unpaid visit an account is credited to, and no game when it is credited to no play', function () {
+    recordTraffic();
+    $unpaid = TrafficVisit::factory()->unpaid(TrafficChannel::Referral)->create(['visitor_hash' => $this->hash, 'arrived_at' => now()->subHour(), 'source_key' => 'reddit:organic', 'device' => 'desktop']);
+
+    registerIn($this->token);
+
+    expect(AccountAttribution::query()->sole())
+        ->credited_visit_id->toBe($unpaid->id)
+        ->credited_source_key->toBe('reddit:organic')
+        ->credited_device->toBe(TrafficDevice::Desktop)
+        ->credited_game_id->toBeNull();
+});
+
+it('copies nothing for an account signed up in no known browser, and what an account signed up through Google is credited to as it is confirmed at once', function () {
+    $click = TrafficVisit::factory()->create(['visitor_hash' => $this->hash, 'arrived_at' => now()->subHour(), 'source_key' => 'paid:4', 'device' => 'desktop']);
+    $nowhere = User::factory()->create();
+    $google = User::factory()->create();
+
+    app(RecordAccountSignupAction::class)->handle($nowhere, null, AccountSignupMethod::Email, AccountSignupPlace::Feed, CarbonImmutable::now());
+    app(RecordAccountSignupAction::class)->handle($google, $this->hash, AccountSignupMethod::Google, AccountSignupPlace::Game, CarbonImmutable::now());
+
+    expect(AccountAttribution::query()->where('user_id', $nowhere->id)->sole())
+        ->credited_visit_id->toBeNull()
+        ->credited_source_key->toBeNull()
+        ->credited_device->toBeNull()
+        ->credited_game_id->toBeNull()
+        ->and(AccountAttribution::query()->where('user_id', $google->id)->sole())
+        ->confirmed_at->not->toBeNull()
+        ->credited_visit_id->toBe($click->id)
+        ->credited_source_key->toBe('paid:4')
+        ->credited_device->toBe(TrafficDevice::Desktop);
 });

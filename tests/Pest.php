@@ -15560,3 +15560,13 @@ function reachedVisits(TrafficSource $source, string $day, int $visits, int $ope
         'started_at' => $sequence->index < $started ? $day.' 10:02:00' : null,
     ])->create(['source_id' => $source->id, 'network_day' => $day, 'arrived_at' => $day.' 10:00:00', ...$attributes]);
 }
+
+/**
+ * The migration that copies what Retention reads of the visit and attempt
+ * an account is credited to onto its attribution, and fills the copies for
+ * the attributions before it.
+ */
+function accountCreditedKeysMigration(): object
+{
+    return require database_path('migrations/2026_11_22_120000_add_credited_keys_to_account_attributions_table.php');
+}

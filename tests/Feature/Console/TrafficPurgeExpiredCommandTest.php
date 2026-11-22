@@ -1,5 +1,7 @@
 <?php
 
+use App\Enums\TrafficDevice;
+use App\Models\AccountAttribution;
 use App\Models\AnalyticsCell;
 use App\Models\AnalyticsCellAccount;
 use App\Models\AnalyticsDirtyDay;
@@ -25,7 +27,8 @@ use Illuminate\Support\Facades\DB;
  * traffic:purge-expired deletes what the tracker recorded past its retention
  * — visits after 400 days with their conversions, a click's details, the
  * posts of a visit and the outbox after 90, spend figures after 400 — in
- * small batches, and nothing younger.
+ * small batches, and nothing younger; an account credited to a purged visit
+ * keeps what Retention reads of it.
  */
 beforeEach(function () {
     CarbonImmutable::setTestNow('2026-11-17 03:00:00');
@@ -180,4 +183,17 @@ it('marks the days of the visits credited with an account in the sessions whose 
         ->toContain(substr((string) $credited->network_day, 0, 10))
         ->not->toContain(substr((string) $votedCredited->network_day, 0, 10))
         ->and(AnalyticsFirstPostCell::query()->pluck('network_day')->all())->toBe(['2026-11-01']);
+});
+
+it('keeps what Retention reads of a purged visit on the account credited to it, the pointer let go', function () {
+    $old = TrafficVisit::factory()->create(['arrived_at' => now()->subDays(401), 'source_key' => 'reddit:organic', 'device' => 'desktop']);
+    $attribution = AccountAttribution::factory()->confirmed()->create(['credited_visit_id' => $old->id, 'signed_up_at' => now()->subDays(401)]);
+
+    $this->artisan('traffic:purge-expired')->assertSuccessful();
+
+    expect(TrafficVisit::query()->find($old->id))->toBeNull()
+        ->and($attribution->fresh())
+        ->credited_visit_id->toBeNull()
+        ->credited_source_key->toBe('reddit:organic')
+        ->credited_device->toBe(TrafficDevice::Desktop);
 });

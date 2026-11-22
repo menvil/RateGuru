@@ -4,6 +4,7 @@ namespace App\Console\Commands;
 
 use App\Actions\Analytics\RefreshAnalyticsPeriodHoursAction;
 use App\Actions\Analytics\RefreshAnalyticsVisitsAction;
+use App\Actions\Traffic\CopyCreditedKeysAction;
 use Illuminate\Console\Command;
 
 /**
@@ -11,9 +12,11 @@ use Illuminate\Console\Command;
  * (docs/architecture/analytics.md, "What a tab reads"): every minute for up
  * to 45 seconds — the days still changing, the older days marked as
  * changed, and the days not filled yet — and, once a night, the last
- * --recheck days again. First, the hours of assignments a traffic period's
- * funnel is summed from (RefreshAnalyticsPeriodHoursAction): a few reads a
- * minute, which the funnel reads from the assignments until they are done.
+ * --recheck days again. First, what Retention reads of an account's credit
+ * is copied onto any attribution written without it (CopyCreditedKeysAction),
+ * and the hours of assignments a traffic period's funnel is summed from are
+ * counted (RefreshAnalyticsPeriodHoursAction): a few reads a minute, which the
+ * funnel reads from the assignments until they are done.
  */
 final class AnalyticsRefreshVisitsCommand extends Command
 {
@@ -21,7 +24,7 @@ final class AnalyticsRefreshVisitsCommand extends Command
 
     protected $description = 'Bring the visits Growth → Analytics reads up to date.';
 
-    public function handle(RefreshAnalyticsVisitsAction $refresh, RefreshAnalyticsPeriodHoursAction $periodHours): int
+    public function handle(RefreshAnalyticsVisitsAction $refresh, RefreshAnalyticsPeriodHoursAction $periodHours, CopyCreditedKeysAction $credits): int
     {
         $recheck = filter_var($this->option('recheck'), FILTER_VALIDATE_INT, ['options' => ['min_range' => 0, 'max_range' => 400]]);
         $seconds = filter_var($this->option('seconds'), FILTER_VALIDATE_INT, ['options' => ['min_range' => 1, 'max_range' => 86400]]);
@@ -33,6 +36,7 @@ final class AnalyticsRefreshVisitsCommand extends Command
         }
 
         $deadline = microtime(true) + $seconds;
+        $credits->handle();
         $hours = $periodHours->handle($deadline, $recheck);
         $done = $refresh->handle($deadline, $recheck);
         $this->info("Counted {$hours} hours of assignments. Read {$done['days']} days, wrote {$done['written']} rows".($done['filled'] ? '.' : '; still filling the earlier days.'));
