@@ -1,0 +1,20 @@
+tests/Feature/Queries/RetentionQueryTest.php
+  s_4b9dc6ab6b25d3::t_a692a937e9f1cd 314
+  s_4b9dc6ab6b25d3::t_30ea8690ef3c5b 316-317
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "1f568fa030d74818f695248c930b7146bb21cf07",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
