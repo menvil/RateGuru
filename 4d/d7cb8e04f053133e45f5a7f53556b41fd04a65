@@ -1,0 +1,23 @@
+app/Actions/Auth/ClaimAccountWithVerifiedEmailAction.php
+  s_6a0f90a935e849::t_6163d2bdcc515e 113-114,116-119
+docs/dev/social-login.md
+  s_6a0f90a935e849::t_956b85d27371b8 109
+tests/Feature/Auth/SocialAccountClaimTest.php
+  s_6a0f90a935e849::t_6ffde01c581975 128-165
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "4dd7cb8e04f053133e45f5a7f53556b41fd04a65",
+  "prompts": {},
+  "sessions": {
+    "s_6a0f90a935e849": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0c534e04-92e1-423d-8dc4-9f4bf22e3c99",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}

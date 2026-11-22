@@ -1,0 +1,225 @@
+lang/cs/auth.php
+  s_6a0f90a935e849::t_27cf2f12cadd46 57-59
+lang/bs/auth.php
+  s_6a0f90a935e849::t_27cf2f12cadd46 57-59
+lang/is/auth.php
+  s_6a0f90a935e849::t_27cf2f12cadd46 57-59
+lang/tr/auth.php
+  s_6a0f90a935e849::t_27cf2f12cadd46 57-59
+docs/architecture/user-lifecycle.md
+  s_6a0f90a935e849::t_27cf2f12cadd46 117-126
+lang/lv/ui.php
+  s_6a0f90a935e849::t_27cf2f12cadd46 84
+lang/ja/auth.php
+  s_6a0f90a935e849::t_27cf2f12cadd46 57-59
+lang/de/ui.php
+  s_6a0f90a935e849::t_27cf2f12cadd46 84
+lang/cs/ui.php
+  s_6a0f90a935e849::t_27cf2f12cadd46 84
+lang/uk/auth.php
+  s_6a0f90a935e849::t_27cf2f12cadd46 57-59
+lang/ka/auth.php
+  s_6a0f90a935e849::t_27cf2f12cadd46 57-59
+lang/ms/ui.php
+  s_6a0f90a935e849::t_27cf2f12cadd46 84
+lang/ru/auth.php
+  s_6a0f90a935e849::t_27cf2f12cadd46 57-59
+lang/hr/auth.php
+  s_6a0f90a935e849::t_27cf2f12cadd46 57-59
+lang/ka/ui.php
+  s_6a0f90a935e849::t_27cf2f12cadd46 84
+app/Livewire/Admin/UserEditor.php
+  s_6a0f90a935e849::t_27cf2f12cadd46 340
+lang/hr/ui.php
+  s_6a0f90a935e849::t_27cf2f12cadd46 84
+lang/is/ui.php
+  s_6a0f90a935e849::t_27cf2f12cadd46 84
+lang/ja/ui.php
+  s_6a0f90a935e849::t_27cf2f12cadd46 84
+lang/sq/ui.php
+  s_6a0f90a935e849::t_27cf2f12cadd46 84
+lang/tr/ui.php
+  s_6a0f90a935e849::t_27cf2f12cadd46 84
+lang/da/auth.php
+  s_6a0f90a935e849::t_27cf2f12cadd46 57-59
+lang/it/auth.php
+  s_6a0f90a935e849::t_27cf2f12cadd46 57-59
+lang/uk/ui.php
+  s_6a0f90a935e849::t_27cf2f12cadd46 84
+lang/vi/auth.php
+  s_6a0f90a935e849::t_27cf2f12cadd46 57-59
+lang/el/auth.php
+  s_6a0f90a935e849::t_27cf2f12cadd46 57-59
+lang/mk/auth.php
+  s_6a0f90a935e849::t_27cf2f12cadd46 57-59
+lang/ru/ui.php
+  s_6a0f90a935e849::t_27cf2f12cadd46 84
+routes/web.php
+  s_6a0f90a935e849::t_27cf2f12cadd46 90-92
+lang/zh/auth.php
+  s_6a0f90a935e849::t_27cf2f12cadd46 57-59
+lang/pl/auth.php
+  s_6a0f90a935e849::t_27cf2f12cadd46 57-59
+lang/hu/auth.php
+  s_6a0f90a935e849::t_27cf2f12cadd46 57-59
+lang/es/ui.php
+  s_6a0f90a935e849::t_27cf2f12cadd46 84
+app/Actions/Moderation/ConfirmUserEmailAction.php
+  s_6a0f90a935e849::t_b31edc69485d13 1-56
+lang/el/ui.php
+  s_6a0f90a935e849::t_27cf2f12cadd46 84
+lang/sk/auth.php
+  s_6a0f90a935e849::t_27cf2f12cadd46 57-59
+resources/views/filament/pages/users/sanction.blade.php
+  s_6a0f90a935e849::t_27cf2f12cadd46 8-9,20,25-29,79
+lang/sl/auth.php
+  s_6a0f90a935e849::t_27cf2f12cadd46 57-59
+lang/fr/auth.php
+  s_6a0f90a935e849::t_27cf2f12cadd46 57-59
+lang/th/ui.php
+  s_6a0f90a935e849::t_27cf2f12cadd46 84
+lang/zh/ui.php
+  s_6a0f90a935e849::t_27cf2f12cadd46 84
+lang/ro/auth.php
+  s_6a0f90a935e849::t_27cf2f12cadd46 57-59
+lang/sq/auth.php
+  s_6a0f90a935e849::t_27cf2f12cadd46 57-59
+lang/fil/ui.php
+  s_6a0f90a935e849::t_27cf2f12cadd46 84
+resources/views/components/account-confirmation-notice.blade.php
+  s_6a0f90a935e849::t_27cf2f12cadd46 6-9
+lang/es/auth.php
+  s_6a0f90a935e849::t_27cf2f12cadd46 57-59
+lang/cnr/ui.php
+  s_6a0f90a935e849::t_27cf2f12cadd46 84
+lang/mk/ui.php
+  s_6a0f90a935e849::t_27cf2f12cadd46 84
+lang/lt/auth.php
+  s_6a0f90a935e849::t_27cf2f12cadd46 57-59
+lang/lv/auth.php
+  s_6a0f90a935e849::t_27cf2f12cadd46 57-59
+lang/en/auth.php
+  s_6a0f90a935e849::t_27cf2f12cadd46 57-59
+app/View/Components/AccountConfirmationNotice.php
+  s_6a0f90a935e849::t_27cf2f12cadd46 30-34,36
+lang/et/ui.php
+  s_6a0f90a935e849::t_27cf2f12cadd46 84
+lang/en/ui.php
+  s_6a0f90a935e849::t_27cf2f12cadd46 84
+lang/fr/ui.php
+  s_6a0f90a935e849::t_27cf2f12cadd46 84
+app/Filament/Resources/Users/Concerns/ModeratesUsers.php
+  s_6a0f90a935e849::t_27cf2f12cadd46 6,42,53,108-113,142,166-172,205,212
+lang/sk/ui.php
+  s_6a0f90a935e849::t_27cf2f12cadd46 84
+app/Http/Controllers/Auth/EmailVerificationNotificationController.php
+  s_6a0f90a935e849::t_27cf2f12cadd46 6,23-30
+lang/sl/ui.php
+  s_6a0f90a935e849::t_27cf2f12cadd46 84
+routes/auth.php
+  s_6a0f90a935e849::t_27cf2f12cadd46 73,76-77
+app/Policies/UserPolicy.php
+  s_6a0f90a935e849::t_27cf2f12cadd46 55-63
+lang/pl/ui.php
+  s_6a0f90a935e849::t_27cf2f12cadd46 84
+resources/views/auth/verify-email.blade.php
+  s_6a0f90a935e849::t_27cf2f12cadd46 6-17
+app/Actions/Auth/SendEmailVerificationNotificationAction.php
+  s_6a0f90a935e849::t_526cdb67d1d9d2 5,7-9,13-21,23,32-42,47-61
+  s_6a0f90a935e849::t_6e7f2b25f00fa9 22
+resources/views/livewire/admin/user-editor.blade.php
+  s_6a0f90a935e849::t_27cf2f12cadd46 155-157
+app/Actions/Profile/UpdateUserIdentityAction.php
+  s_6a0f90a935e849::t_27cf2f12cadd46 5,15-18,28,40-44,47-51,56,65-67,74-75
+tests/Feature/Auth/EmailConfirmationPathTest.php
+  s_6a0f90a935e849::t_5485e1a2f320c9 1-161,163,167-307
+  s_6a0f90a935e849::t_3cdd9e47c79224 162,164-166
+lang/sr/auth.php
+  s_6a0f90a935e849::t_27cf2f12cadd46 57-59
+lang/sv/auth.php
+  s_6a0f90a935e849::t_27cf2f12cadd46 57-59
+lang/vi/ui.php
+  s_6a0f90a935e849::t_27cf2f12cadd46 84
+lang/fil/auth.php
+  s_6a0f90a935e849::t_27cf2f12cadd46 57-59
+lang/sv/ui.php
+  s_6a0f90a935e849::t_27cf2f12cadd46 84
+app/Providers/AppServiceProvider.php
+  s_6a0f90a935e849::t_27cf2f12cadd46 32,67,82-83
+app/Actions/Users/UpdateUserAccountAction.php
+  s_6a0f90a935e849::t_27cf2f12cadd46 5,39-42,54,63-67,73,75,77,106-108,119-120
+lang/bg/ui.php
+  s_6a0f90a935e849::t_27cf2f12cadd46 84
+lang/nb/auth.php
+  s_6a0f90a935e849::t_27cf2f12cadd46 57-59
+lang/et/auth.php
+  s_6a0f90a935e849::t_27cf2f12cadd46 57-59
+lang/nl/ui.php
+  s_6a0f90a935e849::t_27cf2f12cadd46 84
+lang/pt/auth.php
+  s_6a0f90a935e849::t_27cf2f12cadd46 57-59
+bootstrap/app.php
+  s_6a0f90a935e849::t_27cf2f12cadd46 15-16,65-70
+lang/ms/auth.php
+  s_6a0f90a935e849::t_27cf2f12cadd46 57-59
+lang/nb/ui.php
+  s_6a0f90a935e849::t_27cf2f12cadd46 84
+lang/hu/ui.php
+  s_6a0f90a935e849::t_27cf2f12cadd46 84
+lang/pt/ui.php
+  s_6a0f90a935e849::t_27cf2f12cadd46 84
+lang/bg/auth.php
+  s_6a0f90a935e849::t_27cf2f12cadd46 57-59
+lang/ro/ui.php
+  s_6a0f90a935e849::t_27cf2f12cadd46 84
+lang/th/auth.php
+  s_6a0f90a935e849::t_27cf2f12cadd46 57-59
+resources/views/profile/partials/update-profile-information-form.blade.php
+  s_6a0f90a935e849::t_27cf2f12cadd46 48-51
+lang/it/ui.php
+  s_6a0f90a935e849::t_27cf2f12cadd46 84
+app/Support/Auth/SendConfirmationMailOnSignUp.php
+  s_6a0f90a935e849::t_0a69367bb7de94 1-27
+lang/cnr/auth.php
+  s_6a0f90a935e849::t_27cf2f12cadd46 57-59
+config/auth.php
+  s_6a0f90a935e849::t_27cf2f12cadd46 106-117
+lang/nl/auth.php
+  s_6a0f90a935e849::t_27cf2f12cadd46 57-59
+config/rate_limits.php
+  s_6a0f90a935e849::t_27cf2f12cadd46 25-31
+lang/da/ui.php
+  s_6a0f90a935e849::t_27cf2f12cadd46 84
+lang/de/auth.php
+  s_6a0f90a935e849::t_27cf2f12cadd46 57-59
+lang/fi/ui.php
+  s_6a0f90a935e849::t_27cf2f12cadd46 84
+lang/sr/ui.php
+  s_6a0f90a935e849::t_27cf2f12cadd46 84
+lang/bs/ui.php
+  s_6a0f90a935e849::t_27cf2f12cadd46 84
+app/Enums/ModerationActionType.php
+  s_6a0f90a935e849::t_27cf2f12cadd46 21
+app/Http/Controllers/Auth/VerifyEmailController.php
+  s_6a0f90a935e849::t_27cf2f12cadd46 30-31
+lang/fi/auth.php
+  s_6a0f90a935e849::t_27cf2f12cadd46 57-59
+lang/lt/ui.php
+  s_6a0f90a935e849::t_27cf2f12cadd46 84
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "81b96bf7ddc7233af58dc31f3e2e90a296feb7d8",
+  "prompts": {},
+  "sessions": {
+    "s_6a0f90a935e849": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0c534e04-92e1-423d-8dc4-9f4bf22e3c99",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
