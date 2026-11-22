@@ -1,6 +1,7 @@
 <?php
 
 use App\Actions\Analytics\RefreshAnalyticsDayAction;
+use App\Actions\Analytics\RefreshAnalyticsGameCellsAction;
 use App\Actions\Games\ApplyGameTrafficAction;
 use App\Actions\Games\ChangeGameStatusAction;
 use App\Actions\Games\PublishGameVersionAction;
@@ -59,6 +60,8 @@ use App\Livewire\Admin\StudioPlanPostVotesEditor;
 use App\Livewire\Games\PlayGame;
 use App\Models\AccountAttribution;
 use App\Models\AccountBrowser;
+use App\Models\AnalyticsDirtyGameDay;
+use App\Models\AnalyticsGameCell;
 use App\Models\AnalyticsRollupState;
 use App\Models\Category;
 use App\Models\Comment;
@@ -15324,15 +15327,36 @@ function fillAnalyticsRollup(): void
         'game_days_through' => $days === [] ? null : end($days),
         'game_days_filled_at' => now(),
     ]], ['id'], ['filled_through', 'filled_at', 'refreshed_at', 'cells_through', 'cells_filled_at', 'game_days_through', 'game_days_filled_at']);
+    fillGameCells();
     app()->forgetScopedInstances();
+}
+
+/**
+ * The people of the games' days (analytics_game_cells) counted afresh, as on
+ * deploy, where they are kept: every day closed counted whole, the days since
+ * up to the moment now allows (RefreshAnalyticsGameCellsAction) — whatever a
+ * test wrote straight into the days before, which no writer told them of.
+ * Nothing where they are not kept.
+ */
+function fillGameCells(): void
+{
+    if (! app(AnalyticsRollupGate::class)->cellsKept()) {
+        return;
+    }
+
+    AnalyticsGameCell::query()->delete();
+    AnalyticsDirtyGameDay::query()->delete();
+    AnalyticsRollupState::query()->whereKey(AnalyticsRollupState::ID)->update(['game_cells_through' => null, 'game_cells_moment' => null, 'game_cells_filled_at' => null]);
+    app()->forgetScopedInstances();
+    app(RefreshAnalyticsGameCellsAction::class)->handle(microtime(true) + 300);
 }
 
 /**
  * A query read twice for every call: from the visits, and from Analytics'
  * own rows of them filled just then (fillAnalyticsRollup()) — and a third
- * time from the cells of each day's people where they are kept and the sums
- * of each day's games' visits — what each read returns must be the same, and
- * is what the call returns.
+ * time from the cells of each day's people and the people of the games' days
+ * where they are kept, and the sums of each day's games' visits — what each
+ * read returns must be the same, and is what the call returns.
  *
  * @template TQuery of object
  *
@@ -15353,19 +15377,19 @@ function readBothWays(string $query): object
             app()->forgetScopedInstances();
             $fromVisits = app($this->query)->{$method}(...$arguments);
 
-            config(['analytics.rollup.read' => true, 'analytics.rollup.cells' => false, 'analytics.rollup.game_days' => false]);
+            config(['analytics.rollup.read' => true, 'analytics.rollup.cells' => false, 'analytics.rollup.game_days' => false, 'analytics.rollup.game_cells' => false]);
             fillAnalyticsRollup();
             $fromRollup = app($this->query)->{$method}(...$arguments);
 
             expect($fromRollup)->toEqual($fromVisits, class_basename($this->query)."::{$method}() reads Analytics' own rows differently from the visits");
 
-            config(['analytics.rollup.cells' => true, 'analytics.rollup.game_days' => true]);
+            config(['analytics.rollup.cells' => true, 'analytics.rollup.game_days' => true, 'analytics.rollup.game_cells' => true]);
             app()->forgetScopedInstances();
 
             if (app(AnalyticsRollupGate::class)->readsCells() || app(AnalyticsRollupGate::class)->readsGameDays()) {
                 $fromCells = app($this->query)->{$method}(...$arguments);
 
-                expect($fromCells)->toEqual($fromVisits, class_basename($this->query)."::{$method}() reads the cells of people or the sums of game days differently from the visits");
+                expect($fromCells)->toEqual($fromVisits, class_basename($this->query)."::{$method}() reads the cells of people, the sums of game days or the people of the games' days differently from the visits");
             }
 
             return $fromVisits;

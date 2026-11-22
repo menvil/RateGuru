@@ -6,6 +6,7 @@ use App\Models\AnalyticsCell;
 use App\Models\AnalyticsDirtyDay;
 use App\Models\AnalyticsRollupState;
 use Carbon\CarbonImmutable;
+use Illuminate\Database\Query\JoinClause;
 
 /**
  * Whether Growth → Analytics reads its own rows of the visits
@@ -27,11 +28,20 @@ use Carbon\CarbonImmutable;
  * (analytics_game_days): every engine, once they were filled as far back as
  * the rows, while the rows are read, and while the setting allows it
  * (analytics.rollup.game_days). Decided once a request: bound scoped.
+ *
+ * And how a game's figures take the people of its days from the cells of the
+ * games' days (analytics_game_cells): only where the cells of each day's
+ * people are read, once the game cells were filled, and while the setting
+ * allows it (analytics.rollup.game_cells) — read at every call, with the days
+ * changed since they were counted.
  */
 final class AnalyticsRollupGate
 {
     /** The most hours changed since they were counted that a period's funnel reads beside the sums — a minute's on a busy site; past it, read every assignment. */
     public const int MOST_CHANGED_HOURS = 100;
+
+    /** The most days changed since they were counted that a game's figures read beside the cells of the games' days — more than a refresh that keeps up ever leaves; past it, read the events and attempts. */
+    public const int MOST_CHANGED_DAYS = 31;
 
     private ?bool $reads = null;
 
@@ -127,5 +137,48 @@ final class AnalyticsRollupGate
         $changed = $rows->pluck('assigned_hour')->filter(fn (mixed $hour): bool => $hour !== null)->map(fn (mixed $hour): CarbonImmutable => CarbonImmutable::parse((string) $hour, 'UTC'))->values()->all();
 
         return $through === null || count($changed) > self::MOST_CHANGED_HOURS ? null : ['through' => CarbonImmutable::parse((string) $through, 'UTC'), 'changed' => $changed];
+    }
+
+    /**
+     * How a game's figures take the people of its days from the cells of the
+     * games' days (analytics_game_cells, docs/architecture/analytics.md, "The
+     * people of a game's days"): the last day every day up to which is
+     * counted whole, the moment the days after it are counted up to, and the
+     * days marked as changed since they were counted (analytics_dirty_game_days)
+     * — all in one read, at every call, so each figure is read with the cells
+     * it is summed from. None — read the events and attempts — while the cells
+     * of each day's people aren't read (readsCells()), the setting says so
+     * (analytics.rollup.game_cells), the game cells aren't filled yet, the
+     * open days were last counted longer ago than the rows may be behind
+     * (analytics.rollup.stale_minutes) — a count that keeps failing, whose
+     * figures would read ever more of the events and attempts themselves —
+     * or more days changed than MOST_CHANGED_DAYS wait.
+     *
+     * @return array{through: string, moment: CarbonImmutable, changed: list<string>}|null
+     */
+    public function gameCells(): ?array
+    {
+        if (! (bool) config('analytics.rollup.game_cells') || ! $this->readsCells()) {
+            return null;
+        }
+
+        $rows = AnalyticsRollupState::query()
+            // Every day marked, beside the one row of the state.
+            ->leftJoin('analytics_dirty_game_days', fn (JoinClause $join): JoinClause => $join->whereNotNull('analytics_dirty_game_days.day'))
+            ->whereKey(AnalyticsRollupState::ID)
+            ->orderBy('analytics_dirty_game_days.day')
+            ->limit(self::MOST_CHANGED_DAYS + 1)
+            ->toBase()
+            ->get(['analytics_rollup_states.game_cells_through', 'analytics_rollup_states.game_cells_moment', 'analytics_rollup_states.game_cells_filled_at', 'analytics_dirty_game_days.day']);
+        $state = $rows->first();
+        $changed = $rows->pluck('day')->filter(fn (mixed $day): bool => $day !== null)->map(fn (mixed $day): string => (string) $day)->values()->all();
+        $moment = $state?->game_cells_moment === null ? null : CarbonImmutable::parse((string) $state->game_cells_moment, 'UTC');
+        $staleBefore = CarbonImmutable::now('UTC')->subMinutes((int) config('analytics.rollup.stale_minutes'));
+
+        if ($state === null || $state->game_cells_filled_at === null || $state->game_cells_through === null || $moment === null || $moment->lessThan($staleBefore) || count($changed) > self::MOST_CHANGED_DAYS) {
+            return null;
+        }
+
+        return ['through' => (string) $state->game_cells_through, 'moment' => $moment, 'changed' => $changed];
     }
 }

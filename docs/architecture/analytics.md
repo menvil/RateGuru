@@ -382,6 +382,100 @@ while `analytics.rollup.game_days` allows it
 one game, the four reads of a 90-day Games tab take about 60 milliseconds
 instead of 15 seconds.
 
+#### The people of a game's days
+
+What a game's sums leave is its people: the visitors, the people behind its
+attempts and what those attempts went on to — every one a count of different
+people over every view or attempt of the window (`GameMetricsQuery`), which
+the Games tab and a game's own Analytics read for the window, the window
+before it and each version. Where the cells of each day's people are kept,
+Analytics keeps these too, a UTC day at a time (`analytics_game_cells`): per
+game, audience and version, the people who saw it, who started an attempt
+that day, finished one of those attempts, reached the goal or started two or
+more, and those whose attempts were shared, began signing up, went on to a
+post, the feed, a page or the next game, or voted or rated there — each a
+roaring bitmap — the accounts those attempts signed in, and the attempts'
+sums: started, completed, goal reached, with a confirmed account credited,
+shared, and with nobody to tell them apart by. A period's people are the
+size of the union of its days' sets; the people who played again are a fold
+of the days and versions in turn, each one's people with two attempts or
+more and those it shares with the ones before it (`rb_or_agg` over them, as a
+window).
+
+A person is told apart exactly as `GameMetricsQuery` tells them apart: a
+guest by the hash of the browser's game cookie (`visitor_hash` of the view or
+attempt), a player by the account (`user_id`). A player is in a set by the
+account's own id — dense, never given to another account (a sequence never
+goes back), and within a set's 32 bits for the first two billion accounts. A
+guest's browser gets a number of its own (`analytics_game_pids`, by the whole
+hash): given in turn the first time a count sees the browser, never changed,
+never given again — the highest is never let go, the next counts on from it
+— and let go once no cell holds it. Neither number the site already had would
+do. The browser numbers of the visits' cells (`analytics_pids`) are given only
+to a browser with a recorded visit whose page ran — with Record visits off, or
+a play whose visit was not recorded, a guest of a game has none — they are
+keyed by 64 bits of the hash, so two browsers sharing those would be one
+person, and they go once the browser's visits are purged, after 400 days,
+while the sets of its plays are kept as long as the attempts. A browser's
+first assignment is no better: a game with no open period records a `view`
+with no assignment and no version, a replay can start from none, the purge of
+an unconfirmed account deletes assignments, and a browser's first is a search
+no index serves.
+
+`analytics:refresh-visits` counts them, a step of its own before the visits —
+one that fails is reported and the visits are still brought up to date
+(`RefreshAnalyticsGameCellsAction`): the days marked as changed; then every
+day once it is over and an hour more has passed (`GameCellDays`: a play begun
+late in a day mostly finishes then) and ten minutes since, longer than a
+change takes to be kept, counted whole, the earliest first — on deploy, every
+day of what was played before — passing over days nothing was played on
+(`game_cells_through`); then the days after it — today, and yesterday for its
+first hour — up to a moment ten minutes ago, every five minutes, at once when
+one of them was marked (`game_cells_moment`): a new count beside the earlier
+ones, which go ten minutes later, so a read that learned the earlier moment
+still finds its cells. At night the last `analytics.rollup.recheck_days` days
+are counted again. Each count is read first and inserted after, under a lock
+on the state's row the purge of the numbers takes too. Measured on 718,000
+views and 398,000 attempts of 30 days, the days take about half a second each,
+an open day's count up to its moment about as long.
+
+A game's figures take the days counted whole and the open days up to their
+moment from the cells, and whatever they don't cover from the events and
+attempts themselves, the same SQL, in one read (`AnalyticsGameCellsQuery`,
+`GameCellWindow`): the part days at the ends, a day marked as changed, the
+time since the moment; and of the open days' attempts begun before it, what
+came of them since — found by the event every such change is recorded with
+(`completed`, `goal_reached`, `account_attributed` and what the funnel counts
+an attempt's events by), and an account confirmed since by when it was. A
+person read live is looked up by their browser's number; one whose browser
+has none yet is in no cell, and counted on their own. So a game's figures
+are the same as reading every view and attempt, at any moment, however long
+ago the refresh last ran. Once a day has closed, every writer of what they
+count of it tells it in the change's own transaction
+(`MarkAnalyticsGameCellsAction`): `GameEventRecorder` for the events that
+come with every change after an attempt began, whichever action records them
+— an attempt completed, its goal reached, taken by an account, an account
+credited to it confirmed, shared, sent on, a sign-up begun — and, whatever the
+day, the deletions no moment tells: the views and the attempts' events
+`games:purge-expired` deletes, and the attempts, views and events of an
+unconfirmed account purged. An account taking a guest's play leaves it the
+guest's, counted by the browser; deleting an account deletes only the emails
+of its plays, which the cells don't count. The figures of a device or a
+country, a window within a day that is over (no cell fits it: Today's window
+before), more than 31 days marked at once, and open days counted longer ago
+than `analytics.rollup.stale_minutes` read every view and attempt; so does
+everything while the cells of each day's people aren't read, before the game
+cells are filled, or while `analytics.rollup.game_cells` is off. Its tests
+read every figure both ways on every engine, and compare them.
+
+Measured on the same 5.2 million visits, the Games tab — with its option lists,
+nothing kept from an earlier read — of 30 days about a quarter of a second
+instead of two (four on a first run), of 90 days a quarter to a third of a
+second instead of two; a game's own Analytics of 30 or 90 days about a fifth
+of a second instead of nearly two. A first read with nothing in memory takes
+about a second. The numbers of 685,000 guests take 163 MB, the cells of 30
+days under 2 MB.
+
 Everything else that keeps a tab quick is deliberate and kept together:
 
 - the session's keys and tags are columns of each visit, so no read joins the
@@ -514,7 +608,12 @@ docs/architecture/http-and-database-boundaries.md and a behaviour test:
 - `GameMetricsQuery::periodFunnel()` — how far the visitors each period sent to
   each version got: once counted, the sums of the hours of its assignments
   (`analytics_period_hours`) beside the assignments of the hours since and of
-  those changed, joined by `UNION ALL` in one read.
+  those changed, joined by `UNION ALL` in one read;
+- `AnalyticsGameCellsQuery` — the people of a game's days, each step's people
+  `rb_build_agg` of their numbers per day, game, audience and version; and in
+  `GameMetricsQuery`'s place, a window's people as `rb_cardinality(rb_or_agg(…))`
+  over the cells beside the views and attempts read live, the people who
+  played again as a fold of the cells (`rb_or_agg` as a window function).
 
 `JourneyQuery`, `LandingExperiencesQuery`, `AnalyticsMarkersQuery` and
 `AnalyticsRollupQuery` are Eloquent alone. Everywhere every value is bound, every grouping column comes
@@ -719,6 +818,9 @@ action. A moderator sees neither.
 | The view each administrator last opened or chose — the period and the site's address (cache) | 24 hours from their latest (`analytics.read_ahead.idle_hours`) |
 | The accounts of each day by the post their session opened first (`analytics_first_post_cells`) | as the cells |
 | The hours of each period's assignments and their accounts (`analytics_period_hours`, `analytics_period_hour_accounts`) | as their assignments, kept for ever; an hour something of which is purged or removed is counted again |
+| The people of each game's days and the accounts their attempts signed in (`analytics_game_cells`) | as what they count: a day's visitors until its views go (`games:purge-expired`, 400 days), the day counted again without them; its attempts' people as long as the attempts; a count of an open day up to a moment ten minutes past a newer one |
+| A guest's number in a game's people (`analytics_game_pids`) | until no cell holds it, but the highest, which the next number counts on from (`games:purge-expired`) |
+| A day of a game's people changed since it was counted (`analytics_dirty_game_days`) | until it is counted again |
 | What Retention reads of the visit and attempt an account is credited to — its source key, device and game (`account_attributions.credited_source_key`, `credited_device`, `credited_game_id`) | as the attribution, the source key and device past the purge of the visit; the game until the attempt's pointer is let go |
 
 The privacy page is the owner's to update before Record site visits is switched

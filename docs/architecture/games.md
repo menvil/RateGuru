@@ -336,7 +336,19 @@ a result seen (`GameEventRecorder` tells of `result_viewed` itself), an email
 left, the goal reached, an account credited to one of its plays confirmed or
 activated, or a row of any of them deleted — tells the funnel in the same
 transaction (`MarkAnalyticsPeriodHourAction`; docs/architecture/analytics.md,
-"The hours of a period's assignments"), an import or a backfill too.
+"The hours of a period's assignments"), an import or a backfill too. Every
+change to an attempt after it began that a game's people count — completed,
+its goal reached, taken by an account, an account credited to it confirmed,
+shared, sent on, a sign-up begun — comes with its event, recorded now
+(`completed`, `goal_reached`, `account_attributed`, `account_confirmed` and the
+events the funnel counts people by): `GameEventRecorder` tells the people of
+the attempt's day of it once the day has closed (`MarkAnalyticsGameCellsAction`;
+docs/architecture/analytics.md, "The people of a game's days"), and a game's
+figures find an open day's attempts changed since it was counted by those
+events. So whatever changes those columns of an attempt records the event
+with the change, at the same moment or after it — an import or a backfill too
+— and whatever deletes views, attempts or their events tells the people of
+their days first.
 `step_viewed` (`result_viewed` for Full Result) names each step after the game
 an attempt enters, the one its last pick moves it on to included.
 `share_clicked` names where the result went, and is recorded on the attempt
@@ -347,7 +359,12 @@ how signing up began: `email` or a provider on the sign-up set into Full
 Result, or `register` / `login` for the site's dialog; `exit` names where the
 visitor was actually sent.
 
-`GameMetricsQuery` reads the figures back (a registered raw-SQL boundary):
+`GameMetricsQuery` reads the figures back (a registered raw-SQL boundary) —
+the visitors, the people behind the attempts, the accounts they signed in and
+what their events tell, from the people of the game's days where those are
+kept and read (PostgreSQL with the roaringbitmap extension;
+docs/architecture/analytics.md, "The people of a game's days"), the same
+figures:
 
 | Figure | Definition |
 | --- | --- |
@@ -424,8 +441,12 @@ Experiments (`hidden_at`) is still listed here.
 `games:purge-expired`, daily: game events after `games.retention_days.events`
 (400) and emails after `games.retention_days.email_captures` (365), in small
 batches, each telling a period's funnel the hours of the assignments whose
-results seen and emails it deletes. Attempts, answers and results stay. The retention lives in
-`config/games.php` without environment variables.
+results seen and emails it deletes, and the people of the games' days the
+days of the views it deletes and of the attempts whose shares, sign-ups begun
+and ways on go; then the numbers of the guests' browsers no cell of those
+people holds any more are let go, never the highest. Attempts, answers and
+results stay. The retention lives in `config/games.php` without environment
+variables.
 
 ## Switches and access
 

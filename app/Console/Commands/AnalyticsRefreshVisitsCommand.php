@@ -2,6 +2,7 @@
 
 namespace App\Console\Commands;
 
+use App\Actions\Analytics\RefreshAnalyticsGameCellsAction;
 use App\Actions\Analytics\RefreshAnalyticsPeriodHoursAction;
 use App\Actions\Analytics\RefreshAnalyticsVisitsAction;
 use App\Actions\Traffic\CopyCreditedKeysAction;
@@ -16,9 +17,11 @@ use Throwable;
  * changed, and the days not filled yet — and, once a night, the last
  * --recheck days again. First, what Retention reads of an account's credit
  * is copied onto any attribution written without it (CopyCreditedKeysAction),
- * and the hours of assignments a traffic period's funnel is summed from are
- * counted (RefreshAnalyticsPeriodHoursAction): a few reads a minute, which the
- * funnel reads from the assignments until they are done.
+ * the hours of assignments a traffic period's funnel is summed from are
+ * counted (RefreshAnalyticsPeriodHoursAction), and the people of the games'
+ * days (RefreshAnalyticsGameCellsAction): a few reads a minute, which a
+ * game's figures read from the assignments, events and attempts until they
+ * are done.
  */
 final class AnalyticsRefreshVisitsCommand extends Command
 {
@@ -26,7 +29,7 @@ final class AnalyticsRefreshVisitsCommand extends Command
 
     protected $description = 'Bring the visits Growth → Analytics reads up to date.';
 
-    public function handle(RefreshAnalyticsVisitsAction $refresh, RefreshAnalyticsPeriodHoursAction $periodHours, CopyCreditedKeysAction $credits): int
+    public function handle(RefreshAnalyticsVisitsAction $refresh, RefreshAnalyticsPeriodHoursAction $periodHours, RefreshAnalyticsGameCellsAction $gameCells, CopyCreditedKeysAction $credits): int
     {
         $recheck = filter_var($this->option('recheck'), FILTER_VALIDATE_INT, ['options' => ['min_range' => 0, 'max_range' => 400]]);
         $seconds = filter_var($this->option('seconds'), FILTER_VALIDATE_INT, ['options' => ['min_range' => 1, 'max_range' => 86400]]);
@@ -39,15 +42,19 @@ final class AnalyticsRefreshVisitsCommand extends Command
 
         $deadline = microtime(true) + $seconds;
         $hours = 0;
+        $gameDays = 0;
         // Each step before the visits on its own: one that fails is reported, and the visits every tab reads are still brought up to date.
         $ran = [
             self::aside(fn () => $credits->handle()),
             self::aside(function () use ($periodHours, $deadline, $recheck, &$hours): void {
                 $hours = $periodHours->handle($deadline, $recheck);
             }),
+            self::aside(function () use ($gameCells, $deadline, $recheck, &$gameDays): void {
+                $gameDays = $gameCells->handle($deadline, $recheck);
+            }),
         ];
         $done = $refresh->handle($deadline, $recheck);
-        $this->info("Counted {$hours} hours of assignments. Read {$done['days']} days, wrote {$done['written']} rows".($done['filled'] ? '.' : '; still filling the earlier days.'));
+        $this->info("Counted {$hours} hours of assignments and {$gameDays} days of games' people. Read {$done['days']} days, wrote {$done['written']} rows".($done['filled'] ? '.' : '; still filling the earlier days.'));
 
         if (in_array(false, $ran, true)) {
             $this->error('A step before the visits failed and was reported; the visits were brought up to date.');

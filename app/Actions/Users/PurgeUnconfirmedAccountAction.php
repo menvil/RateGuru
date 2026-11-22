@@ -3,6 +3,7 @@
 namespace App\Actions\Users;
 
 use App\Actions\Analytics\MarkAnalyticsDayAction;
+use App\Actions\Analytics\MarkAnalyticsGameCellsAction;
 use App\Actions\Analytics\MarkAnalyticsPeriodHourAction;
 use App\Actions\Counters\RecalculatePostCountersAction;
 use App\Actions\Profile\AnonymizeUserAccountAction;
@@ -65,6 +66,7 @@ final class PurgeUnconfirmedAccountAction
         private readonly AnonymizeUserAccountAction $anonymize,
         private readonly MarkAnalyticsDayAction $analytics,
         private readonly MarkAnalyticsPeriodHourAction $periodHours,
+        private readonly MarkAnalyticsGameCellsAction $gameCells,
     ) {}
 
     public function handle(int $userId, CarbonInterface $signedUpBefore, bool $dryRun = false): UnconfirmedAccountPurgeOutcome
@@ -254,7 +256,11 @@ final class PurgeUnconfirmedAccountAction
      * and the versions it was assigned — each a part of its period's funnel,
      * which is told the hours of their assignments first, as it is of the
      * results it saw on a play that stays someone else's, and the days of the
-     * visits they were played on marked for Analytics (MarkAnalyticsDayAction).
+     * visits they were played on marked for Analytics (MarkAnalyticsDayAction);
+     * the days its attempts began on, its views were seen on and the attempts
+     * its events were of began on told to the people of the games' days
+     * (MarkAnalyticsGameCellsAction) — a guest's play it took on signing up
+     * is a guest's in them, by the browser.
      * Its attribution, never confirmed, was never one of the funnel's accounts.
      */
     private function eraseGames(int $id): void
@@ -278,6 +284,8 @@ final class PurgeUnconfirmedAccountAction
                 ->where('user_id', $id)
                 ->orWhereIn('attempt_id', $attempts)
                 ->orWhereIn('assignment_id', $assignments));
+        $this->gameCells->removing(GameAttempt::query()->whereIn('id', $attempts)->toBase()->pluck('started_at'));
+        $this->gameCells->removingEvents($events);
         // The days of the visits these attempts were started on, or whose attempts' share clicks go: Analytics counts
         // both on each visit's row, and reads those days again once they are gone.
         $days = TrafficVisit::query()

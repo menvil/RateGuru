@@ -60,6 +60,7 @@ return [
     // stale_minutes: how long since they were last brought up to date before the tabs read the visits instead.
     // recheck_days: how many days back from today the nightly run reads again.
     // period_hours: whether a traffic period's funnel takes the hours of assignments counted from their sums (analytics_period_hours); false reads every assignment.
+    // game_cells: whether a game's visitors and the people behind its attempts are taken from the people of its days (analytics_game_cells) where the cells are read; false reads the events and attempts.
     'rollup' => [
         'read' => true,
         'cells' => true,
@@ -67,6 +68,7 @@ return [
         'stale_minutes' => 30,
         'recheck_days' => 60,
         'period_hours' => true,
+        'game_cells' => true,
     ],
 
 ];

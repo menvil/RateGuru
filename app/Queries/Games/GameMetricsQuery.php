@@ -20,7 +20,9 @@ use App\Models\GameAttempt;
 use App\Models\GameEmailCapture;
 use App\Models\GameEvent;
 use App\Models\TrafficVisit;
+use App\Queries\Analytics\AnalyticsGameCellsQuery;
 use App\Queries\Analytics\AnalyticsRollupGate;
+use App\Support\Analytics\GameCellWindow;
 use App\Support\Analytics\PeriodVersionFunnel;
 use App\Support\Games\Analytics\GameFunnel;
 use App\Support\Games\Analytics\GameMetricsScope;
@@ -70,7 +72,15 @@ use LogicException;
  * own, the same on PostgreSQL, MariaDB and SQLite but for a moment some
  * minutes on, which each engine writes its own way (minutesAfter()), every
  * value in it bound and every visit column named by TrafficDimension.
- * Read-only.
+ *
+ * Where the people of the games' days are kept and read
+ * (AnalyticsRollupGate::gameCells()), funnels()' visitors, its attempts with
+ * the people behind them, the accounts they signed in and what their events
+ * tell — shares, sign-ups begun, the ways on — in all, or split by version,
+ * flow or content set, of every device and country, and visitors(), are the
+ * cells of the window's days beside the events and attempts of whatever the
+ * cells don't cover (AnalyticsGameCellsQuery): the same figures, read without
+ * grouping every view, attempt and event of the window by person. Read-only.
  */
 final class GameMetricsQuery implements RawSqlPersistenceBoundary
 {
@@ -105,8 +115,12 @@ final class GameMetricsQuery implements RawSqlPersistenceBoundary
     /** @var array<int, CarbonImmutable|null> each game's first `post_sign_in_form`, null for none yet, by game: read once (beforeFirstSignInForm()) */
     private array $firstSignInForms = [];
 
-    /** The events of an attempt funnels() counts people by: shares, sign-ups begun, and the ways on and what came of them. */
-    private const FUNNEL_EVENTS = [
+    /**
+     * The events of an attempt funnels() counts people by: shares, sign-ups begun, and the ways on and what came of them.
+     *
+     * @var list<GameEventType>
+     */
+    public const array FUNNEL_EVENTS = [
         GameEventType::ShareClicked,
         GameEventType::RegistrationCtaClicked,
         GameEventType::PostOpened,
@@ -116,7 +130,10 @@ final class GameMetricsQuery implements RawSqlPersistenceBoundary
         GameEventType::Exit,
     ];
 
-    public function __construct(private readonly AnalyticsRollupGate $gate) {}
+    public function __construct(
+        private readonly AnalyticsRollupGate $gate,
+        private readonly AnalyticsGameCellsQuery $gameCells,
+    ) {}
 
     /**
      * The funnel of the scope, in all (keyed 0) or split by version, flow or
@@ -147,12 +164,18 @@ final class GameMetricsQuery implements RawSqlPersistenceBoundary
         }
 
         $split = fn (Builder $query, string $versionColumn, bool $views = false): Builder => $this->grouped($query, $versionColumn, $by, $scope, $countryGroups, $views);
-        $visitors = $this->counts($this->visitorCounts($this->grouped($this->viewEvents($scope), 'game_events.version_id', $by, $scope, $countryGroups, true), $scope, $by !== null));
+        $cells = $this->cellsWindow($scope, $by);
+        $visitors = $this->counts($cells !== null
+            ? $this->gameCells->visitors($scope, $by, $cells)
+            : $this->visitorCounts($this->grouped($this->viewEvents($scope), 'game_events.version_id', $by, $scope, $countryGroups, true), $scope, $by !== null));
         $person = self::person($scope);
-        $attempts = $this->counts($this->attemptCounts($this->grouped($this->withConfirmedAccounts($this->attempts($scope)), 'game_attempts.version_id', $by, $scope, $countryGroups, false), $scope, $by !== null));
+        $attempts = $this->counts($cells !== null
+            ? $this->gameCells->attempts($scope, $by, $cells)
+            : $this->attemptCounts($this->grouped($this->withConfirmedAccounts($this->attempts($scope)), 'game_attempts.version_id', $by, $scope, $countryGroups, false), $scope, $by !== null));
         // Signed in counts accounts, while a guest is told apart by the browser — two browsers can sign in
-        // to one account — so it is read apart from the people above, over the attempts that signed in.
-        $signedIn = $this->counts(
+        // to one account — so it is read apart from the people above, over the attempts that signed in;
+        // the cells keep those accounts beside the people.
+        $signedIn = $cells !== null ? $attempts : $this->counts(
             $split($this->attempts($scope)->where('game_attempts.account_outcome', GameAccountOutcome::SignedIn->value), 'game_attempts.version_id')
                 ->selectRaw('COUNT(DISTINCT game_attempts.user_id) AS signed_in', []),
         );
@@ -163,7 +186,8 @@ final class GameMetricsQuery implements RawSqlPersistenceBoundary
         // A way on is the exit the flow's own way on recorded, on a play it sent there: never the
         // link to the feed every screen has, nor the feed a post no longer published falls back to.
         $wayOn = 'game_events.type = ? AND game_events.step_type = ? AND game_attempts.onward_kind = ?';
-        $events = $this->counts(
+        // The cells keep the people of each event, and the attempts shared, beside the people of the attempts.
+        $events = $cells !== null ? $attempts : $this->counts(
             $split(
                 $this->attemptEvents($scope)->whereIn('game_events.type', array_map(fn (GameEventType $type): string => $type->value, self::FUNNEL_EVENTS)),
                 'game_attempts.version_id',
@@ -255,7 +279,29 @@ final class GameMetricsQuery implements RawSqlPersistenceBoundary
     /** The scope's visitors alone, each person once: what the audience switch counts beside each audience. */
     public function visitors(GameMetricsScope $scope): int
     {
-        return $this->counts($this->visitorCounts($this->viewEvents($scope), $scope, false))[0]['visitors'] ?? 0;
+        $cells = $this->cellsWindow($scope, null);
+
+        return $this->counts($cells !== null ? $this->gameCells->visitors($scope, null, $cells) : $this->visitorCounts($this->viewEvents($scope), $scope, false))[0]['visitors'] ?? 0;
+    }
+
+    /**
+     * The window's days as the people of the games' days give them — what
+     * their cells cover and what is read live (GameCellWindow) — when they
+     * are kept and read, the figures fit them — in all or split by version,
+     * flow or content set, of every device and country — and the window
+     * reads some cell. None otherwise: the events and attempts are read, as
+     * for a window within a day that is over, which no cell covers.
+     */
+    private function cellsWindow(GameMetricsScope $scope, ?string $by): ?GameCellWindow
+    {
+        if (($by !== null && ! array_key_exists($by, self::GROUPS)) || $scope->visits->narrows()) {
+            return null;
+        }
+
+        $cells = $this->gate->gameCells();
+        $window = $cells === null ? null : GameCellWindow::of($scope->from, $scope->to, $cells['through'], $cells['moment'], $cells['changed']);
+
+        return $window !== null && $window->readsCells() ? $window : null;
     }
 
     /**

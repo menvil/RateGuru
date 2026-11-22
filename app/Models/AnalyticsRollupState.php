@@ -11,7 +11,10 @@ use Illuminate\Database\Eloquent\Model;
  * and when they were last brought up to date — and the same of the cells of
  * people per day (analytics_cells); and the hours of assignments a traffic
  * period's funnel is summed from (analytics_period_hours): the last hour every
- * hour up to which is counted. One row, id 1.
+ * hour up to which is counted; and the people of the games' days
+ * (analytics_game_cells): the last day every day up to which is counted
+ * whole, the moment the days after it are counted up to, and when every day
+ * first was. One row, id 1.
  *
  * @property int $id
  * @property string|null $filled_through
@@ -22,6 +25,9 @@ use Illuminate\Database\Eloquent\Model;
  * @property string|null $game_days_through
  * @property CarbonImmutable|null $game_days_filled_at
  * @property CarbonImmutable|null $period_hours_through
+ * @property string|null $game_cells_through
+ * @property CarbonImmutable|null $game_cells_moment
+ * @property CarbonImmutable|null $game_cells_filled_at
  */
 class AnalyticsRollupState extends Model
 {
@@ -46,6 +52,8 @@ class AnalyticsRollupState extends Model
             'cells_filled_at' => 'immutable_datetime',
             'game_days_filled_at' => 'immutable_datetime',
             'period_hours_through' => 'immutable_datetime',
+            'game_cells_moment' => 'immutable_datetime',
+            'game_cells_filled_at' => 'immutable_datetime',
         ];
     }
 

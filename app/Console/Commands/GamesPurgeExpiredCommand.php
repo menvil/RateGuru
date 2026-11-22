@@ -3,7 +3,9 @@
 namespace App\Console\Commands;
 
 use App\Actions\Analytics\MarkAnalyticsDayAction;
+use App\Actions\Analytics\MarkAnalyticsGameCellsAction;
 use App\Actions\Analytics\MarkAnalyticsPeriodHourAction;
+use App\Actions\Analytics\RefreshAnalyticsGameCellsAction;
 use App\Enums\GameEventType;
 use App\Models\GameAssignment;
 use App\Models\GameAttempt;
@@ -29,10 +31,15 @@ use Illuminate\Support\Facades\DB;
  * never holds one long lock. A result seen and an email are steps of their
  * period's funnel: each batch tells it the hours of the assignments whose
  * results seen or emails go (MarkAnalyticsPeriodHourAction), in the batch's
- * transaction. The cutoffs are fixed when the run starts; a run
- * interrupted part way, or run twice, simply deletes what is still older. A
- * retention that is not a positive number of days fails the run without
- * deleting anything.
+ * transaction; and the people of the games' days the days of the views it
+ * deletes, and of the attempts whose shares, sign-ups begun and ways on go
+ * (MarkAnalyticsGameCellsAction), counted again without them. Then
+ * the numbers of the guests' browsers no cell of those people holds any more
+ * are let go — a browser whose last view a day's cells still held goes once
+ * that day is counted again, on a later run. The cutoffs are fixed when the
+ * run starts; a run interrupted part way, or run twice, simply deletes what
+ * is still older. A retention that is not a positive number of days fails the
+ * run without deleting anything.
  */
 final class GamesPurgeExpiredCommand extends Command
 {
@@ -43,7 +50,7 @@ final class GamesPurgeExpiredCommand extends Command
 
     protected $description = 'Delete game events and emails left in games that are older than their configured retention.';
 
-    public function handle(MarkAnalyticsPeriodHourAction $periodHours): int
+    public function handle(MarkAnalyticsPeriodHourAction $periodHours, MarkAnalyticsGameCellsAction $gameCells, RefreshAnalyticsGameCellsAction $gameCellsRefresh): int
     {
         $events = $this->retention('events');
         $emails = $this->retention('email_captures');
@@ -71,9 +78,12 @@ final class GamesPurgeExpiredCommand extends Command
             ->pluck('network_day')
             ->map(fn (mixed $day): string => substr((string) $day, 0, 10))
             ->all();
-        $deletedEvents = $this->purge(GameEvent::query()->where('occurred_at', '<', $now->subDays($events)), $chunk, fn (array $ids) => $periodHours->ofAssignments(
-            GameAssignment::query()->whereIn('id', GameAttempt::query()->select('assignment_id')->whereIn('id', GameEvent::query()->select('attempt_id')->whereKey($ids)->where('type', GameEventType::ResultViewed->value))),
-        ));
+        $deletedEvents = $this->purge(GameEvent::query()->where('occurred_at', '<', $now->subDays($events)), $chunk, function (array $ids) use ($periodHours, $gameCells): void {
+            $periodHours->ofAssignments(
+                GameAssignment::query()->whereIn('id', GameAttempt::query()->select('assignment_id')->whereIn('id', GameEvent::query()->select('attempt_id')->whereKey($ids)->where('type', GameEventType::ResultViewed->value))),
+            );
+            $gameCells->removingEvents(GameEvent::query()->whereKey($ids));
+        });
         $deletedEmails = $this->purge(GameEmailCapture::query()->where('captured_at', '<', $now->subDays($emails)), $chunk, fn (array $ids) => $periodHours->ofAssignments(
             GameAssignment::query()->whereIn('id', GameAttempt::query()->select('assignment_id')->whereIn('id', GameEmailCapture::query()->select('attempt_id')->whereKey($ids))),
         ));
@@ -82,8 +92,11 @@ final class GamesPurgeExpiredCommand extends Command
             app(MarkAnalyticsDayAction::class)->handle($day, $now);
         }
 
+        $forgotten = $gameCellsRefresh->forgetNumbers();
+
         $this->info("Deleted {$deletedEvents} game events older than {$events} days.");
         $this->info("Deleted {$deletedEmails} emails left in games more than {$emails} days ago.");
+        $this->info("Let go of {$forgotten} numbers of guests' browsers no game's people hold any more.");
 
         return self::SUCCESS;
     }

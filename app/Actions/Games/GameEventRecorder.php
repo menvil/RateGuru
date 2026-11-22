@@ -3,6 +3,7 @@
 namespace App\Actions\Games;
 
 use App\Actions\Analytics\MarkAnalyticsDayAction;
+use App\Actions\Analytics\MarkAnalyticsGameCellsAction;
 use App\Actions\Analytics\MarkAnalyticsPeriodHourAction;
 use App\Enums\GameEventType;
 use App\Models\GameAssignment;
@@ -26,12 +27,20 @@ use InvalidArgumentException;
  * by Analytics (AnalyticsVisitRow::attemptFigures()): the visit's day is
  * marked to be read again once the event is written (MarkAnalyticsDayAction)
  * — a result can be shared days after the visit.
+ *
+ * Every change to what the people of the games' days count of an attempt
+ * after it began — completed, its goal reached, taken by an account or an
+ * account credited to it confirmed, shared, sent on, signing up begun —
+ * comes with an event of it, recorded now: so the people of the attempt's
+ * day are told of it here, once the day has closed
+ * (MarkAnalyticsGameCellsAction), whichever action records it.
  */
 final class GameEventRecorder
 {
     public function __construct(
         private readonly MarkAnalyticsDayAction $analytics,
         private readonly MarkAnalyticsPeriodHourAction $periodHours,
+        private readonly MarkAnalyticsGameCellsAction $gameCells,
     ) {}
 
     /**
@@ -78,6 +87,10 @@ final class GameEventRecorder
 
         if ($type === GameEventType::ResultViewed && $attempt !== null) {
             $this->periodHours->ofAttempt($attempt);
+        }
+
+        if ($attempt !== null) {
+            $this->gameCells->ofEvent($type, $attempt);
         }
     }
 }

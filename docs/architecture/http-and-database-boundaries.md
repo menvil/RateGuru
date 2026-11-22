@@ -97,6 +97,19 @@ The reviewed boundaries are:
   and the paid clicks' own, and the next browser numbers by
   `ROW_NUMBER()` — inserted by `RefreshAnalyticsCellsAction` through
   `insertUsing`, never `DB::statement`.
+- `AnalyticsGameCellsQuery` for the people of a game's days
+  (`analytics_game_cells`): a UTC day's views and attempts of every game,
+  whole or up to a bound moment, each person's attempts summed up first and
+  then each step's people `rb_build_agg(pid) FILTER (WHERE …)` beside the
+  accounts they signed in and the attempts' sums, and the next browser numbers
+  by `ROW_NUMBER()` — inserted by `RefreshAnalyticsGameCellsAction` through
+  `insertUsing`; in `GameMetricsQuery`'s place, a window's visitors and the
+  people behind its attempts and their events as
+  `rb_cardinality(rb_or_agg(…))` over the cells beside the views and attempts
+  of every stretch they don't cover, the people who played again as a fold of
+  the cells (`rb_or_agg` over the cells before, as a window function); and the
+  numbers no cell holds (`NOT rb_contains`) for the purge (PostgreSQL with the
+  roaringbitmap extension only).
 - `CommentListQuery` for arithmetic comment ranking.
 - `ComparisonPeriodsQuery` for literal LIKE searches over the titles, internal
   names and slugs of the games whose traffic periods Growth → Experiments lists.
