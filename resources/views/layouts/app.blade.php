@@ -55,7 +55,10 @@
                     </button>
 
                     <a href="{{ url('/') }}" class="min-w-0 shrink self-center rounded-rgControl px-1 py-1 text-[17px] font-extrabold tracking-tight text-rg-text transition-colors hover:text-rg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent focus-visible:ring-offset-2 focus-visible:ring-offset-rg-bg sm:px-2 sm:text-[22px]" data-testid="site-brand">
-                        <x-brand-wordmark class="block truncate" />
+                        {{-- As wide as the name and no wider, at the start of the line: the name
+                             reads its own way (x-brand-wordmark), and a box of the column's width
+                             would put a Latin name at its left on a page read right to left. --}}
+                        <x-brand-wordmark class="block w-fit max-w-full truncate" />
                     </a>
 
                     <x-ui.search-form

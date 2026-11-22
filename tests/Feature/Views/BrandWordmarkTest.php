@@ -20,3 +20,9 @@ it('splits the site name at its second word, a leading acronym being one word', 
     'two words' => ['RateGuru', 'Rate', 'Guru'],
     'one word' => ['Guru', null, null],
 ]);
+
+it('lets the site name read its own way, so a Latin name stays a left-to-right word on a page read right to left', function () {
+    ProjectSettings::factory()->create(['site_name' => 'RateGuru']);
+
+    expect((string) $this->blade('<x-brand-wordmark class="block truncate" />'))->toMatch('~^\s*<span dir="auto" class="block truncate">~');
+});
