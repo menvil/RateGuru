@@ -479,7 +479,8 @@ where it stands on the others, a refusal and the `partial` that goes with it
 included, and judges the batch's line by the campaigns it sent to. No mark
 outlives the batch: one for a campaign that ended meanwhile, or on a block
 unblocked since, goes with it, and `BlockStanding` never takes one for a
-refusal. A
+refusal. A batch whose blocks were marked only for campaigns archived before
+it went sends nothing and logs nothing: they are back where they stood. A
 batch that went part of the way is logged with `partial` beside `ok`, its note
 counting the campaigns that took all of it. A click through a campaign whose
 listing says it doesn't hold the block is no blocked click

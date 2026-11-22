@@ -236,6 +236,12 @@ final class ApplyTrafficBlocksAction
                 }
             }
 
+            // Blocks waiting only for campaigns archived before they went sent nothing: they are back where they stood, and no line of the log
+            // says they were applied.
+            if ($calls === [] && $removing->isEmpty() && $pending->every(fn (TrafficBlock $block): bool => $marked[(int) $block->id] !== [])) {
+                return;
+            }
+
             $whole = array_filter($outcomes, fn (string $outcome): bool => in_array($outcome, ['blocked', 'taken off'], true));
             $ok = count($whole) === count($outcomes);
             $mixed = array_count_values($outcomes);
