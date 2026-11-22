@@ -465,8 +465,11 @@ sync turn, after the campaigns and their lists are read,
 — one query — which running campaigns each `applied`, `partial` or `failed`
 block lacks: no listing there (a campaign that came after it, its first click
 or one back from the archive), or one not on the list with nothing said
-against it (a list read without it). Never one whose listing records a
-refusal or any failed call, nor one taken off there in the panel (`taken_off`,
+against it (a list read without it), or one that failed only because the
+network was slow, down or busy (`timeout`, `unavailable`, `rate_limited`)
+before the source's lists were last read — so a passing failure is tried
+again once a read of the lists, never in a loop. Never one whose listing
+records a refusal or any other failure, nor one taken off there in the panel (`taken_off`,
 the owner's doing); never a block `taken_off` every list, one whose unblock
 failed on a list still holding it — an administrator wants it off — nor one
 whose listings aren't known yet, which waits for the read to know them, but

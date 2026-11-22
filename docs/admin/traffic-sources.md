@@ -87,9 +87,11 @@ A block through the API goes to every campaign of the source, and each site
 or zone is judged by what each campaign's list holds afterwards. A campaign
 that comes later — its first click — gets RateGuru's blocks by itself within
 minutes, and so does one whose list the six-hourly read finds without one;
-only what it lacked is sent, and only to it. Never one that refused a block,
-or had it taken off in the network's panel: that stays as it is until you
-press **Push again**. The badge in Sites & zones says where it stands:
+only what it lacked is sent, and only to it. One that missed a block only
+because the network was slow, down or busy gets it again after the next
+read of the lists, once a read. Never one that refused a block, or had it
+taken off in the network's panel: that stays as it is until you press
+**Push again**. The badge in Sites & zones says where it stands:
 
 - **Blocked** — on every campaign's list (**Blocked · still sending** while
   clicks still come through a campaign that holds it);

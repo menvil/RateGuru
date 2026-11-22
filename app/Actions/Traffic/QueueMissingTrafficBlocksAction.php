@@ -11,6 +11,7 @@ use App\Models\TrafficBlockEvent;
 use App\Models\TrafficBlockListing;
 use App\Models\TrafficSource;
 use App\Queries\Traffic\TrafficBlocksQuery;
+use Carbon\CarbonInterface;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -36,22 +37,23 @@ final class QueueMissingTrafficBlocksAction
 
     /**
      * @param  list<TrafficBlockLevel>  $levels  the levels the source's API blocks
+     * @param  CarbonInterface|null  $readAt  when the source's lists were last read (TrafficBlocksQuery::missingFromCampaigns())
      * @return int how many blocks are on their way to a campaign
      */
-    public function handle(int $sourceId, array $levels): int
+    public function handle(int $sourceId, array $levels, ?CarbonInterface $readAt = null): int
     {
         // Most turns have nothing to send: read first, and lock nothing for nothing.
-        if ($this->blocks->missingFromCampaigns($sourceId, $levels) === []) {
+        if ($this->blocks->missingFromCampaigns($sourceId, $levels, $readAt) === []) {
             return 0;
         }
 
-        return DB::transaction(function () use ($sourceId, $levels): int {
+        return DB::transaction(function () use ($sourceId, $levels, $readAt): int {
             if (TrafficSource::query()->whereKey($sourceId)->lockForUpdate()->first() === null) {
                 return 0;
             }
 
             // Read again on the source locked: an unblock, a push or a batch written meanwhile is taken into account.
-            $missing = $this->blocks->missingFromCampaigns($sourceId, $levels);
+            $missing = $this->blocks->missingFromCampaigns($sourceId, $levels, $readAt);
             $blocks = TrafficBlock::query()->whereKey(array_keys($missing))->whereIn('network_state', self::QUEUED_FROM)
                 ->orderBy('id')->lockForUpdate()->get(['id', 'level', 'ref']);
 

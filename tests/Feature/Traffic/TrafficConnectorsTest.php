@@ -648,6 +648,39 @@ it('sends a block to a running campaign whose list was read without it, nothing 
         ->and($refused->fresh())->network_state->toBe(TrafficBlockNetworkState::Partial)->network_error->toBe('unavailable');
 });
 
+it('sends a block again, once a read of the lists, to a campaign that missed it only because the network was slow or down, never to one that refused it', function () {
+    // The lists were read an hour ago; the second campaign missed both blocks two hours ago — one timed out, one refused.
+    $connection = TrafficApiConnection::factory()->create(['source_id' => $this->popads->id, 'next_sync_at' => now(), 'backfill_cursor' => null, 'block_lists_read_at' => now()->subHour()]);
+    $first = TrafficCampaign::factory()->create(['source_id' => $this->popads->id, 'external_id' => '881204']);
+    $second = TrafficCampaign::factory()->create(['source_id' => $this->popads->id, 'external_id' => '881205']);
+    $timedOut = TrafficBlock::factory()->create(['source_id' => $this->popads->id, 'level' => TrafficBlockLevel::Site, 'ref' => '40123', 'method' => 'api', 'network_state' => TrafficBlockNetworkState::Partial, 'network_error' => 'timeout']);
+    $refused = TrafficBlock::factory()->create(['source_id' => $this->popads->id, 'level' => TrafficBlockLevel::Site, 'ref' => '40124', 'method' => 'api', 'network_state' => TrafficBlockNetworkState::Partial, 'network_error' => 'rejected']);
+
+    foreach ([[$timedOut, 'timeout'], [$refused, 'rejected']] as [$block, $error]) {
+        TrafficBlockListing::factory()->create(['block_id' => $block->id, 'campaign_id' => $first->id, 'listed' => true, 'error' => null, 'checked_at' => now()->subHours(2)]);
+        TrafficBlockListing::factory()->create(['block_id' => $block->id, 'campaign_id' => $second->id, 'listed' => false, 'error' => $error, 'checked_at' => now()->subHours(2)]);
+    }
+
+    $lists = ['881204' => ['40123', '40124'], '881205' => []];
+    popAdsWithLists($lists);
+
+    app(SyncTrafficNetworkAction::class)->handle($connection, CarbonImmutable::now());
+    $this->artisan('traffic:sync-networks')->assertSuccessful();
+
+    expect($lists['881205'])->toBe(['40123'])
+        ->and($timedOut->fresh())->network_state->toBe(TrafficBlockNetworkState::Applied)
+        ->and($refused->fresh())->network_state->toBe(TrafficBlockNetworkState::Partial)->network_error->toBe('rejected');
+
+    // The network slow again: noted after the last read, so not tried again until the next one.
+    $timedOut->listings()->where('campaign_id', $second->id)->update(['listed' => false, 'error' => 'timeout', 'checked_at' => now()]);
+    TrafficBlock::query()->whereKey($timedOut->id)->update(['network_state' => TrafficBlockNetworkState::Partial, 'network_error' => 'timeout']);
+    $this->travel(5)->minutes();
+    app(SyncTrafficNetworkAction::class)->handle($connection->fresh(), CarbonImmutable::now());
+
+    expect($timedOut->fresh()->network_state)->toBe(TrafficBlockNetworkState::Partial)
+        ->and(TrafficBlockEvent::query()->where('kind', 'queued')->count())->toBe(1);
+});
+
 it('takes a block waiting for a new campaign off the lists holding it when it is unblocked meanwhile, never sending it to the new one', function () {
     $connection = TrafficApiConnection::factory()->create(['source_id' => $this->popads->id, 'next_sync_at' => now(), 'backfill_cursor' => null, 'block_lists_read_at' => now()->subHour()]);
     $first = TrafficCampaign::factory()->create(['source_id' => $this->popads->id, 'external_id' => '881204']);

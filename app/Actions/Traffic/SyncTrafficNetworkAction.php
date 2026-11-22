@@ -117,7 +117,8 @@ final class SyncTrafficNetworkAction
             // RateGuru's own blocks are for every running campaign: one that came since — its first click — or whose list was just read
             // without one, nothing refused there, is sent it.
             if ($connector instanceof EditsBlockLists) {
-                $this->missing->handle((int) $source->id, $connector->blockLevels());
+                // A campaign that missed one only because the network was slow or down is sent it again once its list was read since.
+                $this->missing->handle((int) $source->id, $connector->blockLevels(), $connection->block_lists_read_at);
             }
 
             $this->settle($connection, $fence, fn (): array => [
