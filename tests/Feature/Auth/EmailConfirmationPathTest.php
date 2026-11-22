@@ -117,7 +117,7 @@ it('sends a new link at most once a minute, and says how long to wait', function
 
     $this->get(route('profile.edit'))
         ->assertSee('data-testid="account-confirmation-wait"', false)
-        ->assertDontSee('data-testid="account-confirmation-resend"', false);
+        ->assertSee('data-testid="account-confirmation-resend"', false);
 
     $this->travel(61)->seconds();
     $this->post(route('verification.send'))->assertSessionHas('status', 'verification-link-sent');
@@ -136,6 +136,37 @@ it('sends at most five links an hour', function () {
     }
 
     Notification::assertSentToTimes($user, VerifyEmail::class, 5);
+});
+
+it('says the wait really left once the hour\'s links are used, even within the minute', function () {
+    Notification::fake();
+    $user = User::factory()->unverified()->create();
+    $this->actingAs($user);
+
+    foreach (range(1, 4) as $attempt) {
+        $this->post(route('verification.send'));
+        $this->travel(61)->seconds();
+    }
+    $this->post(route('verification.send'));
+
+    $this->post(route('verification.send'))->assertSessionHas('verification_wait');
+
+    expect(session('verification_wait'))->not->toBe(__('auth.verify_email.throttled', ['minutes' => 1]));
+    Notification::assertSentToTimes($user, VerifyEmail::class, 5);
+});
+
+it('does not spend the hour on clicks the minute limit refuses', function () {
+    Notification::fake();
+    $user = User::factory()->unverified()->create();
+    $this->actingAs($user);
+
+    foreach (range(1, 8) as $click) {
+        $this->post(route('verification.send'));
+    }
+    $this->travel(61)->seconds();
+    $this->post(route('verification.send'))->assertSessionHas('status', 'verification-link-sent');
+
+    Notification::assertSentToTimes($user, VerifyEmail::class, 2);
 });
 
 it('keeps one account from using up the limit of another', function () {
@@ -242,7 +273,7 @@ it('lets an administrator confirm an address, in the log and as any confirmation
     $admin = User::factory()->admin()->create();
     $person = User::factory()->unverified()->create(['created_at' => now()->subDays(30)]);
 
-    app(ConfirmUserEmailAction::class)->handle($admin, $person, 'Confirmed by support.');
+    app(ConfirmUserEmailAction::class)->handle($admin, $person, (string) $person->email, 'Confirmed by support.');
 
     $fresh = $person->fresh();
     expect($fresh->hasVerifiedEmail())->toBeTrue()
@@ -263,7 +294,7 @@ it('lets an administrator confirm an address, in the log and as any confirmation
 it('refuses to confirm an address it should not', function (Closure $actor, Closure $target) {
     $person = $target();
 
-    expect(fn () => app(ConfirmUserEmailAction::class)->handle($actor(), $person))
+    expect(fn () => app(ConfirmUserEmailAction::class)->handle($actor(), $person, (string) $person->email))
         ->toThrow(CannotModerateUserException::class);
 
     $this->assertDatabaseMissing('moderation_logs', ['action' => ModerationActionType::ConfirmUserEmail->value]);
@@ -277,6 +308,36 @@ it('refuses to confirm an address it should not', function (Closure $actor, Clos
     'an address already confirmed' => [fn () => User::factory()->admin()->create(), fn () => User::factory()->create()],
 ]);
 
+it('never confirms an address other than the one the administrator was shown', function () {
+    Event::fake([Verified::class]);
+    $admin = User::factory()->admin()->create();
+    $person = User::factory()->unverified()->create(['email' => 'shown@example.com']);
+    User::query()->whereKey($person->id)->update(['email' => 'victim@example.com']);
+
+    expect(fn () => app(ConfirmUserEmailAction::class)->handle($admin, $person, 'shown@example.com'))
+        ->toThrow(CannotModerateUserException::class)
+        ->and($person->fresh()->hasVerifiedEmail())->toBeFalse();
+
+    Event::assertNotDispatched(Verified::class);
+});
+
+it('says so when the address changed while the dialog was open', function () {
+    $admin = User::factory()->admin()->create();
+    $person = User::factory()->unverified()->create(['email' => 'shown@example.com']);
+    $this->actingAs($admin);
+
+    $page = Livewire::test(UserEditor::class, ['userId' => $person->id])
+        ->call('askToSanction', 'confirm_email', $person->id)
+        ->assertSee('shown@example.com counts as confirmed');
+
+    User::query()->whereKey($person->id)->update(['email' => 'victim@example.com']);
+
+    $page->call('confirmSanction')
+        ->assertDispatched('rg-admin-toast', tone: 'error');
+
+    expect($person->fresh()->hasVerifiedEmail())->toBeFalse();
+});
+
 it('offers the confirmation on the person\'s page, and records it in the history', function () {
     $admin = User::factory()->admin()->create();
     $person = User::factory()->unverified()->create(['username' => 'lost_mail']);
@@ -285,7 +346,7 @@ it('offers the confirmation on the person\'s page, and records it in the history
     Livewire::test(UserEditor::class, ['userId' => $person->id])
         ->assertSee('data-testid="user-editor-confirm-email"', false)
         ->call('askToSanction', 'confirm_email', $person->id)
-        ->assertSet('sanction', ['kind' => 'confirm_email', 'id' => $person->id])
+        ->assertSet('sanction', ['kind' => 'confirm_email', 'id' => $person->id, 'email' => $person->email])
         ->assertSee('Confirm the email of lost_mail?')
         ->call('confirmSanction')
         ->assertSet('sanction', null)

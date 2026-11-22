@@ -52,12 +52,12 @@ return [
 
     'verify_email' => [
         'intro' => 'Paldies, ka reģistrējāties! Pirms sākat, lūdzu, apstipriniet savu e-pasta adresi, noklikšķinot uz saites, ko tikko nosūtījām jums pa e-pastu. Ja e-pastu nesaņēmāt, mēs labprāt nosūtīsim vēl vienu.',
-        'link_sent' => 'Uz reģistrācijas laikā norādīto e-pasta adresi ir nosūtīta jauna apstiprinājuma saite.',
+        'link_sent' => 'Uz jūsu pašreizējo e-pasta adresi ir nosūtīta jauna apstiprinājuma saite.',
         'resend' => 'Nosūtīt apstiprinājuma e-pastu vēlreiz',
         'confirmed' => 'Jūsu e-pasta adrese ir apstiprināta.',
         'link_expired' => 'Šīs apstiprinājuma saites derīguma termiņš ir beidzies. Zemāk pieprasiet jaunu.',
         'throttled' => 'Jaunu saiti varēsiet pieprasīt pēc :minutes min.',
-        'notice_changed_address' => 'Apstipriniet savu jauno e-pasta adresi, lai varētu publicēt ierakstus, komentēt, balsot un sekot citiem. Mēs nosūtījām saiti uz :email.',
+        'notice_changed_address' => 'Apstipriniet savu jauno e-pasta adresi :email, lai varētu publicēt ierakstus, komentēt, balsot un sekot citiem. Ja jums nav saites, pieprasiet jaunu.',
     ],
 
     'social' => [

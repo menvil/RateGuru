@@ -6,6 +6,7 @@ use App\Exceptions\Abuse\RateLimitExceededException;
 use App\Models\User;
 use App\Support\AbuseGuards\ActionRateLimiter;
 use App\Support\AbuseGuards\RateLimitKey;
+use Illuminate\Support\Facades\RateLimiter;
 use Symfony\Component\Mailer\Exception\TransportExceptionInterface;
 
 final class SendEmailVerificationNotificationAction
@@ -29,16 +30,22 @@ final class SendEmailVerificationNotificationAction
             return false;
         }
 
+        $hourKey = RateLimitKey::userAction('email-confirmation-hour', $user);
+        $perHour = (int) config('rate_limits.email_confirmation.per_hour');
+
+        // Asked first, so someone out of links for the hour is told the wait
+        // that is really left and not the minute. Only asked: a click the
+        // minute limit refuses sends nothing, so it must not spend the hour.
+        if (RateLimiter::tooManyAttempts($hourKey, $perHour)) {
+            throw RateLimitExceededException::make(__('ui.rate_limit.default'), RateLimiter::availableIn($hourKey));
+        }
+
         $this->rateLimiter->hitOrFail(
             RateLimitKey::userAction('email-confirmation-minute', $user),
             (int) config('rate_limits.email_confirmation.per_minute'),
             60,
         );
-        $this->rateLimiter->hitOrFail(
-            RateLimitKey::userAction('email-confirmation-hour', $user),
-            (int) config('rate_limits.email_confirmation.per_hour'),
-            3600,
-        );
+        $this->rateLimiter->hitOrFail($hourKey, $perHour, 3600);
 
         $user->sendEmailVerificationNotification();
 

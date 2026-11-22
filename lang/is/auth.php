@@ -52,12 +52,12 @@ return [
 
     'verify_email' => [
         'intro' => 'Takk fyrir að skrá þig! Áður en þú byrjar, gætirðu staðfest netfangið þitt með því að smella á hlekkinn sem við vorum að senda þér í tölvupósti? Ef þú fékkst ekki tölvupóstinn sendum við þér gjarnan annan.',
-        'link_sent' => 'Nýr staðfestingarhlekkur hefur verið sendur á netfangið sem þú gafst upp við skráningu.',
+        'link_sent' => 'Nýr staðfestingartengill hefur verið sendur á núverandi netfangið þitt.',
         'resend' => 'Senda staðfestingarpóst aftur',
         'confirmed' => 'Netfangið þitt hefur verið staðfest.',
         'link_expired' => 'Þessi staðfestingartengill er útrunninn. Biddu um nýjan hér fyrir neðan.',
         'throttled' => 'Þú getur beðið um nýjan tengil eftir :minutes mín.',
-        'notice_changed_address' => 'Staðfestu nýja netfangið þitt til að geta sett inn færslur, skrifað athugasemdir, kosið og fylgst með öðrum. Við sendum tengil á :email.',
+        'notice_changed_address' => 'Staðfestu nýja netfangið þitt, :email, til að geta sett inn færslur, skrifað athugasemdir, kosið og fylgst með öðrum. Ef þú ert ekki með tengil skaltu biðja um nýjan.',
     ],
 
     'social' => [

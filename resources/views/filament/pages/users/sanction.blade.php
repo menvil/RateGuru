@@ -23,7 +23,7 @@
 
     $facts = match ($kind) {
         'confirm_email' => [
-            ['mail', 'Their address counts as confirmed, without the link.'],
+            ['mail', $dialog['email'].' counts as confirmed, without the link.'],
             ['upload', 'They can post, comment, vote and follow.'],
             ['clock', 'The cleanup of unconfirmed accounts no longer removes them.'],
         ],

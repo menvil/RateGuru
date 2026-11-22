@@ -52,12 +52,12 @@ return [
 
     'verify_email' => [
         'intro' => 'Vďaka za registráciu! Skôr než začneš, over svoju e-mailovú adresu kliknutím na odkaz, ktorý sme ti práve poslali. Ak ti e-mail neprišiel, radi ti pošleme ďalší.',
-        'link_sent' => 'Na e-mailovú adresu uvedenú pri registrácii sme poslali nový overovací odkaz.',
+        'link_sent' => 'Na tvoju aktuálnu e-mailovú adresu sme poslali nový potvrdzovací odkaz.',
         'resend' => 'Znova poslať overovací e-mail',
         'confirmed' => 'Tvoja e-mailová adresa je potvrdená.',
         'link_expired' => 'Platnosť tohto potvrdzovacieho odkazu vypršala. Nižšie si vyžiadaj nový.',
         'throttled' => 'Nový odkaz si môžeš vyžiadať o :minutes min.',
-        'notice_changed_address' => 'Potvrď svoju novú e-mailovú adresu, aby si mohol pridávať príspevky, komentovať, hlasovať a sledovať ostatných. Odkaz sme poslali na :email.',
+        'notice_changed_address' => 'Potvrď svoju novú e-mailovú adresu :email, aby si mohol pridávať príspevky, komentovať, hlasovať a sledovať ostatných. Ak odkaz nemáš, vyžiadaj si nový.',
     ],
 
     'social' => [

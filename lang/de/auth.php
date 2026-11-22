@@ -52,12 +52,12 @@ return [
 
     'verify_email' => [
         'intro' => 'Danke für deine Registrierung! Bevor es losgeht: Bitte bestätige deine E-Mail-Adresse über den Link, den wir dir gerade geschickt haben. Falls keine E-Mail angekommen ist, senden wir dir gern eine neue.',
-        'link_sent' => 'Ein neuer Bestätigungslink wurde an die E-Mail-Adresse gesendet, die du bei der Registrierung angegeben hast.',
+        'link_sent' => 'Ein neuer Bestätigungslink wurde an deine aktuelle E-Mail-Adresse gesendet.',
         'resend' => 'Bestätigungs-E-Mail erneut senden',
         'confirmed' => 'Deine E-Mail-Adresse ist bestätigt.',
         'link_expired' => 'Dieser Bestätigungslink ist abgelaufen. Fordere unten einen neuen an.',
         'throttled' => 'Du kannst in :minutes Min. einen neuen Link anfordern.',
-        'notice_changed_address' => 'Bestätige deine neue E-Mail-Adresse, um Beiträge zu posten, zu kommentieren, abzustimmen und anderen zu folgen. Wir haben einen Link an :email gesendet.',
+        'notice_changed_address' => 'Bestätige deine neue E-Mail-Adresse :email, um Beiträge zu posten, zu kommentieren, abzustimmen und anderen zu folgen. Wenn du keinen Link hast, fordere einen neuen an.',
     ],
 
     'social' => [

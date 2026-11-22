@@ -52,12 +52,12 @@ return [
 
     'verify_email' => [
         'intro' => 'Merci pour votre inscription ! Avant de commencer, pourriez-vous confirmer votre adresse e-mail en cliquant sur le lien que nous venons de vous envoyer ? Si vous n\'avez pas reçu l\'e-mail, nous vous en enverrons volontiers un autre.',
-        'link_sent' => 'Un nouveau lien de vérification a été envoyé à l\'adresse e-mail que vous avez indiquée lors de votre inscription.',
+        'link_sent' => 'Un nouveau lien de confirmation a été envoyé à votre adresse e-mail actuelle.',
         'resend' => 'Renvoyer l\'e-mail de vérification',
         'confirmed' => 'Votre adresse e-mail est confirmée.',
         'link_expired' => 'Ce lien de confirmation a expiré. Demandez-en un nouveau ci-dessous.',
         'throttled' => 'Vous pourrez demander un nouveau lien dans :minutes min.',
-        'notice_changed_address' => 'Confirmez votre nouvelle adresse e-mail pour publier, commenter, voter et suivre d\'autres membres. Nous avons envoyé un lien à :email.',
+        'notice_changed_address' => 'Confirmez votre nouvelle adresse e-mail, :email, pour publier, commenter, voter et suivre d\'autres membres. Si vous n\'avez pas de lien, demandez-en un nouveau.',
     ],
 
     'social' => [

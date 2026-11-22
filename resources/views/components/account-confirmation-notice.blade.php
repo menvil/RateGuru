@@ -6,7 +6,8 @@
     <p class="min-w-0 flex-1 basis-64">{{ $notice }}</p>
     @if (filled($wait))
         <p class="text-rg-text2" data-testid="account-confirmation-wait">{{ $wait }}</p>
-    @elseif ($sent)
+    @endif
+    @if ($sent)
         <p class="text-rg-text2" data-testid="account-confirmation-sent">{{ __('auth.verify_email.link_sent') }}</p>
     @else
         <form method="POST" action="{{ route('verification.send') }}">

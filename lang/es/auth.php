@@ -52,12 +52,12 @@ return [
 
     'verify_email' => [
         'intro' => '¡Gracias por registrarte! Antes de empezar, ¿podrías verificar tu dirección de correo electrónico haciendo clic en el enlace que te acabamos de enviar? Si no has recibido el correo, con gusto te enviaremos otro.',
-        'link_sent' => 'Se ha enviado un nuevo enlace de verificación a la dirección de correo electrónico que indicaste al registrarte.',
+        'link_sent' => 'Se ha enviado un nuevo enlace de confirmación a tu dirección de correo electrónico actual.',
         'resend' => 'Reenviar correo de verificación',
         'confirmed' => 'Tu dirección de correo electrónico está confirmada.',
         'link_expired' => 'Este enlace de confirmación ha caducado. Solicita uno nuevo a continuación.',
         'throttled' => 'Podrás solicitar un nuevo enlace en :minutes min.',
-        'notice_changed_address' => 'Confirma tu nueva dirección de correo electrónico para publicar, comentar, votar y seguir a otras personas. Te enviamos un enlace a :email.',
+        'notice_changed_address' => 'Confirma tu nueva dirección de correo electrónico, :email, para publicar, comentar, votar y seguir a otras personas. Si no tienes un enlace, solicita uno nuevo.',
     ],
 
     'social' => [

@@ -23,16 +23,19 @@ final class ConfirmUserEmailAction
         private readonly CreateModerationLogAction $createModerationLog,
     ) {}
 
-    public function handle(User $admin, User $target, ?string $reason = null): void
+    /** @param  string  $email  the address the administrator was shown, and is vouching for */
+    public function handle(User $admin, User $target, string $email, ?string $reason = null): void
     {
         if (! $admin->can('confirmEmail', $target)) {
             throw CannotModerateUserException::becauseUserIsNotAllowed();
         }
 
-        DB::transaction(function () use ($admin, $target, $reason): void {
+        DB::transaction(function () use ($admin, $target, $email, $reason): void {
             [$lockedActor, $locked] = $this->lockAndAuthorizePair($admin, $target, 'confirmEmail');
 
-            if ($locked->status !== UserStatus::Active || $locked->hasVerifiedEmail()) {
+            // On the locked row: an address changed since the dialog opened is
+            // one nobody looked at, and could be someone else's.
+            if ($locked->status !== UserStatus::Active || $locked->hasVerifiedEmail() || $locked->email !== $email) {
                 throw CannotModerateUserException::becauseTargetStatusIsInvalid();
             }
 

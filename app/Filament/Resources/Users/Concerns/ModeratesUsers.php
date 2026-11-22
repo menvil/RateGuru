@@ -39,7 +39,7 @@ trait ModeratesUsers
     /**
      * The confirmation on screen: what it does and to whom.
      *
-     * @var array{kind: 'ban'|'limit'|'shadowban'|'trust'|'confirm_email', id: int}|null
+     * @var array{kind: 'ban'|'limit'|'shadowban'|'trust'|'confirm_email', id: int, email?: string}|null
      */
     #[Locked]
     public ?array $sanction = null;
@@ -51,7 +51,8 @@ trait ModeratesUsers
         $person = User::query()->find($id);
 
         if ($person !== null && in_array($kind, ['ban', 'limit', 'shadowban', 'trust', 'confirm_email'], true) && $this->moderationOptions($person)[$kind]['available']) {
-            $this->sanction = ['kind' => $kind, 'id' => $id];
+            // Confirming an address is about the one on screen now.
+            $this->sanction = ['kind' => $kind, 'id' => $id, ...($kind === 'confirm_email' ? ['email' => (string) $person->email] : [])];
             $this->reason = '';
             $this->resetErrorBag();
         }
@@ -72,6 +73,7 @@ trait ModeratesUsers
         }
 
         ['kind' => $kind, 'id' => $id] = $this->sanction;
+        $email = $this->sanction['email'] ?? '';
 
         // Held to its limits as it is stored: without the spaces at its ends.
         // As it is stored (ModerationReason): what renders as nothing at either end, not only ASCII blanks.
@@ -95,7 +97,12 @@ trait ModeratesUsers
 
         $wasActive = $person->status === UserStatus::Active;
 
-        if (! $this->attemptModeration(fn () => $this->sanctionAction($kind)->handle($this->moderatingAdmin(), $person, $reason))) {
+        $admin = $this->moderatingAdmin();
+        $moderate = $kind === 'confirm_email'
+            ? fn () => app(ConfirmUserEmailAction::class)->handle($admin, $person, $email, $reason)
+            : fn () => $this->sanctionAction($kind)->handle($admin, $person, $reason);
+
+        if (! $this->attemptModeration($moderate)) {
             return;
         }
 
@@ -179,7 +186,7 @@ trait ModeratesUsers
     /**
      * The confirmation on screen, with the person it is about as they are now.
      *
-     * @return array{kind: string, username: string, name: string, meta: string, posts: int, reports: int}|null
+     * @return array{kind: string, username: string, name: string, email: string|null, meta: string, posts: int, reports: int}|null
      */
     protected function sanctionDialog(): ?array
     {
@@ -196,20 +203,20 @@ trait ModeratesUsers
             'kind' => $this->sanction['kind'],
             'username' => (string) $person->username,
             'name' => (string) $person->name,
+            'email' => $this->sanction['email'] ?? null,
             'meta' => ModerationListFormat::personStatus($person)['label'].' · '.ModerationListFormat::trust($person).' · '.number_format($posts).' '.($posts === 1 ? 'post' : 'posts').' · '.number_format($reports).' '.($reports === 1 ? 'report' : 'reports'),
             'posts' => $posts,
             'reports' => $reports,
         ];
     }
 
-    /** @return BanUserAction|LimitUserAction|ShadowbanUserAction|MarkUserTrustedAction|ConfirmUserEmailAction */
+    /** @return BanUserAction|LimitUserAction|ShadowbanUserAction|MarkUserTrustedAction */
     private function sanctionAction(string $kind): object
     {
         return match ($kind) {
             'ban' => app(BanUserAction::class),
             'limit' => app(LimitUserAction::class),
             'shadowban' => app(ShadowbanUserAction::class),
-            'confirm_email' => app(ConfirmUserEmailAction::class),
             default => app(MarkUserTrustedAction::class),
         };
     }

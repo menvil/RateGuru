@@ -52,12 +52,12 @@ return [
 
     'verify_email' => [
         'intro' => 'Dziękujemy za rejestrację! Zanim zaczniesz, potwierdź swój adres e-mail, klikając link, który właśnie Ci wysłaliśmy. Jeśli wiadomość do Ciebie nie dotarła, chętnie wyślemy kolejną.',
-        'link_sent' => 'Nowy link weryfikacyjny został wysłany na adres e-mail podany podczas rejestracji.',
+        'link_sent' => 'Nowy link potwierdzający został wysłany na Twój aktualny adres e-mail.',
         'resend' => 'Wyślij ponownie e-mail weryfikacyjny',
         'confirmed' => 'Twój adres e-mail został potwierdzony.',
         'link_expired' => 'Ten link potwierdzający wygasł. Poproś poniżej o nowy.',
         'throttled' => 'O nowy link możesz poprosić za :minutes min.',
-        'notice_changed_address' => 'Potwierdź swój nowy adres e-mail, aby publikować, komentować, głosować i obserwować innych. Wysłaliśmy link na adres :email.',
+        'notice_changed_address' => 'Potwierdź swój nowy adres e-mail, :email, aby publikować, komentować, głosować i obserwować innych. Jeśli nie masz linku, poproś o nowy.',
     ],
 
     'social' => [

@@ -52,12 +52,12 @@ return [
 
     'verify_email' => [
         'intro' => 'Täname registreerumast! Enne alustamist kinnita palun oma e-posti aadress, klõpsates lingil, mille sulle just e-postiga saatsime. Kui sa e-kirja ei saanud, saadame meelsasti uue.',
-        'link_sent' => 'Registreerumisel sisestatud e-posti aadressile saadeti uus kinnituslink.',
+        'link_sent' => 'Sinu praegusele e-posti aadressile saadeti uus kinnituslink.',
         'resend' => 'Saada kinnituskiri uuesti',
         'confirmed' => 'Sinu e-posti aadress on kinnitatud.',
         'link_expired' => 'See kinnituslink on aegunud. Küsi allpool uus.',
         'throttled' => 'Uue lingi saad küsida :minutes min pärast.',
-        'notice_changed_address' => 'Kinnita oma uus e-posti aadress, et saaksid postitada, kommenteerida, hääletada ja teisi jälgida. Saatsime lingi aadressile :email.',
+        'notice_changed_address' => 'Kinnita oma uus e-posti aadress :email, et saaksid postitada, kommenteerida, hääletada ja teisi jälgida. Kui sul linki pole, küsi uus.',
     ],
 
     'social' => [

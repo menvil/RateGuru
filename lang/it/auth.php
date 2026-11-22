@@ -52,12 +52,12 @@ return [
 
     'verify_email' => [
         'intro' => 'Grazie per esserti registrato! Prima di iniziare, puoi verificare il tuo indirizzo e-mail facendo clic sul link che ti abbiamo appena inviato? Se non hai ricevuto l\'e-mail, te ne invieremo volentieri un\'altra.',
-        'link_sent' => 'Un nuovo link di verifica è stato inviato all\'indirizzo e-mail che hai indicato durante la registrazione.',
+        'link_sent' => 'Un nuovo link di conferma è stato inviato al tuo indirizzo e-mail attuale.',
         'resend' => 'Invia di nuovo l\'e-mail di verifica',
         'confirmed' => 'Il tuo indirizzo e-mail è confermato.',
         'link_expired' => 'Questo link di conferma è scaduto. Richiedine uno nuovo qui sotto.',
         'throttled' => 'Potrai richiedere un nuovo link tra :minutes min.',
-        'notice_changed_address' => 'Conferma il tuo nuovo indirizzo e-mail per pubblicare, commentare, votare e seguire altre persone. Abbiamo inviato un link a :email.',
+        'notice_changed_address' => 'Conferma il tuo nuovo indirizzo e-mail, :email, per pubblicare, commentare, votare e seguire altre persone. Se non hai un link, richiedine uno nuovo.',
     ],
 
     'social' => [

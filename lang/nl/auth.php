@@ -52,12 +52,12 @@ return [
 
     'verify_email' => [
         'intro' => 'Bedankt voor je registratie! Wil je, voordat je begint, je e-mailadres bevestigen door op de link te klikken die we je zojuist hebben gemaild? Heb je de e-mail niet ontvangen, dan sturen we je graag een nieuwe.',
-        'link_sent' => 'Er is een nieuwe verificatielink verzonden naar het e-mailadres dat je bij de registratie hebt opgegeven.',
+        'link_sent' => 'Er is een nieuwe bevestigingslink verzonden naar je huidige e-mailadres.',
         'resend' => 'Verificatie-e-mail opnieuw versturen',
         'confirmed' => 'Je e-mailadres is bevestigd.',
         'link_expired' => 'Deze bevestigingslink is verlopen. Vraag hieronder een nieuwe aan.',
         'throttled' => 'Je kunt over :minutes min. een nieuwe link aanvragen.',
-        'notice_changed_address' => 'Bevestig je nieuwe e-mailadres om te posten, te reageren, te stemmen en anderen te volgen. We hebben een link gestuurd naar :email.',
+        'notice_changed_address' => 'Bevestig je nieuwe e-mailadres, :email, om te posten, te reageren, te stemmen en anderen te volgen. Heb je geen link, vraag dan een nieuwe aan.',
     ],
 
     'social' => [

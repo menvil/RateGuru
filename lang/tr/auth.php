@@ -52,12 +52,12 @@ return [
 
     'verify_email' => [
         'intro' => 'Kaydolduğunuz için teşekkürler! Başlamadan önce, size az önce e-postayla gönderdiğimiz bağlantıya tıklayarak e-posta adresinizi doğrular mısınız? E-postayı almadıysanız size memnuniyetle yenisini göndeririz.',
-        'link_sent' => 'Kayıt sırasında belirttiğiniz e-posta adresine yeni bir doğrulama bağlantısı gönderildi.',
+        'link_sent' => 'Mevcut e-posta adresinize yeni bir doğrulama bağlantısı gönderildi.',
         'resend' => 'Doğrulama e-postasını yeniden gönder',
         'confirmed' => 'E-posta adresiniz doğrulandı.',
         'link_expired' => 'Bu doğrulama bağlantısının süresi doldu. Aşağıdan yenisini isteyin.',
         'throttled' => ':minutes dk sonra yeni bir bağlantı isteyebilirsiniz.',
-        'notice_changed_address' => 'Gönderi paylaşmak, yorum yapmak, oy vermek ve başkalarını takip etmek için yeni e-posta adresinizi doğrulayın. :email adresine bir bağlantı gönderdik.',
+        'notice_changed_address' => 'Gönderi paylaşmak, yorum yapmak, oy vermek ve başkalarını takip etmek için yeni e-posta adresinizi (:email) doğrulayın. Bağlantınız yoksa yenisini isteyin.',
     ],
 
     'social' => [

@@ -52,12 +52,12 @@ return [
 
     'verify_email' => [
         'intro' => "Thanks for signing up! Before getting started, could you verify your email address by clicking on the link we just emailed to you? If you didn't receive the email, we will gladly send you another.",
-        'link_sent' => 'A new verification link has been sent to the email address you provided during registration.',
+        'link_sent' => 'A new confirmation link has been sent to your current email address.',
         'resend' => 'Resend Verification Email',
         'confirmed' => 'Your email address is confirmed.',
         'link_expired' => 'This confirmation link has expired. Request a new one below.',
         'throttled' => 'You can request a new link in :minutes min.',
-        'notice_changed_address' => 'Confirm your new email address to post, comment, vote and follow. We sent a link to :email.',
+        'notice_changed_address' => 'Confirm your new email address, :email, to post, comment, vote and follow. If you have no link, request a new one.',
     ],
 
     'social' => [
