@@ -1,5 +1,6 @@
 <?php
 
+use App\Filament\Resources\Users\Pages\ListUsers;
 use App\Models\Post;
 use App\Models\User;
 use Illuminate\Auth\Notifications\ResetPassword;
@@ -103,6 +104,11 @@ it('lays an email out right to left in a language read right to left', function 
 
         expect(rootDirection($mail['body']))->toBe('rtl', "{$locale} email")
             ->and($mail['body'])->toMatch('~<body\b[^>]*\bdir="rtl"~')
+            // Webmail such as Gmail drops the root and the body with their
+            // attributes: the table that wraps everything still says it, as
+            // an attribute and in its inlined style.
+            ->and($mail['body'])->toMatch('~<table\b[^>]*class="wrapper"[^>]*\bdir="rtl"~')
+            ->and($mail['body'])->toMatch('~<table\b[^>]*class="wrapper"[^>]*style="[^"]*direction:\s*rtl~')
             // The mail theme aligns paragraphs to the left by name; the
             // right-to-left email turns them, with the inlined style that
             // every mail client reads.
@@ -118,9 +124,11 @@ it('keeps an email left to right in a language read left to right', function () 
 
     expect(rootDirection($mail['body']))->toBe('ltr')
         ->and($mail['body'])->toMatch('~<body\b[^>]*\bdir="ltr"~')
-        // Exactly the theme's own alignment, as before.
+        ->and($mail['body'])->toMatch('~<table\b[^>]*class="wrapper"[^>]*\bdir="ltr"~')
+        // Exactly the theme's own alignment and direction, as before.
         ->and($mail['body'])->toMatch('~<p\b[^>]*style="[^"]*text-align:\s*left~')
-        ->and($mail['body'])->not->toMatch('~text-align:\s*right~');
+        ->and($mail['body'])->not->toMatch('~text-align:\s*right~')
+        ->and($mail['body'])->not->toMatch('~direction:\s*rtl~');
 });
 
 it('gives the contact message the direction of the language it is written in', function () {
@@ -132,11 +140,14 @@ it('gives the contact message the direction of the language it is written in', f
         'messageBody' => 'A message',
     ])->render();
 
+    // On the root, and on what wraps the message, for webmail that drops the root.
     app()->setLocale($locale);
-    expect(rootDirection($view()))->toBe('rtl');
+    expect(rootDirection($view()))->toBe('rtl')
+        ->and($view())->toMatch('~<body>\s*<div dir="rtl">~');
 
     app()->setLocale(config('locales.default'));
-    expect(rootDirection($view()))->toBe('ltr');
+    expect(rootDirection($view()))->toBe('ltr')
+        ->and($view())->toMatch('~<body>\s*<div dir="ltr">~');
 });
 
 // Icons -----------------------------------------------------------------------
@@ -167,3 +178,27 @@ it('turns the pagination arrows round in a right-to-left page', function (string
     'links on a page' => ['vendor.pagination.tailwind'],
     'links in a Livewire component' => ['vendor.livewire.tailwind'],
 ]);
+
+// The administration ---------------------------------------------------------------
+
+it('keeps the administration left to right for an account and a visitor in a right-to-left language', function () {
+    foreach (rightToLeftLocales() as $locale) {
+        // The panel is English whatever the reader's language (SetAdminLocale),
+        // and laid out the way English is read: none of the public site's
+        // right-to-left rules reach it.
+        $panel = $this->actingAs(User::factory()->admin()->create(['locale' => $locale]))
+            ->get(ListUsers::getUrl())
+            ->assertOk()
+            ->getContent();
+
+        expect(rootDirection($panel))->toBe('ltr', "{$locale} panel")
+            ->and(rootLanguage($panel))->toBe('en');
+
+        auth()->logout();
+
+        $signIn = $this->withSession(['locale' => $locale])->get(route('filament.admin.auth.login'))->assertOk()->getContent();
+
+        expect(rootDirection($signIn))->toBe('ltr', "{$locale} admin sign-in")
+            ->and(rootLanguage($signIn))->toBe('en');
+    }
+});

@@ -2,11 +2,14 @@
     Laravel's HTML email layout, unchanged but for the title — the project's
     name from its settings, as the site shows it, rather than APP_NAME — and
     the direction: an email in a language read right to left says so on its
-    root and body, and turns the body's text, which the theme aligns to the
-    left by name, to the right (the header and the footer stay centred). The
-    theme is inlined into every element's style when the email is rendered,
-    and so is this, so the alignment holds in a mail client that drops the
-    <style> block.
+    root, its body and the table that wraps everything, and turns the body's
+    text, which the theme aligns to the left by name, to the right (the header
+    and the footer stay centred). Webmail such as Gmail drops the root and the
+    body with whatever they carry, so the wrapping table is what still says
+    which way the lines run there — without it an Arabic sentence ends with
+    its full stop on the wrong side. The theme is inlined into every element's
+    style when the email is rendered, and so is this, so the alignment and the
+    direction hold in a mail client that drops the <style> block.
 --}}
 @php($direction = app(\App\Support\Locale\LocaleManager::class)->direction())
 <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
@@ -50,13 +53,17 @@ text-align: right;
 border-left: 0;
 border-right: #18181b solid 4px;
 }
+
+.wrapper {
+direction: rtl;
+}
 </style>
 @endif
 {!! $head ?? '' !!}
 </head>
 <body dir="{{ $direction }}">
 
-<table class="wrapper" width="100%" cellpadding="0" cellspacing="0" role="presentation">
+<table class="wrapper" dir="{{ $direction }}" width="100%" cellpadding="0" cellspacing="0" role="presentation">
 <tr>
 <td align="center">
 <table class="content" width="100%" cellpadding="0" cellspacing="0" role="presentation">
