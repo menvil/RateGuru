@@ -30,7 +30,8 @@ use Illuminate\Console\Command;
  * their campaign or the source. Only ones with a click in the last 3 days,
  * the most spent first, no more a UTC day than the source allows; never one
  * blocked or queued already, nor one an administrator unblocked in the last
- * 30 days; a weak start stays a hint. The blocks are queued for
+ * 30 days, in RateGuru or by taking it off every list in the network's own
+ * panel; a weak start stays a hint. The blocks are queued for
  * traffic:sync-networks to apply. Scheduled every five minutes: with no
  * source set to block by itself a run reads no figures and only records that
  * it ran, for the sources' Blocking pane.
@@ -65,7 +66,7 @@ final class TrafficBlockLosersCommand extends Command
                     ->map(fn (array $row): string => (string) ($byZone ? $row['zone_ref'] : $row['site_ref']))->flip();
                 $totals = array_reduce($rows, fn (ReportFigures $sum, array $row): ReportFigures => $sum->plus($row['figures']), new ReportFigures);
                 $sourceValue = $totals->value();
-                // Blocked or queued already, in any state, or unblocked by an administrator lately: left as it is.
+                // Blocked or queued already, in any state, or unblocked by an administrator lately, here or in the network's panel: left as it is.
                 $leave = TrafficBlock::query()->where('source_id', $source->id)->where('level', $source->block_level)->pluck('ref')
                     ->merge($blocks->unblockedLately((int) $source->id, $source->block_level, $now))->flip();
                 $room = max(0, $source->block_daily_cap - $blocks->blockedByRuleToday((int) $source->id, $now));

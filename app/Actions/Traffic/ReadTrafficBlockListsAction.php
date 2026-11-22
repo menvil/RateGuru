@@ -38,12 +38,18 @@ use Illuminate\Support\Str;
  * it is for. A block from before where blocks stand was kept starts from
  * what it said: an unblock that failed on the lists holding it, a refusal
  * on those that don't. A block only marked here, or on its way to or off
- * the lists, is left to its own way. One line of the blocks log for what
- * was found, one for what was taken off. It is given the connector as a
+ * the lists, is left to its own way. The blocks log says what was found,
+ * what was taken off every list it was on — a block found in the panel
+ * gone, or RateGuru's own taken off — which the block rule then leaves to
+ * the owner for 30 days, as it does a site an administrator unblocked, and
+ * what was taken off some lists only. It is given the connector as a
  * ReadsBlockLists alone, so it can't write a list.
  */
 final class ReadTrafficBlockListsAction
 {
+    /** The sites or zones a line of the blocks log names, every one of them. */
+    private const int REFS_A_LINE = 200;
+
     /** @throws ConnectorException */
     public function handle(int $sourceId, ReadsBlockLists $connector, ConnectorSession $session): void
     {
@@ -85,7 +91,7 @@ final class ReadTrafficBlockListsAction
             }
 
             $now = now();
-            $blocks = TrafficBlock::query()->where('source_id', $sourceId)->where('level', $level)->with('listings')->get()
+            $blocks = TrafficBlock::query()->where('source_id', $sourceId)->where('level', $level)->with('listings')->orderBy('id')->get()
                 ->keyBy(fn (TrafficBlock $block): string => (string) $block->ref);
             $found = [];
 
@@ -116,9 +122,11 @@ final class ReadTrafficBlockListsAction
                 TrafficBlockListing::query()->whereKey($chunk)->delete();
             }
 
-            $this->settle($blocks->whereIn('id', array_values(array_unique([...$touched, ...array_values($ended)]))), $now);
-            $this->log($sourceId, $level, array_map('strval', array_keys($found)), TrafficBlockMethod::Panel, 'found', 'On the network’s list, blocked in its panel, not by RateGuru', $now);
-            $this->log($sourceId, $level, $taken, TrafficBlockMethod::Panel, 'gone', 'Taken off the network’s list in its panel', $now);
+            $off = $this->settle($blocks->whereIn('id', array_values(array_unique([...$touched, ...array_values($ended)]))), $now);
+            $this->log($sourceId, $level, array_map('strval', array_keys($found)), 'found', false, 'On the network’s list, blocked in its panel, not by RateGuru', $now);
+            // Off every list it was on: left to the owner as a site an administrator unblocked is (TrafficBlocksQuery::unblockedLately()).
+            $this->log($sourceId, $level, $off, 'gone', false, 'Off every campaign’s list: the block rule leaves it alone for 30 days', $now);
+            $this->log($sourceId, $level, array_values(array_diff($taken, $off)), 'gone', true, 'Still on other campaigns’ lists', $now);
         });
     }
 
@@ -268,25 +276,30 @@ final class ReadTrafficBlockListsAction
      * Each block whose standing changed, judged again: one found in the
      * panel that no list holds any more goes, and stays blocked there while
      * one does; RateGuru's own takes the state its lists give it. Each is
-     * written only over the state it was read in.
+     * written only over the state it was read in. Those now off every list
+     * they were on — gone, or RateGuru's own taken off them all — were taken
+     * off in the network's panel.
      *
      * @param  Collection<string, TrafficBlock>  $blocks
+     * @return list<string> the sites or zones now off every list
      */
-    private function settle(Collection $blocks, CarbonInterface $now): void
+    private function settle(Collection $blocks, CarbonInterface $now): array
     {
         if ($blocks->isEmpty()) {
-            return;
+            return [];
         }
 
         $standing = TrafficBlockListing::query()->whereIn('block_id', $blocks->pluck('id')->all())->orderBy('campaign_id')->get()->groupBy('block_id');
         $gone = [];
+        $off = [];
 
-        foreach ($blocks as $block) {
+        foreach ($blocks as $ref => $block) {
             $listings = $standing->get($block->id, collect());
             $panel = $block->method === TrafficBlockMethod::Panel;
 
             if ($panel && ! $listings->contains('listed', true)) {
                 $gone[$block->network_state->value][] = (int) $block->id;
+                $off[] = (string) $ref;
 
                 continue;
             }
@@ -296,6 +309,10 @@ final class ReadTrafficBlockListsAction
             if ($stands['state'] !== $block->network_state || $stands['error'] !== $block->network_error) {
                 TrafficBlock::query()->whereKey($block->id)->where('network_state', $block->network_state)
                     ->update(['network_state' => $stands['state'], 'network_error' => $stands['error'], 'updated_at' => $now]);
+
+                if ($stands['state'] === TrafficBlockNetworkState::TakenOff) {
+                    $off[] = (string) $ref;
+                }
             }
         }
 
@@ -304,27 +321,34 @@ final class ReadTrafficBlockListsAction
                 TrafficBlock::query()->whereKey($chunk)->where('method', TrafficBlockMethod::Panel)->where('network_state', $state)->delete();
             }
         }
+
+        return $off;
     }
 
-    /** @param  list<string>  $refs */
-    private function log(int $sourceId, TrafficBlockLevel $level, array $refs, TrafficBlockMethod $method, string $kind, string $note, CarbonInterface $now): void
+    /**
+     * Lines of the blocks log for what the read saw done in the network's
+     * panel, 200 sites or zones a line, each line naming every one of them —
+     * the block rule reads them back (TrafficBlocksQuery::unblockedLately()).
+     *
+     * @param  list<string>  $refs
+     */
+    private function log(int $sourceId, TrafficBlockLevel $level, array $refs, string $kind, bool $partial, string $note, CarbonInterface $now): void
     {
-        if ($refs === []) {
-            return;
+        foreach (array_chunk($refs, self::REFS_A_LINE) as $chunk) {
+            TrafficBlockEvent::query()->create([
+                'source_id' => $sourceId,
+                'kind' => $kind,
+                'level' => $level,
+                'ref' => count($chunk) === 1 ? $chunk[0] : null,
+                'ref_count' => count($chunk),
+                'refs' => $chunk,
+                'method' => TrafficBlockMethod::Panel,
+                'actor' => TrafficActor::NetworkPanel,
+                'ok' => true,
+                'partial' => $partial,
+                'note' => $note,
+                'occurred_at' => $now,
+            ]);
         }
-
-        TrafficBlockEvent::query()->create([
-            'source_id' => $sourceId,
-            'kind' => $kind,
-            'level' => $level,
-            'ref' => count($refs) === 1 ? $refs[0] : null,
-            'ref_count' => count($refs),
-            'refs' => array_slice($refs, 0, 200),
-            'method' => $method,
-            'actor' => TrafficActor::NetworkApi,
-            'ok' => true,
-            'note' => $note,
-            'occurred_at' => $now,
-        ]);
     }
 }

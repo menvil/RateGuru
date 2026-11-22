@@ -12,7 +12,9 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 /**
  * One block or unblock, with the network's answer: done all the way (ok),
  * part of the way (partial) or not at all; or what a read of the network's
- * lists found blocked in its panel, or taken off there.
+ * lists found blocked in its panel (`found`), or taken off there (`gone`) —
+ * off every list it was on, or, partial, off some only. A line the read
+ * wrote names every site or zone it is about in `refs`.
  *
  * @property int $id
  * @property int $source_id

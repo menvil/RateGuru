@@ -21,16 +21,16 @@ use Illuminate\Database\Eloquent\Builder;
  * Sites & zones' badges and Logs → Blocks say too — in one query;
  * how many the rule queued in the UTC day its cap counts, from its own
  * entries in the blocks log, so a block taken off again still counts; the
- * sites and zones an administrator unblocked lately, which the rule leaves
- * alone; and how many accounts the worth stands on, which decides whether
- * losing is judged at all.
+ * sites and zones an administrator unblocked lately — in RateGuru or in the
+ * network's own panel — which the rule leaves alone; and how many accounts
+ * the worth stands on, which decides whether losing is judged at all.
  */
 final class TrafficBlocksQuery
 {
     /** Losing is judged only once the worth stands on this many accounts. */
     public const int WORTH_KNOWN_AT = 30;
 
-    /** A site or zone an administrator unblocked is left to them for as long as the rule's figures reach back. */
+    /** A site or zone an administrator unblocked — in RateGuru, or in the network's panel — is left to them for as long as the rule's figures reach back. */
     public const int UNBLOCKED_KEPT_DAYS = 30;
 
     /**
@@ -99,8 +99,10 @@ final class TrafficBlocksQuery
 
     /**
      * The sites or zones of a source an administrator unblocked in the last
-     * 30 days: the rule leaves them to the administrator, however their
-     * figures read.
+     * 30 days — in RateGuru, or by taking them off every campaign's list in
+     * the network's own panel, as a read of the lists saw it — the rule
+     * leaves them to the administrator, however their figures read. Each
+     * line the read logged names every site or zone it is about.
      *
      * @return list<string>
      */
@@ -108,14 +110,16 @@ final class TrafficBlocksQuery
     {
         return TrafficBlockEvent::query()
             ->where('source_id', $sourceId)
-            ->where('kind', 'unblock')
-            ->where('actor', TrafficActor::User)
             ->where('level', $level)
-            ->whereNotNull('ref')
             ->where('occurred_at', '>=', CarbonImmutable::instance($now)->subDays(self::UNBLOCKED_KEPT_DAYS))
-            ->distinct()
-            ->pluck('ref')
+            ->where(fn (Builder $by) => $by
+                ->where(fn (Builder $unblocked) => $unblocked->where('kind', 'unblock')->where('actor', TrafficActor::User)->whereNotNull('ref'))
+                // Taken off some lists only, it is still blocked on the others.
+                ->orWhere(fn (Builder $inPanel) => $inPanel->where('kind', 'gone')->where('actor', TrafficActor::NetworkPanel)->where('partial', false)))
+            ->get(['ref', 'refs'])
+            ->flatMap(fn (TrafficBlockEvent $event): array => $event->ref !== null ? [$event->ref] : ($event->refs ?? []))
             ->map(fn (mixed $ref): string => (string) $ref)
+            ->unique()
             ->values()
             ->all();
     }

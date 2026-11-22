@@ -2,13 +2,18 @@
 
 namespace App\Enums;
 
-/** Who made a change. */
+/**
+ * Who made a change: an administrator, RateGuru, the network's API, the
+ * block rule — or someone in the network's own panel, as a read of the
+ * campaigns' lists saw it.
+ */
 enum TrafficActor: string
 {
     case User = 'user';
     case System = 'system';
     case NetworkApi = 'network_api';
     case BlockRule = 'block_rule';
+    case NetworkPanel = 'network_panel';
 
     public function label(): string
     {
@@ -17,6 +22,7 @@ enum TrafficActor: string
             self::System => 'RateGuru',
             self::NetworkApi => 'Network API',
             self::BlockRule => 'Block rule',
+            self::NetworkPanel => 'Network panel',
         };
     }
 }
