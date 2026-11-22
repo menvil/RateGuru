@@ -25,7 +25,7 @@
             <x-admin.ui.filter-dropdown label="Device" id="rg-admin-analytics-device" :options="$deviceOptions" :value="$this->device" wire:model.live="device" />
             {{-- The sources the most people came from in the period, once the page is in a browser; until then the one chosen. --}}
             <x-admin.ui.filter-dropdown label="Source" id="rg-admin-analytics-source" class="rg-admin-analytics__filter" :options="$sourceOptions" :value="$this->source" wire:model.live="source" wire:key="analytics-source-{{ count($sourceOptions) }}-{{ $this->source }}" />
-            <x-admin.ui.filter-dropdown label="Campaign" id="rg-admin-analytics-campaign" class="rg-admin-analytics__filter" :options="$campaignOptions" :value="$this->campaign" wire:model.live="campaign" wire:key="analytics-campaign-{{ count($campaignOptions) }}-{{ $this->source }}-{{ $this->campaign }}" />
+            <x-admin.ui.filter-dropdown label="Campaign" id="rg-admin-analytics-campaign" class="rg-admin-analytics__filter rg-admin-traffic__campaign-filter" :options="$campaignOptions" :value="$this->campaign" wire:model.live="campaign" wire:key="analytics-campaign-{{ count($campaignOptions) }}-{{ $this->source }}-{{ $this->campaign }}" />
             @if ($chip !== null)
                 <span class="rg-admin-analytics__chip" data-testid="analytics-source-chip">
                     <span class="rg-admin-analytics__chip-text">Source: {{ $chip }}</span>

@@ -15724,6 +15724,22 @@
         margin-top: -6px;
     }
 
+    /*
+     * The campaign filter here and on Analytics: a campaign's name ("PopAds - Tabup/Mobile/All countries - #9612052")
+     * reads on one line, the menu as wide as the longest up to what the window has room for, a longer one cut short.
+     */
+    .rg-admin-traffic__campaign-filter .rg-admin-filter-dropdown__menu {
+        width: max-content;
+        min-width: 240px;
+        max-width: min(560px, calc(100vw - 32px));
+    }
+
+    .rg-admin-traffic__campaign-filter .rg-admin-filter-dropdown__label {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
     .rg-admin-traffic__tabs .rg-admin-tabs {
         margin-left: calc(var(--rg-admin-space-3) * -1);
         border-bottom: 0;

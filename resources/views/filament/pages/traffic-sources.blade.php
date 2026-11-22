@@ -26,7 +26,7 @@
         <div class="rg-admin-traffic__filter-bar" data-testid="traffic-filters">
             <x-admin.ui.filter-dropdown label="Traffic" id="rg-admin-traffic-type" :options="$typeOptions" :value="$type" wire:model.live="type" />
             <x-admin.ui.filter-dropdown label="Source" id="rg-admin-traffic-source" :options="$sourceOptions" :value="$source" wire:model.live="source" />
-            <x-admin.ui.filter-dropdown label="Campaign" id="rg-admin-traffic-campaign" :options="$campaignOptions" :value="$campaignId" wire:model.live="campaignId" />
+            <x-admin.ui.filter-dropdown label="Campaign" id="rg-admin-traffic-campaign" class="rg-admin-traffic__campaign-filter" :options="$campaignOptions" :value="$campaignId" wire:model.live="campaignId" />
             <x-admin.ui.filter-dropdown label="Game" id="rg-admin-traffic-game" :options="$gameOptions" :value="$game" wire:model.live="game" />
             <x-admin.ui.filter-dropdown label="Device" id="rg-admin-traffic-device" :options="$deviceOptions" :value="$device" wire:model.live="device" />
         </div>
