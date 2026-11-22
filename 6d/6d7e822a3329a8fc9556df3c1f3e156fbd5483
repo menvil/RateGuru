@@ -1,0 +1,19 @@
+tests/Feature/Analytics/AnalyticsPeriodHoursTest.php
+  s_4b9dc6ab6b25d3::t_a3704823540f7a 431-438,442-443
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "6d6d7e822a3329a8fc9556df3c1f3e156fbd5483",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
