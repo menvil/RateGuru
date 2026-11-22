@@ -1,0 +1,26 @@
+tests/Feature/Console/TrafficPurgeExpiredCommandTest.php
+  s_4b9dc6ab6b25d3::t_ee7ffe8c12b82a 24
+  s_4b9dc6ab6b25d3::t_82000f56cbd5d2 189-208
+app/Console/Commands/TrafficPurgeExpiredCommand.php
+  s_4b9dc6ab6b25d3::t_1a7f76c35b6aa8 24,27
+  s_4b9dc6ab6b25d3::t_fe149c6b277312 47-50
+  s_4b9dc6ab6b25d3::t_471b1b82d0925f 117
+  s_4b9dc6ab6b25d3::t_0bb00fdf05c0d3 171-176,178
+  s_4b9dc6ab6b25d3::t_9de0437497c715 159-169,177,179-192,204-217
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "78a117e983766088938379c5f395eca37f4fc247",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
