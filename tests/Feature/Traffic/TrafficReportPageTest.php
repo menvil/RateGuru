@@ -230,7 +230,23 @@ it('says on a site blocked in the network’s own panel that it is blocked there
 
     $page->set('segment', 'blocked')
         ->assertSee('Blocked on PopAds')
-        ->assertSee('Blocked in the PopAds panel, not by RateGuru · found 16 Nov · on the list of US popunder', false);
+        ->assertSee('Blocked in the PopAds panel, not by RateGuru · found 16 Nov · on 1 campaign’s list', false);
+});
+
+it('says on a site blocked in the network’s panel whose unblock a campaign refused that the unblock failed, and where it stays', function () {
+    $this->source->forceFill(['connector' => TrafficConnector::PopAds])->save();
+    $us = TrafficCampaign::factory()->create(['source_id' => $this->source->id, 'name' => 'US popunder']);
+    $eu = TrafficCampaign::factory()->create(['source_id' => $this->source->id, 'name' => 'EU popunder']);
+    siteClicks($this->source, '50001', 1, 1);
+    $block = TrafficBlock::factory()->create(['source_id' => $this->source->id, 'level' => TrafficBlockLevel::Site, 'ref' => '50001', 'method' => TrafficBlockMethod::Panel, 'network_state' => TrafficBlockNetworkState::Applied, 'network_error' => 'rejected', 'blocked_at' => now()->subDay()]);
+    TrafficBlockListing::factory()->create(['block_id' => $block->id, 'campaign_id' => $us->id, 'listed' => false]);
+    TrafficBlockListing::factory()->create(['block_id' => $block->id, 'campaign_id' => $eu->id, 'listed' => true, 'error' => 'rejected']);
+
+    $page = Livewire::withQueryParams(['view' => 'sites', 'list' => 'site', 'seg' => 'blocked'])->test(TrafficSourcesPage::class)->call('load');
+    $flag = collect($page->viewData('list')['rows'])->firstWhere('ref', '50001')['flag'];
+
+    expect($flag)->toMatchArray(['label' => 'Blocked on PopAds · unblock failed', 'tone' => 'danger'])
+        ->and($flag['tip'])->toBe('Blocked in the PopAds panel, not by RateGuru · still on the list of EU popunder: The network refused the change. Unblock it again to try again.');
 });
 
 it('pushes the ticked blocks again to the network from Blocked', function () {
