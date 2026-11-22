@@ -17,9 +17,10 @@ use Symfony\Component\Finder\Finder;
  * exactly as before on a page read left to right, and turn on one read right
  * to left. (Tailwind 4's space-x and divide-x are logical already.)
  *
- * Where nothing logical exists — a slide, a transform origin — the physical
- * form is written once per direction under ltr: and rtl:, and is fine. What is
- * left physical on purpose is in the allow-lists below, each with why.
+ * Where nothing logical exists — a slide, a transform origin, a background's
+ * position — the physical form is written once per direction under ltr: and
+ * rtl: (in a stylesheet, under a [dir] selector), and is fine. What is left
+ * physical on purpose is in the allow-lists below, each with why.
  *
  * The public site is everything a visitor or a reader is served: every Blade
  * view but the administration's, resources/css/app.css and theme.css, and
@@ -258,17 +259,66 @@ function physicalDirectionInDeclarations(string $declarations): array
 }
 
 /**
+ * Whether every selector in a rule's selector list applies on a page of one
+ * direction only — under [dir="rtl"] or :dir(ltr), say: the stylesheet's
+ * counterpart of a utility under ltr: or rtl:, written for that direction and
+ * fine. A list with one selector that is not so scoped applies everywhere.
+ */
+function physicalDirectionScopedToOneDirection(string $selectors): bool
+{
+    $list = [];
+    $current = '';
+    $depth = 0;
+
+    foreach (str_split($selectors) as $character) {
+        $depth += match ($character) {
+            '(', '[' => 1,
+            ')', ']' => -1,
+            default => 0,
+        };
+
+        if ($character === ',' && $depth === 0) {
+            $list[] = $current;
+            $current = '';
+
+            continue;
+        }
+
+        $current .= $character;
+    }
+
+    $list[] = $current;
+
+    foreach ($list as $selector) {
+        if (preg_match('/\[dir=([\'"]?)(?:ltr|rtl)\1\]|:dir\((?:ltr|rtl)\)/i', $selector) !== 1) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+/**
  * Every declaration in a stylesheet that names a physical side: the bodies of
- * its rules are the innermost braces, whatever @media or @layer holds them.
+ * its rules are the innermost braces, whatever @media or @layer holds them. A
+ * rule written for one direction alone is left out.
  *
  * @return list<string>
  */
 function physicalDirectionInStylesheet(string $css): array
 {
     $css = (string) preg_replace('~/\*.*?\*/~s', '', $css);
-    preg_match_all('/\{([^{}]*)\}/', $css, $bodies);
+    preg_match_all('/([^{};]*)\{([^{}]*)\}/', $css, $rules, PREG_SET_ORDER);
 
-    return array_merge([], ...array_map(physicalDirectionInDeclarations(...), $bodies[1]));
+    $found = [];
+
+    foreach ($rules as [, $selectors, $body]) {
+        if (! physicalDirectionScopedToOneDirection($selectors)) {
+            array_push($found, ...physicalDirectionInDeclarations($body));
+        }
+    }
+
+    return $found;
 }
 
 /**
@@ -299,13 +349,15 @@ function physicalDirectionInTemplateStyles(string $source): array
 
 /**
  * Every place in a script — a file of its own or one in a template — that
- * reads or sets a horizontal position, or hears the left or right arrow key.
+ * reads or sets a horizontal position (an event's x, a box's left or right
+ * edge, an element's left), or hears the left or right arrow key, or names a
+ * side in an Alpine modifier (x-transition.origin.top.left).
  *
  * @return list<string>
  */
 function physicalDirectionInScript(string $source): array
 {
-    preg_match_all('/\b(?:ArrowLeft|ArrowRight|scrollLeft|offsetLeft|clientX|pageX|screenX|movementX|deltaX)\b|\.style\.(?:left|right|margin(?:Left|Right)|padding(?:Left|Right))\b|keydown\.(?:left|right|arrow-left|arrow-right)\b/', $source, $matches);
+    preg_match_all('/\b(?:ArrowLeft|ArrowRight|scrollLeft|offsetLeft|clientX|pageX|screenX|movementX|deltaX|offsetX|layerX)\b|\.style\.(?:left|right|margin(?:Left|Right)|padding(?:Left|Right))\b|keydown\.(?:left|right|arrow-left|arrow-right)\b|\.(?:left|right)\b/', $source, $matches);
 
     return array_values(array_unique($matches[0]));
 }
@@ -486,6 +538,16 @@ it('leaves logical and symmetric declarations alone', function (string $css) {
     'in a comment' => ['/* margin-left: 4px; text-align: left */ color: red'],
 ]);
 
+it('leaves a stylesheet rule written for one direction alone, and only such a rule', function () {
+    expect(physicalDirectionInStylesheet("@layer base { [dir='rtl'] select:not([multiple], [size]:not([size='1'])) { background-position: left 0.5rem center } }"))->toBe([])
+        ->and(physicalDirectionInStylesheet('[dir="ltr"] .a, [dir=ltr] .b { margin-left: 2px }'))->toBe([])
+        ->and(physicalDirectionInStylesheet(':dir(rtl) .a { right: 0 }'))->toBe([])
+        // One selector in the list that is not scoped puts the side on every page.
+        ->and(physicalDirectionInStylesheet("[dir='rtl'] .a, .b { margin-left: 2px }"))->toBe(['margin-left: 2px'])
+        // A direction named only inside a pseudo-class argument scopes nothing.
+        ->and(physicalDirectionInStylesheet('.a:not(.b) { left: 0 }'))->toBe(['left: 0']);
+});
+
 it('reads the styles a template carries itself', function () {
     expect(physicalDirectionInTemplateStyles('<style>.a { margin-left: 2px }</style>'))->toBe(['margin-left: 2px'])
         ->and(physicalDirectionInTemplateStyles('<p style="text-align: left">x</p>'))->toBe(['text-align: left'])
@@ -501,4 +563,8 @@ it('finds script that reads a horizontal position or hears the arrow keys', func
     'el.style.left = `${x}px`',
     'list.scrollLeft += 100',
     '<div x-on:keydown.right="next()"></div>',
+    'if (el.getBoundingClientRect().left < 0) flip()',
+    'const { right } = box; edge = box.right',
+    '<div x-show="open" x-transition.origin.top.left></div>',
+    'const x = event.offsetX',
 ]);

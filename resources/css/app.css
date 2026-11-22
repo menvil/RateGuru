@@ -61,36 +61,53 @@
  * Windows. Urdu is written in Nastaliq where the system has a face for it, the
  * Arabic faces otherwise; Nastaliq stands far taller than Latin, so its lines
  * are spaced to hold it — the leading of every text size, and of the page.
+ *
+ * The monospaced face gets the same faces ahead of its last resorts: a
+ * monospaced font that has these scripts at all (Courier New) draws every
+ * letter in a cell of the same width, which tears joined Arabic apart.
+ *
+ * Outside any layer on purpose: Tailwind writes the theme's variables
+ * (--font-sans, --text-sm--line-height, …) outside every layer, and an
+ * unlayered rule outranks any layered one whatever its selector — inside
+ * @layer base these would never apply. Unlayered, the language in the
+ * selector makes them the more specific, so they win on these pages only.
  */
+:root:lang(he) {
+    --font-sans: 'Inter Variable', 'Noto Sans Hebrew', 'Arial Hebrew', 'Segoe UI', Arial, ui-sans-serif, system-ui,
+        sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
+    --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Noto Sans Hebrew',
+        'Arial Hebrew', 'Segoe UI', Arial, 'Courier New', monospace;
+}
+
+:root:lang(ar) {
+    --font-sans: 'Inter Variable', 'Noto Naskh Arabic', 'Noto Sans Arabic', 'Geeza Pro', 'Segoe UI', Tahoma,
+        'Arabic Typesetting', ui-sans-serif, system-ui, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji',
+        'Segoe UI Symbol', 'Noto Color Emoji';
+    --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Noto Naskh Arabic',
+        'Noto Sans Arabic', 'Geeza Pro', 'Segoe UI', Tahoma, 'Courier New', monospace;
+}
+
+:root:lang(ur) {
+    --font-sans: 'Inter Variable', 'Noto Nastaliq Urdu', 'Jameel Noori Nastaleeq', 'Urdu Typesetting',
+        'Noto Naskh Arabic', 'Noto Sans Arabic', 'Geeza Pro', 'Segoe UI', Tahoma, ui-sans-serif, system-ui,
+        sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
+    --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Noto Nastaliq Urdu',
+        'Jameel Noori Nastaleeq', 'Noto Naskh Arabic', 'Noto Sans Arabic', 'Geeza Pro', 'Segoe UI', Tahoma,
+        'Courier New', monospace;
+    --text-xs--line-height: 2;
+    --text-sm--line-height: 2;
+    --text-base--line-height: 2;
+    --text-lg--line-height: 1.9;
+    --text-xl--line-height: 1.9;
+    --text-2xl--line-height: 1.8;
+    --text-3xl--line-height: 1.7;
+    --text-4xl--line-height: 1.6;
+    --text-6xl--line-height: 1.5;
+
+    line-height: 2;
+}
+
 @layer base {
-    :root:lang(he) {
-        --font-sans: 'Inter Variable', 'Noto Sans Hebrew', 'Arial Hebrew', 'Segoe UI', Arial, ui-sans-serif, system-ui,
-            sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
-    }
-
-    :root:lang(ar) {
-        --font-sans: 'Inter Variable', 'Noto Naskh Arabic', 'Noto Sans Arabic', 'Geeza Pro', 'Segoe UI', Tahoma,
-            'Arabic Typesetting', ui-sans-serif, system-ui, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji',
-            'Segoe UI Symbol', 'Noto Color Emoji';
-    }
-
-    :root:lang(ur) {
-        --font-sans: 'Inter Variable', 'Noto Nastaliq Urdu', 'Jameel Noori Nastaleeq', 'Urdu Typesetting',
-            'Noto Naskh Arabic', 'Noto Sans Arabic', 'Geeza Pro', 'Segoe UI', Tahoma, ui-sans-serif, system-ui,
-            sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
-        --text-xs--line-height: 2;
-        --text-sm--line-height: 2;
-        --text-base--line-height: 2;
-        --text-lg--line-height: 1.9;
-        --text-xl--line-height: 1.9;
-        --text-2xl--line-height: 1.8;
-        --text-3xl--line-height: 1.7;
-        --text-4xl--line-height: 1.6;
-        --text-6xl--line-height: 1.5;
-
-        line-height: 2;
-    }
-
     /*
      * Arabic script is joined up: tracking pulls its letters apart, and a
      * negative one runs them into each other, so nothing on a page in it is
@@ -99,6 +116,21 @@
     :lang(ar),
     :lang(ur) {
         letter-spacing: normal !important;
+    }
+
+    /*
+     * The forms plugin draws a select's chevron at the right edge by name and
+     * keeps room for it there. On a page read right to left the chosen option
+     * starts at the right, so the chevron sat on its first letters: it goes
+     * to the end of the line instead, with the room for it. Background
+     * positions have no logical side, so this is written for that direction
+     * alone; a page read left to right keeps the plugin's own rule. Padding
+     * utilities on a select still win, as they do over the plugin's.
+     */
+    [dir='rtl'] select:not([multiple], [size]:not([size='1'])) {
+        background-position: left 0.5rem center;
+        padding-inline-start: 0.75rem;
+        padding-inline-end: 2.5rem;
     }
 }
 
