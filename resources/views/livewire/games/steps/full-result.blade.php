@@ -41,7 +41,7 @@
                 @else
                     <h1 class="sr-only">{{ __('games.play.your_result') }}</h1>
                 @endif
-                <span class="rg-game__share-card-line" @if ((bool) ($settings['show_score'] ?? true)) data-testid="game-score" @endif>{{ (bool) ($settings['show_score'] ?? true) ? $score.' · ' : '' }}<span class="rg-game__share-card-host" data-testid="game-byline">{{ $result['share']['byline'] }}</span></span>
+                <span class="rg-game__share-card-line" @if ((bool) ($settings['show_score'] ?? true)) data-testid="game-score" @endif>{{ (bool) ($settings['show_score'] ?? true) ? $score.' · ' : '' }}<span class="rg-game__share-card-host" dir="auto" data-testid="game-byline">{{ $result['share']['byline'] }}</span></span>
             </div>
         </div>
 

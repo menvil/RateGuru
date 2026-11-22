@@ -53,7 +53,7 @@
                     <div class="rg-game__share-card-text">
                         <span class="rg-game__share-card-game">{{ $gameTitle }}</span>
                         <h1 class="rg-game__share-card-profile">{{ $profile['name'] }}</h1>
-                        <span class="rg-game__share-card-line" data-testid="game-result-byline">{{ $byline }}</span>
+                        <span class="rg-game__share-card-line"><span class="rg-game__share-card-host" dir="auto" data-testid="game-result-byline">{{ $byline }}</span></span>
                     </div>
                 </div>
                 @if ($over)

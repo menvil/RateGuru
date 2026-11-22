@@ -28,7 +28,7 @@
                 @if ($post['author'] !== null || $post['votes'] !== null || $post['likes'] !== null || $post['comments'] !== null)
                     <span class="rg-game__onward-meta" data-testid="game-onward-post-meta">
                         @if ($post['author'] !== null)
-                            <span class="rg-game__onward-author">{{ '@'.$post['author'] }}</span>
+                            <span class="rg-game__onward-author"><bdi>{{ '@'.$post['author'] }}</bdi></span>
                         @endif
                         @if ($post['likes'] !== null || $post['votes'] !== null)
                             <span class="rg-game__onward-stats">

@@ -34,7 +34,7 @@
             <p class="min-w-0">
                 @if($comment->user?->public_username)
                     <a href="{{ route('profile.show', $comment->user->public_username) }}" wire:navigate class="font-semibold text-rg-text hover:underline focus-visible:outline-none">
-                        {{ '@'.$comment->user->public_username }}
+                        <bdi>{{ '@'.$comment->user->public_username }}</bdi>
                     </a>
                 @else
                     {{-- The deleted author's label in the page's language, as on post cards. --}}

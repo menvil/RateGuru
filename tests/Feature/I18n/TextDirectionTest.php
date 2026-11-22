@@ -80,6 +80,19 @@ it('serves a signed-in reader their own language direction', function () {
     expect(rootDirection($html))->toBe('rtl');
 });
 
+it('keeps an @name reading left to right on a right-to-left page', function () {
+    [$locale] = rightToLeftLocales();
+    $author = User::factory()->create(['username' => 'layla_h']);
+    $post = Post::factory()->for($author)->published()->create();
+
+    // A name is written in Latin letters: isolated, its @ stays in front of it
+    // rather than going to the end of the line the page reads from.
+    foreach ([route('feed'), route('posts.show', $post), route('profile.show', $author->username)] as $address) {
+        expect($this->withSession(['locale' => $locale])->get($address)->assertOk()->getContent())
+            ->toContain('<bdi>@layla_h</bdi>');
+    }
+});
+
 // Email -----------------------------------------------------------------------
 
 it('lays an email out right to left in a language read right to left', function () {

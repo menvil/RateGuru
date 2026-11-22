@@ -90,6 +90,16 @@
 
         line-height: 2;
     }
+
+    /*
+     * Arabic script is joined up: tracking pulls its letters apart, and a
+     * negative one runs them into each other, so nothing on a page in it is
+     * tracked — whatever a utility or a component asks for.
+     */
+    :lang(ar),
+    :lang(ur) {
+        letter-spacing: normal !important;
+    }
 }
 
 /*
@@ -1411,7 +1421,8 @@ select:disabled {
 
     /*
      * The score and the byline — the site's address or the player's @name: on a narrow card the byline goes whole to a
-     * second line rather than being cut, and breaks inside only when even a line of its own is too narrow for it.
+     * second line rather than being cut, and breaks inside only when even a line of its own is too narrow for it. The
+     * byline reads its own way (dir="auto"), so an @name keeps its @ in front on a page read right to left.
      */
     .rg-game__share-card-line {
         font-size: 12.5px;

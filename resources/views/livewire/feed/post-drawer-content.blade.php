@@ -39,7 +39,7 @@
 
                     <div class="truncate text-xs text-rg-muted">
                         @if($post->user?->public_username)
-                            {{ '@' . $post->user->public_username }}
+                            <bdi>{{ '@' . $post->user->public_username }}</bdi>
                         @endif
                         @if($post->published_at)
                             {{ $post->user?->public_username ? ' · ' : '' }}{{ $post->published_at->diffForHumans() }}
