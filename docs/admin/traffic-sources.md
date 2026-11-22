@@ -78,12 +78,67 @@ API connected the block is queued and reaches the network within a minute;
 without it the block is only marked here, and the IDs go into the network's
 blacklist by hand. **Unblock** works the same way: a block marked here goes at
 once; one on the network's list shows **Unblocking…** until the network has
-taken it off, within a minute. Should the network refuse, the site stays
-blocked and its badge says **Blocked · unblock failed** with the network's
-reason — Unblock again to try again. Taking a PopAds campaign's last sites off
-its exclusion list turns that campaign's site targeting off (PopAds keeps no
-empty list to exclude); a list shared with other campaigns that would be left
-empty is not changed — take its last sites off in the PopAds panel.
+taken it off, within a minute — off every campaign whose list holds it. Should
+the network refuse, the site stays blocked and its badge says **Blocked ·
+unblock failed** (or **Partly blocked · unblock failed** when some campaigns
+took it off) with the network's reason — Unblock again to try again. Taking a
+PopAds campaign's last sites off its exclusion list turns that campaign's site
+targeting off (PopAds keeps no empty list to exclude); a list shared with
+other campaigns that would be left empty is not changed — take its last sites
+off in the PopAds panel.
+
+A block through the API goes to every campaign of the source, and each site
+or zone is judged by what each campaign's list holds afterwards. A campaign
+that comes later — its first click — gets RateGuru's blocks by itself within
+minutes, and so does one whose list the six-hourly read finds without one;
+only what it lacked is sent, and only to it. One that missed a block only
+because the network was slow, down or busy gets it again after the next
+read of the lists, once a read. Never one that refused a block, or had it
+taken off in the network's panel: that stays as it is until you press
+**Push again**. The badge in Sites & zones says where it stands:
+
+- **Blocked** — on every campaign's list (**Blocked · still sending** while
+  clicks still come through a campaign that holds it);
+- **Partly blocked · 2 of 3 campaigns** — on some lists, not all: its tip
+  names each campaign it isn't on and why (the network refused it, or it was
+  taken off there in the network's panel). A campaign that came after the
+  block gets it within minutes, and never makes it partly blocked; one that
+  ends without taking it no longer counts;
+- **Not blocked on the network** — no campaign took it, with the reason;
+- **Taken off on the network** — it was on the lists, and someone took it
+  off them in the network's own panel. RateGuru never puts it back by itself,
+  nor sends it to a new campaign: **Push again** puts it back, **Unblock**
+  lets it go;
+- **Blocked on PopAds** (or ExoClick) — blocked in the network's own panel,
+  not by RateGuru, its tip saying on how many campaigns' lists (below);
+  **Blocked on PopAds · unblock failed** when you unblocked it and a campaign
+  refused to take it off.
+
+In the Blocked segment, **Push again** sends the ticked blocks to the
+network's lists again, to every campaign — for one partly blocked, refused,
+taken off in the panel, or still sending clicks. One marked by hand, or
+blocked in the network's panel, pushed again becomes RateGuru's own block,
+sent through the API.
+
+**Sites and zones blocked in the network's panel.** Every six hours the sync
+reads each campaign's block list — PopAds' website exclusion lists, ExoClick's
+blocked zones — and changes nothing there. A site or zone on a list that
+RateGuru didn't block shows as **Blocked on PopAds**, "Blocked in the PopAds
+panel, not by RateGuru", with how many campaigns' lists hold it: it is counted
+under Blocked, Worth blocking and the block rule leave it alone, and Logs →
+Blocks says what was found. Its clicks count as still sent only through a
+campaign whose list holds it. Taken off those lists in the panel later, it
+stops showing as blocked at the next read, and the block rule leaves it alone
+for 30 days, as a site you unblock here. A list that can't be read changes
+nothing — the spend sync carries on, and the next read tries again; until
+then the source's Blocking pane says whose list and why, "Couldn't read EU
+popunder's block list at 17 Nov 12:00: The network's API is down…". RateGuru
+never takes a site off a network's list that it didn't put there — unless you press **Unblock** on that
+very row, which takes it off the lists that hold it like any other block. A
+block of RateGuru's own taken off a list in the panel shows **Partly
+blocked**, or **Taken off on the network** once it is off them all. Logs →
+Blocks says **Taken off in the panel** for what is off every list it was on,
+and **Taken off some lists in the panel** for what is still on others.
 
 **Block bots and losing sites by itself** (a source's editor → Blocking) lets
 the block rule do it every 5 minutes, over each site's or zone's last 30 days:
@@ -92,8 +147,11 @@ once the worth stands on 30 accounts. Only those with a click in the last 3
 days, the most spent first, up to the source's cap a day. It needs an active
 source with its API connected and verified, and an API that blocks the level
 chosen; the pane lists what is missing. A site you unblock stays unblocked: the
-rule leaves it alone for 30 days. The cap counts every block the rule queued
-that UTC day, so unblocking one frees no room for another until the next day.
+rule leaves it alone for 30 days — and so it does a site taken off every
+campaign's list in the network's own panel, whoever blocked it. You can
+still block either again yourself. The cap counts every block the rule
+queued that UTC day, so unblocking one frees no room for another until the
+next day.
 
 The rule is gentle with traffic it can't judge yet:
 
@@ -132,10 +190,17 @@ and How blocking works on the pane shows the values that apply, marking the
 source's own, with its average over the last 30 days.
 
 The Blocking pane shows what the source has blocked now — sites and zones, by
-hand and by the rule — and the rule's blocks today against the cap, and when
-the rule last ran. With an API connected it shows where the blocks it sent
-stand (on the network's list, waiting, failed); without one only how many are
-marked here, since RateGuru can't see the network's own blacklist. **See
+hand, by the rule and in the network's panel — and the rule's blocks today
+against the cap, and when the rule last ran. With an API connected it shows
+where the blocks it sent stand (on the network's list, on some campaigns'
+lists only — neither on the list nor failed — waiting, failed, taken off in
+the network's panel, coming off); without one only how many are marked here,
+since RateGuru can't read the network's own blacklist. The badges in Sites &
+zones and the lines of Logs → Blocks say the same: a batch some campaigns
+took and others refused is **Partly done** there. When the last read of
+the campaigns' block lists failed, the pane says whose list, when and why —
+"Couldn't read EU popunder's block list at 17 Nov 12:00: …" — until a read
+goes through, and says nothing of it while the API is disconnected. **See
 blocked in Sites & zones** and **Open the blocks log** open the list and
 Logs → Blocks for the source in a new tab. The Blocked segment of Sites & zones
 lists every block in force, whatever the period: one that sent no click in it

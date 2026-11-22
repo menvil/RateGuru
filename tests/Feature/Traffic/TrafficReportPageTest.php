@@ -1,9 +1,12 @@
 <?php
 
 use App\Actions\Traffic\EnterSpendAction;
+use App\Enums\TrafficActor;
 use App\Enums\TrafficBlockLevel;
+use App\Enums\TrafficBlockMethod;
 use App\Enums\TrafficBlockNetworkState;
 use App\Enums\TrafficChannel;
+use App\Enums\TrafficConnector;
 use App\Enums\TrafficKnownReason;
 use App\Filament\Pages\GrowthAnalyticsPage;
 use App\Filament\Pages\TrafficSources\TrafficSourcesView;
@@ -11,6 +14,8 @@ use App\Filament\Pages\TrafficSourcesPage;
 use App\Models\Game;
 use App\Models\TrafficApiConnection;
 use App\Models\TrafficBlock;
+use App\Models\TrafficBlockEvent;
+use App\Models\TrafficBlockListing;
 use App\Models\TrafficCampaign;
 use App\Models\TrafficChanceRun;
 use App\Models\TrafficConversion;
@@ -183,6 +188,88 @@ it('says on a blocked site where the network’s list stands: on its way there o
         ->assertSee('Not blocked on the network')
         ->assertSee('Blocked · unblock failed')
         ->assertSee('Still on the network’s list: The network refused the change. Unblock it again to try again.', false);
+});
+
+it('says on a site some campaigns took and others refused how many lists it is on, naming those that refused and why', function () {
+    $this->source->forceFill(['connector' => TrafficConnector::PopAds])->save();
+    $us = TrafficCampaign::factory()->create(['source_id' => $this->source->id, 'name' => 'US popunder']);
+    $eu = TrafficCampaign::factory()->create(['source_id' => $this->source->id, 'name' => 'EU popunder']);
+    $block = function (string $site, TrafficBlockNetworkState $state, ?string $error, array $listings): void {
+        siteClicks($this->source, $site, 1, 1);
+        $block = TrafficBlock::factory()->create(['source_id' => $this->source->id, 'level' => TrafficBlockLevel::Site, 'ref' => $site, 'method' => 'api', 'network_state' => $state, 'network_error' => $error, 'blocked_at' => now()->subDay()]);
+
+        foreach ($listings as [$campaign, $listed, $why]) {
+            TrafficBlockListing::factory()->create(['block_id' => $block->id, 'campaign_id' => $campaign->id, 'listed' => $listed, 'error' => $why]);
+        }
+    };
+    $block('70001', TrafficBlockNetworkState::Partial, 'rejected', [[$us, true, null], [$eu, false, 'rejected']]);
+    $block('70002', TrafficBlockNetworkState::TakenOff, null, [[$us, false, 'taken_off'], [$eu, false, 'taken_off']]);
+    $block('70003', TrafficBlockNetworkState::Failed, 'rejected', [[$us, false, 'rejected'], [$eu, false, 'unavailable']]);
+    // An unblock that took it off one campaign, refused on the other.
+    $block('70004', TrafficBlockNetworkState::Partial, 'shared_list', [[$us, false, null], [$eu, true, 'shared_list']]);
+
+    $page = Livewire::withQueryParams(['view' => 'sites', 'list' => 'site', 'seg' => 'blocked'])->test(TrafficSourcesPage::class)->call('load');
+    $flags = collect($page->viewData('list')['rows'])->mapWithKeys(fn (array $row): array => [$row['ref'] => $row['flag']]);
+
+    expect($flags['70001'])->toMatchArray(['label' => 'Partly blocked · 1 of 2 campaigns', 'tone' => 'warning'])
+        ->and($flags['70001']['tip'])->toBe('Blocked 16 Nov through the network · on the list of US popunder · not on EU popunder’s: The network refused the change.')
+        ->and($flags['70002'])->toMatchArray(['label' => 'Taken off on the network', 'tone' => 'warning'])
+        ->and($flags['70002']['tip'])->toContain('taken off the lists of US popunder, EU popunder in the PopAds panel, not by RateGuru')
+        ->and($flags['70002']['tip'])->toContain('Push again to put it back, or Unblock to let it go.')
+        ->and($flags['70003'])->toMatchArray(['label' => 'Not blocked on the network', 'tone' => 'danger'])
+        ->and($flags['70003']['tip'])->toContain('not on US popunder’s: The network refused the change. · not on EU popunder’s: The network’s API is down.')
+        ->and($flags['70004'])->toMatchArray(['label' => 'Partly blocked · unblock failed', 'tone' => 'danger'])
+        ->and($flags['70004']['tip'])->toContain('Still on the list of EU popunder: The campaign blocks the sites of a list shared with other campaigns');
+    $page->assertSee('Partly blocked · 1 of 2 campaigns');
+});
+
+it('says on a site blocked in the network’s own panel that it is blocked there, counts it under Blocked and never offers to block it again', function () {
+    $this->source->forceFill(['connector' => TrafficConnector::PopAds])->save();
+    $campaign = TrafficCampaign::factory()->create(['source_id' => $this->source->id, 'name' => 'US popunder']);
+    // Bots by the rule's reckoning: 40 clicks, 1 opening the page.
+    siteClicks($this->source, '50001', 40, 1, ['campaign_id' => $campaign->id]);
+    $block = TrafficBlock::factory()->create(['source_id' => $this->source->id, 'level' => TrafficBlockLevel::Site, 'ref' => '50001', 'method' => TrafficBlockMethod::Panel, 'network_state' => TrafficBlockNetworkState::Applied, 'blocked_at' => now()->subDay()]);
+    TrafficBlockListing::factory()->create(['block_id' => $block->id, 'campaign_id' => $campaign->id, 'listed' => true]);
+
+    $page = Livewire::withQueryParams(['view' => 'sites', 'list' => 'site'])->test(TrafficSourcesPage::class)->call('load');
+
+    expect($page->viewData('worthBlocking'))->toBe(0)
+        ->and($page->viewData('list')['counts'])->toMatchArray(['blocked' => 1, 'block' => 0]);
+
+    $page->set('segment', 'blocked')
+        ->assertSee('Blocked on PopAds')
+        ->assertSee('Blocked in the PopAds panel, not by RateGuru · found 16 Nov · on 1 campaign’s list', false);
+});
+
+it('says on a site blocked in the network’s panel whose unblock a campaign refused that the unblock failed, and where it stays', function () {
+    $this->source->forceFill(['connector' => TrafficConnector::PopAds])->save();
+    $us = TrafficCampaign::factory()->create(['source_id' => $this->source->id, 'name' => 'US popunder']);
+    $eu = TrafficCampaign::factory()->create(['source_id' => $this->source->id, 'name' => 'EU popunder']);
+    siteClicks($this->source, '50001', 1, 1);
+    $block = TrafficBlock::factory()->create(['source_id' => $this->source->id, 'level' => TrafficBlockLevel::Site, 'ref' => '50001', 'method' => TrafficBlockMethod::Panel, 'network_state' => TrafficBlockNetworkState::Applied, 'network_error' => 'rejected', 'blocked_at' => now()->subDay()]);
+    TrafficBlockListing::factory()->create(['block_id' => $block->id, 'campaign_id' => $us->id, 'listed' => false]);
+    TrafficBlockListing::factory()->create(['block_id' => $block->id, 'campaign_id' => $eu->id, 'listed' => true, 'error' => 'rejected']);
+
+    $page = Livewire::withQueryParams(['view' => 'sites', 'list' => 'site', 'seg' => 'blocked'])->test(TrafficSourcesPage::class)->call('load');
+    $flag = collect($page->viewData('list')['rows'])->firstWhere('ref', '50001')['flag'];
+
+    expect($flag)->toMatchArray(['label' => 'Blocked on PopAds · unblock failed', 'tone' => 'danger'])
+        ->and($flag['tip'])->toBe('Blocked in the PopAds panel, not by RateGuru · still on the list of EU popunder: The network refused the change. Unblock it again to try again.');
+});
+
+it('pushes the ticked blocks again to the network from Blocked', function () {
+    $this->source->forceFill(['connector' => TrafficConnector::PopAds, 'block_level' => TrafficBlockLevel::Site])->save();
+    TrafficApiConnection::factory()->create(['source_id' => $this->source->id]);
+    siteClicks($this->source, '70001', 1, 1);
+    $block = TrafficBlock::factory()->create(['source_id' => $this->source->id, 'level' => TrafficBlockLevel::Site, 'ref' => '70001', 'method' => 'api', 'network_state' => TrafficBlockNetworkState::Partial, 'network_error' => 'rejected']);
+
+    Livewire::withQueryParams(['view' => 'sites', 'list' => 'site', 'seg' => 'blocked'])->test(TrafficSourcesPage::class)->call('load')
+        ->call('toggleSelected', $this->source->id.':site:70001')
+        ->assertSee('Push again')
+        ->call('pushSelected')
+        ->assertSet('selected', []);
+
+    expect($block->fresh())->network_state->toBe(TrafficBlockNetworkState::Pending)->network_error->toBeNull();
 });
 
 it('never ticks a row that is not a site or zone key', function () {
@@ -981,6 +1068,18 @@ it('names the visitor of each click, milestone and postback by its journey ID, a
 
     // Blocking has no visitor.
     $page->set('log', 'blocks')->assertDontSee('Visitor');
+});
+
+it('says in Logs → Blocks which batches went part of the way, and what the read of the network’s lists found', function () {
+    $event = fn (string $kind, bool $ok, bool $partial, string $note, TrafficBlockMethod $method = TrafficBlockMethod::Api, TrafficActor $actor = TrafficActor::NetworkApi) => TrafficBlockEvent::query()->create(['source_id' => $this->source->id, 'kind' => $kind, 'level' => TrafficBlockLevel::Site, 'ref' => '40123', 'ref_count' => 1, 'method' => $method, 'actor' => $actor, 'ok' => $ok, 'partial' => $partial, 'note' => $note, 'occurred_at' => now()]);
+    $event('applied', false, true, '1 of 2 campaigns');
+    $event('found', true, false, 'On the network’s list, blocked in its panel, not by RateGuru', TrafficBlockMethod::Panel, TrafficActor::NetworkPanel);
+    $event('gone', true, false, 'Off every campaign’s list: the block rule leaves it alone for 30 days', TrafficBlockMethod::Panel, TrafficActor::NetworkPanel);
+    // Off some campaigns' lists only: still blocked on the others.
+    $event('gone', true, true, 'Still on other campaigns’ lists', TrafficBlockMethod::Panel, TrafficActor::NetworkPanel);
+
+    Livewire::withQueryParams(['tab' => 'logs', 'log' => 'blocks'])->test(TrafficSourcesPage::class)->call('load')
+        ->assertSeeInOrder(['Taken off some lists in the panel', 'network panel', 'Done', 'Still on other campaigns', 'Taken off in the panel', 'Off every campaign', 'Found in the panel', 'Applied', 'Partly done', '1 of 2 campaigns']);
 });
 
 it('reads the visitors of a log’s page at once, never one row at a time', function () {

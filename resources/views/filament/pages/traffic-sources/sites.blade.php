@@ -73,6 +73,8 @@
         <span class="rg-admin-traffic__selection-actions">
             @if ($segment === 'blocked')
                 <x-admin.ui.button size="sm" wire:click="unblockSelected">Unblock</x-admin.ui.button>
+                {{-- To every campaign each is for, through the network's API: one on some lists only, refused, taken off in the panel, or still sending. --}}
+                <x-admin.ui.button size="sm" variant="ghost" icon="refresh-cw" wire:click="pushSelected" title="Send them to the network’s lists again, to every campaign">Push again</x-admin.ui.button>
             @else
                 <x-admin.ui.button size="sm" variant="danger" icon="ban" wire:click="blockSelected">Block {{ number_format($list['selected']) }}</x-admin.ui.button>
             @endif

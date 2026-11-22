@@ -18,7 +18,9 @@ use Illuminate\Support\Sleep;
  * same day by campaign alone; campaigns from `apiv2/campaign/details`;
  * websites blocked through the campaign's website exclusion list, which
  * PopAds replaces whole — and refuses empty: the last site taken off turns
- * the campaign's targeting off instead. An error PopAds explains (a JSON
+ * the campaign's targeting off instead — and read, a second between
+ * campaigns, with nothing written, so the sync sees what was blocked in
+ * PopAds' own panel. An error PopAds explains (a JSON
  * `errors` list, sent with HTTP 500 for a request it refused) is a refusal,
  * not an API that is down. The report's fields are not documented: they are
  * read under the names third-party clients use, and the connector stays
@@ -120,27 +122,46 @@ final class PopAdsConnector implements EditsBlockLists, ReadsCampaigns, ReadsSpe
         return [TrafficBlockLevel::Site];
     }
 
+    public function blockLists(ConnectorSession $session, array $campaignIds, TrafficBlockLevel $level): array
+    {
+        if ($level !== TrafficBlockLevel::Site) {
+            throw new ConnectorException(TrafficConnectorFailure::Unsupported);
+        }
+
+        $lists = [];
+
+        foreach ($campaignIds as $index => $id) {
+            if ($index > 0) {
+                Sleep::for(1)->second();
+            }
+
+            // A campaign PopAds doesn't know, or one listing sites to allow, has no list of sites to block.
+            try {
+                [, $items, $mode] = $this->exclusionList($session, $id);
+            } catch (ConnectorException $exception) {
+                if ($exception->failure === TrafficConnectorFailure::Unsupported || in_array($exception->httpStatus, [403, 404], true)) {
+                    continue;
+                }
+
+                // The sync says whose list it couldn't read.
+                throw $exception->forCampaign($id);
+            }
+
+            // Targeting turned off excludes nothing, whatever sites it still keeps.
+            $lists[$id] = $mode === 'none' ? [] : array_values(array_unique($items));
+        }
+
+        return $lists;
+    }
+
     public function applyBlockDelta(ConnectorSession $session, string $campaignId, TrafficBlockLevel $level, array $add, array $remove): BlockDeltaResult
     {
         if ($level !== TrafficBlockLevel::Site) {
             throw new ConnectorException(TrafficConnectorFailure::Unsupported);
         }
 
-        $targeting = $this->json($this->get($session, '/api/campaign_website_targeting/'.rawurlencode($campaignId)));
-        $mode = (string) ($targeting['mode'] ?? 'none');
-        [$path, $items] = match (true) {
-            $mode === 'global' && ($targeting['global_mode'] ?? null) === 'exclude' => ['/api/website_targeting/'.rawurlencode((string) $targeting['global_id']), $targeting['global_items'] ?? null],
-            $mode === 'exclude' => ['/api/campaign_website_targeting/'.rawurlencode($campaignId), $targeting['items'] ?? null],
-            $mode === 'none' => ['/api/campaign_website_targeting/'.rawurlencode($campaignId), (array) ($targeting['items'] ?? [])],
-            default => throw new ConnectorException(TrafficConnectorFailure::Unsupported),
-        };
-
-        // An exclusion list read without its sites is never rewritten: the sites it already held would be lost.
-        if (! is_array($items)) {
-            throw new ConnectorException(TrafficConnectorFailure::UnexpectedResponse);
-        }
-
-        $list = array_values(array_diff(array_unique([...array_map('strval', $items), ...$add]), $remove));
+        [$path, $items, $mode] = $this->exclusionList($session, $campaignId);
+        $list = array_values(array_diff(array_unique([...$items, ...$add]), $remove));
 
         // A list to exclude needs a site: the campaign's own, emptied, is its targeting turned off; a list other campaigns share can't be turned off for one.
         if ($list === [] && $mode === 'global') {
@@ -172,6 +193,35 @@ final class PopAdsConnector implements EditsBlockLists, ReadsCampaigns, ReadsSpe
         $listed = array_map('strval', (array) $listed);
 
         return new BlockDeltaResult(array_diff($add, $listed) === [] && array_intersect($remove, $listed) === [], $response->status(), array_values($listed));
+    }
+
+    /**
+     * A campaign's exclusion list as PopAds has it — its own, or the one it
+     * shares through `global` targeting — with where it is written and the
+     * campaign's mode; none while its targeting is off. A list read without
+     * its sites is never taken for an empty one: rewritten from it, the sites
+     * it held would be lost.
+     *
+     * @return array{0: string, 1: list<string>, 2: string} where it is written, its sites, the mode
+     *
+     * @throws ConnectorException
+     */
+    private function exclusionList(ConnectorSession $session, string $campaignId): array
+    {
+        $targeting = $this->json($this->get($session, '/api/campaign_website_targeting/'.rawurlencode($campaignId)));
+        $mode = (string) ($targeting['mode'] ?? 'none');
+        [$path, $items] = match (true) {
+            $mode === 'global' && ($targeting['global_mode'] ?? null) === 'exclude' => ['/api/website_targeting/'.rawurlencode((string) $targeting['global_id']), $targeting['global_items'] ?? null],
+            $mode === 'exclude' => ['/api/campaign_website_targeting/'.rawurlencode($campaignId), $targeting['items'] ?? null],
+            $mode === 'none' => ['/api/campaign_website_targeting/'.rawurlencode($campaignId), (array) ($targeting['items'] ?? [])],
+            default => throw new ConnectorException(TrafficConnectorFailure::Unsupported),
+        };
+
+        if (! is_array($items)) {
+            throw new ConnectorException(TrafficConnectorFailure::UnexpectedResponse);
+        }
+
+        return [$path, array_values(array_map('strval', $items)), $mode];
     }
 
     /** @return array<int, array<string, mixed>> */

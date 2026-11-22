@@ -15,8 +15,9 @@ use Illuminate\Http\Client\Response;
  * signed in again once on a 401. Spend from `statistics/a/global` by day,
  * campaign and zone, checked against its own total; campaigns from
  * `campaigns`; zones blocked by rewriting a campaign's blocked zones — the
- * API cannot block a site. A dollar account only. Unverified until checked
- * on the owner's token.
+ * API cannot block a site — and read from the campaign alone, nothing
+ * written, so the sync sees what was blocked in ExoClick's own panel. A
+ * dollar account only. Unverified until checked on the owner's token.
  */
 final class ExoClickConnector implements EditsBlockLists, ReadsCampaigns, ReadsSpend, TrafficNetworkConnector
 {
@@ -130,6 +131,31 @@ final class ExoClickConnector implements EditsBlockLists, ReadsCampaigns, ReadsS
     public function blockLevels(): array
     {
         return [TrafficBlockLevel::Zone];
+    }
+
+    public function blockLists(ConnectorSession $session, array $campaignIds, TrafficBlockLevel $level): array
+    {
+        if ($level !== TrafficBlockLevel::Zone) {
+            throw new ConnectorException(TrafficConnectorFailure::Unsupported);
+        }
+
+        $lists = [];
+
+        foreach ($campaignIds as $id) {
+            // A campaign ExoClick doesn't know, or one listing zones to allow, has no list of zones to block.
+            try {
+                $lists[$id] = array_values(array_unique($this->blockedZones($session, $id)));
+            } catch (ConnectorException $exception) {
+                if ($exception->failure === TrafficConnectorFailure::Unsupported || $exception->httpStatus === 404) {
+                    continue;
+                }
+
+                // The sync says whose list it couldn't read.
+                throw $exception->forCampaign($id);
+            }
+        }
+
+        return $lists;
     }
 
     public function applyBlockDelta(ConnectorSession $session, string $campaignId, TrafficBlockLevel $level, array $add, array $remove): BlockDeltaResult

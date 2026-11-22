@@ -11,10 +11,12 @@ use Database\Factories\TrafficBlockFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 /**
- * A blocked site or zone of a network, and how many clicks still came from it
- * afterwards.
+ * A blocked site or zone of a network — by RateGuru, or found blocked in the
+ * network's own panel — where it stands on each campaign's list, and how many
+ * clicks still came from it afterwards.
  *
  * @property int $id
  * @property int $source_id
@@ -73,5 +75,15 @@ class TrafficBlock extends Model
     public function campaign(): BelongsTo
     {
         return $this->belongsTo(TrafficCampaign::class, 'campaign_id');
+    }
+
+    /**
+     * Where it stands on each campaign's list, as last written or read, in the order the campaigns came.
+     *
+     * @return HasMany<TrafficBlockListing, $this>
+     */
+    public function listings(): HasMany
+    {
+        return $this->hasMany(TrafficBlockListing::class, 'block_id')->orderBy('campaign_id');
     }
 }
