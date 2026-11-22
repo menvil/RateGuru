@@ -1,0 +1,36 @@
+tests/Feature/Traffic/TrafficSourcesPageTest.php
+  s_4b9dc6ab6b25d3::t_459085f898d8da 822,826-828
+  s_4b9dc6ab6b25d3::t_1d6189256bddea 810-813
+tests/Feature/Database/ForeignKeyIndexesTest.php
+  s_4b9dc6ab6b25d3::t_1cd89310725ad4 37-38
+tests/Feature/Traffic/TrafficConnectorsTest.php
+  s_4b9dc6ab6b25d3::t_11ebbc0bb65ef0 269,288-293,297-298,300-308,310-523
+  s_4b9dc6ab6b25d3::t_62dfd476e2a6dc 5,7
+  s_4b9dc6ab6b25d3::t_a4001c0cd36881 18
+  s_4b9dc6ab6b25d3::t_5f4e666533ea8b 818-851
+  s_4b9dc6ab6b25d3::t_ae9bfaeb9804a7 299,309
+tests/Feature/Traffic/TrafficReportPageTest.php
+  s_4b9dc6ab6b25d3::t_a1d7c38b28e4dd 185-208,210-250
+  s_4b9dc6ab6b25d3::t_d5f4f1a0fddaf0 209
+  s_4b9dc6ab6b25d3::t_4c18b90080dc24 4,6,9
+  s_4b9dc6ab6b25d3::t_afb2a2c6721cbf 1034-1043
+  s_4b9dc6ab6b25d3::t_be31a2a3a936cf 17-18
+tests/Feature/Database/TrafficBlockListingsTableTest.php
+  s_4b9dc6ab6b25d3::t_fe023fbc866002 1-64
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "91086835f3fc96bfe486eac5dabcb50ff3c80ee6",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
