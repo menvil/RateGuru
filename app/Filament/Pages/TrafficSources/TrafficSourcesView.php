@@ -709,7 +709,7 @@ final class TrafficSourcesView
             'campaignTargets' => TrafficCampaign::query()->whereNotNull('target_cpa')->pluck('target_cpa', 'id')->map(fn (mixed $target): string => (string) $target)->all(),
             'sourceTargets' => $sources->mapWithKeys(fn (TrafficSource $source): array => [(int) $source->id => $source->target_cpa])->all(),
             'worthKnown' => $run !== null && (int) TrafficStepChance::query()->where('run_id', $run->id)->where('slice_key', '*')->where('step', 'opened')->value('slice_accounts') >= 30,
-            'blocks' => $this->blocks()->keyBy(fn (TrafficBlock $block): string => $block->source_id.':'.$block->level->value.':'.$block->ref),
+            'blocks' => $this->blocksWithListings()->keyBy(fn (TrafficBlock $block): string => $block->source_id.':'.$block->level->value.':'.$block->ref),
             'firstClicks' => $this->firstClicks($month, isset($filter->where['source_id']) ? (int) $filter->where['source_id'] : null),
             'windowFrom' => CarbonImmutable::parse($month->fromDay, 'UTC'),
             'now' => $now,
@@ -896,7 +896,7 @@ final class TrafficSourcesView
      *
      * @return EloquentCollection<int, TrafficBlock>
      */
-    private function blocks(): EloquentCollection
+    private function blocksWithListings(): EloquentCollection
     {
         $blocks = TrafficBlock::query()->get();
         $named = $blocks->filter(fn (TrafficBlock $block): bool => $block->method === TrafficBlockMethod::Panel
