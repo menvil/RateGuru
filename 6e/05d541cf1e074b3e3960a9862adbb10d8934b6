@@ -1,0 +1,28 @@
+app/Actions/Traffic/QueueMissingTrafficBlocksAction.php
+  s_4b9dc6ab6b25d3::t_3446aeae65421e 1-99
+app/Filament/Pages/TrafficSources/TrafficSourcesView.php
+  s_4b9dc6ab6b25d3::t_d24053d0705164 871-872
+app/Actions/Traffic/ApplyTrafficBlocksAction.php
+  s_4b9dc6ab6b25d3::t_c03e81fb88a823 138
+  s_4b9dc6ab6b25d3::t_f8db5458c32298 166
+  s_4b9dc6ab6b25d3::t_4e1a2e3b75495d 178-184,187-188,194-198
+  s_4b9dc6ab6b25d3::t_94973a3b0accb4 116,123
+  s_4b9dc6ab6b25d3::t_783450e935b4eb 29-32
+  s_4b9dc6ab6b25d3::t_d505742f11330c 102-105
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "6e05d541cf1e074b3e3960a9862adbb10d8934b6",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
