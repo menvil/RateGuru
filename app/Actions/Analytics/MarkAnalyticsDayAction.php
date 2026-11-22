@@ -12,7 +12,8 @@ use Illuminate\Support\Str;
  * confirmation, spend shared out again, a result shared long after — so
  * analytics:refresh-visits reads that day again. A day it reads anyway
  * before the change could be missed — among the days of AnalyticsRollupWindow
- * now and still when they are all read next — writes nothing. The token is
+ * now and still when they have all been read twice more, so one whole read
+ * missed leaves the next — writes nothing. The token is
  * new on every call: a change that comes while the day is being read leaves
  * it marked for the next run. The first time a day is marked is kept
  * (marked_at): a day left unread too long puts Analytics back on the visits
