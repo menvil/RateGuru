@@ -24,6 +24,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property CarbonImmutable|null $last_synced_at
  * @property CarbonImmutable|null $next_sync_at
  * @property CarbonImmutable|null $campaigns_synced_at
+ * @property CarbonImmutable|null $block_lists_read_at
  * @property string|null $spend_closed_through
  * @property string|null $backfill_cursor
  * @property string|null $last_error
@@ -56,6 +57,7 @@ class TrafficApiConnection extends Model
             'last_synced_at' => 'immutable_datetime',
             'next_sync_at' => 'immutable_datetime',
             'campaigns_synced_at' => 'immutable_datetime',
+            'block_lists_read_at' => 'immutable_datetime',
             'failures' => 'integer',
             'connected_by_user_id' => 'integer',
             'created_at' => 'immutable_datetime',

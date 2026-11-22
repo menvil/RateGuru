@@ -17,7 +17,8 @@ use Illuminate\Database\Eloquent\Builder;
 /**
  * What the block rule (traffic:block-losers) and a source's Blocking pane
  * read about blocking, so both count it alike: a source's blocks by level,
- * by who made them and by where they stand with the network, in one query;
+ * by who made them and by where they stand with the network — the states
+ * Sites & zones' badges and Logs → Blocks say too — in one query;
  * how many the rule queued in the UTC day its cap counts, from its own
  * entries in the blocks log, so a block taken off again still counts; the
  * sites and zones an administrator unblocked lately, which the rule leaves
@@ -34,11 +35,14 @@ final class TrafficBlocksQuery
 
     /**
      * A source's blocks: those in force by level and by who made them — an
-     * administrator, by hand or through the API, or the rule — and every
-     * block by where it stands with the network; and how many the rule
-     * queued today. Two queries, whatever the number of blocks.
+     * administrator, by hand or through the API, the rule, or an
+     * administrator in the network's own panel — and every block by where it
+     * stands with the network, those sent by RateGuru on every list they are
+     * for, on some only, waiting, on none, taken off them in the panel or
+     * coming off; and how many the rule queued today. Two queries, whatever
+     * the number of blocks.
      *
-     * @return array{sites: int, zones: int, by_hand: int, by_rule: int, marked: int, pending: int, applied: int, failed: int, removing: int, rule_today: int}
+     * @return array{sites: int, zones: int, by_hand: int, by_rule: int, in_panel: int, marked: int, pending: int, applied: int, partial: int, failed: int, taken_off: int, removing: int, rule_today: int}
      */
     public function counts(int $sourceId, CarbonInterface $now): array
     {
@@ -47,12 +51,16 @@ final class TrafficBlocksQuery
         $source = TrafficSource::query()->whereKey($sourceId)->withCount([
             'blocks as sites_count' => fn (Builder $query): Builder => $inForce($query)->where('level', TrafficBlockLevel::Site),
             'blocks as zones_count' => fn (Builder $query): Builder => $inForce($query)->where('level', TrafficBlockLevel::Zone),
-            'blocks as by_hand_count' => fn (Builder $query): Builder => $inForce($query)->where('method', '!=', TrafficBlockMethod::Auto),
+            'blocks as by_hand_count' => fn (Builder $query): Builder => $inForce($query)->whereIn('method', [TrafficBlockMethod::Manual, TrafficBlockMethod::Api]),
             'blocks as by_rule_count' => fn (Builder $query): Builder => $inForce($query)->where('method', TrafficBlockMethod::Auto),
+            'blocks as in_panel_count' => fn (Builder $query): Builder => $inForce($query)->where('method', TrafficBlockMethod::Panel),
             'blocks as marked_count' => fn (Builder $query): Builder => $query->where('network_state', TrafficBlockNetworkState::ByHand),
             'blocks as pending_count' => fn (Builder $query): Builder => $query->where('network_state', TrafficBlockNetworkState::Pending),
-            'blocks as applied_count' => fn (Builder $query): Builder => $query->where('network_state', TrafficBlockNetworkState::Applied),
+            // What RateGuru sent: a block found in the panel is on the lists of its own making.
+            'blocks as applied_count' => fn (Builder $query): Builder => $query->where('network_state', TrafficBlockNetworkState::Applied)->where('method', '!=', TrafficBlockMethod::Panel),
+            'blocks as partial_count' => fn (Builder $query): Builder => $query->where('network_state', TrafficBlockNetworkState::Partial),
             'blocks as failed_count' => fn (Builder $query): Builder => $query->where('network_state', TrafficBlockNetworkState::Failed),
+            'blocks as taken_off_count' => fn (Builder $query): Builder => $query->where('network_state', TrafficBlockNetworkState::TakenOff),
             'blocks as removing_count' => fn (Builder $query): Builder => $query->where('network_state', TrafficBlockNetworkState::Removing),
         ])->first();
 
@@ -61,10 +69,13 @@ final class TrafficBlocksQuery
             'zones' => (int) ($source->zones_count ?? 0),
             'by_hand' => (int) ($source->by_hand_count ?? 0),
             'by_rule' => (int) ($source->by_rule_count ?? 0),
+            'in_panel' => (int) ($source->in_panel_count ?? 0),
             'marked' => (int) ($source->marked_count ?? 0),
             'pending' => (int) ($source->pending_count ?? 0),
             'applied' => (int) ($source->applied_count ?? 0),
+            'partial' => (int) ($source->partial_count ?? 0),
             'failed' => (int) ($source->failed_count ?? 0),
+            'taken_off' => (int) ($source->taken_off_count ?? 0),
             'removing' => (int) ($source->removing_count ?? 0),
             'rule_today' => $this->blockedByRuleToday($sourceId, $now),
         ];

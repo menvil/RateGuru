@@ -25,16 +25,24 @@ use Illuminate\Support\Str;
  * Blocks sites or zones of a source: marked in RateGuru by hand — their IDs
  * copied for the network's own black list — or queued for the network's API
  * when the source is connected and its API blocks that level, applied by
- * traffic:sync-networks; or unblocked. Up to 200 at a time, one batch, one
- * line of the log; a site already blocked is left as it is. The block rule
- * blocks nothing for a source no longer set, as it stands locked, to block
- * that level by itself; an administrator blocks whatever it is set to.
+ * traffic:sync-networks; sends blocks to the network again; or unblocks.
+ * Up to 200 at a time, one batch, one line of the log. A site already
+ * blocked is left as it is, but for one on its way off the list, which goes
+ * back on it, and one an administrator blocks again through the API that
+ * isn't on every list it is for — refused, on some only, taken off in the
+ * network's panel — which is sent again. The block rule blocks nothing for
+ * a source no longer set, as it stands locked, to block that level by
+ * itself, and never sends a block again; an administrator blocks whatever
+ * it is set to.
  */
 final class BlockTrafficRefsAction
 {
     use LocksTrafficRecords;
 
     public const int MOST_REFS = 200;
+
+    /** Where a block stands that blocking it again through the API sends it again from: not on every list it is for. */
+    private const array SENT_AGAIN = [TrafficBlockNetworkState::Failed, TrafficBlockNetworkState::Partial, TrafficBlockNetworkState::TakenOff];
 
     public function __construct(private readonly ConnectorRegistry $registry) {}
 
@@ -67,8 +75,11 @@ final class BlockTrafficRefsAction
 
             $batch = (string) Str::ulid();
             $existing = TrafficBlock::query()->where('source_id', $current->id)->where('level', $level)->whereIn('ref', $refs)->get();
-            // A block on its way off the network's list is kept instead: blocked again, it goes back on the list at the next sync.
-            TrafficBlock::query()->whereKey($existing->where('network_state', TrafficBlockNetworkState::Removing)->pluck('id')->all())
+            // A block on its way off the network's list is kept instead: blocked again, it goes back on the list at the next sync. So does
+            // one an administrator blocks again through the API that isn't on every list it is for.
+            $again = $existing->filter(fn (TrafficBlock $block): bool => $block->network_state === TrafficBlockNetworkState::Removing
+                || ($locked !== null && $viaApi && $method !== TrafficBlockMethod::Auto && in_array($block->network_state, self::SENT_AGAIN, true)));
+            TrafficBlock::query()->whereKey($again->pluck('id')->all())
                 ->update(['network_state' => TrafficBlockNetworkState::Pending, 'network_error' => null]);
             $taken = $existing->pluck('ref')->all();
             $new = array_values(array_diff($refs, $taken));
@@ -107,7 +118,58 @@ final class BlockTrafficRefsAction
                 ]);
             }
 
+            $sent = $again->where('network_state', '!=', TrafficBlockNetworkState::Removing)->pluck('ref')->map(fn (mixed $ref): string => (string) $ref)->values()->all();
+
+            if ($sent !== [] && $locked !== null) {
+                $this->logSentAgain($current, $level, $sent, $locked);
+            }
+
             return count($new);
+        });
+    }
+
+    /**
+     * Sends blocks to the network again, to every campaign each is for: one
+     * on some campaigns' lists only, refused, taken off in the network's
+     * panel, or whose clicks still come; one marked by hand, or found in the
+     * network's panel, becomes RateGuru's own, sent through the API. One
+     * already on its way there is left as it is.
+     *
+     * @param  list<string>  $refs
+     * @return int how many go again
+     *
+     * @throws CannotManageTrafficException
+     */
+    public function push(User $admin, TrafficSource $source, TrafficBlockLevel $level, array $refs): int
+    {
+        if ($refs === [] || count($refs) > self::MOST_REFS) {
+            throw CannotManageTrafficException::because('Push between 1 and '.self::MOST_REFS.' at a time.');
+        }
+
+        return DB::transaction(function () use ($admin, $source, $level, $refs): int {
+            $locked = $this->lockAdministrator($admin);
+            $current = $this->lockSource((int) $source->id);
+
+            if (! $this->canBlockViaApi($current, $level)) {
+                throw CannotManageTrafficException::because('This source’s API can’t block '.($level === TrafficBlockLevel::Zone ? 'zones' : 'sites').': add them to the network’s list by hand.');
+            }
+
+            $blocks = TrafficBlock::query()->where('source_id', $current->id)->where('level', $level)->whereIn('ref', $refs)
+                ->where('network_state', '!=', TrafficBlockNetworkState::Pending)->lockForUpdate()->get();
+
+            foreach ($blocks as $block) {
+                $block->forceFill([
+                    'network_state' => TrafficBlockNetworkState::Pending,
+                    'network_error' => null,
+                    'method' => in_array($block->method, [TrafficBlockMethod::Manual, TrafficBlockMethod::Panel], true) ? TrafficBlockMethod::Api : $block->method,
+                ])->save();
+            }
+
+            if ($blocks->isNotEmpty()) {
+                $this->logSentAgain($current, $level, $blocks->pluck('ref')->map(fn (mixed $ref): string => (string) $ref)->values()->all(), $locked);
+            }
+
+            return $blocks->count();
         });
     }
 
@@ -124,8 +186,12 @@ final class BlockTrafficRefsAction
                 return;
             }
 
-            // A block that may be on the network — applied, failed after some campaigns took it, or being sent there now — is taken off there first; one only marked here simply goes.
-            if ($record->network_state !== TrafficBlockNetworkState::ByHand) {
+            $listings = $record->listings()->get();
+
+            // A block that may be on the network — on its campaigns' lists, on some of them, found blocked in the network's panel, or being sent
+            // there now, or one that failed where where it stands isn't known — is taken off there first, from the lists holding it; one only
+            // marked here, or that no list holds, simply goes.
+            if ($record->network_state !== TrafficBlockNetworkState::ByHand && ($listings->isEmpty() || $listings->contains('listed', true) || $record->network_state === TrafficBlockNetworkState::Pending)) {
                 $record->forceFill(['network_state' => TrafficBlockNetworkState::Removing, 'network_error' => null])->save();
             } else {
                 $record->delete();
@@ -146,6 +212,25 @@ final class BlockTrafficRefsAction
                 'occurred_at' => now(),
             ]);
         });
+    }
+
+    /** @param  list<string>  $refs */
+    private function logSentAgain(TrafficSource $source, TrafficBlockLevel $level, array $refs, User $admin): void
+    {
+        TrafficBlockEvent::query()->create([
+            'source_id' => $source->id,
+            'kind' => 'queued',
+            'level' => $level,
+            'ref' => count($refs) === 1 ? $refs[0] : null,
+            'ref_count' => count($refs),
+            'refs' => array_slice($refs, 0, 200),
+            'method' => TrafficBlockMethod::Api,
+            'actor' => TrafficActor::User,
+            'actor_user_id' => $admin->id,
+            'ok' => true,
+            'note' => 'Sent to the network’s list again',
+            'occurred_at' => now(),
+        ]);
     }
 
     /** Whether the block rule may block this level of the source by itself. */
