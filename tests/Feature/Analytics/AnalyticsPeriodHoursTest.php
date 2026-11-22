@@ -428,10 +428,19 @@ it('is counted by analytics:refresh-visits before the visits', function () {
     [, $version, $period] = hoursGame();
     periodVisitor($period, $version);
     $this->travelTo('2026-11-12 12:00:00');
+    analyticsVisit('ann', ['network_day' => '2026-11-12', 'arrived_at' => '2026-11-12 11:00:00']);
+    // Each step's table, in the order the steps first write to them.
+    $written = [];
+    DB::listen(function (QueryExecuted $query) use (&$written): void {
+        if (preg_match('/^insert into ["`]?(analytics_period_hours|analytics_visits)["`]? /i', $query->sql, $table) === 1 && ! in_array($table[1], $written, true)) {
+            $written[] = $table[1];
+        }
+    });
 
     $this->artisan('analytics:refresh-visits')->assertSuccessful();
 
-    expect(periodHoursThrough())->toBe('2026-11-12 09:00:00')
+    expect($written)->toBe(['analytics_period_hours', 'analytics_visits'])
+        ->and(periodHoursThrough())->toBe('2026-11-12 09:00:00')
         ->and(AnalyticsPeriodHour::query()->sole()->assigned)->toBe(1);
 });
 
