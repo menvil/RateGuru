@@ -386,6 +386,28 @@ it('pushes a partly blocked site again to every campaign, and blocks again one t
         ->and(TrafficBlockEvent::query()->where('kind', 'queued')->where('ref', '40123')->sole())->actor_user_id->toBe($this->admin->id);
 });
 
+it('counts a block pushed again, or blocked again, once — on the lists, in its listings, the pane and the rule’s cap', function () {
+    TrafficApiConnection::factory()->create(['source_id' => $this->popads->id, 'next_sync_at' => now()->addHour()]);
+    TrafficCampaign::factory()->create(['source_id' => $this->popads->id, 'external_id' => '881204']);
+    TrafficCampaign::factory()->create(['source_id' => $this->popads->id, 'external_id' => '881205']);
+    $lists = ['881204' => [], '881205' => []];
+    popAdsWithLists($lists);
+    $blocks = app(BlockTrafficRefsAction::class);
+
+    $blocks->block($this->admin, $this->popads, TrafficBlockLevel::Site, ['40123'], null, true);
+    $this->artisan('traffic:sync-networks')->assertSuccessful();
+    $blocks->push($this->admin, $this->popads, TrafficBlockLevel::Site, ['40123']);
+    $blocks->block($this->admin, $this->popads, TrafficBlockLevel::Site, ['40123'], null, true);
+    $this->artisan('traffic:sync-networks')->assertSuccessful();
+    $blocks->push($this->admin, $this->popads, TrafficBlockLevel::Site, ['40123']);
+    $this->artisan('traffic:sync-networks')->assertSuccessful();
+
+    expect($lists)->toBe(['881204' => ['40123'], '881205' => ['40123']])
+        ->and(TrafficBlock::query()->sole())->network_state->toBe(TrafficBlockNetworkState::Applied)
+        ->and(TrafficBlockListing::query()->count())->toBe(2)
+        ->and(app(TrafficBlocksQuery::class)->counts((int) $this->popads->id, now()))->toMatchArray(['sites' => 1, 'by_hand' => 1, 'applied' => 1, 'pending' => 0, 'rule_today' => 0]);
+});
+
 it('counts a click from a partly blocked site as still sent only through a campaign whose list holds it', function () {
     $taking = TrafficCampaign::factory()->create(['source_id' => $this->popads->id, 'external_id' => '881204']);
     $refusing = TrafficCampaign::factory()->create(['source_id' => $this->popads->id, 'external_id' => '881205']);
@@ -429,6 +451,13 @@ it('reads each campaign’s list during the sync, never writing it, and records 
         ->and($marked->listings()->count())->toBe(0)
         ->and($connection->fresh()->block_lists_read_at?->toDateTimeString())->toBe('2026-11-17 12:00:00')
         ->and(TrafficBlockEvent::query()->where('kind', 'found')->sole())->ref_count->toBe(2)->method->toBe(TrafficBlockMethod::Panel)->ok->toBeTrue();
+
+    // Read again, the lists as they were: nothing new to record, the campaign that never held it still not one it is kept against.
+    $this->travel(6)->hours();
+    app(SyncTrafficNetworkAction::class)->handle($connection->fresh(), CarbonImmutable::now());
+
+    expect($found[1]->listings()->get()->map(fn (TrafficBlockListing $listing): array => [$listing->campaign_id, $listing->listed])->all())->toBe([[$first->id, true]])
+        ->and(TrafficBlockEvent::query()->where('kind', 'found')->count())->toBe(1);
 });
 
 it('reads the campaigns’ lists again six hours later, not on every turn', function () {
