@@ -7,17 +7,18 @@ use Illuminate\Contracts\Validation\ValidationRule;
 use Normalizer;
 
 /**
- * Refuses a person's name that carries a link: a URL scheme, a `www.` host
- * or a Markdown link. Compatibility forms are folded first, so a full-width
- * `：／／` is the `://` it displays as. An ordinary dotted name stays valid:
- * "J.R. Smith", or "Awww." where `www.` is the end of a word.
+ * Refuses a person's name that carries a link: a URL scheme, a `www.` host,
+ * a `mailto:`, `tel:` or `sms:` address, or a Markdown link, inline or by
+ * reference. Compatibility forms are folded first, so a full-width `：／／` is
+ * the `://` it displays as. An ordinary name stays valid: "J.R. Smith",
+ * "Awww." where `www.` ends a word, "Hotel: California" where `tel:` does.
  *
  * A value equal to the one the account already holds passes, so somebody
  * whose old name would not pass today can still save the rest of a form.
  */
 final class ContainsNoLink implements ValidationRule
 {
-    private const string LINK = '~://|(?<![\p{L}\p{N}])www\.|\]\s*\(~iu';
+    private const string LINK = '~://|(?<![\p{L}\p{N}])(?:www\.|(?:mailto|tel|sms):)|\]\s*[(\[:]~iu';
 
     public function __construct(private readonly ?string $current = null) {}
 

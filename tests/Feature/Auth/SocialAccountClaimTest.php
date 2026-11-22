@@ -137,7 +137,8 @@ it('replaces what the creator of an unconfirmed account wrote about it', functio
     $identity->name = 'Ivan Owner';
     Socialite::fake('google', $identity);
 
-    $this->get(socialCallbackUrl('google'));
+    $this->get(socialCallbackUrl('google'))->assertRedirect(route('dashboard', absolute: false));
+    $this->assertAuthenticatedAs($squatter);
 
     expect($squatter->fresh())
         ->name->toBe('Ivan Owner')
@@ -155,7 +156,8 @@ it('keeps the profile of an already confirmed account the provider signs in to',
     ]);
     Socialite::fake('google', confirmedIdentity('google', 'ivan@example.com'));
 
-    $this->get(socialCallbackUrl('google'));
+    $this->get(socialCallbackUrl('google'))->assertRedirect(route('dashboard', absolute: false));
+    $this->assertAuthenticatedAs($owner);
 
     expect($owner->fresh())
         ->name->toBe('Chosen Name')

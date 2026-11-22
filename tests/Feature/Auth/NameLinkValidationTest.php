@@ -23,6 +23,12 @@ it('refuses a name carrying a link', function (string $name) {
     'markdown link' => '[Claim your prize](https://spam.example)',
     'markdown link without a scheme' => '[Claim](spam.example)',
     'markdown link with a space' => '[Claim] (spam.example)',
+    'markdown link by reference' => "[Claim][offer]\n\n[offer]: //spam.example",
+    'markdown link by collapsed reference' => "[Claim][]\n\n[Claim]: spam.example",
+    'markdown link definition' => "[Claim]\n\n[Claim]: spam.example",
+    'mailto address' => 'mailto:prize@spam.example',
+    'phone link' => 'tel:+15550100',
+    'text message link' => 'SMS:+15550100',
     'full-width scheme' => 'https：／／spam.example',
     'full-width www' => 'ｗｗｗ．spam.example',
 ]);
@@ -37,6 +43,7 @@ it('accepts an ordinary name', function (string $name) {
     'cyrillic' => 'Иван Мороз',
     'brackets without a link' => 'Ivan [admin]',
     'parentheses' => 'Ivan (Kyiv)',
+    'a word ending in tel' => 'Hotel: California',
 ]);
 
 it('refuses text that is not valid UTF-8', function () {
