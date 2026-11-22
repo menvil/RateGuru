@@ -1998,7 +1998,7 @@ final class TrafficSourcesView
             'campaignTargets' => TrafficCampaign::query()->where('source_id', $source->id)->where('target_cpa', '>', 0)->count(),
             'worth' => ['accounts' => $accounts, 'needed' => TrafficBlocksQuery::WORTH_KNOWN_AT, 'known' => $accounts >= TrafficBlocksQuery::WORTH_KNOWN_AT],
             'connected' => $connection?->status === TrafficConnectionStatus::Connected,
-            'listsError' => $connection === null ? null : $this->blockListsError($connection),
+            'listsError' => $connection === null || $connection->status === TrafficConnectionStatus::Disconnected ? null : $this->blockListsError($connection),
             // What keeps the rule from blocking for this source by itself, in the order it asks.
             'why' => array_values(array_filter([
                 $source->status !== TrafficSourceStatus::Active
@@ -2027,7 +2027,8 @@ final class TrafficSourcesView
     /**
      * Why the last read of a source's campaigns' block lists failed, naming
      * the campaign whose list it couldn't read — by its name, else its ID
-     * with the network — and when; nothing once a read went through.
+     * with the network — and when; nothing once a read went through, nor
+     * while the API is disconnected, with nothing to read it again.
      */
     private function blockListsError(TrafficApiConnection $connection): ?string
     {

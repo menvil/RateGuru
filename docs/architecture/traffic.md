@@ -323,7 +323,8 @@ nothing and fails nothing but itself: it is reported, kept on the connection
 the network's campaign ID (`block_lists_error_campaign`, which the connector
 names on the `ConnectorException`) — and read again at the next read, which
 clears it once it goes through; the source's Blocking pane says "Couldn't
-read EU popunder's block list at 17 Nov 12:00: …" until then. A key refused
+read EU popunder's block list at 17 Nov 12:00: …" until then, while the API
+stays connected — disconnected, nothing reads it again. A key refused
 there fails the connection as anywhere else. Each turn then queues
 RateGuru's own blocks for the running campaigns they are missing from
 (`QueueMissingTrafficBlocksAction`, "Blocking"), so a campaign that has just

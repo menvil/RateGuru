@@ -194,7 +194,7 @@ zones and the lines of Logs → Blocks say the same: a batch some campaigns
 took and others refused is **Partly done** there. When the last read of
 the campaigns' block lists failed, the pane says whose list, when and why —
 "Couldn't read EU popunder's block list at 17 Nov 12:00: …" — until a read
-goes through. **See
+goes through, and says nothing of it while the API is disconnected. **See
 blocked in Sites & zones** and **Open the blocks log** open the list and
 Logs → Blocks for the source in a new tab. The Blocked segment of Sites & zones
 lists every block in force, whatever the period: one that sent no click in it
