@@ -1087,6 +1087,28 @@ it('shows sign-ups and confirmation by the dimension chosen, ten rows and the re
         ->assertSet('minClicks', 0);
 });
 
+it('splits the sign-ups of a network with no zones by site when split by zone, as Sites & zones lists it', function () {
+    $signedUp = ['source_id' => $this->source->id, 'zone_ref' => null, 'arrived_at' => '2026-11-16 10:00:00', 'network_day' => '2026-11-16', 'signup_at' => '2026-11-16 10:05:00', 'signup_method' => 'email', 'account_at' => '2026-11-16 10:08:00', 'signup_after_seconds' => 300, 'account_after_seconds' => 480];
+    TrafficVisit::factory()->count(2)->create([...$signedUp, 'site_ref' => '3567733']);
+    TrafficVisit::factory()->create([...$signedUp, 'site_ref' => '5230973']);
+    // A zone the network does name stays a zone.
+    TrafficVisit::factory()->create([...$signedUp, 'site_ref' => '5230973', 'zone_ref' => '70001']);
+
+    $card = Livewire::withQueryParams(['signups' => 'zone'])->test(TrafficSourcesPage::class)->call('load')
+        ->assertSee('site 3567733')
+        ->assertSee('no zones, by site')
+        ->assertDontSee('No ID')
+        ->viewData('signups');
+
+    // The biggest first; the two of one sign-up each in whichever order the database puts a missing zone.
+    $rows = collect($card['rows'])->keyBy('label');
+    expect($card['rows'][0]['label'])->toBe('site 3567733')
+        ->and($rows->keys()->all())->toEqualCanonicalizing(['site 3567733', 'site 5230973', 'zone 70001'])
+        ->and($rows['site 3567733'])->toMatchArray(['sub' => 'PopAds main · no zones, by site', 'mono' => true, 'find' => ['source' => $this->source->id, 'level' => 'site', 'ref' => '3567733']])
+        ->and($rows['zone 70001'])->toMatchArray(['sub' => 'PopAds main', 'find' => ['source' => $this->source->id, 'level' => 'zone', 'ref' => '70001']])
+        ->and($card['total']->signedUp)->toBe(4);
+});
+
 it('keeps the sign-ups dimension in the address, and splits by method and by where they signed up', function () {
     TrafficVisit::factory()->create(['source_id' => $this->source->id, 'arrived_at' => '2026-11-16 10:00:00', 'network_day' => '2026-11-16', 'signup_at' => '2026-11-16 10:05:00', 'signup_method' => 'facebook', 'signup_place' => 'feed', 'account_at' => '2026-11-16 10:05:00']);
 

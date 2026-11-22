@@ -310,20 +310,26 @@ final class TrafficSourcesView
                 $keys = $group['keys'];
                 $source = isset($keys['source_id']) ? $sources->firstWhere('id', (int) $keys['source_id']) : null;
                 $ref = $keys[$dimension->columns()[0]] ?? null;
+                // A network with no zones (PopAds) splits by site, as Sites & zones lists it.
+                $bySite = $dimension === TrafficDimension::Zone && ($ref === null || $ref === '') && (string) ($keys['site_ref'] ?? '') !== '';
+                $level = $bySite ? TrafficDimension::Site : $dimension;
+                $ref = $bySite ? $keys['site_ref'] : $ref;
+                $name = $source->name ?? 'Source #'.($keys['source_id'] ?? '');
 
                 return [
                     'key' => md5((string) json_encode($keys)),
                     // A campaign, site or zone is the ad networks' own: unpaid traffic has none, and is one row.
-                    'label' => $byRef && ($keys['source_id'] ?? null) === null ? 'Unpaid traffic' : $this->nodeLabel($dimension, $keys, $labels),
+                    'label' => $byRef && ($keys['source_id'] ?? null) === null ? 'Unpaid traffic' : $this->nodeLabel($level, $keys, $labels),
                     'sub' => match (true) {
                         $dimension === TrafficDimension::Source => ($keys['source_id'] ?? null) === null ? 'Unpaid' : TrafficChannel::tryFrom((string) ($keys['channel'] ?? ''))?->label(),
-                        $byRef && ($keys['source_id'] ?? null) !== null => $source->name ?? 'Source #'.$keys['source_id'],
+                        $bySite => $name.' · no zones, by site',
+                        $byRef && ($keys['source_id'] ?? null) !== null => $name,
                         default => null,
                     },
                     'mono' => $dimension === TrafficDimension::Site || $dimension === TrafficDimension::Zone,
                     // A network's site or zone opens in Sites & zones, where it is blocked.
-                    'find' => in_array($dimension, [TrafficDimension::Site, TrafficDimension::Zone], true) && $source?->type === TrafficSourceType::Network && $ref !== null && $ref !== ''
-                        ? ['source' => (int) $source->id, 'level' => $dimension->value, 'ref' => (string) $ref]
+                    'find' => in_array($level, [TrafficDimension::Site, TrafficDimension::Zone], true) && $source?->type === TrafficSourceType::Network && $ref !== null && $ref !== ''
+                        ? ['source' => (int) $source->id, 'level' => $level->value, 'ref' => (string) $ref]
                         : null,
                     'figures' => $group['figures'],
                 ];

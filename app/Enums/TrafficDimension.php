@@ -41,6 +41,18 @@ enum TrafficDimension: string
         };
     }
 
+    /**
+     * The columns Sign-ups and confirmation groups on: a level's own, but a
+     * zone with its site too — a network with no zones (PopAds) splits by
+     * site instead of putting every sign-up in one row with no zone.
+     *
+     * @return list<string>
+     */
+    public function signupColumns(): array
+    {
+        return $this === self::Zone ? ['zone_ref', 'site_ref', 'source_id'] : $this->columns();
+    }
+
     public function label(): string
     {
         return match ($this) {
