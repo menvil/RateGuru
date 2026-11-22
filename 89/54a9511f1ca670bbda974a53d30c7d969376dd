@@ -1,0 +1,33 @@
+app/Enums/TrafficActor.php
+  s_4b9dc6ab6b25d3::t_484ce748b5f840 5-9
+app/Console/Commands/TrafficBlockLosersCommand.php
+  s_4b9dc6ab6b25d3::t_8b36173d3d9013 69
+  s_4b9dc6ab6b25d3::t_086d3339a62952 33-34
+app/Actions/Traffic/ReadTrafficBlockListsAction.php
+  s_4b9dc6ab6b25d3::t_b40b7b2ec2e6b7 128
+  s_4b9dc6ab6b25d3::t_09a87aad0eabcd 125-127,129
+  s_4b9dc6ab6b25d3::t_dee3aab4c65a0e 279-281,284,286,289,294,296,302,312-315,324-325,328-335,337-351
+  s_4b9dc6ab6b25d3::t_45f477bb064c57 50-52
+  s_4b9dc6ab6b25d3::t_49e94e9b5225f8 94
+  s_4b9dc6ab6b25d3::t_96aadb8a2f0b26 41-45
+app/Queries/Traffic/TrafficBlocksQuery.php
+  s_4b9dc6ab6b25d3::t_24dbb902ada8f4 24-25
+  s_4b9dc6ab6b25d3::t_5f1deae7a81fdd 33
+  s_4b9dc6ab6b25d3::t_8f97d9489b6584 102-105,115-120,122
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "8954a9511f1ca670bbda974a53d30c7d969376dd",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
