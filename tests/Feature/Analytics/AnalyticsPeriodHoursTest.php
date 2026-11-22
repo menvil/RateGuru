@@ -662,6 +662,8 @@ it('counts the emails of an account’s plays gone when the account is deleted',
     $this->travelTo('2026-11-12 12:00:00');
     countPeriodHours();
 
+    expect(hoursFunnel($period)[$period->id][$version->id]->emailed)->toBe(1);
+
     app(AnonymizeUserAccountAction::class)->execute($member);
 
     expect(markedPeriodHours())->toBe(['2026-11-01 10:00:00'])
