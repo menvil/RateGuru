@@ -5,7 +5,9 @@ namespace App\Console\Commands;
 use App\Actions\Analytics\RefreshAnalyticsPeriodHoursAction;
 use App\Actions\Analytics\RefreshAnalyticsVisitsAction;
 use App\Actions\Traffic\CopyCreditedKeysAction;
+use Closure;
 use Illuminate\Console\Command;
+use Throwable;
 
 /**
  * Brings the rows Growth → Analytics reads up to date with the visits
@@ -36,11 +38,37 @@ final class AnalyticsRefreshVisitsCommand extends Command
         }
 
         $deadline = microtime(true) + $seconds;
-        $credits->handle();
-        $hours = $periodHours->handle($deadline, $recheck);
+        $hours = 0;
+        // Each step before the visits on its own: one that fails is reported, and the visits every tab reads are still brought up to date.
+        $ran = [
+            self::aside(fn () => $credits->handle()),
+            self::aside(function () use ($periodHours, $deadline, $recheck, &$hours): void {
+                $hours = $periodHours->handle($deadline, $recheck);
+            }),
+        ];
         $done = $refresh->handle($deadline, $recheck);
         $this->info("Counted {$hours} hours of assignments. Read {$done['days']} days, wrote {$done['written']} rows".($done['filled'] ? '.' : '; still filling the earlier days.'));
 
+        if (in_array(false, $ran, true)) {
+            $this->error('A step before the visits failed and was reported; the visits were brought up to date.');
+
+            return self::FAILURE;
+        }
+
         return self::SUCCESS;
+    }
+
+    /** Runs a step, a failure of it reported rather than thrown: whether it ran through. */
+    private static function aside(Closure $step): bool
+    {
+        try {
+            $step();
+
+            return true;
+        } catch (Throwable $failure) {
+            report($failure);
+
+            return false;
+        }
     }
 }

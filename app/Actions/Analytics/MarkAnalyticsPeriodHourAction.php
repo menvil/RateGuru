@@ -63,7 +63,8 @@ final class MarkAnalyticsPeriodHourAction
     /**
      * Marks the hours of the assignments given, each hour once — before what
      * is deleted of them goes, while the assignments are still there to tell
-     * their hours.
+     * their hours — the earliest first, so two callers marking some of the
+     * same hours lock them in one order and never wait on each other.
      *
      * @param  Builder<GameAssignment>  $assignments
      */
@@ -75,6 +76,8 @@ final class MarkAnalyticsPeriodHourAction
             $hour = PeriodFunnelHours::hourOf(CarbonImmutable::parse((string) $assignedAt, 'UTC'));
             $hours[$hour->toDateTimeString()] = $hour;
         }
+
+        ksort($hours);
 
         foreach ($hours as $hour) {
             $this->handle($hour);

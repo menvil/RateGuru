@@ -71,7 +71,8 @@ final class GameEventRecorder
         ])->save();
 
         if ($type === GameEventType::ShareClicked && $attempt?->traffic_visit_id !== null) {
-            $day = TrafficVisit::query()->whereKey($attempt->traffic_visit_id)->value('network_day');
+            // The visit locked before its day is marked, the order every writer of a visit's marks takes.
+            $day = TrafficVisit::query()->whereKey($attempt->traffic_visit_id)->lockForUpdate()->value('network_day');
             $this->analytics->handle($day === null ? null : (string) $day);
         }
 

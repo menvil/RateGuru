@@ -12,6 +12,7 @@ use App\Enums\GameAudience;
 use App\Enums\GameEventType;
 use App\Enums\TrafficEvent;
 use App\Enums\UserActivity;
+use App\Models\AccountAttribution;
 use App\Models\AnalyticsDirtyDay;
 use App\Models\AnalyticsPerson;
 use App\Models\AnalyticsRollupState;
@@ -24,6 +25,7 @@ use App\Support\Analytics\AnalyticsVisitRow;
 use App\Support\Games\Play\GameVisitor;
 use Carbon\CarbonImmutable;
 use Illuminate\Console\Scheduling\Schedule;
+use Illuminate\Contracts\Debug\ExceptionHandler;
 
 /*
  * Analytics' own rows of the visits (analytics_visits): a day refreshed
@@ -330,6 +332,25 @@ it('refuses a recheck or a time it can’t read, before writing anything', funct
     $this->artisan('analytics:refresh-visits')->assertSuccessful();
 
     expect(AnalyticsVisit::query()->count())->toBe(1);
+});
+
+it('still brings the visits up to date when a step before them fails, reporting it and failing the run', function () {
+    $visit = analyticsVisit('ann', ['network_day' => '2026-11-18']);
+    // An attribution left without its copies, whose copying fails: the hours and the visits are read all the same.
+    AccountAttribution::factory()->create(['credited_visit_id' => $visit->id])->forceFill(['credited_source_key' => null, 'credited_device' => null])->saveQuietly();
+    AccountAttribution::saving(fn () => throw new RuntimeException('copying failed'));
+    $reported = [];
+    app(ExceptionHandler::class)->reportable(function (RuntimeException $failure) use (&$reported): bool {
+        $reported[] = $failure->getMessage();
+
+        return false;
+    });
+
+    $this->artisan('analytics:refresh-visits')->assertFailed();
+
+    expect($reported)->toBe(['copying failed'])
+        ->and(AnalyticsVisit::query()->count())->toBe(1)
+        ->and(AnalyticsRollupState::current()->period_hours_through)->not->toBeNull();
 });
 
 it('keeps the attempts started on a visit and their share clicks on its row, and marks the day of a visit days old an attempt starts or shares on', function () {
