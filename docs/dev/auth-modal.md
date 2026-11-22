@@ -125,10 +125,12 @@ checks, in this order:
 1. a hidden field people never fill in (`<x-auth.registration-guard>`);
 2. how long the form took: a stamp signed for this session, at least two
    seconds old, kept when the form is drawn again after an error;
-3. how many accounts the network created: five an hour and fifteen a day per
-   IPv4 address or IPv6 `/64`. Only accounts actually created count, so a
-   typo spends nothing, and a sign-up that loses its address to another one
-   gives its count back, unless it is the only one counted in that window.
+3. about how many accounts the network created: five an hour and fifteen a
+   day per IPv4 address or IPv6 `/64`. A typo spends nothing, and a sign-up
+   that loses its address to another one gives its count back, unless it is
+   the only one counted in that window. The count is close rather than exact:
+   a database failure just before the insert keeps its count, and a release
+   landing just after a window ended takes one from the next.
 
 `REGISTRATION_SCREENING_MODE` says what happens to what they find:
 
