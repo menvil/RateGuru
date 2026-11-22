@@ -65,6 +65,7 @@ No locale URL prefix (`/en/`, `/ru/`) is used in Phase 46. That is reserved for 
 - `enabledOrDefault(?string $locale): string` — a read value when enabled, otherwise English (never used for writes)
 - `fromAcceptLanguage(?string $header): ?string` — the enabled locale a browser asks for, or `null`
 - `label()`, `nativeLabel()`, `flag()`
+- `direction(?string $locale = null): string` — `'ltr'` or `'rtl'`, read from `config/locales.php`; the language being served when none is named (see *Text direction* below)
 
 ## SetLocale middleware
 
@@ -140,6 +141,54 @@ User-generated content is **not auto-translated** in Phase 46:
 - `users.bio`
 
 Auto-translation requires external API integration, a UX for original/translated toggle, and quality control — all out of scope for Phase 46.
+
+## Text direction
+
+A language is read left to right unless its row in `config/locales.php` declares `'direction' => 'rtl'` (`config/locales.php` is the list). `LocaleManager::direction()` reads that key and nothing else: no code keeps a list of right-to-left languages of its own, and `SupportedLocaleListTest` refuses one — a map of directions by language code included.
+
+What follows from the direction:
+
+- **The root element.** `layouts.app` and `layouts.guest` — so every public page, the not-found page included — put `dir` beside `lang` on `<html>`. The HTML email layout (`resources/views/vendor/mail/html/layout.blade.php`) puts it on `<html>` and `<body>`, the contact message on `<html>`. The rest of the layout follows `dir` by itself, because the templates name sides only as start and end (below).
+- **Emails.** Mail clients know little logical CSS and many keep only what is inlined into each element, so an email in a right-to-left language carries a small block that turns the mail theme's left-aligned body text and the panel's left edge by naming the sides; it is inlined with the theme. The header and footer stay centred.
+- **The administration** stays English and left to right (`SetAdminLocale`).
+- **Error pages.** The site's not-found page is drawn in `layouts.app` and takes the visitor's direction once their language is known. A page found missing before that — a route-model binding that finds nothing, since `SubstituteBindings` runs before `SetLocale` — and Laravel's own error pages (500, 503, …, `lang="en"`) are English, and left to right.
+- **What users write** — titles, descriptions, comments — is laid out in the page's direction; a run in another script inside it is left to the Unicode bidirectional algorithm.
+
+### The rule for templates, styles and scripts
+
+The public site names sides only as start and end: every Blade view outside `filament/`, `components/admin/`, `livewire/admin/` and `dev/`, `resources/css/app.css` and `theme.css`, and `resources/js`.
+
+| instead of | write |
+|---|---|
+| `ml-*` / `mr-*`, `pl-*` / `pr-*` | `ms-*` / `me-*`, `ps-*` / `pe-*` |
+| `left-*` / `right-*` | `inset-s-*` / `inset-e-*` (`inset-x-*` for both) |
+| `text-left` / `text-right` | `text-start` / `text-end` |
+| `rounded-l` / `rounded-r`, `rounded-tl` / `-tr` / `-bl` / `-br` | `rounded-s` / `rounded-e`, `rounded-ss` / `-se` / `-es` / `-ee` |
+| `border-l` / `border-r` | `border-s` / `border-e` |
+| `float-left` / `float-right` | `float-start` / `float-end` |
+| CSS `margin-left`, `padding-right`, `left`, `right`, `text-align: left` | `margin-inline-start`, `padding-inline-end`, `inset-inline-start`, `inset-inline-end`, `text-align: start` |
+
+On a page read left to right each logical form is drawn exactly as the physical one, so such a page does not change by a pixel. Tailwind 4's `space-x-*` and `divide-x-*` are logical already.
+
+Where there is no logical form — a slide (`translate-x-*`), a transform origin — write it once for each direction: `ltr:-translate-x-full rtl:translate-x-full`, `ltr:origin-top-right rtl:origin-top-left`. Script that swaps such classes swaps both (the post drawer does). Centring with `left-1/2 -translate-x-1/2` lands in the middle either way.
+
+`PhysicalDirectionGuardTest` enforces this and holds the commented allow-lists of what stays physical on purpose. It also stops at public script that reads a horizontal position (`clientX`, `scrollLeft`, …) or hears `ArrowLeft` / `ArrowRight`: on a page read right to left the left arrow means *next*, so such code has to follow the page's direction and say how in the guard's allow-list. None does today.
+
+### Icons and arrows
+
+A sign that points along the line — on, back, reply, undo, a trend over time — turns round on a right-to-left page; up, down and side-less icons (search, a heart, a tick) never do. `<x-ui.icon>` marks `arrow-right`, `reply`, `restore` and `trending` with `rg-mirror-rtl` by itself; any other drawing that points along the line — the pagers' chevrons, a `→` written as text in the game's buttons — carries the class too. `[dir='rtl'] .rg-mirror-rtl` flips it, on a right-to-left page only.
+
+### The game
+
+The pair, the progress dots and the Next button's timer follow the line: on a right-to-left page the first option is drawn on the right and the timer fills from the right. A pick is sent as the option's own position, never as a side, so what is recorded is the same whichever way the pair is drawn.
+
+### Fonts
+
+Nothing is downloaded for Arabic, Urdu or Hebrew. `:root:lang(ar)`, `:lang(ur)` and `:lang(he)` in `app.css` put the system's own faces after Inter in `--font-sans` — Noto on Android and Linux, Geeza Pro or Arial Hebrew on Apple systems, Segoe UI or Tahoma on Windows — so Latin keeps the site's face and each Arabic or Hebrew letter falls through to a face that has it. Urdu asks for Nastaliq first (Noto Nastaliq Urdu, Jameel Noori Nastaleeq, Urdu Typesetting), which stands far taller than Latin: an Urdu page raises the leading of the page, of every Tailwind text size and of the game's headlines.
+
+### Adding a language read right to left
+
+Declare it in `config/locales.php` with `'direction' => 'rtl'`; the layout needs nothing more. If Inter and the stacks above do not cover its script, add a `:lang()` stack of system faces to `app.css`.
 
 ## Adding a new locale
 
