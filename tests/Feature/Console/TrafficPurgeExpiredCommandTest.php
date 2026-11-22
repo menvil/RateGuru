@@ -3,6 +3,7 @@
 use App\Models\AnalyticsCell;
 use App\Models\AnalyticsCellAccount;
 use App\Models\AnalyticsDirtyDay;
+use App\Models\AnalyticsFirstPostCell;
 use App\Models\AnalyticsGameDay;
 use App\Models\AnalyticsPid;
 use App\Models\AnalyticsVisit;
@@ -155,4 +156,28 @@ it('keeps the newest chance working-outs, and one begun while it purges', functi
     $this->artisan('traffic:purge-expired')->assertSuccessful()->expectsOutput('Deleted 2 chance runs.');
 
     expect(TrafficChanceRun::query()->orderBy('id')->pluck('id')->all())->toBe([$runs[2], $runs[3], $begun]);
+});
+
+it('marks the days of the visits credited with an account in the sessions whose opened posts go, and deletes their first posts’ cells with their days’ visits', function () {
+    $day = fn (int $daysAgo): array => ['arrived_at' => now()->subDays($daysAgo), 'network_day' => now()->subDays($daysAgo)->toDateString()];
+    // A session whose first post goes, credited on a later day; another whose post goes only voted on, never opened.
+    $entry = TrafficVisit::factory()->create($day(92));
+    $credited = TrafficVisit::factory()->create([...$day(85), 'entry_visit_id' => $entry->id, 'account_at' => now()->subDays(85)]);
+    $entry->forceFill(['entry_visit_id' => $entry->id])->save();
+    $voted = TrafficVisit::factory()->create($day(93));
+    $votedCredited = TrafficVisit::factory()->create([...$day(80), 'entry_visit_id' => $voted->id, 'account_at' => now()->subDays(80)]);
+    $voted->forceFill(['entry_visit_id' => $voted->id])->save();
+    TrafficVisitPost::query()->forceCreate(['visit_id' => $entry->id, 'post_id' => 11, 'views' => 1, 'first_at' => now()->subDays(91)]);
+    TrafficVisitPost::query()->forceCreate(['visit_id' => $voted->id, 'post_id' => 12, 'views' => 0, 'voted' => true, 'first_at' => now()->subDays(91)]);
+    AnalyticsFirstPostCell::query()->insert([
+        ['network_day' => '2025-10-01', 'device' => 'mobile', 'post_id' => 11],
+        ['network_day' => '2026-11-01', 'device' => 'mobile', 'post_id' => null],
+    ]);
+
+    $this->artisan('traffic:purge-expired', ['--chunk' => 1])->assertSuccessful()->expectsOutput('Deleted 1 cells of first posts.');
+
+    expect(AnalyticsDirtyDay::query()->pluck('day')->all())
+        ->toContain(substr((string) $credited->network_day, 0, 10))
+        ->not->toContain(substr((string) $votedCredited->network_day, 0, 10))
+        ->and(AnalyticsFirstPostCell::query()->pluck('network_day')->all())->toBe(['2026-11-01']);
 });

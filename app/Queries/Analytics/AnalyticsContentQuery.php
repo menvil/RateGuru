@@ -4,6 +4,7 @@ namespace App\Queries\Analytics;
 
 use App\Contracts\Persistence\RawSqlPersistenceBoundary;
 use App\Enums\TrafficDevice;
+use App\Models\AnalyticsFirstPostCell;
 use App\Models\AnalyticsPostCell;
 use App\Models\AnalyticsVisit;
 use App\Models\Post;
@@ -27,7 +28,11 @@ use Illuminate\Database\Eloquent\Collection;
  * either way; and where the gate allows the cells of each day's people, a
  * read that fits them counts from them instead: the people who opened a post
  * and voted on one as the union of the cells' sets (AnalyticsVisitsQuery::cellsFor()),
- * each post's people from its own cells (analytics_post_cells).
+ * each post's people from its own cells (analytics_post_cells). The post a
+ * credited visit's session opened first is kept on its row
+ * (AnalyticsVisitRow::sessionPost()), and its account in the cells of its
+ * day by that post (analytics_first_post_cells): a session is read only
+ * while the visits are.
  *
  *  - figures()       how often the filter's visits opened a post, the
  *                    browsers that opened one, of them those who voted on
@@ -51,6 +56,9 @@ final class AnalyticsContentQuery implements RawSqlPersistenceBoundary
     /** What figures() reads of the cells, the same figures counted from each visit's posts (AnalyticsVisitRow::postFigures()). */
     private const string CELL_METRICS = 'COALESCE(SUM(post_views), 0) AS views, COALESCE(rb_cardinality(rb_or_agg(post_viewers::roaringbitmap)), 0) AS viewers, '
         .'COALESCE(rb_cardinality(rb_or_agg(post_voters::roaringbitmap)), 0) AS voters, COALESCE(SUM(post_shares), 0) AS shares';
+
+    /** The accounts of first post cells, each browser once: the size of the union of their sets. */
+    private const string CELL_ACCOUNTS = 'COALESCE(rb_cardinality(rb_or_agg(accounts::roaringbitmap)), 0) AS accounts';
 
     public function __construct(
         private readonly AnalyticsRollupGate $gate,
@@ -191,6 +199,20 @@ final class AnalyticsContentQuery implements RawSqlPersistenceBoundary
             return [];
         }
 
+        // Each credited visit's row keeps the post its session opened first: counted from the cells, else from those rows.
+        if ($this->gate->reads()) {
+            $cells = $this->firstPostCells($period, $device);
+            $read = $cells !== null
+                ? $cells->whereIn('post_id', $postIds)->groupBy('post_id')->select('post_id')->selectRaw(self::CELL_ACCOUNTS, [])
+                : $this->credited($period, $device)
+                    ->whereIn('credited.session_post_id', $postIds)
+                    ->groupBy('credited.session_post_id')
+                    ->select('credited.session_post_id as post_id')
+                    ->selectRaw('COUNT(DISTINCT '.$this->person('credited').') AS accounts', []);
+
+            return $read->toBase()->get()->mapWithKeys(fn (object $row): array => [(int) $row->post_id => (int) $row->accounts])->all();
+        }
+
         $earlier = TrafficVisitPost::query()
             ->from('traffic_visit_posts as earlier')
             ->join($this->table().' as earlier_visit', 'earlier_visit.id', '=', 'earlier.visit_id')
@@ -223,6 +245,15 @@ final class AnalyticsContentQuery implements RawSqlPersistenceBoundary
     /** The accounts credited to a visit of the days and the device given whose session opened no post at all: different browsers. */
     public function unattributedAccounts(AnalyticsPeriod $period, ?TrafficDevice $device): int
     {
+        if ($this->gate->reads()) {
+            $cells = $this->firstPostCells($period, $device);
+            $read = $cells !== null
+                ? $cells->whereNull('post_id')->selectRaw(self::CELL_ACCOUNTS, [])
+                : $this->credited($period, $device)->whereNull('credited.session_post_id')->selectRaw('COUNT(DISTINCT '.$this->person('credited').') AS accounts', []);
+
+            return (int) ($read->toBase()->value('accounts') ?? 0);
+        }
+
         $opened = TrafficVisitPost::query()
             ->from('traffic_visit_posts as seen')
             ->join($this->table().' as session_visit', 'session_visit.id', '=', 'seen.visit_id')
@@ -304,6 +335,26 @@ final class AnalyticsContentQuery implements RawSqlPersistenceBoundary
         }
 
         return $query;
+    }
+
+    /**
+     * The cells of the accounts of the days and the device given by the post
+     * their session opened first, over whole days where the gate allows the
+     * cells; none when the accounts are read from the rows.
+     *
+     * @return Builder<AnalyticsFirstPostCell>|null
+     */
+    private function firstPostCells(AnalyticsPeriod $period, ?TrafficDevice $device): ?Builder
+    {
+        $filter = new AnalyticsFilter($period, $device);
+
+        if (! $this->gate->readsCells() || ! $filter->countsWholeDays()) {
+            return null;
+        }
+
+        return AnalyticsFirstPostCell::query()
+            ->whereBetween('network_day', [$filter->fromDay(), $filter->toDay()])
+            ->when($device !== null, fn (Builder $query) => $query->where('device', $device));
     }
 
     /**

@@ -315,6 +315,28 @@ Geo 27 to 1–2; what is left is mostly the games' own reads. Writing 181 days
 of cells at every level takes about a minute; they take 300 MB (12 MB of
 accounts), the numbers of 3.3 million browsers 300 MB.
 
+What was played on a visit is on its row too — the attempts started on it,
+the clicks on their results' share buttons and the attempts with such a click
+(`attempts`, `share_clicks`, `shared_results`; an attempt is started on one
+visit at most, so they add up to the different attempts) — and summed by the
+cells, so the Overview's attempts and the result shares of the Overview and
+Site engagement (`attempts()`, `resultShares()`) read an attempt or an event
+only while the visits are read. A visit's day is marked when an attempt starts
+on it or a share is clicked on one of its attempts (`StartGameAttemptAction`,
+`GameEventRecorder`), and when its attempts or their share clicks go
+(`games:purge-expired`, an unconfirmed account's purge). A visit credited with
+an account keeps the post its session opened first (`session_post_id`, read
+from every visit sharing its entry; none when the session opened none), and
+the cells keep each day's accounts by device and that post
+(`analytics_first_post_cells`), so Site engagement's accounts per first post
+and those whose session opened no post (`firstPostAccounts()`,
+`unattributedAccounts()`) read no session while the rows are read: a post
+first opened on any visit of a session marks the days of the session's
+credited visits (`RecordVisitPostAction`), and so does the purge of posts after
+90 days. Measured on the same 5.2 million visits, nothing kept from an earlier
+read: the Overview of 30 days 5–6 seconds to about half a second, of 90 days 3
+to under 1, Site engagement of 30 days 3.5–7 to about a third of a second.
+
 #### The sums of a game's days
 
 A game's figures — its traffic by type, source, version and device, its
@@ -565,6 +587,7 @@ action. A moderator sees neither.
 | A browser's number (`analytics_pids`) | until no row of Analytics names it, but the highest, which the next number counts on from |
 | The sums of each day's games' visits (`analytics_game_days`) | as the cells |
 | A tab's figures and the filter options, per administrator (cache) | 10 minutes (`analytics.read_cache_minutes`), or until Refresh, a segment saved, deleted or restored, or a tracking link saved |
+| The accounts of each day by the post their session opened first (`analytics_first_post_cells`) | as the cells |
 
 The privacy page is the owner's to update before Record site visits is switched
 on (docs/admin/traffic-sources.md, "Privacy page").

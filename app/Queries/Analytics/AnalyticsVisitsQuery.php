@@ -62,7 +62,8 @@ use InvalidArgumentException;
  *                    referrer names, and the paid clicks that were crawlers
  *                    or whose page never ran, with their spend;
  *  - attempts()      the attempts played on the period's visits;
- *  - resultShares()  the clicks on a result's share buttons, and the results;
+ *  - resultShares()  the clicks on a result's share buttons, and the results
+ *                    — both kept on each visit's row and summed by the cells;
  *  - top()           the values a dimension's visits came by, the most
  *                    first, with nothing counted — those beginning as asked,
  *                    when asked: what a filter offers;
@@ -385,27 +386,44 @@ final class AnalyticsVisitsQuery implements RawSqlPersistenceBoundary
             ->first();
     }
 
-    /** How many attempts were started on the visits the filter admits: a game's starters play some more than once. */
+    /**
+     * How many attempts were started on the visits the filter admits: a
+     * game's starters play some more than once. Each visit's row keeps its
+     * attempts, and each cell their sum: the attempts themselves are read
+     * only while the visits are.
+     */
     public function attempts(AnalyticsFilter $filter): int
     {
-        return GameAttempt::query()->whereIn('traffic_visit_id', $this->visitIds($filter))->count();
+        if (! $this->gate->reads()) {
+            return GameAttempt::query()->whereIn('traffic_visit_id', $this->visitIds($filter))->count();
+        }
+
+        return (int) $this->rows($filter, $this->level($filter))->sum('attempts');
     }
 
     /**
      * The clicks on a result's share buttons, of the attempts started on the
      * visits the filter admits, and how many results they shared — different
-     * attempts with a click.
+     * attempts with a click. Each visit's row keeps both for its attempts,
+     * and each cell their sums — an attempt is started on one visit at most,
+     * so the visits' results add up to the different attempts: the events
+     * themselves are read only while the visits are.
      *
      * @return array{clicks: int, results: int}
      */
     public function resultShares(AnalyticsFilter $filter): array
     {
-        $row = (array) GameEvent::query()
-            ->where('type', GameEventType::ShareClicked->value)
-            ->whereIn('attempt_id', GameAttempt::query()->whereIn('traffic_visit_id', $this->visitIds($filter))->select('id'))
-            ->selectRaw('COUNT(*) AS clicks, COUNT(DISTINCT attempt_id) AS results', [])
-            ->toBase()
-            ->first();
+        if ($this->gate->reads()) {
+            $read = $this->rows($filter, $this->level($filter))
+                ->selectRaw('COALESCE(SUM(share_clicks), 0) AS clicks, COALESCE(SUM(shared_results), 0) AS results', []);
+        } else {
+            $read = GameEvent::query()
+                ->where('type', GameEventType::ShareClicked->value)
+                ->whereIn('attempt_id', GameAttempt::query()->whereIn('traffic_visit_id', $this->visitIds($filter))->select('id'))
+                ->selectRaw('COUNT(*) AS clicks, COUNT(DISTINCT attempt_id) AS results', []);
+        }
+
+        $row = (array) $read->toBase()->first();
 
         return ['clicks' => (int) ($row['clicks'] ?? 0), 'results' => (int) ($row['results'] ?? 0)];
     }

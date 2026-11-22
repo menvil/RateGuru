@@ -179,6 +179,14 @@ The reviewed boundaries are:
   call's status, and the UTC hour or day a call falls in, written per engine;
   and, per provider and model, the calls inside a period counted beside the
   latest `completed_at` of all its calls.
+- `AnalyticsVisitsQuery` and `AnalyticsContentQuery` again, for what each
+  visit's row keeps of the attempts started on it and, credited with an
+  account, of the post its session opened first: the sums of its attempts,
+  share clicks and shared results over the rows or the cells, and the
+  different browsers of the accounts per first post — `COUNT(DISTINCT
+  visitor_key)` over the credited rows, or the size of the union of the
+  roaring bitmaps `AnalyticsCellsQuery` builds of a day's credited visits by
+  device and first post (`analytics_first_post_cells`, `rb_build_agg(pid)`).
 
 Literal LIKE searches use `LikePattern` and an explicit SQL `ESCAPE` clause so
 user-supplied `%` and `_` characters are not interpreted as wildcards.

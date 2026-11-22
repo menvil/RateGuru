@@ -628,3 +628,48 @@ it('counts the people of each set of tags the sessions of the campaigns asked fo
         ])
         ->and(analyticsQuery()->among(analyticsFilter(), AnalyticsDimension::Tags, []))->toBe([]);
 });
+
+it('counts the attempts and result shares of only the visits the filter admits whose page ran, whatever device, source or moment narrows them', function () {
+    $version = GameVersion::factory()->create();
+    $game = ['game_id' => $version->game_id];
+    $attempt = fn (TrafficVisit $visit): GameAttempt => GameAttempt::factory()->create(['version_id' => $version->id, 'traffic_visit_id' => $visit->id, 'visitor_hash' => $visit->visitor_hash]);
+    $share = fn (?GameAttempt $played) => (new GameEvent)->forceFill([
+        'game_id' => $version->game_id, 'version_id' => $version->id, 'attempt_id' => $played?->id, 'audience' => GameAudience::Anonymous,
+        'visitor_hash' => hash('sha256', 'guest'), 'type' => GameEventType::ShareClicked, 'provider' => 'reddit', 'occurred_at' => now(),
+    ])->save();
+
+    $ann = analyticsVisit('ann', [...$game, 'source_key' => 'reddit:organic']);
+    $bob = analyticsVisit('bob', [...$game, 'device' => TrafficDevice::Desktop]);
+    // Today, and yesterday before and after this moment of the day.
+    $today = analyticsVisit('cat', [...$game, 'network_day' => '2026-11-18', 'arrived_at' => '2026-11-18 09:00:00']);
+    $earlier = analyticsVisit('dan', [...$game, 'network_day' => '2026-11-17', 'arrived_at' => '2026-11-17 09:00:00']);
+    $later = analyticsVisit('eve', [...$game, 'network_day' => '2026-11-17', 'arrived_at' => '2026-11-17 13:00:00']);
+    // A page that never ran plays nothing the figures count.
+    $unopened = analyticsVisit('fay', [...$game, 'opened_at' => null]);
+
+    $played = $attempt($ann);
+    $share($played);
+    $share($played);
+    $share($attempt($ann));
+    $attempt($ann);
+    $share($attempt($bob));
+    $attempt($today);
+    $share($attempt($earlier));
+    $share($attempt($later));
+    $share($attempt($unopened));
+    // A share with no attempt, and an attempt on no visit, belong to no visit.
+    $share(null);
+    $share(GameAttempt::factory()->create(['version_id' => $version->id, 'traffic_visit_id' => null]));
+
+    expect(analyticsQuery()->attempts(analyticsFilter()))->toBe(7)
+        ->and(analyticsQuery()->resultShares(analyticsFilter()))->toBe(['clicks' => 6, 'results' => 5])
+        ->and(analyticsQuery()->attempts(analyticsFilter(device: TrafficDevice::Desktop)))->toBe(1)
+        ->and(analyticsQuery()->resultShares(analyticsFilter(device: TrafficDevice::Desktop)))->toBe(['clicks' => 1, 'results' => 1])
+        ->and(analyticsQuery()->attempts(analyticsFilter(source: 'reddit:organic')))->toBe(3)
+        ->and(analyticsQuery()->resultShares(analyticsFilter(source: 'reddit:organic')))->toBe(['clicks' => 3, 'results' => 2])
+        ->and(analyticsQuery()->attempts(analyticsFilter('today')))->toBe(1)
+        // Yesterday by this moment of the day: only what arrived before it.
+        ->and(analyticsQuery()->attempts(analyticsFilter('today')->previous()))->toBe(1)
+        ->and(analyticsQuery()->resultShares(analyticsFilter('today')->previous()))->toBe(['clicks' => 1, 'results' => 1])
+        ->and(analyticsQuery()->resultShares(analyticsFilter('yesterday')))->toBe(['clicks' => 2, 'results' => 2]);
+});

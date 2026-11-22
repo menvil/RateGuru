@@ -8,6 +8,7 @@ use App\Enums\UserStatus;
 use App\Enums\VoteType;
 use App\Models\AccountAttribution;
 use App\Models\AccountBrowser;
+use App\Models\AnalyticsDirtyDay;
 use App\Models\Comment;
 use App\Models\CommentVote;
 use App\Models\GameAnswer;
@@ -221,4 +222,24 @@ it('leaves neither the days an account that never confirmed did something nor it
     expect(purgeUnconfirmed($bot))->toBe(UnconfirmedAccountPurgeOutcome::Purged)
         ->and(UserActivityDay::query()->pluck('id')->all())->toBe([$kept->id])
         ->and(AccountAttribution::query()->where('user_id', $bot->id)->exists())->toBeFalse();
+});
+
+it('marks the days of the visits its attempts were played on, and of those whose attempts’ share clicks it made, as Analytics counts both on each visit', function () {
+    $bot = unconfirmedMember();
+    $day = fn (int $daysAgo): array => ['arrived_at' => now()->subDays($daysAgo), 'network_day' => now()->subDays($daysAgo)->toDateString()];
+    $played = TrafficVisit::factory()->create($day(20));
+    $sharedOn = TrafficVisit::factory()->create($day(21));
+    $untouched = TrafficVisit::factory()->create($day(22));
+    GameAttempt::factory()->create(['audience' => GameAudience::Authenticated, 'user_id' => $bot->id, 'visitor_hash' => null, 'traffic_visit_id' => $played->id]);
+    // A guest's play the account shared once signed in, and another the account never touched: both stay.
+    $guest = GameAttempt::factory()->create(['traffic_visit_id' => $sharedOn->id]);
+    GameAttempt::factory()->create(['traffic_visit_id' => $untouched->id]);
+    (new GameEvent)->forceFill(['game_id' => $guest->game_id, 'version_id' => $guest->version_id, 'attempt_id' => $guest->id, 'audience' => GameAudience::Anonymous, 'user_id' => $bot->id, 'type' => GameEventType::ShareClicked, 'occurred_at' => now()])->save();
+
+    expect(purgeUnconfirmed($bot))->toBe(UnconfirmedAccountPurgeOutcome::Purged)
+        ->and(GameAttempt::query()->whereKey($guest->id)->exists())->toBeTrue()
+        ->and(AnalyticsDirtyDay::query()->orderBy('day')->pluck('day')->all())->toBe([
+            substr((string) $sharedOn->network_day, 0, 10),
+            substr((string) $played->network_day, 0, 10),
+        ]);
 });

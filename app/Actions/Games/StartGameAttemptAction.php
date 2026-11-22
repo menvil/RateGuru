@@ -110,10 +110,13 @@ final class StartGameAttemptAction
             ])->save();
 
             if ($visit !== null && $visit->version_id === null && ($visit->game_id === null || (int) $visit->game_id === (int) $game->id)) {
-                // The visit can be a paid click days old: Analytics reads its day again once it shows the version.
-                if (TrafficVisit::query()->whereKey($visit->id)->whereNull('version_id')->update(['game_id' => $game->id, 'version_id' => $version->id]) > 0) {
-                    $this->analytics->handle($visit->network_day);
-                }
+                TrafficVisit::query()->whereKey($visit->id)->whereNull('version_id')->update(['game_id' => $game->id, 'version_id' => $version->id]);
+            }
+
+            // The visit can be a paid click days old: Analytics counts the attempts started on it and the version it shows,
+            // so it reads its day again.
+            if ($visit !== null) {
+                $this->analytics->handle($visit->network_day);
             }
 
             $this->events->record(GameEventType::Started, (int) $game->id, $visitor, attempt: $attempt);

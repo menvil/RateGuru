@@ -17,8 +17,10 @@ use Illuminate\Database\Eloquent\Builder;
  * (AnalyticsCellLevel), each in one pass over the day's rows — GROUPING SETS,
  * each step's people a roaring bitmap built of their numbers, only the visits
  * whose page ran, as on the tabs; and beside them what the paid clicks were,
- * every one, their pages run or not, what the figures leave out. PostgreSQL
- * with the roaringbitmap extension only: the action asks the gate first.
+ * every one, their pages run or not, what the figures leave out; each post's
+ * people of the day; and the day's accounts by the post their session opened
+ * first. PostgreSQL with the roaringbitmap extension only: the action asks
+ * the gate first.
  */
 final class AnalyticsCellsQuery implements RawSqlPersistenceBoundary
 {
@@ -51,6 +53,9 @@ final class AnalyticsCellsQuery implements RawSqlPersistenceBoundary
         'post_rows' => 'COALESCE(SUM(v.post_rows) FILTER (WHERE v.opened), 0)',
         'post_views' => 'COALESCE(SUM(v.post_views) FILTER (WHERE v.opened), 0)',
         'post_shares' => 'COALESCE(SUM(v.post_shares) FILTER (WHERE v.opened), 0)',
+        'attempts' => 'COALESCE(SUM(v.attempts) FILTER (WHERE v.opened), 0)',
+        'share_clicks' => 'COALESCE(SUM(v.share_clicks) FILTER (WHERE v.opened), 0)',
+        'shared_results' => 'COALESCE(SUM(v.shared_results) FILTER (WHERE v.opened), 0)',
         // Every paid click, its page run or not.
         'paid_clicks' => 'COUNT(*) FILTER (WHERE v.source_id IS NOT NULL)',
         'crawlers' => 'COUNT(*) FILTER (WHERE v.source_id IS NOT NULL AND v.crawler)',
@@ -156,6 +161,30 @@ final class AnalyticsCellsQuery implements RawSqlPersistenceBoundary
                 'COUNT(*) FILTER (WHERE s.commented) AS comments',
             ]), [$day])
             ->groupBy('v.device', 's.post_id');
+    }
+
+    /** @return list<string> the columns firstPostCells() selects, in order */
+    public static function firstPostCellColumns(): array
+    {
+        return ['network_day', 'device', 'post_id', 'accounts'];
+    }
+
+    /**
+     * The accounts credited to the day's visits whose page ran, by device and
+     * the post their session opened first — no post for those whose session
+     * opened none — each set the browsers' numbers (firstPostCellColumns()):
+     * what AnalyticsContentQuery::firstPostAccounts() and unattributedAccounts()
+     * read of each credited visit's row.
+     *
+     * @return Builder<AnalyticsVisit>
+     */
+    public function firstPostCells(string $day): Builder
+    {
+        return $this->ofDay($day)
+            ->where('v.opened', true)
+            ->where('v.account', true)
+            ->selectRaw('? AS network_day, v.device, v.session_post_id AS post_id, rb_build_agg(p.pid)::bytea AS accounts', [$day])
+            ->groupBy('v.device', 'v.session_post_id');
     }
 
     /** @return Builder<AnalyticsVisit> the day's rows with each browser's number, through the arrivals as every traffic report reads a day */

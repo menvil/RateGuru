@@ -2,12 +2,17 @@
 
 use App\Actions\Analytics\RefreshAnalyticsDayAction;
 use App\Enums\AnalyticsDimension;
+use App\Enums\GameAudience;
+use App\Enums\GameEventType;
 use App\Enums\TrafficDevice;
 use App\Models\AnalyticsCell;
 use App\Models\AnalyticsCellAccount;
 use App\Models\AnalyticsPid;
 use App\Models\AnalyticsRollupState;
 use App\Models\Game;
+use App\Models\GameAttempt;
+use App\Models\GameEvent;
+use App\Models\GameVersion;
 use App\Models\TrafficSource;
 use App\Models\TrafficVisit;
 use App\Queries\Analytics\AnalyticsContentQuery;
@@ -330,4 +335,47 @@ it('reads the rows, never the cells, once the setting turns them off or before t
     app()->forgetScopedInstances();
 
     expect(app(AnalyticsRollupGate::class)->readsCells())->toBeFalse();
+});
+
+it('reads the attempts, the result shares and the accounts each first post brought from the cells, never from the attempts, their events or the sessions', function () {
+    cellsFixture();
+    $version = GameVersion::factory()->create();
+    $ann = TrafficVisit::query()->where('visitor_hash', hash('sha256', 'ann'))->where('network_day', '2026-11-12')->firstOrFail();
+    $cat = TrafficVisit::query()->where('visitor_hash', hash('sha256', 'cat'))->firstOrFail();
+    $bob = TrafficVisit::query()->where('visitor_hash', hash('sha256', 'bob'))->firstOrFail();
+    $played = GameAttempt::factory()->create(['version_id' => $version->id, 'traffic_visit_id' => $ann->id, 'visitor_hash' => $ann->visitor_hash]);
+    GameAttempt::factory()->create(['version_id' => $version->id, 'traffic_visit_id' => $cat->id, 'visitor_hash' => $cat->visitor_hash]);
+    (new GameEvent)->forceFill([
+        'game_id' => $version->game_id, 'version_id' => $version->id, 'attempt_id' => $played->id, 'audience' => GameAudience::Anonymous,
+        'visitor_hash' => $ann->visitor_hash, 'type' => GameEventType::ShareClicked, 'provider' => 'reddit', 'occurred_at' => now(),
+    ])->save();
+    // cat's account came in a session that opened a post, bob's in one that opened none.
+    analyticsSession($cat);
+    analyticsSession($bob);
+    analyticsVisitPost($cat, 7, ['first_at' => '2026-11-15 10:04:00']);
+    $week = analyticsFilter('7d');
+
+    expect(readBothWays(AnalyticsVisitsQuery::class)->attempts($week))->toBe(2)
+        ->and(readBothWays(AnalyticsVisitsQuery::class)->resultShares(analyticsFilter('7d', TrafficDevice::Mobile, 'paid:7')))->toBe(['clicks' => 1, 'results' => 1])
+        ->and(readBothWays(AnalyticsContentQuery::class)->firstPostAccounts($week->period, TrafficDevice::Mobile, [7]))->toBe([7 => 1])
+        ->and(readBothWays(AnalyticsContentQuery::class)->unattributedAccounts($week->period, null))->toBe(1);
+
+    fillAnalyticsRollup();
+    $visits = app(AnalyticsVisitsQuery::class);
+    $content = app(AnalyticsContentQuery::class);
+
+    foreach ([
+        fn () => $visits->attempts($week),
+        fn () => $visits->resultShares($week),
+        fn () => $content->firstPostAccounts($week->period, null, [7]),
+        fn () => $content->unattributedAccounts($week->period, null),
+    ] as $read) {
+        DB::flushQueryLog();
+        DB::enableQueryLog();
+        $read();
+        $sql = collect(DB::getQueryLog())->pluck('query')->implode(' ');
+        DB::disableQueryLog();
+
+        expect($sql)->toContain('_cells')->not->toContain('game_attempts')->not->toContain('game_events')->not->toContain('traffic_visit_posts')->not->toContain('analytics_visits');
+    }
 });

@@ -4,6 +4,7 @@ namespace App\Actions\Analytics;
 
 use App\Models\AnalyticsCell;
 use App\Models\AnalyticsCellAccount;
+use App\Models\AnalyticsFirstPostCell;
 use App\Models\AnalyticsPid;
 use App\Models\AnalyticsPostCell;
 use App\Queries\Analytics\AnalyticsCellsQuery;
@@ -16,8 +17,9 @@ use Illuminate\Support\Facades\DB;
  * day's rows of analytics_visits, in one transaction: each browser whose page
  * ran that day and has no number yet is given the next one (analytics_pids);
  * the day's cells and accounts are deleted and read again at every level
- * (AnalyticsCellsQuery), and each post's people of the day with them. Only
- * on PostgreSQL with the roaringbitmap extension; elsewhere it does nothing.
+ * (AnalyticsCellsQuery), and each post's people of the day with them, and
+ * the accounts of the day by the post their session opened first. Only on
+ * PostgreSQL with the roaringbitmap extension; elsewhere it does nothing.
  * Called after the day's rows are written (RefreshAnalyticsDayAction).
  */
 final class RefreshAnalyticsCellsAction
@@ -37,10 +39,12 @@ final class RefreshAnalyticsCellsAction
             AnalyticsCell::query()->where('network_day', $day)->delete();
             AnalyticsCellAccount::query()->where('network_day', $day)->delete();
             AnalyticsPostCell::query()->where('network_day', $day)->delete();
+            AnalyticsFirstPostCell::query()->where('network_day', $day)->delete();
 
             AnalyticsCell::query()->insertUsing(AnalyticsCellsQuery::cellColumns(), $this->cells->cells($day));
             AnalyticsCellAccount::query()->insertUsing(AnalyticsCellsQuery::accountColumns(), $this->cells->accounts($day));
             AnalyticsPostCell::query()->insertUsing(AnalyticsCellsQuery::postCellColumns(), $this->cells->postCells($day));
+            AnalyticsFirstPostCell::query()->insertUsing(AnalyticsCellsQuery::firstPostCellColumns(), $this->cells->firstPostCells($day));
         });
 
         return true;

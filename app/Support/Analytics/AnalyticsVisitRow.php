@@ -10,10 +10,13 @@ use App\Support\Traffic\Money\TrafficMoney;
  * One visit as Growth → Analytics reads it (analytics_visits), worked out
  * from its row of traffic_visits: the browser as a number — the first 64
  * bits of its hash, a signed integer — each step a flag, the sums, the
- * columns a split or a filter names, and what it did with posts
- * (POST_FIGURES, from its rows of traffic_visit_posts). Every value comes out as the text the database hands back once
- * stored, whatever the engine, so a row written before can be told apart
- * from the one the visit makes now by comparing them (same()). Pure.
+ * columns a split or a filter names, what it did with posts
+ * (POST_FIGURES, from its rows of traffic_visit_posts), what was played on
+ * it (ATTEMPT_FIGURES, from the attempts started on it) and, credited with
+ * an account, the post its session opened first (sessionPost()). Every
+ * value comes out as the text the database hands back once stored, whatever
+ * the engine, so a row written before can be told apart from the one the
+ * visit makes now by comparing them (same()). Pure.
  */
 final class AnalyticsVisitRow
 {
@@ -35,14 +38,18 @@ final class AnalyticsVisitRow
         'value_real', 'value_expected', 'tagged', 'crawler', 'source_key', 'campaign_key', 'creative_key', 'landing_key', 'device',
         'country', 'city', 'game_id', 'version_id', 'utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term',
         'post_rows', 'post_views', 'post_viewed', 'post_voted', 'post_shares',
+        'attempts', 'share_clicks', 'shared_results', 'session_post_id',
     ];
 
     /** @var list<string> what a visit did with posts, worked out from its rows of traffic_visit_posts (postFigures()) */
     public const array POST_FIGURES = ['post_rows', 'post_views', 'post_viewed', 'post_voted', 'post_shares'];
 
+    /** @var list<string> what was played on a visit, worked out from the attempts started on it (attemptFigures()) */
+    public const array ATTEMPT_FIGURES = ['attempts', 'share_clicks', 'shared_results'];
+
     private const array FLAGS = ['opened', 'known', 'signed_in', 'started', 'completed', 'goal', 'signup_form', 'signed_up', 'account', 'activated', 'post_published', 'returned', 'spend_estimated', 'tagged', 'crawler', 'post_viewed', 'post_voted'];
 
-    private const array NUMBERS = ['id', 'entry_visit_id', 'source_id', 'campaign_id', 'visitor_key', 'signup_after_seconds', 'account_after_seconds', 'votes', 'comments', 'posts_created', 'game_id', 'version_id', 'post_rows', 'post_views', 'post_shares'];
+    private const array NUMBERS = ['id', 'entry_visit_id', 'source_id', 'campaign_id', 'visitor_key', 'signup_after_seconds', 'account_after_seconds', 'votes', 'comments', 'posts_created', 'game_id', 'version_id', 'post_rows', 'post_views', 'post_shares', 'attempts', 'share_clicks', 'shared_results', 'session_post_id'];
 
     private const array MONEY = ['spend', 'value_real', 'value_expected'];
 
@@ -74,9 +81,62 @@ final class AnalyticsVisitRow
     }
 
     /**
+     * What was played on a visit, from the attempts started on it, each once
+     * for every click on its result's share buttons and once more with none
+     * (a share's id, or null): how many attempts, how many clicks, and how
+     * many attempts had a click — an attempt is started on one visit at most,
+     * so the visits' figures add up to their attempts'.
+     *
+     * @param  iterable<array{id: int|string, share_id: int|string|null}>  $attempts
+     * @return array{attempts: int, share_clicks: int, shared_results: int}
+     */
+    public static function attemptFigures(iterable $attempts): array
+    {
+        $played = [];
+        $shared = [];
+        $clicks = 0;
+
+        foreach ($attempts as $attempt) {
+            $played[(int) $attempt['id']] = true;
+
+            if ($attempt['share_id'] !== null) {
+                $shared[(int) $attempt['id']] = true;
+                $clicks++;
+            }
+        }
+
+        return ['attempts' => count($played), 'share_clicks' => $clicks, 'shared_results' => count($shared)];
+    }
+
+    /**
+     * The post a session opened first, from the rows of the posts its visits
+     * opened (views > 0), each with the moment it was first opened: the
+     * earliest, the lower id at the same moment; none when it opened none.
+     *
+     * @param  iterable<array{post_id: int|string, first_at: mixed}>  $opened
+     */
+    public static function sessionPost(iterable $opened): ?int
+    {
+        $first = null;
+
+        foreach ($opened as $row) {
+            $at = substr(str_replace('T', ' ', (string) $row['first_at']), 0, 19);
+            $postId = (int) $row['post_id'];
+            $order = $first === null ? -1 : strcmp($at, $first[0]);
+
+            if ($order < 0 || ($order === 0 && $postId < $first[1])) {
+                $first = [$at, $postId];
+            }
+        }
+
+        return $first === null ? null : $first[1];
+    }
+
+    /**
      * The row a visit makes, from its columns (SOURCE_COLUMNS) as the
-     * database hands them back, and what it did with posts (postFigures()) —
-     * none when they aren't given.
+     * database hands them back, what it did with posts (postFigures()), what
+     * was played on it (attemptFigures()) and its session's first post
+     * (sessionPost()) — none when they aren't given.
      *
      * @param  array<string, mixed>  $visit
      * @return array<string, string|null>
@@ -140,6 +200,10 @@ final class AnalyticsVisitRow
             'post_viewed' => self::flag($visit['post_viewed'] ?? false),
             'post_voted' => self::flag($visit['post_voted'] ?? false),
             'post_shares' => $visit['post_shares'] ?? 0,
+            'attempts' => $visit['attempts'] ?? 0,
+            'share_clicks' => $visit['share_clicks'] ?? 0,
+            'shared_results' => $visit['shared_results'] ?? 0,
+            'session_post_id' => $visit['session_post_id'] ?? null,
         ]);
     }
 

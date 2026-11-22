@@ -36,7 +36,9 @@ use Illuminate\Database\Eloquent\Builder;
  * (AnalyticsVisitRow): its day is marked to be read again once the row is
  * written (MarkAnalyticsDayAction) — the visit can be a paid click days old.
  * A vote or a comment is marked by the activity it comes with
- * (RecordUserActivityAction).
+ * (RecordUserActivityAction). A post first opened on a visit can be the first
+ * its session opened, which each visit of the session credited with an
+ * account keeps (AnalyticsVisitRow::sessionPost()): their days are marked too.
  */
 final class RecordVisitPostAction
 {
@@ -132,7 +134,8 @@ final class RecordVisitPostAction
      * One view more of the visit's row of the post: the first begins the row
      * then, the row of a post voted on, commented on or shared before it was
      * opened too. Of two first views at once, the one that finds the row
-     * opened already adds one instead.
+     * opened already adds one instead. A first view marks the days of the
+     * session's visits credited with an account.
      */
     private function view(int $visitId, int $postId, CarbonImmutable $now): void
     {
@@ -141,6 +144,17 @@ final class RecordVisitPostAction
 
         if ($opened === 0) {
             $this->rowOf($visitId, $postId)->where('views', '>', 0)->where('views', '<', self::MOST)->increment('views');
+
+            return;
+        }
+
+        // The visits of the session credited with an account keep the post it opened first, now perhaps this one.
+        foreach (TrafficVisit::query()
+            ->where('entry_visit_id', TrafficVisit::query()->whereKey($visitId)->select('entry_visit_id'))
+            ->whereNotNull('account_at')
+            ->distinct()
+            ->pluck('network_day') as $day) {
+            $this->analytics->handle((string) $day, $now);
         }
     }
 

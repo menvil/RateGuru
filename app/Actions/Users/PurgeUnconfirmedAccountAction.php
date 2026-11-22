@@ -2,10 +2,12 @@
 
 namespace App\Actions\Users;
 
+use App\Actions\Analytics\MarkAnalyticsDayAction;
 use App\Actions\Counters\RecalculatePostCountersAction;
 use App\Actions\Profile\AnonymizeUserAccountAction;
 use App\Actions\Ranking\RecalculatePostScoreAction;
 use App\Enums\CommentStatus;
+use App\Enums\GameEventType;
 use App\Enums\UnconfirmedAccountPurgeOutcome;
 use App\Enums\VoteType;
 use App\Models\AccountAttribution;
@@ -22,6 +24,7 @@ use App\Models\PostVote;
 use App\Models\RatingVote;
 use App\Models\Report;
 use App\Models\TrafficConversion;
+use App\Models\TrafficVisit;
 use App\Models\User;
 use App\Models\UserActivityDay;
 use App\Queries\Users\UnconfirmedAccountsQuery;
@@ -59,6 +62,7 @@ final class PurgeUnconfirmedAccountAction
         private readonly RecalculatePostCountersAction $postCounters,
         private readonly RecalculatePostScoreAction $postScore,
         private readonly AnonymizeUserAccountAction $anonymize,
+        private readonly MarkAnalyticsDayAction $analytics,
     ) {}
 
     public function handle(int $userId, CarbonInterface $signedUpBefore, bool $dryRun = false): UnconfirmedAccountPurgeOutcome
@@ -245,7 +249,8 @@ final class PurgeUnconfirmedAccountAction
 
     /**
      * The games it played: its attempts, their answers, emails and events,
-     * and the versions it was assigned.
+     * and the versions it was assigned — the days of the visits they were
+     * played on marked for Analytics (MarkAnalyticsDayAction).
      */
     private function eraseGames(int $id): void
     {
@@ -256,12 +261,24 @@ final class PurgeUnconfirmedAccountAction
             ->lockForUpdate()
             ->pluck('id');
 
-        GameEvent::query()
+        $events = GameEvent::query()
             ->where(fn ($event) => $event
                 ->where('user_id', $id)
                 ->orWhereIn('attempt_id', $attempts)
-                ->orWhereIn('assignment_id', $assignments))
-            ->delete();
+                ->orWhereIn('assignment_id', $assignments));
+        // The days of the visits these attempts were started on, or whose attempts' share clicks go: Analytics counts
+        // both on each visit's row, and reads those days again once they are gone.
+        $days = TrafficVisit::query()
+            ->whereIn('id', GameAttempt::query()
+                ->whereNotNull('traffic_visit_id')
+                ->where(fn ($attempt) => $attempt
+                    ->whereIn('id', $attempts)
+                    ->orWhereIn('id', (clone $events)->where('type', GameEventType::ShareClicked->value)->select('attempt_id')))
+                ->select('traffic_visit_id'))
+            ->distinct()
+            ->pluck('network_day');
+
+        $events->delete();
         GameAnswer::query()->whereIn('attempt_id', $attempts)->delete();
         GameEmailCapture::query()->whereIn('attempt_id', $attempts)->delete();
         // What the tracker recorded of these attempts stays, without them: a
@@ -271,5 +288,9 @@ final class PurgeUnconfirmedAccountAction
         AccountAttribution::query()->whereIn('credited_attempt_id', $attempts)->update(['credited_attempt_id' => null]);
         GameAttempt::query()->whereIn('id', $attempts)->delete();
         GameAssignment::query()->whereIn('id', $assignments)->delete();
+
+        foreach ($days as $day) {
+            $this->analytics->handle((string) $day);
+        }
     }
 }

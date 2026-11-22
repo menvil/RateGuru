@@ -73,3 +73,28 @@ it('reads again every minute from the day before the earliest time zone’s day 
         ->and(AnalyticsRollupWindow::days(CarbonImmutable::parse('2026-11-18 23:00:00', 'UTC')))->toBe(['2026-11-17', '2026-11-18', '2026-11-19'])
         ->and(AnalyticsRollupWindow::covers('2026-11-16', CarbonImmutable::parse('2026-11-18 12:00:00', 'UTC')))->toBeFalse();
 });
+
+it('counts the attempts started on a visit once each, every click on their results’ share buttons, and the attempts with one', function () {
+    expect(AnalyticsVisitRow::attemptFigures([
+        ['id' => 3, 'share_id' => 10],
+        ['id' => 3, 'share_id' => '11'],
+        ['id' => '4', 'share_id' => null],
+        ['id' => 5, 'share_id' => 12],
+    ]))->toBe(['attempts' => 3, 'share_clicks' => 3, 'shared_results' => 2])
+        ->and(AnalyticsVisitRow::attemptFigures([]))->toBe(['attempts' => 0, 'share_clicks' => 0, 'shared_results' => 0]);
+});
+
+it('finds the post a session opened first, the lower id at the same moment, whatever the engine writes the moment as', function () {
+    expect(AnalyticsVisitRow::sessionPost([
+        ['post_id' => 9, 'first_at' => '2026-11-15 10:05:00'],
+        ['post_id' => '12', 'first_at' => '2026-11-15T10:04:00.000000Z'],
+        ['post_id' => 11, 'first_at' => '2026-11-15 10:04:00'],
+        ['post_id' => 2, 'first_at' => '2026-11-15 10:06:00'],
+    ]))->toBe(11)
+        ->and(AnalyticsVisitRow::sessionPost([]))->toBeNull();
+
+    $row = AnalyticsVisitRow::fromVisit(rollupSourceVisit(['attempts' => 2, 'share_clicks' => 1, 'shared_results' => 1, 'session_post_id' => 11]));
+
+    expect([$row['attempts'], $row['share_clicks'], $row['shared_results'], $row['session_post_id']])->toBe(['2', '1', '1', '11'])
+        ->and(AnalyticsVisitRow::fromVisit(rollupSourceVisit())['session_post_id'])->toBeNull();
+});

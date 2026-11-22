@@ -4,16 +4,24 @@ use App\Actions\Analytics\MarkAnalyticsDayAction;
 use App\Actions\Analytics\RecordVisitPostAction;
 use App\Actions\Analytics\RefreshAnalyticsDayAction;
 use App\Actions\Analytics\RefreshAnalyticsVisitsAction;
+use App\Actions\Games\RecordGameInteractionAction;
+use App\Actions\Games\StartGameAttemptAction;
 use App\Actions\Traffic\AllocateSpendDayAction;
 use App\Actions\Traffic\MarkTrafficVisitAction;
+use App\Enums\GameAudience;
+use App\Enums\GameEventType;
 use App\Enums\TrafficEvent;
+use App\Enums\UserActivity;
 use App\Models\AnalyticsDirtyDay;
 use App\Models\AnalyticsPerson;
 use App\Models\AnalyticsRollupState;
 use App\Models\AnalyticsVisit;
+use App\Models\GameAttempt;
 use App\Models\TrafficSource;
+use App\Models\TrafficVisit;
 use App\Queries\Analytics\AnalyticsRollupGate;
 use App\Support\Analytics\AnalyticsVisitRow;
+use App\Support\Games\Play\GameVisitor;
 use Carbon\CarbonImmutable;
 use Illuminate\Console\Scheduling\Schedule;
 
@@ -322,4 +330,76 @@ it('refuses a recheck or a time it can’t read, before writing anything', funct
     $this->artisan('analytics:refresh-visits')->assertSuccessful();
 
     expect(AnalyticsVisit::query()->count())->toBe(1);
+});
+
+it('keeps the attempts started on a visit and their share clicks on its row, and marks the day of a visit days old an attempt starts or shares on', function () {
+    $version = liveGame(publishableGameDraft(2));
+    $game = $version->game;
+    $browser = hash('sha256', 'ann');
+    $visitor = new GameVisitor(GameAudience::Anonymous, null, $browser, $browser);
+    // A visit that already showed the version and started a game: a replay on it changes neither.
+    $old = analyticsVisit('ann', ['network_day' => '2026-11-03', 'game_id' => $game->id, 'version_id' => $version->id, 'started_at' => '2026-11-03 10:01:00']);
+    $today = analyticsVisit('ann', ['network_day' => '2026-11-18', 'arrived_at' => '2026-11-18 10:00:00', 'game_id' => $game->id, 'version_id' => $version->id, 'started_at' => '2026-11-18 10:01:00']);
+    app(RefreshAnalyticsDayAction::class)->handle('2026-11-03');
+    $start = fn (TrafficVisit $visit): GameAttempt => app(StartGameAttemptAction::class)->handle($game, $visitor, 'en', replay: true, visitId: $visit->id);
+    $share = fn (GameAttempt $attempt) => app(RecordGameInteractionAction::class)->handle(GameEventType::ShareClicked, $game, $visitor, $attempt, null, 'reddit');
+    $figures = fn (TrafficVisit $visit): array => array_map('intval', AnalyticsVisit::query()->whereKey($visit->id)->firstOrFail()->only(['attempts', 'share_clicks', 'shared_results']));
+
+    // An attempt and a share on today's visit are read with today's day anyway.
+    $share($start($today));
+
+    expect(AnalyticsDirtyDay::query()->count())->toBe(0);
+
+    $attempt = $start($old);
+
+    expect(AnalyticsDirtyDay::query()->pluck('day')->all())->toBe(['2026-11-03']);
+
+    app(RefreshAnalyticsDayAction::class)->handle('2026-11-03');
+    AnalyticsDirtyDay::query()->delete();
+
+    expect($figures($old))->toBe(['attempts' => 1, 'share_clicks' => 0, 'shared_results' => 0]);
+
+    $share($attempt);
+    $share($attempt);
+
+    expect(AnalyticsDirtyDay::query()->pluck('day')->all())->toBe(['2026-11-03']);
+
+    app(RefreshAnalyticsDayAction::class)->handle('2026-11-03');
+    app(RefreshAnalyticsDayAction::class)->handle('2026-11-18');
+
+    expect($figures($old))->toBe(['attempts' => 1, 'share_clicks' => 2, 'shared_results' => 1])
+        ->and($figures($today))->toBe(['attempts' => 1, 'share_clicks' => 1, 'shared_results' => 1]);
+});
+
+it('keeps on a visit credited with an account the post its session opened first, and marks its day when a later visit of the session first opens one', function () {
+    $credited = analyticsVisit('ann', ['network_day' => '2026-11-03', 'arrived_at' => '2026-11-03 23:40:00', 'account_at' => '2026-11-03 23:45:00', 'signup_at' => '2026-11-03 23:45:00']);
+    $later = analyticsVisit('ann', ['network_day' => '2026-11-04', 'arrived_at' => '2026-11-04 00:05:00']);
+    $other = analyticsVisit('bob', ['network_day' => '2026-11-04', 'arrived_at' => '2026-11-04 00:05:00']);
+    analyticsSession($credited, $later);
+    analyticsSession($other);
+    $posts = app(RecordVisitPostAction::class);
+    app(RefreshAnalyticsDayAction::class)->handle('2026-11-03');
+    $sessionPost = fn (): mixed => AnalyticsVisit::query()->whereKey($credited->id)->value('session_post_id');
+
+    expect($sessionPost())->toBeNull();
+
+    // Another browser's first post is no post of this session; a vote on one before it is opened isn't one either.
+    $posts->viewedOn($other->id, 31, now()->toImmutable());
+    $posts->actedOn($later->id, 33, UserActivity::Voted, now()->toImmutable());
+
+    expect(AnalyticsDirtyDay::query()->pluck('day')->all())->toBe(['2026-11-04']);
+
+    $posts->viewedOn($later->id, 32, now()->toImmutable());
+
+    expect(AnalyticsDirtyDay::query()->orderBy('day')->pluck('day')->all())->toBe(['2026-11-03', '2026-11-04']);
+
+    app(RefreshAnalyticsDayAction::class)->handle('2026-11-03');
+    AnalyticsDirtyDay::query()->delete();
+
+    expect((int) $sessionPost())->toBe(32);
+
+    // Opened again it begins nothing new: the credited visit's day stays as it is read.
+    $posts->viewedOn($later->id, 32, now()->toImmutable());
+
+    expect(AnalyticsDirtyDay::query()->pluck('day')->all())->toBe(['2026-11-04']);
 });

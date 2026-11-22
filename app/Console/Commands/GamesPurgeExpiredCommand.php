@@ -2,8 +2,12 @@
 
 namespace App\Console\Commands;
 
+use App\Actions\Analytics\MarkAnalyticsDayAction;
+use App\Enums\GameEventType;
+use App\Models\GameAttempt;
 use App\Models\GameEmailCapture;
 use App\Models\GameEvent;
+use App\Models\TrafficVisit;
 use Carbon\CarbonImmutable;
 use Illuminate\Console\Command;
 use Illuminate\Database\Eloquent\Builder;
@@ -13,7 +17,9 @@ use Illuminate\Database\Eloquent\Builder;
  * nothing else: game events that occurred more than
  * games.retention_days.events ago, and emails left in a game more than
  * games.retention_days.email_captures ago. Attempts, answers and results stay:
- * they are what a player's result is.
+ * they are what a player's result is. Analytics counts the share clicks of
+ * the attempts started on each visit, so the days of the visits whose
+ * attempts' share clicks go are marked to be read again.
  *
  * In small batches, each a short DELETE by primary key, so a large backlog
  * never holds one long lock. The cutoffs are fixed when the run starts; a run
@@ -48,8 +54,22 @@ final class GamesPurgeExpiredCommand extends Command
         }
 
         $now = CarbonImmutable::now('UTC');
+        // The days of the visits whose attempts' share clicks go: Analytics keeps them on each visit's row.
+        $shareDays = TrafficVisit::query()
+            ->whereIn('id', GameAttempt::query()
+                ->whereNotNull('traffic_visit_id')
+                ->whereIn('id', GameEvent::query()->where('type', GameEventType::ShareClicked->value)->where('occurred_at', '<', $now->subDays($events))->select('attempt_id'))
+                ->select('traffic_visit_id'))
+            ->distinct()
+            ->pluck('network_day')
+            ->map(fn (mixed $day): string => substr((string) $day, 0, 10))
+            ->all();
         $deletedEvents = $this->purge(GameEvent::query()->where('occurred_at', '<', $now->subDays($events)), $chunk);
         $deletedEmails = $this->purge(GameEmailCapture::query()->where('captured_at', '<', $now->subDays($emails)), $chunk);
+
+        foreach ($shareDays as $day) {
+            app(MarkAnalyticsDayAction::class)->handle($day, $now);
+        }
 
         $this->info("Deleted {$deletedEvents} game events older than {$events} days.");
         $this->info("Deleted {$deletedEmails} emails left in games more than {$emails} days ago.");

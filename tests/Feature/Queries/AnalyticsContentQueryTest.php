@@ -145,3 +145,53 @@ it('reads the posts given, a deleted one too', function () {
         ->and($posts[$gone->id]->trashed())->toBeTrue()
         ->and(contentQuery()->posts([])->all())->toBe([]);
 });
+
+it('credits an account to the post its session opened first on a visit of another day, each browser once over the visits credited to it', function () {
+    $account = fn (string $at): array => ['account_at' => $at, 'signup_at' => $at];
+
+    // Credited on the 15th; the session goes on past midnight and opens a post on the 16th, after one only voted on.
+    $ann = analyticsVisit('ann', ['network_day' => '2026-11-15', 'arrived_at' => '2026-11-15 23:50:00', ...$account('2026-11-15 23:55:00')]);
+    $annLater = analyticsVisit('ann', ['network_day' => '2026-11-16', 'arrived_at' => '2026-11-16 00:05:00']);
+    analyticsSession($ann, $annLater);
+    analyticsVisitPost($ann, 24, ['views' => 0, 'voted' => true, 'first_at' => '2026-11-15 23:52:00']);
+    analyticsVisitPost($annLater, 21, ['first_at' => '2026-11-16 00:10:00']);
+    // The same browser credited again in a session of its own that opened the same post first: one account of it.
+    $annAgain = analyticsVisit('ann', ['network_day' => '2026-11-17', ...$account('2026-11-17 10:30:00')]);
+    analyticsSession($annAgain);
+    analyticsVisitPost($annAgain, 21, ['first_at' => '2026-11-17 10:05:00']);
+
+    // Two posts opened at the same moment on two visits of the session: the lower id.
+    $bob = analyticsVisit('bob', ['device' => TrafficDevice::Desktop, ...$account('2026-11-15 10:20:00')]);
+    $bobLater = analyticsVisit('bob', ['device' => TrafficDevice::Desktop, 'arrived_at' => '2026-11-15 10:01:00']);
+    analyticsSession($bob, $bobLater);
+    analyticsVisitPost($bob, 23, ['first_at' => '2026-11-15 10:05:00']);
+    analyticsVisitPost($bobLater, 22, ['first_at' => '2026-11-15 10:05:00']);
+
+    // A browser credited twice: once in a session that opened nothing, once in one that opened a post.
+    $cat = analyticsVisit('cat', ['network_day' => '2026-11-14', ...$account('2026-11-14 10:20:00')]);
+    analyticsSession($cat);
+    $catAgain = analyticsVisit('cat', ['network_day' => '2026-11-16', ...$account('2026-11-16 10:20:00')]);
+    analyticsSession($catAgain);
+    analyticsVisitPost($catAgain, 22);
+
+    // A credited visit whose page never ran is no account of the figures, and one the day before the period none of them.
+    $dan = analyticsVisit('dan', ['opened_at' => null, ...$account('2026-11-15 10:20:00')]);
+    analyticsSession($dan);
+    analyticsVisitPost($dan, 21);
+    $old = analyticsVisit('eve', ['network_day' => '2026-11-11', 'arrived_at' => '2026-11-11 10:00:00', ...$account('2026-11-11 10:20:00')]);
+    analyticsSession($old);
+    analyticsVisitPost($old, 21, ['first_at' => '2026-11-11 10:02:00']);
+
+    $period = analyticsFilter()->period;
+    $accounts = contentQuery()->firstPostAccounts($period, null, [21, 22, 23, 24]);
+    ksort($accounts);
+
+    expect($accounts)->toBe([21 => 1, 22 => 2])
+        ->and(contentQuery()->firstPostAccounts($period, TrafficDevice::Desktop, [21, 22, 23]))->toBe([22 => 1])
+        ->and(contentQuery()->firstPostAccounts($period, TrafficDevice::Mobile, [23]))->toBe([])
+        ->and(contentQuery()->unattributedAccounts($period, null))->toBe(1)
+        ->and(contentQuery()->unattributedAccounts($period, TrafficDevice::Desktop))->toBe(0)
+        // Only the days of the 16th on: ann's account is the 17th's, cat's the 16th's.
+        ->and(contentQuery()->firstPostAccounts(analyticsFilter('custom', from: '2026-11-16', to: '2026-11-18')->period, null, [21, 22]))->toEqualCanonicalizing([21 => 1, 22 => 1])
+        ->and(contentQuery()->unattributedAccounts(analyticsFilter('custom', from: '2026-11-16', to: '2026-11-18')->period, null))->toBe(0);
+});
