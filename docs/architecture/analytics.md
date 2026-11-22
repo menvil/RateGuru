@@ -435,9 +435,9 @@ one of them was marked (`game_cells_moment`): a new count beside the earlier
 ones, which go once ten minutes older than it — never the one just before it,
 however long the refresh had stopped — so a read that learned the earlier
 moment still finds its cells after the next count. A count after that can
-take them: while the refresh keeps up, only from five minutes after the next
-one; once the refresh had stopped for ten minutes or more, at its very next
-run, a minute or less later. A read still going then finds none of the open
+take them: while the refresh keeps up, only four minutes or more after the
+next one; once the refresh had stopped for ten minutes or more, as soon as
+its next run, a minute later. A read still going then finds none of the open
 days' cells, and its figures come out short rather than read from the events
 and attempts — but a read is one of a game's figures (`GameMetricsQuery`), a
 query or two, well under a second at the sizes measured below. At night the last
@@ -461,7 +461,8 @@ took). A
 person read live is looked up by their browser's number; one whose browser
 has none yet is in no cell, and counted on their own. So a game's figures
 are the same as reading every view and attempt, at any moment, however long
-ago the refresh last ran. Once a day has closed, every writer of what they
+ago the refresh last ran — but for a read still going when the count it
+learned is taken, above. Once a day has closed, every writer of what they
 count of it tells it in the change's own transaction
 (`MarkAnalyticsGameCellsAction`): `GameEventRecorder` for the events that
 come with every change after an attempt began, whichever action records them
