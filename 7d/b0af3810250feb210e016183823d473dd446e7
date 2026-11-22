@@ -1,0 +1,20 @@
+tests/Feature/Traffic/CaptureTrafficArrivalTest.php
+  s_4b9dc6ab6b25d3::t_d4ea574b45e744 519
+  s_4b9dc6ab6b25d3::t_97620796c1300f 509
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "7db0af3810250feb210e016183823d473dd446e7",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}

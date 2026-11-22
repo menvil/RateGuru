@@ -1,0 +1,19 @@
+tests/Feature/Analytics/AnalyticsWarmFiguresTest.php
+  s_4b9dc6ab6b25d3::t_a8851faa20c5c8 94-95,105,109,114-115,117,125-132
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "a924cf3aa75e27107398a9c419cf6fd9b41cae60",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
