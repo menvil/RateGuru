@@ -1,7 +1,5 @@
 <?php
 
-use App\Actions\Analytics\RefreshAnalyticsDayAction;
-use App\Actions\Analytics\RefreshAnalyticsGameCellsAction;
 use App\Actions\Games\ApplyGameTrafficAction;
 use App\Actions\Games\ChangeGameStatusAction;
 use App\Actions\Games\PublishGameVersionAction;
@@ -60,9 +58,6 @@ use App\Livewire\Admin\StudioPlanPostVotesEditor;
 use App\Livewire\Games\PlayGame;
 use App\Models\AccountAttribution;
 use App\Models\AccountBrowser;
-use App\Models\AnalyticsDirtyGameDay;
-use App\Models\AnalyticsGameCell;
-use App\Models\AnalyticsRollupState;
 use App\Models\Category;
 use App\Models\Comment;
 use App\Models\Game;
@@ -105,7 +100,6 @@ use App\Models\TrafficVisitPost;
 use App\Models\TranslationAiProviderCall;
 use App\Models\User;
 use App\Models\UserActivityDay;
-use App\Queries\Analytics\AnalyticsRollupGate;
 use App\Queries\Games\GameTrafficQuery;
 use App\Services\Media\GeneratedMediaVariant;
 use App\Services\Media\ImageVariantProcessor;
@@ -15263,16 +15257,6 @@ function forgetChosenReportPeriods(): void
     session()->forget(ReportPeriodMemory::SESSION_KEY);
 }
 
-/**
- * The migration that indexes the visits by their five campaign tags: built
- * on the tag columns, so a test that takes those columns off takes it off
- * first and puts it back last.
- */
-function trafficVisitTagsIndexMigration(): object
-{
-    return require database_path('migrations/2026_11_21_110000_add_tags_index_to_traffic_visits_table.php');
-}
-
 /** The visits of an Analytics preset, or of a range of days, narrowed as given, read for today. */
 function analyticsFilter(string $preset = '7d', ?TrafficDevice $device = null, ?string $source = null, ?string $campaign = null, ?string $from = null, ?string $to = null): AnalyticsFilter
 {
@@ -15294,107 +15278,6 @@ function analyticsVisit(string $browser, array $attributes = []): TrafficVisit
         'source_key' => AnalyticsSource::DIRECT,
         ...$attributes,
     ]);
-}
-
-/**
- * Analytics' own rows of the visits (analytics_visits) filled for every day
- * a visit was recorded on, and counted as filled and just brought up to
- * date, so AnalyticsVisitsQuery reads them from now on — unless the setting
- * says otherwise.
- */
-function fillAnalyticsRollup(): void
-{
-    $refresh = app(RefreshAnalyticsDayAction::class);
-    $days = TrafficVisit::query()->distinct()->orderBy('network_day')->pluck('network_day')->map(fn (mixed $day): string => substr((string) $day, 0, 10))->all();
-
-    foreach ($days as $day) {
-        $refresh->handle($day);
-    }
-
-    // The cells of each day's people were written with each day's rows
-    // where they are kept (PostgreSQL with the roaringbitmap extension):
-    // there they count as filled too, and a read that fits them takes them.
-    // So were the sums of each day's games' visits, on every engine.
-    $cells = app(AnalyticsRollupGate::class)->cellsKept();
-
-    AnalyticsRollupState::query()->upsert([[
-        'id' => AnalyticsRollupState::ID,
-        'filled_through' => $days === [] ? null : end($days),
-        'filled_at' => now(),
-        'refreshed_at' => now(),
-        'cells_through' => $cells && $days !== [] ? end($days) : null,
-        'cells_filled_at' => $cells ? now() : null,
-        'game_days_through' => $days === [] ? null : end($days),
-        'game_days_filled_at' => now(),
-    ]], ['id'], ['filled_through', 'filled_at', 'refreshed_at', 'cells_through', 'cells_filled_at', 'game_days_through', 'game_days_filled_at']);
-    fillGameCells();
-    app()->forgetScopedInstances();
-}
-
-/**
- * The people of the games' days (analytics_game_cells) counted afresh, as on
- * deploy, where they are kept: every day closed counted whole, the days since
- * up to the moment now allows (RefreshAnalyticsGameCellsAction) — whatever a
- * test wrote straight into the days before, which no writer told them of.
- * Nothing where they are not kept.
- */
-function fillGameCells(): void
-{
-    if (! app(AnalyticsRollupGate::class)->cellsKept()) {
-        return;
-    }
-
-    AnalyticsGameCell::query()->delete();
-    AnalyticsDirtyGameDay::query()->delete();
-    AnalyticsRollupState::query()->whereKey(AnalyticsRollupState::ID)->update(['game_cells_through' => null, 'game_cells_moment' => null, 'game_cells_filled_at' => null]);
-    app()->forgetScopedInstances();
-    app(RefreshAnalyticsGameCellsAction::class)->handle(microtime(true) + 300);
-}
-
-/**
- * A query read twice for every call: from the visits, and from Analytics'
- * own rows of them filled just then (fillAnalyticsRollup()) — and a third
- * time from the cells of each day's people and the people of the games' days
- * where they are kept, and the sums of each day's games' visits — what each
- * read returns must be the same, and is what the call returns.
- *
- * @template TQuery of object
- *
- * @param  class-string<TQuery>  $query
- * @return TQuery
- */
-function readBothWays(string $query): object
-{
-    return new class($query)
-    {
-        /** @param  class-string  $query */
-        public function __construct(private readonly string $query) {}
-
-        /** @param  array<int, mixed>  $arguments */
-        public function __call(string $method, array $arguments): mixed
-        {
-            config(['analytics.rollup.read' => false]);
-            app()->forgetScopedInstances();
-            $fromVisits = app($this->query)->{$method}(...$arguments);
-
-            config(['analytics.rollup.read' => true, 'analytics.rollup.cells' => false, 'analytics.rollup.game_days' => false, 'analytics.rollup.game_cells' => false]);
-            fillAnalyticsRollup();
-            $fromRollup = app($this->query)->{$method}(...$arguments);
-
-            expect($fromRollup)->toEqual($fromVisits, class_basename($this->query)."::{$method}() reads Analytics' own rows differently from the visits");
-
-            config(['analytics.rollup.cells' => true, 'analytics.rollup.game_days' => true, 'analytics.rollup.game_cells' => true]);
-            app()->forgetScopedInstances();
-
-            if (app(AnalyticsRollupGate::class)->readsCells() || app(AnalyticsRollupGate::class)->readsGameDays()) {
-                $fromCells = app($this->query)->{$method}(...$arguments);
-
-                expect($fromCells)->toEqual($fromVisits, class_basename($this->query)."::{$method}() reads the cells of people, the sums of game days or the people of the games' days differently from the visits");
-            }
-
-            return $fromVisits;
-        }
-    };
 }
 
 /** The visits given as one session: each sharing the first's entry, as a later visit of the session goes on from it. */
@@ -15583,14 +15466,4 @@ function reachedVisits(TrafficSource $source, string $day, int $visits, int $ope
         'opened_at' => $sequence->index < $opened ? $day.' 10:01:00' : null,
         'started_at' => $sequence->index < $started ? $day.' 10:02:00' : null,
     ])->create(['source_id' => $source->id, 'network_day' => $day, 'arrived_at' => $day.' 10:00:00', ...$attributes]);
-}
-
-/**
- * The migration that copies what Retention reads of the visit and attempt
- * an account is credited to onto its attribution, and fills the copies for
- * the attributions before it.
- */
-function accountCreditedKeysMigration(): object
-{
-    return require database_path('migrations/2026_11_22_120000_add_credited_keys_to_account_attributions_table.php');
 }

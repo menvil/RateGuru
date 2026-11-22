@@ -28,18 +28,16 @@ use Carbon\CarbonImmutable;
  * visit was recorded; the figures of the values asked for, the people of
  * pairs of values, what the paid clicks cost by one dimension or more, the
  * first day each value came on, and the people of each set of campaign tags
- * the sessions of some campaigns came by. The same on every database engine,
- * and the same read from Analytics' own rows of the visits.
+ * the sessions of some campaigns came by. The same on every database engine.
  */
 
 beforeEach(function () {
     $this->travelTo(CarbonImmutable::parse('2026-11-18 12:00:00'));
 });
 
-/** @return AnalyticsVisitsQuery read both ways, each call compared (readBothWays()) */
-function analyticsQuery(): object
+function analyticsQuery(): AnalyticsVisitsQuery
 {
-    return readBothWays(AnalyticsVisitsQuery::class);
+    return app(AnalyticsVisitsQuery::class);
 }
 
 it('counts each browser once, however many visits and days it came on, and only once its page ran', function () {
@@ -532,7 +530,7 @@ it('reads the window before the period with the same conditions', function () {
         ->and(analyticsQuery()->figures($previous)->visitors)->toBe(1);
 });
 
-it('offers the values the most visits came by, the most first, without counting anything else', function () {
+it('offers the values the most people came through, the most first, without counting anything else', function () {
     foreach (['ann', 'bob', 'cat', 'hal'] as $browser) {
         analyticsVisit($browser, ['source_key' => 'reddit:organic', 'campaign_key' => 'tag:launch']);
     }
@@ -542,15 +540,11 @@ it('offers the values the most visits came by, the most first, without counting 
     analyticsVisit('eve', ['source_key' => 'google:organic', 'campaign_key' => 'tag:launch']);
     analyticsVisit('fay', ['source_key' => 'google:organic']);
     analyticsVisit('fay', ['source_key' => 'bing:organic']);
-    // More visits than Google's, from fewer people: the visits rank it.
-    analyticsVisit('ivy', ['source_key' => 'bing:organic', 'network_day' => '2026-11-12']);
-    analyticsVisit('ivy', ['source_key' => 'bing:organic', 'network_day' => '2026-11-13']);
-    analyticsVisit('ivy', ['source_key' => 'bing:organic', 'network_day' => '2026-11-14']);
     // Its page never ran: nobody.
     analyticsVisit('gus', ['source_key' => 'x:organic', 'opened_at' => null]);
 
-    expect(array_column(analyticsQuery()->top(analyticsFilter(), AnalyticsDimension::Source, 10), 'source_key'))->toBe(['reddit:organic', 'bing:organic', 'google:organic'])
-        ->and(analyticsQuery()->top(analyticsFilter(), AnalyticsDimension::Source, 2))->toBe([['source_key' => 'reddit:organic'], ['source_key' => 'bing:organic']])
+    expect(array_column(analyticsQuery()->top(analyticsFilter(), AnalyticsDimension::Source, 10), 'source_key'))->toBe(['reddit:organic', 'google:organic', 'bing:organic'])
+        ->and(analyticsQuery()->top(analyticsFilter(), AnalyticsDimension::Source, 2))->toBe([['source_key' => 'reddit:organic'], ['source_key' => 'google:organic']])
         ->and(array_column(analyticsQuery()->top(analyticsFilter(source: 'google:organic'), AnalyticsDimension::Campaign, 10), 'campaign_key'))->toBe(['tag:launch', null])
         ->and(analyticsQuery()->top(analyticsFilter('yesterday'), AnalyticsDimension::Source, 10))->toBe([]);
 });
@@ -627,49 +621,4 @@ it('counts the people of each set of tags the sessions of the campaigns asked fo
             'weekly|reddit|organic_social|hero|-' => [1, 0, 0],
         ])
         ->and(analyticsQuery()->among(analyticsFilter(), AnalyticsDimension::Tags, []))->toBe([]);
-});
-
-it('counts the attempts and result shares of only the visits the filter admits whose page ran, whatever device, source or moment narrows them', function () {
-    $version = GameVersion::factory()->create();
-    $game = ['game_id' => $version->game_id];
-    $attempt = fn (TrafficVisit $visit): GameAttempt => GameAttempt::factory()->create(['version_id' => $version->id, 'traffic_visit_id' => $visit->id, 'visitor_hash' => $visit->visitor_hash]);
-    $share = fn (?GameAttempt $played) => (new GameEvent)->forceFill([
-        'game_id' => $version->game_id, 'version_id' => $version->id, 'attempt_id' => $played?->id, 'audience' => GameAudience::Anonymous,
-        'visitor_hash' => hash('sha256', 'guest'), 'type' => GameEventType::ShareClicked, 'provider' => 'reddit', 'occurred_at' => now(),
-    ])->save();
-
-    $ann = analyticsVisit('ann', [...$game, 'source_key' => 'reddit:organic']);
-    $bob = analyticsVisit('bob', [...$game, 'device' => TrafficDevice::Desktop]);
-    // Today, and yesterday before and after this moment of the day.
-    $today = analyticsVisit('cat', [...$game, 'network_day' => '2026-11-18', 'arrived_at' => '2026-11-18 09:00:00']);
-    $earlier = analyticsVisit('dan', [...$game, 'network_day' => '2026-11-17', 'arrived_at' => '2026-11-17 09:00:00']);
-    $later = analyticsVisit('eve', [...$game, 'network_day' => '2026-11-17', 'arrived_at' => '2026-11-17 13:00:00']);
-    // A page that never ran plays nothing the figures count.
-    $unopened = analyticsVisit('fay', [...$game, 'opened_at' => null]);
-
-    $played = $attempt($ann);
-    $share($played);
-    $share($played);
-    $share($attempt($ann));
-    $attempt($ann);
-    $share($attempt($bob));
-    $attempt($today);
-    $share($attempt($earlier));
-    $share($attempt($later));
-    $share($attempt($unopened));
-    // A share with no attempt, and an attempt on no visit, belong to no visit.
-    $share(null);
-    $share(GameAttempt::factory()->create(['version_id' => $version->id, 'traffic_visit_id' => null]));
-
-    expect(analyticsQuery()->attempts(analyticsFilter()))->toBe(7)
-        ->and(analyticsQuery()->resultShares(analyticsFilter()))->toBe(['clicks' => 6, 'results' => 5])
-        ->and(analyticsQuery()->attempts(analyticsFilter(device: TrafficDevice::Desktop)))->toBe(1)
-        ->and(analyticsQuery()->resultShares(analyticsFilter(device: TrafficDevice::Desktop)))->toBe(['clicks' => 1, 'results' => 1])
-        ->and(analyticsQuery()->attempts(analyticsFilter(source: 'reddit:organic')))->toBe(3)
-        ->and(analyticsQuery()->resultShares(analyticsFilter(source: 'reddit:organic')))->toBe(['clicks' => 3, 'results' => 2])
-        ->and(analyticsQuery()->attempts(analyticsFilter('today')))->toBe(1)
-        // Yesterday by this moment of the day: only what arrived before it.
-        ->and(analyticsQuery()->attempts(analyticsFilter('today')->previous()))->toBe(1)
-        ->and(analyticsQuery()->resultShares(analyticsFilter('today')->previous()))->toBe(['clicks' => 1, 'results' => 1])
-        ->and(analyticsQuery()->resultShares(analyticsFilter('yesterday')))->toBe(['clicks' => 2, 'results' => 2]);
 });

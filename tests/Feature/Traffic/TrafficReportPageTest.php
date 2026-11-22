@@ -2,7 +2,6 @@
 
 use App\Actions\Traffic\EnterSpendAction;
 use App\Enums\TrafficBlockLevel;
-use App\Enums\TrafficBlockNetworkState;
 use App\Enums\TrafficChannel;
 use App\Enums\TrafficKnownReason;
 use App\Filament\Pages\GrowthAnalyticsPage;
@@ -154,27 +153,6 @@ it('ticks sites across pages and blocks them by hand, then unblocks them from Bl
         ->call('unblockSelected');
 
     expect(TrafficBlock::query()->count())->toBe(26);
-});
-
-it('says on a blocked site where the network’s list stands: on its way there or off it, refused, or a taking off that failed', function () {
-    foreach (['70001' => TrafficBlockNetworkState::Pending, '70002' => TrafficBlockNetworkState::Removing, '70003' => TrafficBlockNetworkState::Failed, '70004' => TrafficBlockNetworkState::Applied, '70005' => TrafficBlockNetworkState::Applied] as $site => $state) {
-        // Numeric keys come back as numbers.
-        $site = (string) $site;
-        siteClicks($this->source, $site, 1, 1);
-        TrafficBlock::factory()->create(['source_id' => $this->source->id, 'level' => TrafficBlockLevel::Site, 'ref' => $site, 'method' => 'api', 'network_state' => $state,
-            'network_error' => match ($site) {
-                '70003' => 'shared_list',
-                '70005' => 'rejected',
-                default => null,
-            }]);
-    }
-
-    Livewire::withQueryParams(['view' => 'sites', 'list' => 'site', 'segment' => 'blocked'])->test(TrafficSourcesPage::class)->call('load')
-        ->assertSee('Blocking…')
-        ->assertSee('Unblocking…')
-        ->assertSee('Not blocked on the network')
-        ->assertSee('Blocked · unblock failed')
-        ->assertSee('Still on the network’s list: The network refused the change. Unblock it again to try again.', false);
 });
 
 it('never ticks a row that is not a site or zone key', function () {

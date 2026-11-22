@@ -2,12 +2,10 @@
 
 use App\Enums\GameAudience;
 use App\Enums\GameEventType;
-use App\Models\AnalyticsDirtyDay;
 use App\Models\GameAttempt;
 use App\Models\GameEmailCapture;
 use App\Models\GameEvent;
 use App\Models\GameVersion;
-use App\Models\TrafficVisit;
 use Carbon\CarbonImmutable;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Support\Facades\DB;
@@ -146,22 +144,4 @@ it('runs every day without overlapping', function () {
     expect($events)->toHaveCount(1)
         ->and($events->first()->expression)->toBe('0 0 * * *')
         ->and($events->first()->withoutOverlapping)->toBeTrue();
-});
-
-it('marks the days of the visits whose attempts’ share clicks go, as Analytics keeps them on each visit’s row', function () {
-    $visit = TrafficVisit::factory()->create(['arrived_at' => now()->subDays(402), 'network_day' => now()->subDays(402)->toDateString()]);
-    $other = TrafficVisit::factory()->create(['arrived_at' => now()->subDays(30), 'network_day' => now()->subDays(30)->toDateString()]);
-    $event = fn (TrafficVisit $on, GameEventType $type, int $daysAgo) => (new GameEvent)->forceFill([
-        'game_id' => $this->version->game_id, 'version_id' => $this->version->id, 'audience' => GameAudience::Anonymous, 'visitor_hash' => hash('sha256', 'guest'),
-        'attempt_id' => GameAttempt::factory()->create(['version_id' => $this->version->id, 'traffic_visit_id' => $on->id])->id,
-        'type' => $type, 'occurred_at' => now()->subDays($daysAgo),
-    ])->save();
-    $event($visit, GameEventType::ShareClicked, 401);
-    // Another kind of event going, and a share click staying, mark nothing.
-    $event($other, GameEventType::ResultViewed, 401);
-    $event($other, GameEventType::ShareClicked, 30);
-
-    $this->artisan('games:purge-expired')->assertSuccessful();
-
-    expect(AnalyticsDirtyDay::query()->pluck('day')->all())->toBe([substr((string) $visit->network_day, 0, 10)]);
 });

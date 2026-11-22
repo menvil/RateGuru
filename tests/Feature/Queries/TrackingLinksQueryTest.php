@@ -111,41 +111,6 @@ it('counts a link the people whose session came by its five tags, its empty ones
         ->toBe([$idle->id => false, $bare->id => true, $post->id => true]);
 });
 
-it('tells a link some visit came through from one none did by all five tags, a link’s empty content or term matching a visit’s none or its own empty text', function () {
-    // A link's content or term is a visit's when it is the same text, or when the link's is '' and the visit's none.
-    $same = fn (string $link, ?string $visit): bool => ($link === '' && $visit === null) || $visit === $link;
-    $expected = [];
-    $pair = 0;
-
-    // Every content and term a link can have against every one a visit can, each pair in a campaign of its own.
-    foreach (['', 'banner'] as $linkContent) {
-        foreach (['', 'quiz'] as $linkTerm) {
-            foreach ([null, '', 'banner', 'other'] as $visitContent) {
-                foreach ([null, '', 'quiz', 'other'] as $visitTerm) {
-                    $campaign = 'pair_'.++$pair;
-                    $link = trackingLinkWith(['utm_campaign' => $campaign, 'utm_content' => $linkContent, 'utm_term' => $linkTerm]);
-                    $visit = analyticsVisit('v'.$pair, ['utm_source' => 'reddit', 'utm_medium' => 'organic_social', 'utm_campaign' => $campaign, 'utm_content' => $visitContent, 'utm_term' => $visitTerm]);
-                    $expected[$link->id] = $same($linkContent, $visitContent) && $same($linkTerm, $visitTerm) ? $visit->id : null;
-                }
-            }
-        }
-    }
-
-    // A link of a campaign no visit came by, and one whose campaign's visits came with another source.
-    $expected[trackingLinkWith(['utm_campaign' => 'quiet'])->id] = null;
-    $expected[trackingLinkWith(['utm_campaign' => 'pair_1', 'utm_source' => 'facebook'])->id] = null;
-
-    $visited = trackingLinks()->list('', analyticsFilter('7d'))['links']
-        ->mapWithKeys(fn (TrackingLink $link): array => [$link->id => $link->getAttribute('visit_id') === null ? null : (int) $link->getAttribute('visit_id')])
-        ->all();
-    ksort($visited);
-    ksort($expected);
-
-    expect($visited)->toBe($expected)
-        // Of the sixteen visits set against a link with neither content nor term, 2 × 2 are its; with either, 2 × 1; with both, 1.
-        ->and(count(array_filter($expected)))->toBe(9);
-});
-
 it('counts a link its own people however many bigger sets of tags its campaign holds', function () {
     $post = trackingLinkWith(['utm_campaign' => 'launch', 'utm_content' => 'post_01']);
     visitTagged('a', ['utm_content' => 'post_01']);

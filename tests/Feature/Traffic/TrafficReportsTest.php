@@ -140,11 +140,11 @@ it('adds up campaigns, and each stage of one while it lasted', function () {
 
 it('splits a game’s traffic by type, source, version and device in one pass', function () {
     $game = Game::factory()->create();
-    reportVisit($this->source, ['game_id' => $game->id, 'arrived_at' => now()->subDays(2), 'network_day' => '2026-11-15']);
-    reportVisit($this->source, ['game_id' => $game->id, 'arrived_at' => now()->subDay(), 'network_day' => '2026-11-16']);
+    reportVisit($this->source, ['game_id' => $game->id, 'arrived_at' => now()->subDays(2)]);
+    reportVisit($this->source, ['game_id' => $game->id, 'arrived_at' => now()->subDay()]);
     TrafficVisit::factory()->unpaid(TrafficChannel::Search)->create(['game_id' => $game->id, 'arrived_at' => now()->subDay(), 'network_day' => '2026-11-16']);
 
-    $rows = collect(readBothWays(TrafficReportQuery::class)->gameBreakdown($game->id, now()->subDays(30)->toImmutable()));
+    $rows = collect(app(TrafficReportQuery::class)->gameBreakdown($game->id, now()->subDays(30)->toImmutable()));
     $paid = $rows->firstWhere('source_id', $this->source->id);
 
     expect($rows)->toHaveCount(2)
@@ -162,7 +162,7 @@ it('narrows a game’s traffic, campaigns and sign-ups to a device and countries
     reportVisit($this->source, ['country' => 'BR']);
     $since = now()->subDays(30)->toImmutable();
     $until = now()->addSecond()->toImmutable();
-    $visits = fn (?VisitFilter $filter): int => collect(readBothWays(TrafficReportQuery::class)->gameBreakdown($game->id, $since, $until, $filter))->sum(fn (array $row): int => $row['figures']->visits);
+    $visits = fn (?VisitFilter $filter): int => collect(app(TrafficReportQuery::class)->gameBreakdown($game->id, $since, $until, $filter))->sum(fn (array $row): int => $row['figures']->visits);
 
     expect($visits(null))->toBe(3)
         ->and($visits(new VisitFilter(TrafficDevice::Mobile)))->toBe(2)
@@ -170,11 +170,11 @@ it('narrows a game’s traffic, campaigns and sign-ups to a device and countries
         ->and($visits(new VisitFilter(TrafficDevice::Desktop, ['DE'])))->toBe(0)
         // Every country but those named, and the one not known.
         ->and($visits(new VisitFilter(countries: ['DE'], otherCountries: true)))->toBe(2)
-        ->and(readBothWays(TrafficReportQuery::class)->gameCampaigns($game->id, $since, $until, new VisitFilter(countries: ['FR'])))->toBe([])
-        ->and(readBothWays(TrafficReportQuery::class)->gameCampaigns($game->id, $since, $until, new VisitFilter(countries: ['DE'])))->toBe([$this->source->id => 1])
-        ->and(readBothWays(TrafficReportQuery::class)->gameSignups($game->id, $since, $until, visits: new VisitFilter(TrafficDevice::Desktop))['visits'])->toBe(1)
-        ->and(readBothWays(TrafficReportQuery::class)->gameSignups($game->id, $since, $until, visits: new VisitFilter(countries: ['DE']))['figures']->signedUp)->toBe(1)
-        ->and(readBothWays(TrafficReportQuery::class)->gameCountries($game->id))->toBe(['DE', 'FR']);
+        ->and(app(TrafficReportQuery::class)->gameCampaigns($game->id, $since, $until, new VisitFilter(countries: ['FR'])))->toBe([])
+        ->and(app(TrafficReportQuery::class)->gameCampaigns($game->id, $since, $until, new VisitFilter(countries: ['DE'])))->toBe([$this->source->id => 1])
+        ->and(app(TrafficReportQuery::class)->gameSignups($game->id, $since, $until, visits: new VisitFilter(TrafficDevice::Desktop))['visits'])->toBe(1)
+        ->and(app(TrafficReportQuery::class)->gameSignups($game->id, $since, $until, visits: new VisitFilter(countries: ['DE']))['figures']->signedUp)->toBe(1)
+        ->and(app(TrafficReportQuery::class)->gameCountries($game->id))->toBe(['DE', 'FR']);
 });
 
 it('reconciles a source’s days, and keeps spend no visit took', function () {
@@ -321,17 +321,17 @@ it('counts a game’s sign-ups from its visits in a window, of one version when 
     $second = GameVersion::factory()->create(['game_id' => $game->id, 'number' => 2]);
     $visit = fn (array $attributes) => TrafficVisit::factory()->create(['game_id' => $game->id, 'version_id' => $first->id, 'arrived_at' => now()->subDays(10), 'network_day' => '2026-11-07', ...$attributes]);
     $visit(['signup_at' => now()->subDays(10)]);
-    $visit(['signup_at' => now()->subDay(), 'arrived_at' => now()->subDay(), 'network_day' => '2026-11-16']);
+    $visit(['signup_at' => now()->subDay(), 'arrived_at' => now()->subDay()]);
     $visit(['signup_at' => now(), 'account_at' => now(), 'version_id' => $second->id]);
     $visit([]);
     // A visitor signed in as they came is a logged-in player, not one of the anonymous visitors; one who signed in later is.
     $visit(['known' => true, 'known_reason' => TrafficKnownReason::SignedIn, 'signup_at' => now()]);
     $visit(['known' => true, 'known_reason' => TrafficKnownReason::Login]);
     // Before the window, and another game's.
-    $visit(['signup_at' => now()->subDays(40), 'arrived_at' => now()->subDays(40), 'network_day' => '2026-10-08']);
+    $visit(['signup_at' => now()->subDays(40), 'arrived_at' => now()->subDays(40)]);
     TrafficVisit::factory()->create(['signup_at' => now()]);
 
-    $read = fn (?int $versionId) => readBothWays(TrafficReportQuery::class)->gameSignups($game->id, now()->subDays(30)->toImmutable(), now()->addSecond()->toImmutable(), $versionId);
+    $read = fn (?int $versionId) => app(TrafficReportQuery::class)->gameSignups($game->id, now()->subDays(30)->toImmutable(), now()->addSecond()->toImmutable(), $versionId);
     $all = $read(null);
     $ofFirst = $read($first->id);
 

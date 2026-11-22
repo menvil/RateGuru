@@ -39,8 +39,6 @@ it('keeps the five tags of a visit, reading a campaign’s visits through an ind
 it('undoes what it did and does it again, the visits staying', function () {
     $visit = TrafficVisit::factory()->create(['utm_campaign' => 'spring']);
 
-    // The index of the five tags stands on these columns: off first, back last.
-    trafficVisitTagsIndexMigration()->down();
     tagColumnsMigration()->down();
 
     expect(Schema::hasColumns('traffic_visits', ['utm_source']))->toBeFalse()
@@ -49,7 +47,6 @@ it('undoes what it did and does it again, the visits staying', function () {
         ->and(TrafficVisit::query()->whereKey($visit->id)->exists())->toBeTrue();
 
     tagColumnsMigration()->up();
-    trafficVisitTagsIndexMigration()->up();
 
     expect(array_column(Schema::getIndexes('traffic_visits'), 'name'))->toContain('traffic_visits_utm_campaign_index')
         ->and(TrafficVisit::query()->whereKey($visit->id)->value('utm_campaign'))->toBeNull();

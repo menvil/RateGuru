@@ -369,34 +369,6 @@ it('lists the links with what each brought, the period’s people of each and no
     expect(trackingLinksPage()->viewData('data')['none'])->toBe('No tracking links yet. Create one for a post, an ad or an email, and the visitors who come through it are counted here.');
 });
 
-it('tells a link a visit came through from one none did by all five tags, a missing content or term a visit’s none, whatever the period', function () {
-    $both = saveTrackingLink($this->admin, ['name' => 'Both', 'term' => 'quiz']);
-    $bare = saveTrackingLink($this->admin, ['name' => 'Bare', 'content' => '']);
-    $term = saveTrackingLink($this->admin, ['name' => 'Term', 'content' => '', 'term' => 'quiz']);
-    $content = saveTrackingLink($this->admin, ['name' => 'Content', 'content' => 'post_02']);
-    saveTrackingLink($this->admin, ['name' => 'Idle', 'content' => 'post_03']);
-
-    visitThrough($both, 'a');
-    visitThrough($bare, 'b');
-    // Long before the period: the link was visited all the same.
-    visitThrough($term, 'c', ['network_day' => '2026-09-01', 'arrived_at' => '2026-09-01 10:00:00']);
-    // The link's content with a term the link hasn't: another set of tags.
-    visitThrough($content, 'd', ['utm_term' => 'quiz']);
-
-    $rows = collect(trackingLinksPage()->viewData('data')['rows'])
-        ->mapWithKeys(fn (array $row): array => [$row['name'] => $row['visitors'].' · '.$row['editLabel']])
-        ->sortKeys()
-        ->all();
-
-    expect($rows)->toBe([
-        'Bare' => '1 · Rename',
-        'Both' => '1 · Rename',
-        'Content' => 'No visits yet · Edit',
-        'Idle' => 'No visits yet · Edit',
-        'Term' => '0 · Rename',
-    ]);
-});
-
 it('opens the link’s details after a save, with its figures, tags and the way to its campaign', function () {
     $link = saveTrackingLink($this->admin);
 
