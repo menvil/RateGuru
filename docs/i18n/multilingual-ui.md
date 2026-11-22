@@ -148,11 +148,12 @@ A language is read left to right unless its row in `config/locales.php` declares
 
 What follows from the direction:
 
-- **The root element.** `layouts.app` and `layouts.guest` — so every public page, the not-found page included — put `dir` beside `lang` on `<html>`. The HTML email layout (`resources/views/vendor/mail/html/layout.blade.php`) puts it on `<html>` and `<body>`, the contact message on `<html>`. The rest of the layout follows `dir` by itself, because the templates name sides only as start and end (below).
-- **Emails.** Mail clients know little logical CSS and many keep only what is inlined into each element, so an email in a right-to-left language carries a small block that turns the mail theme's left-aligned body text and the panel's left edge by naming the sides; it is inlined with the theme. The header and footer stay centred.
+- **The root element.** `layouts.app` and `layouts.guest` — so every public page, the not-found page included — put `dir` beside `lang` on `<html>`. The HTML email layout (`resources/views/vendor/mail/html/layout.blade.php`) puts it on `<html>`, `<body>` and the `wrapper` table around everything, the contact message on `<html>` and a `<div>` around the message. The rest of the layout follows `dir` by itself, because the templates name sides only as start and end (below).
+- **Emails.** Webmail such as Gmail drops `<html>` and `<body>` with whatever they carry, so the wrapper is what still says which way the lines run there — without it an Arabic sentence ends with its full stop on the wrong side. Mail clients know little logical CSS and many keep only what is inlined into each element, so an email in a right-to-left language also carries a small block that turns the mail theme's left-aligned body text and the panel's left edge by naming the sides, and sets `direction` on the wrapper; it is inlined with the theme. The header and footer stay centred.
 - **The administration** stays English and left to right (`SetAdminLocale`).
 - **Error pages.** The site's not-found page is drawn in `layouts.app` and takes the visitor's direction once their language is known. A page found missing before that — a route-model binding that finds nothing, since `SubstituteBindings` runs before `SetLocale` — and Laravel's own error pages (500, 503, …, `lang="en"`) are English, and left to right.
 - **What users write** — titles, descriptions, comments — is laid out in the page's direction; a run in another script inside it is left to the Unicode bidirectional algorithm.
+- **Things always written left to right.** An `@name` is isolated in `<bdi>`; the brand (`x-brand-wordmark`) reads its own way (`dir="auto"`), so a Latin site name too long for a phone's header is cut at its end, not its beginning; a URL field (`<x-ui.input type="url">`) is `dir="ltr"`, so `https://` does not turn into `//:https`.
 
 ### The rule for templates, styles and scripts
 
@@ -170,7 +171,7 @@ The public site names sides only as start and end: every Blade view outside `fil
 
 On a page read left to right each logical form is drawn exactly as the physical one, so such a page does not change by a pixel. Tailwind 4's `space-x-*` and `divide-x-*` are logical already.
 
-Where there is no logical form — a slide (`translate-x-*`), a transform origin — write it once for each direction: `ltr:-translate-x-full rtl:translate-x-full`, `ltr:origin-top-right rtl:origin-top-left`. Script that swaps such classes swaps both (the post drawer does). Centring with `left-1/2 -translate-x-1/2` lands in the middle either way.
+Where there is no logical form — a slide (`translate-x-*`), a transform origin, a background's position — write it once for each direction: `ltr:-translate-x-full rtl:translate-x-full`, `ltr:origin-top-right rtl:origin-top-left`; in a stylesheet, a rule under `[dir='rtl']` (the forms plugin's select chevron is moved to the left that way). Script that swaps such classes swaps both (the post drawer does). Centring with `left-1/2 -translate-x-1/2` lands in the middle either way.
 
 `PhysicalDirectionGuardTest` enforces this and holds the commented allow-lists of what stays physical on purpose. It also stops at public script that reads a horizontal position (`clientX`, `scrollLeft`, …) or hears `ArrowLeft` / `ArrowRight`: on a page read right to left the left arrow means *next*, so such code has to follow the page's direction and say how in the guard's allow-list. None does today.
 
@@ -184,7 +185,9 @@ The pair, the progress dots and the Next button's timer follow the line: on a ri
 
 ### Fonts
 
-Nothing is downloaded for Arabic, Urdu or Hebrew. `:root:lang(ar)`, `:lang(ur)` and `:lang(he)` in `app.css` put the system's own faces after Inter in `--font-sans` — Noto on Android and Linux, Geeza Pro or Arial Hebrew on Apple systems, Segoe UI or Tahoma on Windows — so Latin keeps the site's face and each Arabic or Hebrew letter falls through to a face that has it. Urdu asks for Nastaliq first (Noto Nastaliq Urdu, Jameel Noori Nastaleeq, Urdu Typesetting), which stands far taller than Latin: an Urdu page raises the leading of the page, of every Tailwind text size and of the game's headlines.
+Nothing is downloaded for Arabic, Urdu or Hebrew. `:root:lang(ar)`, `:lang(ur)` and `:lang(he)` in `app.css` put the system's own faces after Inter in `--font-sans` — Noto on Android and Linux, Geeza Pro or Arial Hebrew on Apple systems, Segoe UI or Tahoma on Windows — so Latin keeps the site's face and each Arabic or Hebrew letter falls through to a face that has it. `--font-mono` lists the same faces before Courier New, a monospaced face that has these scripts and tears joined Arabic apart. Urdu asks for Nastaliq first (Noto Nastaliq Urdu, Jameel Noori Nastaleeq, Urdu Typesetting), which stands far taller than Latin: an Urdu page raises the leading of the page, of every Tailwind text size and of the game's headlines.
+
+These rules sit outside every cascade layer on purpose. Tailwind writes the theme's variables (`--font-sans`, `--text-sm--line-height`, …) outside every layer, and an unlayered rule outranks a layered one whatever its selector: inside `@layer base` an override of a theme variable never applies. `RightToLeftBrowserTest` checks the faces and the Urdu leading in a real browser.
 
 ### Adding a language read right to left
 
