@@ -138,6 +138,10 @@ Schedule::command('analytics:warm-figures')->cron('*/'.AnalyticsWarmFiguresComma
 // are kept apart by a file lock as well.
 Schedule::command('geo:update')->everyMinute()->withoutOverlapping(60)->runInBackground();
 
+// The list of throwaway mail domains a sign-up is checked against. A failed
+// fetch leaves the list it had.
+Schedule::command('disposable:update')->weekly()->withoutOverlapping();
+
 // Accounts that signed up with an email address and did not confirm one
 // within a week (docs/architecture/user-lifecycle.md, "Unconfirmed
 // accounts"): removed with everything they did, each asked again under lock.

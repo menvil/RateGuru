@@ -5,6 +5,7 @@ namespace App\Actions\Auth;
 use App\Enums\RegistrationScreeningMode;
 use App\Services\Traffic\RequestSignals;
 use App\Support\AbuseGuards\RateLimitKey;
+use App\Support\Auth\EmailQualityCheck;
 use App\Support\Auth\RegistrationFormStamp;
 use App\Support\Observability\SecurityLog;
 use Illuminate\Support\Facades\RateLimiter;
@@ -14,12 +15,14 @@ use Throwable;
 /**
  * The checks a sign-up passes after its fields are valid and before an
  * account is created: a field only a script fills in, how long the form took,
- * and how many accounts this network has created lately.
+ * how many accounts this network has created lately, and whether the address
+ * is a throwaway one or another spelling of a Gmail mailbox already here.
  *
  * What they find goes to the security log, without the name or the address.
  * Whether it is also refused is the mode's to say, so the checks can be
- * watched on real traffic before they turn anyone away. The refusal does not
- * say which check failed: that would tell a script what to change.
+ * watched on real traffic before they turn anyone away. A refusal for what a
+ * script does does not say which check failed, which would tell it what to
+ * change; one that is only about the address is shown on the address.
  *
  * A cache that cannot be reached is one more thing the checks found. Report
  * mode lets the sign-up through, as it does everything; enforce mode refuses
@@ -48,6 +51,7 @@ final class ScreenRegistrationAction
 
     public function __construct(
         private readonly RegistrationFormStamp $stamp,
+        private readonly EmailQualityCheck $emails,
         private readonly SecurityLog $log,
     ) {}
 
@@ -66,7 +70,11 @@ final class ScreenRegistrationAction
             return [];
         }
 
-        $reasons = [...$this->formReasons($validated), ...$this->limitsReached($ip)];
+        $reasons = [
+            ...$this->formReasons($validated),
+            ...$this->limitsReached($ip),
+            ...$this->emails->reasonsFor((string) ($validated['email'] ?? '')),
+        ];
         $counted = [];
 
         // An attempt about to be refused creates no account, so it is not
@@ -92,7 +100,11 @@ final class ScreenRegistrationAction
         if ($refused) {
             $this->release($counted);
 
-            throw ValidationException::withMessages([self::ERROR_FIELD => __('auth.register.refused')]);
+            throw ValidationException::withMessages(
+                array_diff($reasons, [EmailQualityCheck::DISPOSABLE, EmailQualityCheck::GMAIL_ALIAS]) === []
+                    ? $this->emails->refusal($reasons)
+                    : [self::ERROR_FIELD => __('auth.register.refused')],
+            );
         }
 
         return $counted;

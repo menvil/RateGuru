@@ -2,6 +2,7 @@
 
 use App\Actions\Analytics\RefreshAnalyticsDayAction;
 use App\Actions\Analytics\RefreshAnalyticsGameCellsAction;
+use App\Actions\Auth\ScreenRegistrationAction;
 use App\Actions\Games\ApplyGameTrafficAction;
 use App\Actions\Games\ChangeGameStatusAction;
 use App\Actions\Games\PublishGameVersionAction;
@@ -116,6 +117,7 @@ use App\Support\Analytics\AnalyticsFilter;
 use App\Support\Analytics\AnalyticsPeriod;
 use App\Support\Analytics\AnalyticsSource;
 use App\Support\Analytics\CampaignKey;
+use App\Support\Auth\RegistrationFormStamp;
 use App\Support\Games\Flow\FlowStepDraft;
 use App\Support\Games\Flow\GameFlowValidator;
 use App\Support\Games\Results\ResultProfileCoverage;
@@ -14798,6 +14800,24 @@ function demoGameWithMembers(int $members = 200): User
     (new TrafficSetting)->forceFill(['id' => 1, 'capture_enabled' => true, 'postbacks_enabled' => false])->save();
 
     return $admin;
+}
+
+/** A sign-up as a person sends it: the stamp the page drew, some seconds ago. */
+function screenedSignUp(array $overrides = [], string $page = '/register'): array
+{
+    $html = test()->get($page)->assertOk()->getContent();
+
+    preg_match('/name="'.RegistrationFormStamp::FIELD.'"\s+value="([^"]+)"/', $html, $stamp);
+    test()->travel(10)->seconds();
+
+    return array_merge([
+        'name' => 'New Member',
+        'email' => 'new@example.com',
+        'password' => 'password',
+        'password_confirmation' => 'password',
+        RegistrationFormStamp::FIELD => $stamp[1] ?? null,
+        ScreenRegistrationAction::HONEYPOT_FIELD => '',
+    ], $overrides);
 }
 
 /** The security channel, swapped for a handler the test can read. */
