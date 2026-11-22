@@ -387,6 +387,8 @@ it('reads a journey in a bounded number of queries, however long it is', functio
     $member = journeyAccount(CarbonImmutable::parse('2026-11-08 00:00:00'));
     $queries = function () use ($member): int {
         $page = Livewire::withQueryParams(['tab' => 'journeys', 'who' => 'user_'.$member['user']->id])->test(GrowthAnalyticsPage::class);
+        // Each read a request of its own, as the browser's are: nothing decided once a request carried over.
+        app()->forgetScopedInstances();
 
         DB::flushQueryLog();
         DB::enableQueryLog();

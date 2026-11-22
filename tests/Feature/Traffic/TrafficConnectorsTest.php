@@ -308,7 +308,57 @@ it('takes a PopAds block off only when the list read back shows it gone, never w
 })->with([
     'a read back without the list' => [['mode' => 'exclude'], false],
     'a read back of an empty list' => [['mode' => 'exclude', 'items' => []], true],
+    'a read back of the targeting off' => [['mode' => 'none'], true],
 ]);
+
+it('unblocks a campaign’s last PopAds sites by turning its targeting off, never by sending an empty list to exclude', function () {
+    TrafficApiConnection::factory()->create(['source_id' => $this->popads->id, 'next_sync_at' => now()->addHour()]);
+    TrafficCampaign::factory()->create(['source_id' => $this->popads->id, 'external_id' => '881204']);
+    $blocks = collect(['5086547', '1663301'])->map(fn (string $ref) => TrafficBlock::factory()->create(['source_id' => $this->popads->id, 'level' => TrafficBlockLevel::Site, 'ref' => $ref, 'method' => 'api', 'network_state' => TrafficBlockNetworkState::Removing]));
+    Http::fake(function (Request $request) {
+        if ($request->method() === 'POST') {
+            // PopAds refuses a list to exclude without a site: a validation error, sent with HTTP 500.
+            return str_contains($request->url(), 'mode=exclude') && trim($request->body()) === ''
+                ? Http::response(['errors' => [['status' => 500, 'code' => 62, 'title' => 'Line "" unrecognized as website ID']]], 500)
+                : Http::response(['id' => '881204', 'mode' => 'none', 'global_id' => null]);
+        }
+
+        return Http::response(['id' => '881204', 'mode' => 'exclude', 'global_id' => null, 'items' => ['5086547', '1663301']]);
+    });
+
+    $this->artisan('traffic:sync-networks')->assertSuccessful();
+
+    Http::assertSent(fn (Request $request): bool => $request->method() === 'POST' && str_contains($request->url(), 'mode=none') && $request->body() === '');
+    Http::assertNotSent(fn (Request $request): bool => $request->method() === 'POST' && str_contains($request->url(), 'mode=exclude'));
+    expect(TrafficBlock::query()->whereKey($blocks->pluck('id'))->exists())->toBeFalse()
+        ->and(TrafficBlockEvent::query()->where('kind', 'removed')->sole())->ok->toBeTrue()->note->toBe('1 of 1 campaigns');
+});
+
+it('leaves blocked the last sites of a list other campaigns share, saying why, and sends it no empty list', function () {
+    TrafficApiConnection::factory()->create(['source_id' => $this->popads->id, 'next_sync_at' => now()->addHour()]);
+    TrafficCampaign::factory()->create(['source_id' => $this->popads->id, 'external_id' => '881204']);
+    $block = TrafficBlock::factory()->create(['source_id' => $this->popads->id, 'level' => TrafficBlockLevel::Site, 'ref' => '501', 'method' => 'api', 'network_state' => TrafficBlockNetworkState::Removing]);
+    Http::fake(fn (Request $request) => Http::response(['mode' => 'global', 'global_mode' => 'exclude', 'global_id' => 7, 'global_items' => ['501']]));
+
+    $this->artisan('traffic:sync-networks')->assertSuccessful();
+
+    Http::assertNotSent(fn (Request $request): bool => $request->method() === 'POST');
+    expect($block->fresh())->network_state->toBe(TrafficBlockNetworkState::Applied)->network_error->toBe('shared_list');
+});
+
+it('takes an error PopAds explains for a refusal, not for an API that is down, whatever its status', function () {
+    TrafficApiConnection::factory()->create(['source_id' => $this->popads->id, 'next_sync_at' => now()->addHour()]);
+    TrafficCampaign::factory()->create(['source_id' => $this->popads->id, 'external_id' => '881204']);
+    Http::fake(fn (Request $request) => $request->method() === 'POST'
+        ? Http::response(['errors' => [['status' => 500, 'code' => 62, 'title' => '"40123" is not an active website ID']]], 500)
+        : Http::response(['mode' => 'exclude', 'items' => ['111']]));
+
+    app(BlockTrafficRefsAction::class)->block($this->admin, $this->popads, TrafficBlockLevel::Site, ['40123'], null, true);
+    $this->artisan('traffic:sync-networks')->assertSuccessful();
+
+    expect(TrafficBlock::query()->sole())->network_state->toBe(TrafficBlockNetworkState::Failed)->network_error->toBe('rejected')
+        ->and(TrafficBlockEvent::query()->where('kind', 'applied')->sole())->ok->toBeFalse()->http_status->toBe(500);
+});
 
 it('sends no PopAds exclusion list rewritten from a targeting read without one', function () {
     TrafficApiConnection::factory()->create(['source_id' => $this->popads->id, 'next_sync_at' => now()->addHour()]);

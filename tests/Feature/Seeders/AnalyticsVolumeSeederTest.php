@@ -95,6 +95,10 @@ it('writes a week of visits and the week before as capture records them, once', 
     expect($accounts)->not->toBeEmpty()
         ->and($accounts->whereNotNull('confirmed_at')->count())->toBe($visits->whereNotNull('account_at')->count())
         ->and($accounts->filter(fn (AccountAttribution $account): bool => $visits[$account->credited_visit_id]->signup_at?->toDateTimeString() !== $account->signed_up_at->toDateTimeString()))->toBeEmpty()
+        // What Retention reads of the visit and attempt each is credited to, copied as a sign-up copies it.
+        ->and($accounts->reject(fn (AccountAttribution $account): bool => $account->credited_source_key === $visits[$account->credited_visit_id]->source_key
+            && $account->credited_device === $visits[$account->credited_visit_id]->device
+            && $account->credited_game_id === ($account->credited_attempt_id === null ? null : GameAttempt::query()->find($account->credited_attempt_id)?->game_id)))->toBeEmpty()
         ->and(AccountBrowser::query()->count())->toBe($accounts->count())
         ->and(UserActivityDay::query()->where('day_number', '>=', 1)->exists())->toBeTrue()
         ->and($visits->whereNotNull('signup_at')->whereNull('signup_form_at'))->toBeEmpty()
