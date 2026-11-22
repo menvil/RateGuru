@@ -434,7 +434,13 @@ first hour — up to a moment ten minutes ago, every five minutes, at once when
 one of them was marked (`game_cells_moment`): a new count beside the earlier
 ones, which go once ten minutes older than it — never the one just before it,
 however long the refresh had stopped — so a read that learned the earlier
-moment still finds its cells. At night the last
+moment still finds its cells after the next count. A count after that can
+take them: while the refresh keeps up, only from five minutes after the next
+one; once the refresh had stopped for ten minutes or more, at its very next
+run, a minute or less later. A read still going then finds none of the open
+days' cells, and its figures come out short rather than read from the events
+and attempts — but a read is one of a game's figures (`GameMetricsQuery`), a
+query or two, well under a second at the sizes measured below. At night the last
 `analytics.rollup.recheck_days` days are counted again. Each count is read first and inserted after, under a lock
 on the state's row the purge of the numbers takes too. Measured on 718,000
 views and 398,000 attempts of 30 days, the days take about half a second each,
