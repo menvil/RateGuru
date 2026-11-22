@@ -103,12 +103,21 @@ final class ScreenRegistrationAction
      * accounts actually created count. Never fails, so the reason the account
      * was not created is the one the person is told.
      *
+     * A count of one stays. The limiter overwrites a counter it finds at zero,
+     * which can lose a sign-up counted at that moment, and a counter already
+     * gone must not come back negative. Keeping it costs one slot in a window
+     * with nothing else in it; losing it would let an account past the limit.
+     *
      * @param  array<string, int>  $counted
      */
     public function release(array $counted): void
     {
         foreach ($counted as $key => $seconds) {
-            rescue(fn () => RateLimiter::decrement($key, $seconds), report: false);
+            rescue(function () use ($key, $seconds): void {
+                if ((int) RateLimiter::attempts($key) > 1) {
+                    RateLimiter::decrement($key, $seconds);
+                }
+            }, report: false);
         }
     }
 

@@ -128,7 +128,7 @@ checks, in this order:
 3. how many accounts the network created: five an hour and fifteen a day per
    IPv4 address or IPv6 `/64`. Only accounts actually created count, so a
    typo spends nothing, and a sign-up that loses its address to another one
-   gives its count back.
+   gives its count back, unless it is the only one counted in that window.
 
 `REGISTRATION_SCREENING_MODE` says what happens to what they find:
 

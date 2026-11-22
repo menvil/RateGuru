@@ -148,6 +148,10 @@ it('does not spend the limit on a typo or on a refusal', function () {
 it('gives the count back when another sign-up claimed the address first', function (string $mode) {
     config(['registration.screening_mode' => $mode]);
     fakeSecurityLog();
+    $hour = RateLimitKey::registration('hour', '127.0.0.1');
+    $day = RateLimitKey::registration('day', '127.0.0.1');
+    RateLimiter::increment($hour, 3600);
+    RateLimiter::increment($day, 86400);
     $form = screenedSignUp();
 
     // The other sign-up lands between this one's validation and its insert.
@@ -159,9 +163,26 @@ it('gives the count back when another sign-up claimed the address first', functi
     $this->post('/register', $form)->assertSessionHasErrors('email');
 
     $this->assertGuest();
-    expect(RateLimiter::attempts(RateLimitKey::registration('hour', '127.0.0.1')))->toBe(0)
-        ->and(RateLimiter::attempts(RateLimitKey::registration('day', '127.0.0.1')))->toBe(0);
+    expect(RateLimiter::attempts($hour))->toBe(1)
+        ->and(RateLimiter::attempts($day))->toBe(1);
 })->with(['enforce', 'report']);
+
+it('leaves a count of one, which the limiter would overwrite from zero', function () {
+    $key = RateLimitKey::registration('hour', '127.0.0.1');
+    RateLimiter::increment($key, 3600);
+
+    app(ScreenRegistrationAction::class)->release([$key => 3600]);
+
+    expect(RateLimiter::attempts($key))->toBe(1);
+});
+
+it('does not take a counter below nothing when its window has already ended', function () {
+    $key = RateLimitKey::registration('hour', '127.0.0.1');
+
+    app(ScreenRegistrationAction::class)->release([$key => 3600]);
+
+    expect(RateLimiter::attempts($key))->toBe(0);
+});
 
 it('gives the count back when a sign-up arriving together with others is refused', function () {
     fakeSecurityLog();
