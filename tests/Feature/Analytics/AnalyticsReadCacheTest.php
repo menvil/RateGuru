@@ -286,6 +286,26 @@ it('keeps a tracking link’s details apart for whoever may not manage games, wh
     expect($reads)->toBe(1);
 });
 
+it('keeps Games apart for whoever may not manage games, whose traffic periods lead to their results only for those who may', function () {
+    Game::factory()->status(GameStatus::Live)->create();
+    $reads = 0;
+    app()->resolving(AnalyticsTab::class, function () use (&$reads): void {
+        $reads++;
+    });
+    $open = fn () => Livewire::withQueryParams(['tab' => 'games', 'period' => '7d'])->test(GrowthAnalyticsPage::class)->call('load');
+
+    $open();
+    $open();
+
+    expect($reads)->toBe(1);
+
+    Gate::define('manage-games', fn (): bool => false);
+    $this->actingAs(User::factory()->admin()->create());
+    $open();
+
+    expect($reads)->toBe(2);
+});
+
 it('keeps the figures by the site’s address the page was asked at, every address in them starting with it', function () {
     analyticsVisit('ann');
     $open = fn () => Livewire::withQueryParams(['tab' => 'geo', 'period' => '7d'])->test(GrowthAnalyticsPage::class)->call('load');

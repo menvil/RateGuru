@@ -1,15 +1,20 @@
 <?php
 
 use App\Console\Commands\AnalyticsWarmFiguresCommand;
+use App\Enums\GameStatus;
+use App\Enums\UserRole;
 use App\Filament\Pages\Analytics\AnalyticsReadCache;
 use App\Filament\Pages\Analytics\AnalyticsTab;
 use App\Filament\Pages\GrowthAnalyticsPage;
+use App\Filament\Pages\TrafficSourcesPage;
+use App\Models\Game;
 use App\Models\TrafficSetting;
 use App\Models\User;
 use App\Support\Analytics\AnalyticsPeriod;
 use Carbon\CarbonImmutable;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Support\Arr;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\URL;
@@ -227,3 +232,39 @@ it('runs every five minutes in the background, never two runs at once, keeping e
 it('reads ahead only from the command: no request to the page can ask for it', function () {
     Livewire::withQueryParams([])->test(GrowthAnalyticsPage::class)->call('readAhead', 'overview', '30d', '', '');
 })->throws(MethodNotFoundException::class);
+
+it('reads the Games tab ahead as the administrator who opened the page reads it, though the schedule signs nobody in', function () {
+    Game::factory()->status(GameStatus::Live)->create();
+    // Not recording: the game's sign-ups lead to the switch, for whoever may manage traffic sources.
+    TrafficSetting::current()->forceFill(['capture_enabled' => false])->save();
+    TrafficSetting::forgetCaptureFlags();
+    Livewire::withQueryParams([])->test(GrowthAnalyticsPage::class);
+
+    // As the schedule runs it: nobody signed in.
+    Auth::forgetGuards();
+    $this->artisan('analytics:warm-figures')->assertSuccessful();
+
+    expect(Auth::user())->toBeNull();
+
+    $this->actingAs($this->admin);
+    $this->reads = 0;
+    $page = Livewire::withQueryParams(['tab' => 'games'])->test(GrowthAnalyticsPage::class)->call('load');
+    $kept = $page->viewData('data');
+
+    expect($this->reads)->toBe(0)
+        ->and($kept['signups']['trafficUrl'])->toBe(TrafficSourcesPage::getUrl(['tab' => 'sources']));
+
+    $page->call('refreshFigures');
+
+    expect($page->viewData('data'))->toEqual($kept);
+});
+
+it('reads nothing ahead as an administrator who may no longer open the page', function () {
+    Livewire::withQueryParams([])->test(GrowthAnalyticsPage::class);
+    $this->admin->forceFill(['role' => UserRole::Moderator])->save();
+    Auth::forgetGuards();
+
+    $this->artisan('analytics:warm-figures')->assertSuccessful();
+
+    expect($this->reads)->toBe(0);
+});

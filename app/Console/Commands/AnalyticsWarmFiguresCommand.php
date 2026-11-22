@@ -8,6 +8,7 @@ use App\Queries\Analytics\AnalyticsRollupGate;
 use App\Support\Observability\DomainLogger;
 use Carbon\CarbonImmutable;
 use Illuminate\Console\Command;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\URL;
 use Throwable;
 
@@ -17,8 +18,9 @@ use Throwable;
  * five minutes,
  * each tab slow to read (GrowthAnalyticsPage::READ_CACHED) with what its
  * filters offer, for the views likeliest to be opened
- * (AnalyticsReadCache::recentViews()), kept for everyone under the very keys
- * the page asks for (GrowthAnalyticsPage::readAhead()). Figures still kept
+ * (AnalyticsReadCache::recentViews()), each read as the administrator who
+ * last opened it reads it, kept for everyone under the very keys the page
+ * asks for (GrowthAnalyticsPage::readAhead()). Figures still kept
  * past the next run are not read again. Nothing is read once no
  * administrator opened the page for `analytics.read_ahead.idle_hours`, nor
  * while the tabs read the visits themselves rather than Analytics' own rows
@@ -69,6 +71,7 @@ final class AnalyticsWarmFiguresCommand extends Command
         $ahead = AnalyticsReadCache::ahead(CarbonImmutable::now('UTC')->addMinutes(self::EVERY_MINUTES + 1));
         $failed = 0;
         $skipped = 0;
+        $signedIn = Auth::hasUser() ? Auth::user() : null;
         app()->instance(AnalyticsReadCache::class, $ahead);
 
         try {
@@ -82,6 +85,8 @@ final class AnalyticsWarmFiguresCommand extends Command
                     }
 
                     self::addressedAt($view['origin']);
+                    // As the administrator it is read for reads it: what a tab shows may depend on what they may open.
+                    Auth::setUser($view['reader']);
 
                     try {
                         GrowthAnalyticsPage::readAhead($tab, $view['period'], $view['from'], $view['to']);
@@ -94,6 +99,7 @@ final class AnalyticsWarmFiguresCommand extends Command
         } finally {
             app()->forgetInstance(AnalyticsReadCache::class);
             self::addressedAt(null);
+            $signedIn === null ? Auth::forgetUser() : Auth::setUser($signedIn);
         }
 
         ['read' => $read, 'kept' => $kept] = $ahead->tally();

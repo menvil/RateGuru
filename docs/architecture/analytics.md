@@ -420,8 +420,11 @@ everyone who may open the page (`manage-traffic-sources`), not once per
 administrator: nothing a tab, the shell (`AnalyticsView`) or a query under them
 returns depends on who reads it. None asks for the account, the session or a
 policy, with two exceptions, both kept apart: a tracking link's details lead to
-its game only for someone who may manage games, so with details open that
-permission is part of the key (`GrowthAnalyticsPage::readState()`); and every
+its game, and Games' traffic periods to their results in Experiments, only for
+someone who may manage games, so on Games and with details open that
+permission is part of the key (`GrowthAnalyticsPage::readState()`) — Games'
+link to Record visits asks for `manage-traffic-sources`, which everyone who may
+open the page has; and every
 address in the figures — Open Tracking, a game's or a link's page — starts with
 the site's address the page was asked at, so that is part of every key too. The
 period an administrator last chose (`ReportPeriodMemory`, in their session) only
@@ -446,7 +449,10 @@ at once): each tab slow to read, with the options, for the views likeliest to
 be opened. Those are the page's default period with no filter, at each site's
 address an administrator opened it at, then each administrator's latest period,
 the latest first, at most `analytics.read_ahead.views` (4) views; every view's
-Overview is read before any view's next tab. It builds the page as `mount()` and `load()` settle it for such a view
+Overview is read before any view's next tab. Each view is read signed in as the
+administrator who last opened it — the schedule signs nobody in, and a tab read
+as nobody would leave out what its readers may open — and a view whose
+administrator may no longer open the page is not read. It builds the page as `mount()` and `load()` settle it for such a view
 (`GrowthAnalyticsPage::readAhead()`), so it keeps the figures under the very
 keys the page asks for, and builds every address as a request to that site's
 address would. Opening the page, or choosing a period, notes the view

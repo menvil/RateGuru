@@ -2,12 +2,14 @@
 
 namespace App\Filament\Pages\Analytics;
 
+use App\Models\User;
 use App\Support\Analytics\AnalyticsPeriod;
 use Carbon\CarbonImmutable;
 use Closure;
 use Illuminate\Contracts\Cache\Lock;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Str;
 
 /**
@@ -25,21 +27,24 @@ use Illuminate\Support\Str;
  * Nothing kept depends on who reads it. The tabs, the shell and the queries
  * under them ask nobody's account or session: the period an administrator
  * last chose (ReportPeriodMemory) only decides which period the page opens
- * on, and that period is part of what is kept by. The one thing a tab shows
- * by who is reading — a tracking link's details lead to its game only for
- * someone who may manage games — is kept by that permission as well
- * (GrowthAnalyticsPage::readState()). Every address in the figures starts
- * with the site's address the page was asked at, so what is kept is kept by
- * that too. What is kept holds plain values only: a store gives back no
- * object (`cache.serializable_classes`), so one would come back as no class.
+ * on, and that period is part of what is kept by. What a tab shows by who
+ * is reading — a tracking link's details lead to its game, and Games' traffic
+ * periods to their results in Experiments, only for someone who may manage
+ * games — is kept by that permission as well
+ * (GrowthAnalyticsPage::readState()); whatever else a tab shows only to
+ * someone who may manage traffic sources, everyone who may open the page
+ * may. Every address in the figures starts with the site's address the page
+ * was asked at, so what is kept is kept by that too. What is kept holds
+ * plain values only: a store gives back no object
+ * (`cache.serializable_classes`), so one would come back as no class.
  *
  * Read once for all: someone asking for figures another request is reading
  * at that moment — a second administrator, or the figures being read ahead
  * (analytics:warm-figures) — waits for them, at most WAIT_SECONDS, and reads
  * them only when none were kept by then. Refresh never waits. Each view an
  * administrator opens or chooses is noted (opened()), so the figures of the
- * views most likely to be opened next are read ahead before anyone asks
- * (recentViews(), ahead()).
+ * views most likely to be opened next are read ahead before anyone asks,
+ * each as an administrator who opened it reads it (recentViews(), ahead()).
  */
 final class AnalyticsReadCache
 {
@@ -160,28 +165,37 @@ final class AnalyticsReadCache
     /**
      * The views whose figures are read ahead, the likeliest first, at most
      * `analytics.read_ahead.views`: at each site's address an administrator
-     * opened the page at within `analytics.read_ahead.idle_hours`, the page's
-     * default period — where an administrator with no period kept lands —
-     * then each such administrator's latest period, the latest first. None
-     * once nobody opened the page for that long.
+     * who may still open the page opened it at within
+     * `analytics.read_ahead.idle_hours`, the page's default period — where an
+     * administrator with no period kept lands — then each such
+     * administrator's latest period, the latest first. Each with the
+     * administrator it is read as, the latest to open it: what a tab shows
+     * may depend on what its reader may open. None once nobody opened the
+     * page for that long.
      *
-     * @return list<array{origin: string, period: string, from: string, to: string}>
+     * @return list<array{reader: User, origin: string, period: string, from: string, to: string}>
      */
     public function recentViews(): array
     {
         $views = self::views(CarbonImmutable::now('UTC'));
         uasort($views, fn (array $one, array $other): int => strcmp($other['at'], $one['at']));
+        $readers = User::query()->whereKey(array_keys($views))->get()->keyBy('id');
         $read = [];
 
-        foreach ($views as $view) {
-            $read[] = ['origin' => $view['origin'], 'period' => AnalyticsPeriod::DEFAULT, 'from' => '', 'to' => ''];
+        foreach ([true, false] as $default) {
+            foreach ($views as $userId => $view) {
+                $reader = $readers->get($userId);
+
+                if ($reader === null || Gate::forUser($reader)->denies('manage-traffic-sources')) {
+                    continue;
+                }
+
+                [$period, $from, $to] = $default ? [AnalyticsPeriod::DEFAULT, '', ''] : [$view['period'], $view['from'], $view['to']];
+                $read[serialize([$view['origin'], $period, $from, $to])] ??= ['reader' => $reader, 'origin' => $view['origin'], 'period' => $period, 'from' => $from, 'to' => $to];
+            }
         }
 
-        foreach ($views as $view) {
-            $read[] = ['origin' => $view['origin'], 'period' => $view['period'], 'from' => $view['from'], 'to' => $view['to']];
-        }
-
-        return array_slice(array_values(array_unique($read, SORT_REGULAR)), 0, max(0, (int) config('analytics.read_ahead.views')));
+        return array_slice(array_values($read), 0, max(0, (int) config('analytics.read_ahead.views')));
     }
 
     /**

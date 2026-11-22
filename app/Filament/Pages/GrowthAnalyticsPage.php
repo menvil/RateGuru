@@ -684,9 +684,10 @@ final class GrowthAnalyticsPage extends Page
     /**
      * What the open tab's figures depend on: the days of the period as read
      * today, the address, and the rows of the Campaigns tree toggled — less
-     * what the tab ignores, so changing it reads nothing again — and, with a
-     * tracking link's details open, whether the reader may manage games,
-     * which decides whether they lead to the link's game.
+     * what the tab ignores, so changing it reads nothing again — and, on
+     * Games or with a tracking link's details open, whether the reader may
+     * manage games, which decides whether a traffic period leads to its
+     * results and the details to the link's game.
      *
      * @return array<string, mixed>
      */
@@ -710,7 +711,7 @@ final class GrowthAnalyticsPage extends Page
             unset($state['source'], $state['campaign'], $state['creative'], $state['link'], $state['segment']);
         }
 
-        if ($this->tab === 'links' && $this->show !== '') {
+        if ($this->tab === 'games' || ($this->tab === 'links' && $this->show !== '')) {
             $state['manageGames'] = Gate::allows('manage-games');
         }
 
