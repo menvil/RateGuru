@@ -166,6 +166,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -175,6 +176,7 @@ use Laravel\Nightwatch\Events\IngestingEvents as NightwatchIngestingEvents;
 use Laravel\Socialite\Two\User as SocialiteUser;
 use Livewire\Features\SupportTesting\Testable;
 use Livewire\Livewire;
+use Monolog\Handler\TestHandler;
 use PHPUnit\Framework\AssertionFailedError;
 use Sentry\ClientBuilder as SentryClientBuilder;
 use Sentry\Event as SentryEvent;
@@ -14796,6 +14798,23 @@ function demoGameWithMembers(int $members = 200): User
     (new TrafficSetting)->forceFill(['id' => 1, 'capture_enabled' => true, 'postbacks_enabled' => false])->save();
 
     return $admin;
+}
+
+/** The security channel, swapped for a handler the test can read. */
+function fakeSecurityLog(): TestHandler
+{
+    config(['logging.channels.security' => ['driver' => 'monolog', 'handler' => TestHandler::class]]);
+
+    return Log::channel('security')->getLogger()->getHandlers()[0];
+}
+
+/** An anonymous visitor's one-question game, played as far as its Full Result step. */
+function playToResult(string $slug): Testable
+{
+    return Livewire::withCookie((string) config('games.visitor_cookie.name'), str_repeat('s', 40))
+        ->test(PlayGame::class, ['slug' => $slug])
+        ->call('init')->call('continue')->call('choose', 0)->call('next')
+        ->assertSee('data-testid="game-step-full_result"', false);
 }
 
 /**

@@ -104,9 +104,13 @@
             {{-- One password, seen when the visitor wants to check it: it is its own confirmation. --}}
             <input type="hidden" name="password_confirmation" x-bind:value="password">
         </div>
-        @foreach ([...$bag->get('password'), ...$bag->get('password_confirmation')] as $message)
+        @foreach ([...$bag->get('password'), ...$bag->get('password_confirmation'), ...$bag->get('registration')] as $message)
             <p class="rg-game__error" role="alert">{{ $message }}</p>
         @endforeach
+        {{-- A preview signs nobody up, so it has nothing to screen. --}}
+        @unless ($preview)
+            <x-auth.registration-guard />
+        @endunless
         <button type="submit" class="rg-game__button rg-game__button--primary rg-game__button--wide" data-testid="game-signup-submit">{{ $submitLabel }}</button>
     </div>
 </form>

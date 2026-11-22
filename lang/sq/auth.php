@@ -31,6 +31,7 @@ return [
     'register' => [
         'title' => 'Regjistrim',
         'action' => 'Regjistrohu',
+        'refused' => 'Nuk arritëm ta përfundojmë regjistrimin tënd. Provo përsëri pas disa minutash.',
     ],
 
     'divider' => 'ose',

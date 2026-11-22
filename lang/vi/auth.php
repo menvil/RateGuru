@@ -31,6 +31,7 @@ return [
     'register' => [
         'title' => 'Đăng ký',
         'action' => 'Đăng ký',
+        'refused' => 'Chúng tôi không thể hoàn tất đăng ký của bạn. Vui lòng thử lại sau vài phút.',
     ],
 
     'divider' => 'hoặc',

@@ -31,6 +31,7 @@ return [
     'register' => [
         'title' => '注册',
         'action' => '注册',
+        'refused' => '无法完成注册，请几分钟后重试。',
     ],
 
     'divider' => '或',

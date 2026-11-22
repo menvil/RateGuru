@@ -13,6 +13,13 @@ return [
         'decay_seconds' => EnvironmentValue::integer(env('RATE_LIMIT_COMMENT_DECAY_SECONDS'), 60),
     ],
 
+    // Accounts one network may create. Fixed rather than a setting every host
+    // has to carry; a shared connection is why they are not lower.
+    'registration' => [
+        'per_hour' => 5,
+        'per_day' => 15,
+    ],
+
     'report' => [
         'max_attempts' => EnvironmentValue::integer(env('RATE_LIMIT_REPORT_ATTEMPTS'), 10),
         'decay_seconds' => EnvironmentValue::integer(env('RATE_LIMIT_REPORT_DECAY_SECONDS'), 600),

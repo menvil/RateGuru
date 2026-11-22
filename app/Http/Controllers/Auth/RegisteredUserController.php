@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Auth;
 
 use App\Actions\Auth\RegisterUserAction;
+use App\Actions\Auth\ScreenRegistrationAction;
 use App\Enums\AuthModalMode;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Auth\RegisterUserRequest;
@@ -27,17 +28,22 @@ class RegisteredUserController extends Controller
     public function store(
         RegisterUserRequest $request,
         RegisterUserAction $registerUser,
+        ScreenRegistrationAction $screenRegistration,
     ): RedirectResponse {
         /** @var array{name: string, email: string, password: string} $validated */
         $validated = $request->validated();
         $surface = AuthSurfaceContext::fromInput($validated, AuthModalMode::Register);
         app(SignupOrigin::class)->remember($surface);
 
-        $surface->guard(fn () => $registerUser->execute([
-            'name' => $validated['name'],
-            'email' => $validated['email'],
-            'password' => $validated['password'],
-        ]));
+        $surface->guard(function () use ($request, $validated, $registerUser, $screenRegistration): void {
+            $screenRegistration->execute($validated, $request->ip());
+
+            $registerUser->execute([
+                'name' => $validated['name'],
+                'email' => $validated['email'],
+                'password' => $validated['password'],
+            ]);
+        });
 
         return $surface->redirectAfterRegistration(route('dashboard', absolute: false));
     }

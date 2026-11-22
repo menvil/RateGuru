@@ -427,6 +427,12 @@
             "value": "60"
         },
         {
+            "key": "REGISTRATION_SCREENING_MODE",
+            "section": "Rate limits",
+            "classification": "target",
+            "value": "report"
+        },
+        {
             "key": "SESSION_DRIVER",
             "section": "Sessions",
             "classification": "target",

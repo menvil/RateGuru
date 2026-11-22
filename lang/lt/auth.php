@@ -31,6 +31,7 @@ return [
     'register' => [
         'title' => 'Registracija',
         'action' => 'Registruotis',
+        'refused' => 'Nepavyko užbaigti registracijos. Bandykite dar kartą po kelių minučių.',
     ],
 
     'divider' => 'arba',
