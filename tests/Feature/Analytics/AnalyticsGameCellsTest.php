@@ -831,6 +831,58 @@ it('keeps the count a read just learned while a refresh that fell behind counts 
     }
 });
 
+it('never takes the moment or the last day counted whole back when a run waited for the lock while a later one counted further', function () {
+    $this->travelTo('2026-11-12 08:00:00');
+    $version = cellsGame();
+    cellsView($version, 'ann', '2026-11-12 09:00:00');
+    cellsAttempt($version, 'ann', '2026-11-12 09:01:00');
+    $this->travelTo('2026-11-12 11:40:00');
+    countGameCells();
+
+    if (! app(AnalyticsRollupGate::class)->cellsKept()) {
+        expect(AnalyticsGameCell::query()->count())->toBe(0);
+
+        return;
+    }
+
+    $moments = fn (): array => AnalyticsGameCell::query()->whereNotNull('moment')->distinct()->orderBy('moment')->pluck('moment')->map(fn (CarbonImmutable $moment): string => $moment->toDateTimeString())->all();
+    $at = fn (string $moment): CarbonImmutable => CarbonImmutable::parse($moment, 'UTC');
+
+    // A run begun at noon takes the lock only once a run begun at a quarter past has counted.
+    $this->travelTo('2026-11-12 12:15:00');
+    $laterCounted = false;
+    DB::listen(function ($query) use (&$laterCounted, $at): void {
+        if (! $laterCounted && str_contains(strtolower($query->sql), 'for update')) {
+            $laterCounted = true;
+            app(RefreshAnalyticsGameCellsAction::class)->handle(microtime(true) + 60, 0, $at('2026-11-12 12:15:00'));
+        }
+    });
+    app(RefreshAnalyticsGameCellsAction::class)->handle(microtime(true) + 60, 0, $at('2026-11-12 12:00:00'));
+
+    expect($laterCounted)->toBeTrue()
+        ->and($moments())->toBe(['2026-11-12 11:30:00', '2026-11-12 12:05:00'])
+        ->and(AnalyticsRollupState::current()->game_cells_moment?->toDateTimeString())->toBe('2026-11-12 12:05:00');
+
+    $this->travelTo('2026-11-12 12:16:00');
+    compareGameCells($version, [['2026-11-01 00:00:00', '2026-11-12 12:16:00']]);
+
+    // A run that began the day before, behind by two days, closes a day once a later run has closed the next.
+    AnalyticsRollupState::query()->whereKey(AnalyticsRollupState::ID)->update(['game_cells_through' => '2026-11-09']);
+    $laterClosed = false;
+    DB::listen(function ($query) use (&$laterClosed): void {
+        if (! $laterClosed && str_contains(strtolower($query->sql), 'for update')) {
+            $laterClosed = true;
+            AnalyticsRollupState::query()->whereKey(AnalyticsRollupState::ID)->update(['game_cells_through' => '2026-11-11']);
+        }
+    });
+    app(RefreshAnalyticsGameCellsAction::class)->handle(microtime(true) + 60, 0, $at('2026-11-11 12:00:00'));
+
+    expect($laterClosed)->toBeTrue()
+        ->and(gameCellsThrough())->toBe('2026-11-11')
+        ->and($moments())->toBe(['2026-11-12 11:30:00', '2026-11-12 12:05:00'])
+        ->and(AnalyticsRollupState::current()->game_cells_moment?->toDateTimeString())->toBe('2026-11-12 12:05:00');
+});
+
 it('counts a game nobody saw, and one seen with no version but never played, the same both ways', function () {
     $this->travelTo('2026-11-01 08:00:00');
     $empty = cellsGame();

@@ -41,7 +41,9 @@ use Illuminate\Support\Facades\DB;
  * the one the purge of the numbers takes too, so a number is never let go
  * while a count is giving it to a cell: the guests' browsers seen with no
  * number yet are given one, then the cells are read and inserted, so counting
- * never holds a lock on what playing writes. Only where the cells are kept
+ * never holds a lock on what playing writes. Neither the last day counted
+ * whole nor the moment ever goes back: a run that waited for the lock while
+ * one begun after it counted further leaves that count as it is. Only where the cells are kept
  * (PostgreSQL with the roaringbitmap extension); elsewhere it does nothing.
  */
 final class RefreshAnalyticsGameCellsAction
@@ -102,7 +104,9 @@ final class RefreshAnalyticsGameCellsAction
                     $this->write($day);
                 }
 
-                $state->forceFill(['game_cells_through' => $day ?? $last])->save();
+                // Never back: a run begun before this one may have counted further while this one waited for the lock.
+                $further = AnalyticsRollupState::query()->whereKey(AnalyticsRollupState::ID)->value('game_cells_through');
+                $state->forceFill(['game_cells_through' => max((string) $further, $day ?? $last)])->save();
             });
 
             $closed = true;
@@ -199,6 +203,12 @@ final class RefreshAnalyticsGameCellsAction
             self::lock();
             $first = GameCellDays::after($through);
             $latest = AnalyticsRollupState::query()->whereKey(AnalyticsRollupState::ID)->value('game_cells_moment');
+
+            // A run begun after this one counted up to this moment or later while this one waited for the lock: its count stays.
+            if ($latest !== null && CarbonImmutable::parse((string) $latest, 'UTC')->greaterThanOrEqualTo($moment)) {
+                return;
+            }
+
             $keepFrom = $moment->subMinutes(GameCellDays::KEEP_MINUTES);
 
             if ($latest !== null && CarbonImmutable::parse((string) $latest, 'UTC')->lessThan($keepFrom)) {
