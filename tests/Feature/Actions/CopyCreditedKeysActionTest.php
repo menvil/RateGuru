@@ -23,9 +23,11 @@ it('copies what Retention reads onto the attributions written without it, and le
     $copied = AccountAttribution::factory()->create(['credited_visit_id' => $visit->id]);
     // Its visit purged since: the pointer let go, the copies kept.
     $purged = AccountAttribution::factory()->create(['credited_source_key' => 'reddit:organic', 'credited_device' => 'desktop']);
+    // Its game never copied, its source and device copied (a repeated paid click writes them) before its visit was purged.
+    $purgedWithoutGame = AccountAttribution::factory()->create(['credited_attempt_id' => $attempt->id, 'credited_game_id' => null, 'credited_source_key' => 'paid:2', 'credited_device' => 'mobile']);
     $nothing = AccountAttribution::factory()->create();
 
-    expect(app(CopyCreditedKeysAction::class)->handle())->toBe(2)
+    expect(app(CopyCreditedKeysAction::class)->handle())->toBe(3)
         ->and($without->fresh())
         ->credited_source_key->toBe('paid:2')
         ->credited_device->toBe(TrafficDevice::Mobile)
@@ -40,6 +42,10 @@ it('copies what Retention reads onto the attributions written without it, and le
         ->and($purged->fresh())
         ->credited_source_key->toBe('reddit:organic')
         ->credited_device->toBe(TrafficDevice::Desktop)
+        ->and($purgedWithoutGame->fresh())
+        ->credited_game_id->toBe($attempt->game_id)
+        ->credited_source_key->toBe('paid:2')
+        ->credited_device->toBe(TrafficDevice::Mobile)
         ->and($nothing->fresh())
         ->credited_source_key->toBeNull()
         ->credited_device->toBeNull()
