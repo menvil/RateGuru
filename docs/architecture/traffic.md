@@ -293,6 +293,16 @@ again. Neither connector ever changes a bid or a budget or touches money, and
 both are unverified until checked on a real account
 (`config/traffic_presets.php`, "connectors").
 
+PopAds replaces a campaign's website list whole and refuses one to exclude
+without a site (a validation error, which PopAds sends with HTTP 500): the last
+site taken off turns the campaign's targeting off (`mode=none`) instead, and a
+list shared through `global` targeting that would be left empty is left alone
+(`TrafficConnectorFailure::SharedList`). An error PopAds explains in an
+`errors` list is a refusal (`Rejected`), whatever its status — never an API
+that is down. A block whose taking off the network refused stays `applied`
+with its `network_error`; Sites & zones shows that, and where every block on
+its way to or off a network stands.
+
 ## Sync
 
 `traffic:sync-networks` is the one process that calls networks' APIs: waiting
