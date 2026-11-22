@@ -248,8 +248,9 @@ final class RecordPaidClickAction
                 $visit->arrived_at,
             )),
         ])->save();
-        // An account the click was credited to while it was the other browser's reads its device as it is now.
-        AccountAttribution::query()->where('credited_visit_id', $visit->id)->update(['credited_device' => $visit->device->value]);
+        // An account the click was credited to while it was the other browser's reads its device as it is now; its source
+        // too, which never changes, so one written without either keeps none for the copy step (CopyCreditedKeysAction) to miss.
+        AccountAttribution::query()->where('credited_visit_id', $visit->id)->update(['credited_source_key' => $visit->source_key, 'credited_device' => $visit->device->value]);
         // A click id can come again any time later: Analytics reads the old click's day again.
         $this->analytics->handle($visit->network_day, $now);
 
