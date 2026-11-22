@@ -31,7 +31,7 @@ return [
     'register' => [
         'title' => 'Registrer deg',
         'action' => 'Registrer deg',
-        'refused' => 'Vi kunne ikke fullføre registreringen din. Prøv igjen om noen minutter.',
+        'refused' => 'Vi kunne ikke fullføre registreringen din. Prøv igjen senere.',
     ],
 
     'divider' => 'eller',

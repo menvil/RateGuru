@@ -127,7 +127,8 @@ checks, in this order:
    seconds old, kept when the form is drawn again after an error;
 3. how many accounts the network created: five an hour and fifteen a day per
    IPv4 address or IPv6 `/64`. Only accounts actually created count, so a
-   typo spends nothing.
+   typo spends nothing, and a sign-up that loses its address to another one
+   gives its count back.
 
 `REGISTRATION_SCREENING_MODE` says what happens to what they find:
 
@@ -140,6 +141,10 @@ checks, in this order:
 A blank or unknown value reads as `report`. The log line carries the reasons
 and the browser's bot flags, never the name or the address. Signing in with
 Google or Facebook is not screened.
+
+When the cache holding the counts cannot be reached, the log line gives the
+reason `limits_unavailable`. `report` still lets the sign-up through, and
+`enforce` refuses it, because the limits could not be applied.
 
 ## The shared modal
 

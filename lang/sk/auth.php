@@ -31,7 +31,7 @@ return [
     'register' => [
         'title' => 'Registrácia',
         'action' => 'Zaregistrovať sa',
-        'refused' => 'Registráciu sa nepodarilo dokončiť. Skús to znova o pár minút.',
+        'refused' => 'Registráciu sa nepodarilo dokončiť. Skús to znova neskôr.',
     ],
 
     'divider' => 'alebo',

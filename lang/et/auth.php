@@ -31,7 +31,7 @@ return [
     'register' => [
         'title' => 'Registreeru',
         'action' => 'Registreeru',
-        'refused' => 'Registreerimist ei õnnestunud lõpetada. Proovi mõne minuti pärast uuesti.',
+        'refused' => 'Registreerimist ei õnnestunud lõpetada. Proovi hiljem uuesti.',
     ],
 
     'divider' => 'või',

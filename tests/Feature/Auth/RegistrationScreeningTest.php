@@ -6,7 +6,9 @@ use App\Models\ProjectSettings;
 use App\Models\User;
 use App\Support\AbuseGuards\RateLimitKey;
 use App\Support\Auth\RegistrationFormStamp;
+use Illuminate\Cache\RateLimiter as IlluminateRateLimiter;
 use Illuminate\Support\Facades\RateLimiter;
+use Illuminate\Validation\ValidationException;
 use Monolog\Handler\TestHandler;
 use Monolog\LogRecord;
 
@@ -95,11 +97,20 @@ it('refuses a stamp signed for another session', function () {
 });
 
 it('keeps the stamp when the form is drawn again, so fixing a typo is not too fast', function () {
-    $stamp = app(RegistrationFormStamp::class)->issue();
-    $this->travel(30)->seconds();
+    $form = screenedSignUp(['email' => 'not-an-address']);
 
-    expect(app(RegistrationFormStamp::class)->issue($stamp))->toBe($stamp)
-        ->and(app(RegistrationFormStamp::class)->ageOf($stamp))->toBe(30);
+    $this->from('/register')->post('/register', $form)
+        ->assertRedirect('/register')
+        ->assertSessionHasErrors('email');
+
+    $html = $this->get('/register')->assertOk()->getContent();
+    preg_match('/name="'.RegistrationFormStamp::FIELD.'"\s+value="([^"]+)"/', $html, $redrawn);
+    expect($redrawn[1] ?? null)->toBe($form[RegistrationFormStamp::FIELD]);
+
+    // Sent straight away, with no time passing since the form was drawn again.
+    $this->post('/register', [...$form, 'email' => 'new@example.com'])->assertSessionHasNoErrors();
+
+    $this->assertAuthenticated();
 });
 
 it('limits the accounts one address creates in an hour', function () {
@@ -132,6 +143,70 @@ it('does not spend the limit on a typo or on a refusal', function () {
     $this->post('/register', screenedSignUp())->assertSessionHasNoErrors();
 
     expect(RateLimiter::attempts($key))->toBe(1);
+});
+
+it('gives the count back when another sign-up claimed the address first', function (string $mode) {
+    config(['registration.screening_mode' => $mode]);
+    fakeSecurityLog();
+    $form = screenedSignUp();
+
+    // The other sign-up lands between this one's validation and its insert.
+    User::creating(function (User $user): void {
+        User::flushEventListeners();
+        User::factory()->create(['email' => $user->email]);
+    });
+
+    $this->post('/register', $form)->assertSessionHasErrors('email');
+
+    $this->assertGuest();
+    expect(RateLimiter::attempts(RateLimitKey::registration('hour', '127.0.0.1')))->toBe(0)
+        ->and(RateLimiter::attempts(RateLimitKey::registration('day', '127.0.0.1')))->toBe(0);
+})->with(['enforce', 'report']);
+
+it('gives the count back when a sign-up arriving together with others is refused', function () {
+    fakeSecurityLog();
+    $key = RateLimitKey::registration('hour', '127.0.0.1');
+    $limiter = app(IlluminateRateLimiter::class);
+    $limiter->increment($key, 3600, 5);
+    $stamp = app(RegistrationFormStamp::class)->issue();
+    $this->travel(10)->seconds();
+
+    // The check before the count saw room: another sign-up took it just after.
+    RateLimiter::swap(Mockery::mock($limiter)->shouldReceive('tooManyAttempts')->andReturnFalse()->getMock());
+
+    expect(fn () => app(ScreenRegistrationAction::class)->execute([RegistrationFormStamp::FIELD => $stamp], '127.0.0.1'))
+        ->toThrow(ValidationException::class);
+
+    expect($limiter->attempts($key))->toBe(5);
+});
+
+it('lets a sign-up through in report mode when the limits cannot be read', function () {
+    config(['registration.screening_mode' => 'report']);
+    $log = fakeSecurityLog();
+    $stamp = app(RegistrationFormStamp::class)->issue();
+    $this->travel(10)->seconds();
+
+    RateLimiter::shouldReceive('tooManyAttempts')->andThrow(new RuntimeException('cache down'));
+    RateLimiter::shouldReceive('hit')->andThrow(new RuntimeException('cache down'));
+
+    expect(app(ScreenRegistrationAction::class)->execute([RegistrationFormStamp::FIELD => $stamp], '127.0.0.1'))->toBe([]);
+
+    expect(screeningLines($log))->toHaveCount(1)
+        ->and(screeningLines($log)[0])->toMatchArray(['reasons' => ['limits_unavailable'], 'refused' => false]);
+});
+
+it('refuses a sign-up in enforce mode when the limits cannot be read', function () {
+    $log = fakeSecurityLog();
+    $stamp = app(RegistrationFormStamp::class)->issue();
+    $this->travel(10)->seconds();
+
+    RateLimiter::shouldReceive('tooManyAttempts')->andThrow(new RuntimeException('cache down'));
+    RateLimiter::shouldReceive('hit')->andThrow(new RuntimeException('cache down'));
+
+    expect(fn () => app(ScreenRegistrationAction::class)->execute([RegistrationFormStamp::FIELD => $stamp], '127.0.0.1'))
+        ->toThrow(ValidationException::class, __('auth.register.refused'));
+
+    expect(screeningLines($log)[0])->toMatchArray(['reasons' => ['limits_unavailable'], 'refused' => true]);
 });
 
 it('counts one IPv6 network as one client, and two as two', function () {

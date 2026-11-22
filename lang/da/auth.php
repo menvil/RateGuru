@@ -31,7 +31,7 @@ return [
     'register' => [
         'title' => 'Opret konto',
         'action' => 'Opret konto',
-        'refused' => 'Vi kunne ikke gennemføre din tilmelding. Prøv igen om et par minutter.',
+        'refused' => 'Vi kunne ikke gennemføre din tilmelding. Prøv igen senere.',
     ],
 
     'divider' => 'eller',

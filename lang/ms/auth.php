@@ -31,7 +31,7 @@ return [
     'register' => [
         'title' => 'Daftar',
         'action' => 'Daftar',
-        'refused' => 'Kami tidak dapat melengkapkan pendaftaran anda. Sila cuba lagi dalam beberapa minit.',
+        'refused' => 'Kami tidak dapat melengkapkan pendaftaran anda. Sila cuba lagi kemudian.',
     ],
 
     'divider' => 'atau',

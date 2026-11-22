@@ -31,7 +31,7 @@ return [
     'register' => [
         'title' => 'Registreren',
         'action' => 'Registreren',
-        'refused' => 'We konden je registratie niet afronden. Probeer het over een paar minuten opnieuw.',
+        'refused' => 'We konden je registratie niet afronden. Probeer het later opnieuw.',
     ],
 
     'divider' => 'of',

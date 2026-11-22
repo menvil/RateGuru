@@ -31,7 +31,7 @@ return [
     'register' => [
         'title' => 'Registrati',
         'action' => 'Registrati',
-        'refused' => 'Non siamo riusciti a completare la registrazione. Riprova tra qualche minuto.',
+        'refused' => 'Non siamo riusciti a completare la registrazione. Riprova più tardi.',
     ],
 
     'divider' => 'oppure',

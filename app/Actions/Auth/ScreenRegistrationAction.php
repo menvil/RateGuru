@@ -9,6 +9,7 @@ use App\Support\Auth\RegistrationFormStamp;
 use App\Support\Observability\SecurityLog;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Validation\ValidationException;
+use Throwable;
 
 /**
  * The checks a sign-up passes after its fields are valid and before an
@@ -19,6 +20,11 @@ use Illuminate\Validation\ValidationException;
  * Whether it is also refused is the mode's to say, so the checks can be
  * watched on real traffic before they turn anyone away. The refusal does not
  * say which check failed: that would tell a script what to change.
+ *
+ * A cache that cannot be reached is one more thing the checks found. Report
+ * mode lets the sign-up through, as it does everything; enforce mode refuses
+ * it, since the limits could not be applied. It is not reported from here:
+ * the frames of this call hold the submitted form, password included.
  */
 final class ScreenRegistrationAction
 {
@@ -31,6 +37,8 @@ final class ScreenRegistrationAction
     public const string EVENT = 'security.registration_screened';
 
     public const string THROTTLED_EVENT = 'security.registration_screening_throttled';
+
+    private const string LIMITS_UNAVAILABLE = 'limits_unavailable';
 
     private const int LOG_LINES_PER_MINUTE = 30;
 
@@ -45,27 +53,31 @@ final class ScreenRegistrationAction
 
     /**
      * @param  array<string, mixed>  $validated
+     * @return array<string, int> the counters this attempt added to, with their
+     *                            windows, for release() if no account comes of it
      *
      * @throws ValidationException when the mode refuses what the checks found
      */
-    public function execute(array $validated, ?string $ip): void
+    public function execute(array $validated, ?string $ip): array
     {
         $mode = RegistrationScreeningMode::current();
 
         if ($mode === RegistrationScreeningMode::Off) {
-            return;
+            return [];
         }
 
         $reasons = [...$this->formReasons($validated), ...$this->limitsReached($ip)];
+        $counted = [];
 
         // An attempt about to be refused creates no account, so it is not
         // counted; one let through is, and may be what reaches the limit.
         if ($reasons === [] || $mode === RegistrationScreeningMode::Report) {
-            $reasons = array_values(array_unique([...$reasons, ...$this->countAccount($ip)]));
+            [$limitReasons, $counted] = $this->countAccount($ip);
+            $reasons = array_values(array_unique([...$reasons, ...$limitReasons]));
         }
 
         if ($reasons === []) {
-            return;
+            return $counted;
         }
 
         $refused = $mode === RegistrationScreeningMode::Enforce;
@@ -78,7 +90,25 @@ final class ScreenRegistrationAction
         ]);
 
         if ($refused) {
+            $this->release($counted);
+
             throw ValidationException::withMessages([self::ERROR_FIELD => __('auth.register.refused')]);
+        }
+
+        return $counted;
+    }
+
+    /**
+     * Takes back what execute() counted, when no account came of it: only
+     * accounts actually created count. Never fails, so the reason the account
+     * was not created is the one the person is told.
+     *
+     * @param  array<string, int>  $counted
+     */
+    public function release(array $counted): void
+    {
+        foreach ($counted as $key => $seconds) {
+            rescue(fn () => RateLimiter::decrement($key, $seconds), report: false);
         }
     }
 
@@ -110,10 +140,14 @@ final class ScreenRegistrationAction
     {
         $reasons = [];
 
-        foreach ($this->windows() as $reason => [$window, $limit]) {
-            if (RateLimiter::tooManyAttempts(RateLimitKey::registration($window, $ip), $limit)) {
-                $reasons[] = $reason;
+        try {
+            foreach ($this->windows() as $reason => [$window, $limit]) {
+                if (RateLimiter::tooManyAttempts(RateLimitKey::registration($window, $ip), $limit)) {
+                    $reasons[] = $reason;
+                }
             }
+        } catch (Throwable) {
+            return [self::LIMITS_UNAVAILABLE];
         }
 
         return $reasons;
@@ -123,19 +157,28 @@ final class ScreenRegistrationAction
      * Counted in one atomic step per window, so of several sign-ups arriving
      * together only the ones within the limit see a count that admits them.
      *
-     * @return list<string>
+     * @return array{list<string>, array<string, int>} what the count found, and what was counted
      */
     private function countAccount(?string $ip): array
     {
         $reasons = [];
+        $counted = [];
 
-        foreach ($this->windows() as $reason => [$window, $limit, $seconds]) {
-            if (RateLimiter::hit(RateLimitKey::registration($window, $ip), $seconds) > $limit) {
-                $reasons[] = $reason;
+        try {
+            foreach ($this->windows() as $reason => [$window, $limit, $seconds]) {
+                $key = RateLimitKey::registration($window, $ip);
+                $hits = RateLimiter::hit($key, $seconds);
+                $counted[$key] = $seconds;
+
+                if ($hits > $limit) {
+                    $reasons[] = $reason;
+                }
             }
+        } catch (Throwable) {
+            $reasons[] = self::LIMITS_UNAVAILABLE;
         }
 
-        return $reasons;
+        return [$reasons, $counted];
     }
 
     /** @return array<string, array{string, int, int}> */

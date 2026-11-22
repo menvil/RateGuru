@@ -10,6 +10,7 @@ use App\Http\Requests\Auth\RegisterUserRequest;
 use App\Support\Auth\AuthSurfaceContext;
 use App\Support\Traffic\Attribution\SignupOrigin;
 use Illuminate\Http\RedirectResponse;
+use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
 
 class RegisteredUserController extends Controller
@@ -36,13 +37,19 @@ class RegisteredUserController extends Controller
         app(SignupOrigin::class)->remember($surface);
 
         $surface->guard(function () use ($request, $validated, $registerUser, $screenRegistration): void {
-            $screenRegistration->execute($validated, $request->ip());
+            $counted = $screenRegistration->execute($validated, $request->ip());
 
-            $registerUser->execute([
-                'name' => $validated['name'],
-                'email' => $validated['email'],
-                'password' => $validated['password'],
-            ]);
+            try {
+                $registerUser->execute([
+                    'name' => $validated['name'],
+                    'email' => $validated['email'],
+                    'password' => $validated['password'],
+                ]);
+            } catch (ValidationException $noAccount) {
+                $screenRegistration->release($counted);
+
+                throw $noAccount;
+            }
         });
 
         return $surface->redirectAfterRegistration(route('dashboard', absolute: false));

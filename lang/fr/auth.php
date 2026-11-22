@@ -31,7 +31,7 @@ return [
     'register' => [
         'title' => 'Inscription',
         'action' => 'S\'inscrire',
-        'refused' => 'Nous n\'avons pas pu finaliser votre inscription. Réessayez dans quelques minutes.',
+        'refused' => 'Nous n\'avons pas pu finaliser votre inscription. Réessayez plus tard.',
     ],
 
     'divider' => 'ou',

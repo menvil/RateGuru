@@ -31,7 +31,7 @@ return [
     'register' => [
         'title' => 'Skapa konto',
         'action' => 'Skapa konto',
-        'refused' => 'Vi kunde inte slutföra din registrering. Försök igen om några minuter.',
+        'refused' => 'Vi kunde inte slutföra din registrering. Försök igen senare.',
     ],
 
     'divider' => 'eller',

@@ -31,7 +31,7 @@ return [
     'register' => [
         'title' => 'Înregistrare',
         'action' => 'Înregistrează-te',
-        'refused' => 'Nu am putut finaliza înregistrarea ta. Încearcă din nou în câteva minute.',
+        'refused' => 'Nu am putut finaliza înregistrarea ta. Încearcă din nou mai târziu.',
     ],
 
     'divider' => 'sau',

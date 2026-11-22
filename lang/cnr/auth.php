@@ -31,7 +31,7 @@ return [
     'register' => [
         'title' => 'Registracija',
         'action' => 'Registruj se',
-        'refused' => 'Nijesmo uspjeli da završimo tvoju registraciju. Pokušaj ponovo za nekoliko minuta.',
+        'refused' => 'Nijesmo uspjeli da završimo tvoju registraciju. Pokušaj ponovo kasnije.',
     ],
 
     'divider' => 'ili',

@@ -31,7 +31,7 @@ return [
     'register' => [
         'title' => 'Kaydol',
         'action' => 'Kaydol',
-        'refused' => 'Kaydınızı tamamlayamadık. Birkaç dakika sonra yeniden deneyin.',
+        'refused' => 'Kaydınızı tamamlayamadık. Daha sonra yeniden deneyin.',
     ],
 
     'divider' => 'veya',
