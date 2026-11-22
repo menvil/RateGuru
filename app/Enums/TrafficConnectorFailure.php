@@ -16,6 +16,7 @@ enum TrafficConnectorFailure: string
     case Unsupported = 'unsupported';
     case LimitReached = 'limit_reached';
     case CredentialsUnreadable = 'credentials_unreadable';
+    case SharedList = 'shared_list';
 
     public function message(): string
     {
@@ -31,6 +32,7 @@ enum TrafficConnectorFailure: string
             self::Unsupported => 'The network can’t do this for this campaign (it lists sites to allow, not to block).',
             self::LimitReached => 'The campaign’s block list is full.',
             self::CredentialsUnreadable => 'The saved key can’t be read any more (the app key changed). Enter it again with Reconnect.',
+            self::SharedList => 'The campaign blocks the sites of a list shared with other campaigns, and it would be left empty. Take the last sites off it in the network’s panel.',
         };
     }
 

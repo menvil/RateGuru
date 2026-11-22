@@ -12,6 +12,7 @@ use App\Enums\TrafficBlockVerdict;
 use App\Enums\TrafficCampaignStatus;
 use App\Enums\TrafficChannel;
 use App\Enums\TrafficConnectionStatus;
+use App\Enums\TrafficConnectorFailure;
 use App\Enums\TrafficDimension;
 use App\Enums\TrafficEvent;
 use App\Enums\TrafficPostbackStatus;
@@ -817,12 +818,21 @@ final class TrafficSourcesView
     {
         if ($block !== null) {
             $still = $block->clicks_after > 0;
-
-            return ['label' => $still ? 'Blocked · still sending' : 'Blocked', 'tone' => $still ? 'danger' : 'neutral', 'tip' => 'Blocked '.$block->blocked_at->format('j M').match ($block->method) {
+            $tip = 'Blocked '.$block->blocked_at->format('j M').match ($block->method) {
                 TrafficBlockMethod::Api => ' through the network',
                 TrafficBlockMethod::Auto => ' by the block rule',
                 default => ' by hand',
-            }.($still ? ' · '.$block->clicks_after.' clicks since' : '')];
+            }.($still ? ' · '.$block->clicks_after.' clicks since' : '');
+            $why = $block->network_error === null ? null : (TrafficConnectorFailure::tryFrom($block->network_error)?->message() ?? 'No campaign of the source to apply it to.');
+
+            // Where the network's list stands: on its way there or off it, refused there, or a taking off it that failed — the block stays until it is unblocked again.
+            return match (true) {
+                $block->network_state === TrafficBlockNetworkState::Pending => ['label' => 'Blocking…', 'tone' => 'warning', 'tip' => $tip.' · waiting to be added to the network’s list'],
+                $block->network_state === TrafficBlockNetworkState::Removing => ['label' => 'Unblocking…', 'tone' => 'warning', 'tip' => 'Waiting to be taken off the network’s list'],
+                $block->network_state === TrafficBlockNetworkState::Failed => ['label' => 'Not blocked on the network', 'tone' => 'danger', 'tip' => $tip.' · the network didn’t take it: '.$why],
+                $block->network_state === TrafficBlockNetworkState::Applied && $why !== null => ['label' => 'Blocked · unblock failed', 'tone' => 'danger', 'tip' => 'Still on the network’s list: '.$why.' Unblock it again to try again.'],
+                default => ['label' => $still ? 'Blocked · still sending' : 'Blocked', 'tone' => $still ? 'danger' : 'neutral', 'tip' => $tip],
+            };
         }
 
         return match ($judged['state']) {

@@ -72,7 +72,14 @@ You block by hand in Report → Sites & zones: tick sites or zones, then
 **Block**, or **Copy IDs** for the network's own blacklist. With the source's
 API connected the block is queued and reaches the network within a minute;
 without it the block is only marked here, and the IDs go into the network's
-blacklist by hand.
+blacklist by hand. **Unblock** works the same way: a block marked here goes at
+once; one on the network's list shows **Unblocking…** until the network has
+taken it off, within a minute. Should the network refuse, the site stays
+blocked and its badge says **Blocked · unblock failed** with the network's
+reason — Unblock again to try again. Taking a PopAds campaign's last sites off
+its exclusion list turns that campaign's site targeting off (PopAds keeps no
+empty list to exclude); a list shared with other campaigns that would be left
+empty is not changed — take its last sites off in the PopAds panel.
 
 **Block bots and losing sites by itself** (a source's editor → Blocking) lets
 the block rule do it every 5 minutes, over each site's or zone's last 30 days:
