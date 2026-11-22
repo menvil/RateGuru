@@ -507,8 +507,162 @@ it('forgets a site taken off in the panel, and marks RateGuru’s own block take
         ->and($offOne->listings()->where('campaign_id', $first->id)->sole())->listed->toBeFalse()->error->toBe('taken_off')
         ->and($offBoth->fresh()->network_state)->toBe(TrafficBlockNetworkState::TakenOff)
         ->and($kept->fresh()->network_state)->toBe(TrafficBlockNetworkState::Applied)
-        ->and($lists)->toBe(['881204' => ['40125'], '881205' => ['40123', '40125']])
-        ->and(TrafficBlockEvent::query()->where('kind', 'gone')->sole())->ref_count->toBe(3)->actor->toBe(TrafficActor::NetworkApi);
+        ->and($lists)->toBe(['881204' => ['40125'], '881205' => ['40123', '40125']]);
+
+    // One line for what is off every list now, one for what is off some only — both done in the network's panel.
+    $gone = TrafficBlockEvent::query()->where('kind', 'gone')->orderBy('id')->get();
+
+    expect($gone->map(fn (TrafficBlockEvent $event): array => [$event->ref_count, $event->partial, $event->actor])->all())->toBe([[2, false, TrafficActor::NetworkPanel], [1, true, TrafficActor::NetworkPanel]])
+        ->and($gone[0]->refs)->toEqualCanonicalizing(['501', '40124'])
+        ->and($gone[1]->refs)->toBe(['40123']);
+});
+
+it('leaves a site taken off every list in the network’s panel to the owner for 30 days, as one an administrator unblocked, and lets an administrator block it again', function () {
+    config(['traffic_presets.connectors.popads.verified' => true]);
+    // Its sites have a few dozen clicks each: it judges bots from 30, not the general 100.
+    $this->popads->forceFill(['block_auto' => true, 'block_daily_cap' => 10, 'block_bot_clicks' => 30])->save();
+    $connection = TrafficApiConnection::factory()->create(['source_id' => $this->popads->id, 'next_sync_at' => now(), 'backfill_cursor' => null]);
+    $first = TrafficCampaign::factory()->create(['source_id' => $this->popads->id, 'external_id' => '881204']);
+    $second = TrafficCampaign::factory()->create(['source_id' => $this->popads->id, 'external_id' => '881205']);
+    $block = function (string $ref, TrafficBlockMethod $method, array $on): TrafficBlock {
+        $block = TrafficBlock::factory()->create(['source_id' => $this->popads->id, 'level' => TrafficBlockLevel::Site, 'ref' => $ref, 'method' => $method, 'network_state' => TrafficBlockNetworkState::Applied]);
+
+        foreach ($on as $campaign) {
+            TrafficBlockListing::factory()->create(['block_id' => $block->id, 'campaign_id' => $campaign->id, 'listed' => true]);
+        }
+
+        return $block;
+    };
+    // Found in the panel; RateGuru's own, to be taken off both lists there; RateGuru's own, to be taken off one.
+    $panel = $block('s1', TrafficBlockMethod::Panel, [$first]);
+    $offBoth = $block('s2', TrafficBlockMethod::Auto, [$first, $second]);
+    $offOne = $block('s3', TrafficBlockMethod::Api, [$first, $second]);
+
+    // Bots, every one, by the rule's reckoning — s4 never blocked — beside a sound site, every click opening the page.
+    foreach (['s1', 's2', 's3', 's4'] as $site) {
+        TrafficVisit::factory()->count(40)->create(['source_id' => $this->popads->id, 'site_ref' => $site, 'arrived_at' => now()->subHour(), 'network_day' => '2026-11-17', 'opened_at' => null, 'spend' => '0.01']);
+    }
+
+    TrafficVisit::factory()->count(160)->create(['source_id' => $this->popads->id, 'site_ref' => 'sound', 'arrived_at' => now()->subHour(), 'network_day' => '2026-11-17', 'opened_at' => now()->subHour(), 'spend' => '0.01']);
+    $lists = ['881204' => [], '881205' => ['s3']];
+    popAdsWithLists($lists);
+
+    app(SyncTrafficNetworkAction::class)->handle($connection, CarbonImmutable::now());
+
+    expect($panel->fresh())->toBeNull()
+        ->and($offBoth->fresh()->network_state)->toBe(TrafficBlockNetworkState::TakenOff)
+        ->and($offOne->fresh()->network_state)->toBe(TrafficBlockNetworkState::Partial)
+        // Off every list: left to the owner, as a site an administrator unblocked is; off one list only, still blocked on the other.
+        ->and(app(TrafficBlocksQuery::class)->unblockedLately((int) $this->popads->id, TrafficBlockLevel::Site, now()))->toEqualCanonicalizing(['s1', 's2']);
+
+    $this->artisan('traffic:block-losers')->assertSuccessful();
+
+    expect(TrafficBlock::query()->where('method', TrafficBlockMethod::Auto)->where('network_state', TrafficBlockNetworkState::Pending)->pluck('ref')->all())->toBe(['s4'])
+        // An administrator can still block it again.
+        ->and(app(BlockTrafficRefsAction::class)->block($this->admin, $this->popads, TrafficBlockLevel::Site, ['s1'], null, true))->toBe(1);
+
+    $this->actingAs($this->admin);
+    Livewire::withQueryParams(['tab' => 'logs', 'log' => 'blocks'])->test(TrafficSourcesPage::class)->call('load')
+        ->assertSeeInOrder(['Taken off some lists in the panel', 's3', 'Still on other campaigns', 'Taken off in the panel', 's1, s2', 'the block rule leaves it alone for 30 days']);
+
+    $this->travel(31)->days();
+
+    expect(app(TrafficBlocksQuery::class)->unblockedLately((int) $this->popads->id, TrafficBlockLevel::Site, now()))->toBe([]);
+});
+
+it('sends RateGuru’s own blocks to a campaign that came after them, never again to one that refused them or had them taken off in the panel', function () {
+    // The lists were read an hour ago: only the campaign's first click brings it.
+    $connection = TrafficApiConnection::factory()->create(['source_id' => $this->popads->id, 'next_sync_at' => now(), 'backfill_cursor' => null, 'block_lists_read_at' => now()->subHour()]);
+    [$first, $second, $third] = collect(['881204', '881205', '881206'])->map(fn (string $id): TrafficCampaign => TrafficCampaign::factory()->create(['source_id' => $this->popads->id, 'external_id' => $id]))->all();
+    TrafficCampaign::factory()->create(['source_id' => $this->popads->id, 'external_id' => '881209', 'status' => TrafficCampaignStatus::Archived]);
+    $block = function (string $ref, TrafficBlockMethod $method, TrafficBlockNetworkState $state, array $standing, ?int $campaignId = null): TrafficBlock {
+        $block = TrafficBlock::factory()->create(['source_id' => $this->popads->id, 'level' => TrafficBlockLevel::Site, 'ref' => $ref, 'campaign_id' => $campaignId, 'method' => $method, 'network_state' => $state, 'network_error' => $state === TrafficBlockNetworkState::Partial ? 'rejected' : null]);
+
+        foreach ($standing as $campaignId => [$listed, $error]) {
+            TrafficBlockListing::factory()->create(['block_id' => $block->id, 'campaign_id' => $campaignId, 'listed' => $listed, 'error' => $error]);
+        }
+
+        return $block;
+    };
+    // Refused by the second campaign; taken off the third in the panel; marked by hand; found in the panel; meant for the first campaign alone.
+    $refused = $block('40123', TrafficBlockMethod::Api, TrafficBlockNetworkState::Partial, [$first->id => [true, null], $second->id => [false, 'rejected'], $third->id => [true, null]]);
+    $takenOff = $block('40124', TrafficBlockMethod::Auto, TrafficBlockNetworkState::Partial, [$first->id => [true, null], $second->id => [true, null], $third->id => [false, 'taken_off']]);
+    $marked = $block('40125', TrafficBlockMethod::Manual, TrafficBlockNetworkState::ByHand, []);
+    $panel = $block('501', TrafficBlockMethod::Panel, TrafficBlockNetworkState::Applied, [$first->id => [true, null]]);
+    $named = $block('40126', TrafficBlockMethod::Api, TrafficBlockNetworkState::Applied, [$first->id => [true, null]], $first->id);
+    $lists = ['881204' => ['40123', '40124', '501', '40126'], '881205' => ['40124'], '881206' => ['40123'], '881207' => ['777']];
+    popAdsWithLists($lists);
+    // The first click through a campaign that came after them.
+    $new = TrafficCampaign::factory()->create(['source_id' => $this->popads->id, 'external_id' => '881207']);
+
+    app(SyncTrafficNetworkAction::class)->handle($connection, CarbonImmutable::now());
+
+    expect($refused->fresh()->network_state)->toBe(TrafficBlockNetworkState::Pending)
+        ->and(TrafficBlockEvent::query()->where('kind', 'queued')->sole())->actor->toBe(TrafficActor::System)->ref_count->toBe(2);
+
+    $this->artisan('traffic:sync-networks')->assertSuccessful();
+    $standing = fn (TrafficBlock $block): array => $block->listings()->get()->mapWithKeys(fn (TrafficBlockListing $listing): array => [$listing->campaign_id => [$listing->listed, $listing->error]])->all();
+
+    // Written only to the new campaign's list, and only with what it lacked.
+    Http::assertNotSent(fn (Request $request): bool => $request->method() === 'POST' && str_contains($request->url(), 'targeting') && ! str_contains($request->url(), '881207'));
+    expect($lists)->toBe(['881204' => ['40123', '40124', '501', '40126'], '881205' => ['40124'], '881206' => ['40123'], '881207' => ['777', '40123', '40124']])
+        // Still partly blocked for what the other campaigns did, not for the new one.
+        ->and($refused->fresh())->network_state->toBe(TrafficBlockNetworkState::Partial)->network_error->toBe('rejected')
+        ->and($standing($refused))->toBe([$first->id => [true, null], $second->id => [false, 'rejected'], $third->id => [true, null], $new->id => [true, null]])
+        ->and($takenOff->fresh()->network_state)->toBe(TrafficBlockNetworkState::Partial)
+        ->and($standing($takenOff))->toBe([$first->id => [true, null], $second->id => [true, null], $third->id => [false, 'taken_off'], $new->id => [true, null]])
+        ->and($marked->fresh()->network_state)->toBe(TrafficBlockNetworkState::ByHand)
+        ->and($standing($panel))->toBe([$first->id => [true, null]])
+        ->and($standing($named))->toBe([$first->id => [true, null]])
+        // The batch went all the way: the new campaign took both.
+        ->and(TrafficBlockEvent::query()->where('kind', 'applied')->sole())->ok->toBeTrue()->note->toBe('1 of 1 campaigns');
+
+    // Nothing more to send at the next turn.
+    $this->travel(5)->minutes();
+    app(SyncTrafficNetworkAction::class)->handle($connection->fresh(), CarbonImmutable::now());
+    $this->artisan('traffic:sync-networks')->assertSuccessful();
+
+    expect(collect(Http::recorded())->filter(fn (array $pair): bool => $pair[0]->method() === 'POST' && str_contains($pair[0]->url(), 'targeting'))->count())->toBe(1)
+        ->and(TrafficBlockEvent::query()->where('kind', 'queued')->count())->toBe(1);
+});
+
+it('sends a block to a running campaign whose list was read without it, nothing refused there, and one that had no campaign to go to once one comes', function () {
+    $connection = TrafficApiConnection::factory()->create(['source_id' => $this->popads->id, 'next_sync_at' => now(), 'backfill_cursor' => null]);
+    TrafficCampaign::factory()->create(['source_id' => $this->popads->id, 'external_id' => '881204']);
+    TrafficCampaign::factory()->create(['source_id' => $this->popads->id, 'external_id' => '881205']);
+    // From before the lists were kept, on the first list only; sent while the source had no campaign; refused by the second campaign, the API down.
+    $old = TrafficBlock::factory()->create(['source_id' => $this->popads->id, 'level' => TrafficBlockLevel::Site, 'ref' => '40123', 'method' => 'api', 'network_state' => TrafficBlockNetworkState::Applied]);
+    $none = TrafficBlock::factory()->create(['source_id' => $this->popads->id, 'level' => TrafficBlockLevel::Site, 'ref' => '40124', 'method' => 'auto', 'network_state' => TrafficBlockNetworkState::Failed, 'network_error' => 'no_campaign']);
+    $refused = TrafficBlock::factory()->create(['source_id' => $this->popads->id, 'level' => TrafficBlockLevel::Site, 'ref' => '40125', 'method' => 'api', 'network_state' => TrafficBlockNetworkState::Failed, 'network_error' => 'unavailable']);
+    $lists = ['881204' => ['40123', '40125'], '881205' => []];
+    popAdsWithLists($lists);
+
+    app(SyncTrafficNetworkAction::class)->handle($connection, CarbonImmutable::now());
+    $this->artisan('traffic:sync-networks')->assertSuccessful();
+
+    expect($lists)->toBe(['881204' => ['40123', '40125', '40124'], '881205' => ['40123', '40124']])
+        ->and($old->fresh())->network_state->toBe(TrafficBlockNetworkState::Applied)->network_error->toBeNull()
+        ->and($none->fresh())->network_state->toBe(TrafficBlockNetworkState::Applied)->network_error->toBeNull()
+        // What it said of the second campaign stands: never sent there again by itself.
+        ->and($refused->fresh())->network_state->toBe(TrafficBlockNetworkState::Partial)->network_error->toBe('unavailable');
+});
+
+it('takes a block waiting for a new campaign off the lists holding it when it is unblocked meanwhile, never sending it to the new one', function () {
+    $connection = TrafficApiConnection::factory()->create(['source_id' => $this->popads->id, 'next_sync_at' => now(), 'backfill_cursor' => null, 'block_lists_read_at' => now()->subHour()]);
+    $first = TrafficCampaign::factory()->create(['source_id' => $this->popads->id, 'external_id' => '881204']);
+    $block = TrafficBlock::factory()->create(['source_id' => $this->popads->id, 'level' => TrafficBlockLevel::Site, 'ref' => '40123', 'method' => 'api', 'network_state' => TrafficBlockNetworkState::Applied]);
+    TrafficBlockListing::factory()->create(['block_id' => $block->id, 'campaign_id' => $first->id, 'listed' => true]);
+    TrafficCampaign::factory()->create(['source_id' => $this->popads->id, 'external_id' => '881205']);
+    $lists = ['881204' => ['111', '40123'], '881205' => ['111']];
+    popAdsWithLists($lists);
+
+    app(SyncTrafficNetworkAction::class)->handle($connection, CarbonImmutable::now());
+    app(BlockTrafficRefsAction::class)->unblock($this->admin, $block->fresh());
+    $this->artisan('traffic:sync-networks')->assertSuccessful();
+
+    Http::assertNotSent(fn (Request $request): bool => $request->method() === 'POST' && str_contains($request->url(), '881205'));
+    expect($lists)->toBe(['881204' => ['111'], '881205' => ['111']])
+        ->and($block->fresh())->toBeNull();
 });
 
 it('never takes a site blocked in the panel off the network unless an administrator unblocks that very row', function () {
@@ -646,6 +800,38 @@ it('keeps the sync going when the campaigns’ block lists can’t be read, but 
     'the API down' => [fn () => Http::response('Bad gateway', 502), TrafficConnectionStatus::Connected, 0],
     'a refused key' => [fn () => Http::response('Unauthorized', 401), TrafficConnectionStatus::NeedsAttention, 1],
 ]);
+
+it('says in the Blocking pane whose block list couldn’t be read, when and why, until a read goes through', function () {
+    $connection = TrafficApiConnection::factory()->create(['source_id' => $this->popads->id, 'next_sync_at' => now(), 'backfill_cursor' => null]);
+    TrafficCampaign::factory()->create(['source_id' => $this->popads->id, 'external_id' => '881204', 'name' => 'US popunder']);
+    TrafficCampaign::factory()->create(['source_id' => $this->popads->id, 'external_id' => '881205', 'name' => 'EU popunder']);
+    $down = true;
+    Http::fake(function (Request $request) use (&$down) {
+        return match (true) {
+            str_contains($request->url(), 'report_advertiser') => Http::response(['rows' => []]),
+            $down && str_contains($request->url(), 'campaign_website_targeting/881205') => Http::response('Bad gateway', 502),
+            str_contains($request->url(), 'campaign_website_targeting') => Http::response(['mode' => 'none', 'items' => []]),
+            default => Http::response(['data' => []]),
+        };
+    });
+    $this->actingAs($this->admin);
+    $pane = fn () => Livewire::withQueryParams(['tab' => 'sources', 'edit' => (string) $this->popads->id])->test(TrafficSourcesPage::class);
+
+    app(SyncTrafficNetworkAction::class)->handle($connection, CarbonImmutable::now());
+
+    expect($connection->fresh())->status->toBe(TrafficConnectionStatus::Connected)->last_error->toBeNull()
+        ->block_lists_error->toBe('unavailable')->block_lists_error_campaign->toBe('881205');
+    $pane()->assertSeeHtmlInOrder(['data-testid="traffic-source-blocking-status"', 'data-testid="traffic-source-block-lists-error"'])
+        ->assertSee('Couldn’t read EU popunder’s block list at 17 Nov 12:00: The network’s API is down. RateGuru tries again later by itself.');
+
+    // The next read goes through: nothing left to say.
+    $down = false;
+    $this->travel(6)->hours();
+    app(SyncTrafficNetworkAction::class)->handle($connection->fresh(), CarbonImmutable::now());
+
+    expect($connection->fresh())->block_lists_error->toBeNull()->block_lists_error_campaign->toBeNull();
+    $pane()->assertDontSee('traffic-source-block-lists-error')->assertDontSee('Couldn’t read');
+});
 
 it('says the same of where each block stands in its badge, the Blocking pane, the Blocked segment, Worth blocking and Logs → Blocks', function () {
     $this->popads->forceFill(['block_bot_clicks' => 30])->save();

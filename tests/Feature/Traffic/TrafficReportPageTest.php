@@ -1048,13 +1048,15 @@ it('names the visitor of each click, milestone and postback by its journey ID, a
 });
 
 it('says in Logs → Blocks which batches went part of the way, and what the read of the network’s lists found', function () {
-    $event = fn (string $kind, bool $ok, bool $partial, string $note, TrafficBlockMethod $method = TrafficBlockMethod::Api) => TrafficBlockEvent::query()->create(['source_id' => $this->source->id, 'kind' => $kind, 'level' => TrafficBlockLevel::Site, 'ref' => '40123', 'ref_count' => 1, 'method' => $method, 'actor' => TrafficActor::NetworkApi, 'ok' => $ok, 'partial' => $partial, 'note' => $note, 'occurred_at' => now()]);
+    $event = fn (string $kind, bool $ok, bool $partial, string $note, TrafficBlockMethod $method = TrafficBlockMethod::Api, TrafficActor $actor = TrafficActor::NetworkApi) => TrafficBlockEvent::query()->create(['source_id' => $this->source->id, 'kind' => $kind, 'level' => TrafficBlockLevel::Site, 'ref' => '40123', 'ref_count' => 1, 'method' => $method, 'actor' => $actor, 'ok' => $ok, 'partial' => $partial, 'note' => $note, 'occurred_at' => now()]);
     $event('applied', false, true, '1 of 2 campaigns');
-    $event('found', true, false, 'On the network’s list, blocked in its panel, not by RateGuru', TrafficBlockMethod::Panel);
-    $event('gone', true, false, 'Taken off the network’s list in its panel');
+    $event('found', true, false, 'On the network’s list, blocked in its panel, not by RateGuru', TrafficBlockMethod::Panel, TrafficActor::NetworkPanel);
+    $event('gone', true, false, 'Off every campaign’s list: the block rule leaves it alone for 30 days', TrafficBlockMethod::Panel, TrafficActor::NetworkPanel);
+    // Off some campaigns' lists only: still blocked on the others.
+    $event('gone', true, true, 'Still on other campaigns’ lists', TrafficBlockMethod::Panel, TrafficActor::NetworkPanel);
 
     Livewire::withQueryParams(['tab' => 'logs', 'log' => 'blocks'])->test(TrafficSourcesPage::class)->call('load')
-        ->assertSeeInOrder(['Taken off in the panel', 'Found in the panel', 'Applied', 'Partly done', '1 of 2 campaigns']);
+        ->assertSeeInOrder(['Taken off some lists in the panel', 'network panel', 'Done', 'Still on other campaigns', 'Taken off in the panel', 'Off every campaign', 'Found in the panel', 'Applied', 'Partly done', '1 of 2 campaigns']);
 });
 
 it('reads the visitors of a log’s page at once, never one row at a time', function () {
