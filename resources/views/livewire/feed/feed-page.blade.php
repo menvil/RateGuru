@@ -85,7 +85,7 @@
                 <div class="mb-4 flex flex-wrap items-center gap-2" data-testid="feed-tag-filter">
                     <span class="text-[13px] text-rg-muted">{{ __('ui.feed.tag_filter') }}</span>
                     <span class="inline-flex items-center gap-0.5 rounded-rgPill border border-rg-accentBorder bg-rg-accentSoft ps-2.5 pe-0.5 text-xs leading-5 font-semibold text-rg-text">
-                        <span data-testid="feed-tag-filter-name">#{{ $tag }}</span>
+                        <span data-testid="feed-tag-filter-name" dir="auto">#{{ $tag }}</span>
                         <a
                             href="{{ $this->urlWithoutTag() }}"
                             wire:navigate
