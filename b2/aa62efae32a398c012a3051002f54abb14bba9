@@ -1,0 +1,23 @@
+tests/Feature/Actions/CopyCreditedKeysActionTest.php
+  s_4b9dc6ab6b25d3::t_fd97a79598d879 45-48
+  s_4b9dc6ab6b25d3::t_4c3cb2cdf85cee 26-27,30
+app/Actions/Traffic/CopyCreditedKeysAction.php
+  s_4b9dc6ab6b25d3::t_f01537028a9e39 18-19
+  s_4b9dc6ab6b25d3::t_baa8b3a2e9fe5f 45-49
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "b2aa62efae32a398c012a3051002f54abb14bba9",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
