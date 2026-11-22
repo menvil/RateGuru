@@ -1998,6 +1998,7 @@ final class TrafficSourcesView
             'campaignTargets' => TrafficCampaign::query()->where('source_id', $source->id)->where('target_cpa', '>', 0)->count(),
             'worth' => ['accounts' => $accounts, 'needed' => TrafficBlocksQuery::WORTH_KNOWN_AT, 'known' => $accounts >= TrafficBlocksQuery::WORTH_KNOWN_AT],
             'connected' => $connection?->status === TrafficConnectionStatus::Connected,
+            'listsError' => $connection === null ? null : $this->blockListsError($connection),
             // What keeps the rule from blocking for this source by itself, in the order it asks.
             'why' => array_values(array_filter([
                 $source->status !== TrafficSourceStatus::Active
@@ -2021,6 +2022,25 @@ final class TrafficSourcesView
             ])).'#traffic-performance',
             'logUrl' => TrafficSourcesPage::getUrl(['tab' => 'logs', 'log' => 'blocks', 'source' => $source->id]),
         ];
+    }
+
+    /**
+     * Why the last read of a source's campaigns' block lists failed, naming
+     * the campaign whose list it couldn't read — by its name, else its ID
+     * with the network — and when; nothing once a read went through.
+     */
+    private function blockListsError(TrafficApiConnection $connection): ?string
+    {
+        if ($connection->block_lists_error === null) {
+            return null;
+        }
+
+        $external = $connection->block_lists_error_campaign;
+        $name = $external === null ? null : TrafficCampaign::query()->where('source_id', $connection->source_id)->where('external_id', $external)->value('name');
+        $whose = $external === null ? 'the campaigns’ block lists' : ($name ?? 'Campaign '.$external).'’s block list';
+
+        return 'Couldn’t read '.$whose.($connection->block_lists_read_at !== null ? ' at '.$connection->block_lists_read_at->format('j M H:i') : '').': '
+            .(TrafficConnectorFailure::tryFrom($connection->block_lists_error)?->message() ?? 'The network answered in a way RateGuru doesn’t understand.');
     }
 
     /** A postback rule's event, as the editor names it. */

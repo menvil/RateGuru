@@ -150,7 +150,8 @@ final class ExoClickConnector implements EditsBlockLists, ReadsCampaigns, ReadsS
                     continue;
                 }
 
-                throw $exception;
+                // The sync says whose list it couldn't read.
+                throw $exception->forCampaign($id);
             }
         }
 

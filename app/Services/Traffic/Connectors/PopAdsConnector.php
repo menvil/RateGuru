@@ -143,7 +143,8 @@ final class PopAdsConnector implements EditsBlockLists, ReadsCampaigns, ReadsSpe
                     continue;
                 }
 
-                throw $exception;
+                // The sync says whose list it couldn't read.
+                throw $exception->forCampaign($id);
             }
 
             // Targeting turned off excludes nothing, whatever sites it still keeps.

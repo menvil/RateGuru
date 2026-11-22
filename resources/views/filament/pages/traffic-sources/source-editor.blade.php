@@ -340,6 +340,10 @@
                                 <span class="rg-admin-traffic__note">{{ $b['ranAt'] !== null ? 'Last ran '.$b['ranAt']->format('j M H:i') : 'Hasn’t run yet' }}</span>
                             </div>
                         </div>
+                        {{-- A read of the campaigns' block lists that failed, whose list and why, until a read goes through. --}}
+                        @if ($b['listsError'] !== null)
+                            <x-admin.ui.inline-notice tone="warning" data-testid="traffic-source-block-lists-error">{{ $b['listsError'] }}</x-admin.ui.inline-notice>
+                        @endif
                         @if ($b['why'] !== [])
                             <x-admin.ui.inline-notice :tone="$b['auto'] ? 'warning' : 'info'" data-testid="traffic-source-blocking-why">
                                 {{ $b['auto'] ? 'The rule can’t block for this source by itself:' : 'The rule couldn’t block for this source by itself:' }}

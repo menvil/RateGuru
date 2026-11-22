@@ -37,15 +37,17 @@ use Throwable;
  * first click is named within minutes; and every six hours each campaign's
  * block list, read and never written (ReadTrafficBlockListsAction), so what
  * was blocked or unblocked in the network's own panel shows — a list that
- * can't be read failing nothing but itself, short of a refused key; then
- * RateGuru's own blocks queued for the running campaigns they are missing
- * from (QueueMissingTrafficBlocksAction), a campaign that came since among
- * them, for the next apply to send. A turn comes every five minutes. Only
- * campaigns RateGuru saw a click of are read and kept: a network account can
- * hold campaigns sent elsewhere. A failure waits longer each time; a refused
- * key, an account not in dollars or five failures running need the
- * administrator. A connection reconnected or disconnected during a turn
- * keeps its new state: how the turn went is the old connection's.
+ * can't be read failing nothing but itself, short of a refused key, and
+ * kept on the connection, with the campaign whose list it was, until a read
+ * goes through; then RateGuru's own blocks queued for the running campaigns
+ * they are missing from (QueueMissingTrafficBlocksAction), a campaign that
+ * came since among them, for the next apply to send. A turn comes every
+ * five minutes. Only campaigns RateGuru saw a click of are read and kept: a
+ * network account can hold campaigns sent elsewhere. A failure waits longer
+ * each time; a refused key, an account not in dollars or five failures
+ * running need the administrator. A connection reconnected or disconnected
+ * during a turn keeps its new state: how the turn went is the old
+ * connection's.
  */
 final class SyncTrafficNetworkAction
 {
@@ -103,8 +105,13 @@ final class SyncTrafficNetworkAction
 
             // The campaigns' block lists, read and never written, every few hours: a call a campaign, and what they hold changes by hand.
             if ($connector instanceof ReadsBlockLists && ($connection->block_lists_read_at === null || $connection->block_lists_read_at->addHours(self::READ_LISTS_EVERY_HOURS)->lessThanOrEqualTo($now))) {
-                $this->readLists((int) $source->id, $connector, $session);
-                $connection->block_lists_read_at = $now;
+                $failure = $this->readLists((int) $source->id, $connector, $session);
+                // Whose list couldn't be read, and why, for the source's Blocking pane — until a read goes through.
+                $connection->forceFill([
+                    'block_lists_read_at' => $now,
+                    'block_lists_error' => $failure?->failure->value,
+                    'block_lists_error_campaign' => $failure?->campaignId,
+                ]);
             }
 
             // RateGuru's own blocks are for every running campaign: one that came since — its first click — or whose list was just read
@@ -230,11 +237,15 @@ final class SyncTrafficNetworkAction
      * list that can't be read — an answer of a shape RateGuru doesn't know,
      * the API down for it — changes nothing and fails nothing, and is read
      * again at the next read; only a key the network refused is the
-     * connection's to answer for. Reported, never with the key.
+     * connection's to answer for. Reported, never with the key, and given
+     * back, naming the campaign whose list it was, for the source's
+     * Blocking pane to say.
+     *
+     * @return ConnectorException|null why the read failed, or nothing once it went through
      *
      * @throws ConnectorException
      */
-    private function readLists(int $sourceId, ReadsBlockLists $connector, ConnectorSession $session): void
+    private function readLists(int $sourceId, ReadsBlockLists $connector, ConnectorSession $session): ?ConnectorException
     {
         try {
             $this->lists->handle($sourceId, $connector, $session);
@@ -244,7 +255,11 @@ final class SyncTrafficNetworkAction
             }
 
             report($exception);
+
+            return $exception;
         }
+
+        return null;
     }
 
     private function failed(TrafficApiConnection $connection, mixed $fence, ConnectorException $exception, CarbonImmutable $now): void
