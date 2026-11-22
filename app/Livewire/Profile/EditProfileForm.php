@@ -54,16 +54,16 @@ class EditProfileForm extends Component
         $this->submitError = null;
         $this->saved = false;
 
+        /** @var User $user */
+        $user = auth()->user();
+
         $rules = array_merge(
-            app(ProfileValidationRules::class)->rules(),
+            app(ProfileValidationRules::class)->rules($user->display_name),
             ['avatar' => $this->avatarRules()],
         );
 
         $validated = $this->validate($rules);
         $validated['rating_activity_visibility'] ??= $this->rating_activity_visibility;
-
-        /** @var User $user */
-        $user = auth()->user();
 
         try {
             $action->execute($user, $validated, $this->avatar);
