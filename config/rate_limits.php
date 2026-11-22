@@ -18,6 +18,8 @@ return [
     'registration' => [
         'per_hour' => 5,
         'per_day' => 15,
+        // While Cloudflare cannot be asked: sign-ups keep working, more slowly.
+        'per_hour_without_challenge' => 1,
     ],
 
     'report' => [

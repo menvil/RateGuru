@@ -64,6 +64,9 @@
         <env name="NIGHTWATCH_ENABLED" value="false"/>
         <!-- A test of sign-up screening turns it on for itself. -->
         <env name="REGISTRATION_SCREENING_MODE" value="off"/>
+        <!-- Blank so a key in a developer's .env never loads Cloudflare in a test. -->
+        <env name="TURNSTILE_SITE_KEY" value=""/>
+        <env name="TURNSTILE_SECRET_KEY" value=""/>
         <!-- Placeholder OAuth keys, never real ones: a provider without keys is
              unavailable and its buttons are hidden, so tests that exercise the
              social sign-in flows need a value. No test contacts a provider. -->

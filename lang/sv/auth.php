@@ -32,6 +32,7 @@ return [
         'title' => 'Skapa konto',
         'action' => 'Skapa konto',
         'refused' => 'Vi kunde inte slutföra din registrering. Försök igen senare.',
+        'javascript_required' => 'Säkerhetskontrollen kunde inte läsas in. Aktivera JavaScript eller ladda om sidan för att slutföra registreringen.',
     ],
 
     'divider' => 'eller',

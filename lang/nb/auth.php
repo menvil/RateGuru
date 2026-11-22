@@ -32,6 +32,7 @@ return [
         'title' => 'Registrer deg',
         'action' => 'Registrer deg',
         'refused' => 'Vi kunne ikke fullføre registreringen din. Prøv igjen senere.',
+        'javascript_required' => 'Sikkerhetskontrollen ble ikke lastet inn. Slå på JavaScript eller last inn siden på nytt for å fullføre registreringen.',
     ],
 
     'divider' => 'eller',

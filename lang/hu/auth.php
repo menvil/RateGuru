@@ -32,6 +32,7 @@ return [
         'title' => 'Regisztráció',
         'action' => 'Regisztráció',
         'refused' => 'Nem sikerült befejezni a regisztrációdat. Próbáld újra később.',
+        'javascript_required' => 'A biztonsági ellenőrzés nem töltődött be. Kapcsold be a JavaScriptet, vagy töltsd újra az oldalt a regisztráció befejezéséhez.',
     ],
 
     'divider' => 'vagy',

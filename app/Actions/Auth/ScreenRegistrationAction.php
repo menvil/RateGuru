@@ -3,10 +3,12 @@
 namespace App\Actions\Auth;
 
 use App\Enums\RegistrationScreeningMode;
+use App\Enums\TurnstileOutcome;
 use App\Services\Traffic\RequestSignals;
 use App\Support\AbuseGuards\RateLimitKey;
 use App\Support\Auth\EmailQualityCheck;
 use App\Support\Auth\RegistrationFormStamp;
+use App\Support\Auth\TurnstileVerifier;
 use App\Support\Observability\SecurityLog;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Validation\ValidationException;
@@ -15,8 +17,10 @@ use Throwable;
 /**
  * The checks a sign-up passes after its fields are valid and before an
  * account is created: a field only a script fills in, how long the form took,
- * how many accounts this network has created lately, and whether the address
- * is a throwaway one or another spelling of a Gmail mailbox already here.
+ * how many accounts this network has created lately, whether the address is
+ * a throwaway one or another spelling of a Gmail mailbox already here, and,
+ * last so that a mistake elsewhere does not spend its single-use token,
+ * Cloudflare Turnstile.
  *
  * What they find goes to the security log, without the name or the address.
  * Whether it is also refused is the mode's to say, so the checks can be
@@ -52,6 +56,7 @@ final class ScreenRegistrationAction
     public function __construct(
         private readonly RegistrationFormStamp $stamp,
         private readonly EmailQualityCheck $emails,
+        private readonly TurnstileVerifier $turnstile,
         private readonly SecurityLog $log,
     ) {}
 
@@ -76,6 +81,10 @@ final class ScreenRegistrationAction
             ...$this->emails->reasonsFor((string) ($validated['email'] ?? '')),
         ];
         $counted = [];
+
+        if ($reasons === [] || $mode === RegistrationScreeningMode::Report) {
+            $reasons = [...$reasons, ...$this->challengeReasons($validated, $ip)];
+        }
 
         // An attempt about to be refused creates no account, so it is not
         // counted; one let through is, and may be what reaches the limit.
@@ -154,6 +163,30 @@ final class ScreenRegistrationAction
         }
 
         return $reasons;
+    }
+
+    /**
+     * While Cloudflare cannot be asked nobody can be told apart, so sign-ups
+     * go on under a far lower limit rather than stopping for everyone. A
+     * missing or wrong token is never that case.
+     *
+     * @param  array<string, mixed>  $validated
+     * @return list<string>
+     */
+    private function challengeReasons(array $validated, ?string $ip): array
+    {
+        if (! $this->turnstile->isConfigured()) {
+            return [];
+        }
+
+        return match ($this->turnstile->verify($validated[TurnstileVerifier::FIELD] ?? null, request()->getHost())) {
+            TurnstileOutcome::Passed => [],
+            TurnstileOutcome::Rejected => ['challenge_failed'],
+            TurnstileOutcome::Unavailable => RateLimiter::hit(RateLimitKey::registration('without-challenge', $ip), self::HOUR)
+                > (int) config('rate_limits.registration.per_hour_without_challenge')
+                    ? ['limit_without_challenge']
+                    : [],
+        };
     }
 
     /** @return list<string> */

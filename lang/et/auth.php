@@ -32,6 +32,7 @@ return [
         'title' => 'Registreeru',
         'action' => 'Registreeru',
         'refused' => 'Registreerimist ei õnnestunud lõpetada. Proovi hiljem uuesti.',
+        'javascript_required' => 'Turvakontroll ei laadinud. Registreerimise lõpetamiseks lülita JavaScript sisse või laadi leht uuesti.',
     ],
 
     'divider' => 'või',

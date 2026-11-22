@@ -32,6 +32,7 @@ return [
         'title' => 'Sign up',
         'action' => 'Sign up',
         'refused' => 'We could not finish signing you up. Please try again later.',
+        'javascript_required' => 'The security check did not load. Turn on JavaScript or reload the page to finish signing up.',
     ],
 
     'divider' => 'or',

@@ -32,6 +32,7 @@ return [
         'title' => 'Đăng ký',
         'action' => 'Đăng ký',
         'refused' => 'Chúng tôi không thể hoàn tất đăng ký của bạn. Vui lòng thử lại sau.',
+        'javascript_required' => 'Không tải được bước kiểm tra bảo mật. Hãy bật JavaScript hoặc tải lại trang để hoàn tất đăng ký.',
     ],
 
     'divider' => 'hoặc',

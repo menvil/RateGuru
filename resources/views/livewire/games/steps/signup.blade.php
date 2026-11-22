@@ -40,6 +40,7 @@
     wire:ignore wire:key="game-signup-{{ $stepKey }}"
     x-data="{ step: @js($step), email: @js($failed ? (string) old('email', '') : ''), password: '', shown: false }"
     x-bind:data-signup-step="step"
+    x-effect="step === 'details' && $nextTick(() => window.rgMountTurnstile?.($el))"
     @if ($failed) x-init="$nextTick(() => $el.scrollIntoView({ block: 'start' }))" @endif
     x-on:submit="{{ $onSubmit }}"
     x-on:click="const link = $event.target.closest('a[data-provider]'); if (link) { $event.preventDefault(); {{ $onProvider }} }"

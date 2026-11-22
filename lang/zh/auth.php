@@ -32,6 +32,7 @@ return [
         'title' => '注册',
         'action' => '注册',
         'refused' => '无法完成注册，请稍后重试。',
+        'javascript_required' => '安全检查未能加载。请启用 JavaScript 或刷新页面以完成注册。',
     ],
 
     'divider' => '或',

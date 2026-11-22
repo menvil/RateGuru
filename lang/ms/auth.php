@@ -32,6 +32,7 @@ return [
         'title' => 'Daftar',
         'action' => 'Daftar',
         'refused' => 'Kami tidak dapat melengkapkan pendaftaran anda. Sila cuba lagi kemudian.',
+        'javascript_required' => 'Semakan keselamatan tidak dimuatkan. Hidupkan JavaScript atau muat semula halaman untuk melengkapkan pendaftaran.',
     ],
 
     'divider' => 'atau',

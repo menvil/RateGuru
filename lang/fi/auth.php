@@ -32,6 +32,7 @@ return [
         'title' => 'Rekisteröidy',
         'action' => 'Rekisteröidy',
         'refused' => 'Rekisteröitymistäsi ei voitu viimeistellä. Yritä myöhemmin uudelleen.',
+        'javascript_required' => 'Turvatarkistus ei latautunut. Ota JavaScript käyttöön tai lataa sivu uudelleen, niin voit viimeistellä rekisteröitymisen.',
     ],
 
     'divider' => 'tai',

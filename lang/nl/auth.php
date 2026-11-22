@@ -32,6 +32,7 @@ return [
         'title' => 'Registreren',
         'action' => 'Registreren',
         'refused' => 'We konden je registratie niet afronden. Probeer het later opnieuw.',
+        'javascript_required' => 'De beveiligingscontrole is niet geladen. Zet JavaScript aan of laad de pagina opnieuw om je registratie af te ronden.',
     ],
 
     'divider' => 'of',

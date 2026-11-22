@@ -32,6 +32,7 @@ return [
         'title' => 'Mag-sign up',
         'action' => 'Mag-sign up',
         'refused' => 'Hindi namin natapos ang iyong pagpaparehistro. Subukang muli mamaya.',
+        'javascript_required' => 'Hindi na-load ang security check. I-on ang JavaScript o i-reload ang page para matapos ang pagpaparehistro.',
     ],
 
     'divider' => 'o',

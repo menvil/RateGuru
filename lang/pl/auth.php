@@ -32,6 +32,7 @@ return [
         'title' => 'Zarejestruj się',
         'action' => 'Zarejestruj się',
         'refused' => 'Nie udało się dokończyć rejestracji. Spróbuj ponownie później.',
+        'javascript_required' => 'Nie udało się wczytać kontroli bezpieczeństwa. Włącz JavaScript lub odśwież stronę, aby dokończyć rejestrację.',
     ],
 
     'divider' => 'lub',

@@ -32,6 +32,7 @@ return [
         'title' => 'Registrati',
         'action' => 'Registrati',
         'refused' => 'Non siamo riusciti a completare la registrazione. Riprova più tardi.',
+        'javascript_required' => 'Il controllo di sicurezza non è stato caricato. Attiva JavaScript o ricarica la pagina per completare la registrazione.',
     ],
 
     'divider' => 'oppure',

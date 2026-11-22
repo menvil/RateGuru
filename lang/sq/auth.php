@@ -32,6 +32,7 @@ return [
         'title' => 'Regjistrim',
         'action' => 'Regjistrohu',
         'refused' => 'Nuk arritëm ta përfundojmë regjistrimin tënd. Provo përsëri më vonë.',
+        'javascript_required' => 'Kontrolli i sigurisë nuk u ngarkua. Aktivizo JavaScript ose ringarko faqen për të përfunduar regjistrimin.',
     ],
 
     'divider' => 'ose',

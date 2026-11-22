@@ -32,6 +32,7 @@ return [
         'title' => 'Registrace',
         'action' => 'Zaregistrovat se',
         'refused' => 'Registraci se nepodařilo dokončit. Zkus to znovu později.',
+        'javascript_required' => 'Bezpečnostní kontrola se nenačetla. Zapni JavaScript nebo znovu načti stránku a dokonči registraci.',
     ],
 
     'divider' => 'nebo',

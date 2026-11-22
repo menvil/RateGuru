@@ -32,6 +32,7 @@ return [
         'title' => 'Registracija',
         'action' => 'Registruj se',
         'refused' => 'Nismo uspjeli završiti tvoju registraciju. Pokušaj ponovo kasnije.',
+        'javascript_required' => 'Sigurnosna provjera se nije učitala. Uključi JavaScript ili ponovo učitaj stranicu da završiš registraciju.',
     ],
 
     'divider' => 'ili',
