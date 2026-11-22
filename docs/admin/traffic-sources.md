@@ -92,13 +92,15 @@ Sites & zones says where it stands:
 - **Partly blocked · 2 of 3 campaigns** — on some lists, not all: its tip
   names each campaign it isn't on and why (the network refused it, it was
   taken off there in the network's panel, or the campaign came after the
-  block);
+  block). A campaign that ends without taking it no longer counts;
 - **Not blocked on the network** — no campaign took it, with the reason;
 - **Taken off on the network** — it was on the lists, and someone took it
   off them in the network's own panel. RateGuru never puts it back by itself:
   **Push again** puts it back, **Unblock** lets it go;
 - **Blocked on PopAds** (or ExoClick) — blocked in the network's own panel,
-  not by RateGuru (below).
+  not by RateGuru, its tip saying on how many campaigns' lists (below);
+  **Blocked on PopAds · unblock failed** when you unblocked it and a campaign
+  refused to take it off.
 
 In the Blocked segment, **Push again** sends the ticked blocks to the
 network's lists again, to every campaign — for one partly blocked, refused,
@@ -110,10 +112,12 @@ sent through the API.
 reads each campaign's block list — PopAds' website exclusion lists, ExoClick's
 blocked zones — and changes nothing there. A site or zone on a list that
 RateGuru didn't block shows as **Blocked on PopAds**, "Blocked in the PopAds
-panel, not by RateGuru", with the campaigns whose lists hold it: it is counted
+panel, not by RateGuru", with how many campaigns' lists hold it: it is counted
 under Blocked, Worth blocking and the block rule leave it alone, and Logs →
-Blocks says what was found. Taken off those lists in the panel later, it stops
-showing as blocked at the next read. RateGuru never takes a site off a
+Blocks says what was found. Its clicks count as still sent only through a
+campaign whose list holds it. Taken off those lists in the panel later, it
+stops showing as blocked at the next read. A list that can't be read changes
+nothing — the spend sync carries on, and the next read tries again. RateGuru never takes a site off a
 network's list that it didn't put there — unless you press **Unblock** on that
 very row, which takes it off the lists that hold it like any other block. A
 block of RateGuru's own taken off a list in the panel shows **Partly

@@ -287,7 +287,8 @@ visits came through it.
 `App\Services\Traffic\Connectors`: PopAds and ExoClick, each checking its key
 and reading spend and campaigns and editing block lists through the interfaces
 it implements — `EditsBlockLists` extends `ReadsBlockLists`, whose
-`blockLists()` reads campaigns' lists and never writes one. Keys are kept in `traffic_api_connections.credentials`
+`blockLevels()` and `blockLists()` read campaigns' lists and never write one;
+the sync's read of the lists is given a `ReadsBlockLists` alone. Keys are kept in `traffic_api_connections.credentials`
 (`encrypted:array`, hidden, redacted from logs); a backup restored without the
 same `APP_KEY` makes them unreadable, and the connection asks for the key
 again. Neither connector ever changes a bid or a budget or touches money, and
@@ -315,7 +316,11 @@ whole, up to 30 days back after connecting, and the campaigns' own details,
 only for campaigns RateGuru saw a click of, so a new campaign is named within
 minutes of its first click; and every six hours (`block_lists_read_at`) each
 running campaign's block list, read and never written
-(`ReadTrafficBlockListsAction`, "Blocking"). The same figures again change nothing: a day is
+(`ReadTrafficBlockListsAction`, "Blocking"). A list that can't be read — an
+answer of a shape RateGuru doesn't know, the API down for that call — changes
+nothing and fails nothing but itself: it is reported and read again at the
+next read, while a key refused there fails the connection as anywhere else.
+The same figures again change nothing: a day is
 shared out over its visits again only when the network's figures for it
 changed. Failures wait longer each time; a refused
 key, an account not in dollars or five failures running need the administrator.
@@ -418,13 +423,19 @@ still. `BlockStanding::of()` turns the listings into the block's
 - `taken_off` — on none, a list having held it before: taken off in the
   network's panel.
 
+A block found in the network's panel (below) is `applied` while any list
+holds it, never `partial`: RateGuru never sent it to the others.
 `network_error` keeps the reason to show: why taking it off failed where a
 list still holds it, else why a campaign refused it. Unblocking takes a block
-off the campaigns whose lists hold it — every campaign it is for while none
-of its listings is known, as for a block from before listings were kept — and
-deletes it once no list holds it; where one refused, it stays, `partial` or
-`applied`, its badge saying the unblock failed. A block whose listings show
-no list holding it goes at once. **Push again** (`BlockTrafficRefsAction::push()`)
+off the campaigns whose lists hold it — while none of its listings is known,
+as for a block from before listings were kept, every running campaign it is
+for, or the one it names, ended or not — and deletes it once no list holds
+it; where one refused, it stays, `partial` or `applied`, its badge saying the
+unblock failed. A block whose listings show no list holding it goes at once.
+The batch's outcome — listings, states and its line of the log — is written
+in one transaction on the source locked, then its blocks, the order every
+writer of blocks takes them in (`LocksTrafficRecords`), so an unblock, a push
+or a read of the lists waits for it, or it for them. **Push again** (`BlockTrafficRefsAction::push()`)
 sends ticked blocks back to `pending`, to every campaign they are for, and
 blocking again through the API does the same for a `failed`, `partial` or
 `taken_off` block of an administrator's (never the rule's); a block marked by
@@ -442,17 +453,24 @@ PopAds campaigns) and records it in one transaction on the source locked,
 writing nothing to the network:
 
 - a site or zone on a list that RateGuru has no block for was blocked in the
-  network's own panel: it becomes a block of method `panel`, for every
-  campaign, `applied`, with a listing for each campaign read. It counts as
-  blocked everywhere a block does — the Blocked segment, Worth blocking, the
-  rule, which leaves it alone — and its badge says "Blocked on PopAds",
-  "Blocked in the PopAds panel, not by RateGuru". Once no list holds it, it
-  was taken off there, and goes;
+  network's own panel: it becomes a block of method `panel`, `applied`, with
+  a listing for each list holding it — none for a campaign that never did,
+  so a click through one isn't counted as still sent. It counts as blocked
+  everywhere a block does — the Blocked segment, Worth blocking, the rule,
+  which leaves it alone — and its badge says "Blocked on PopAds", "Blocked in
+  the PopAds panel, not by RateGuru", with how many campaigns' lists hold it
+  (counted with the blocks on each render, never loaded). Once no list holds
+  it, it was taken off there, and goes, whatever an unblock that failed left
+  it as;
 - RateGuru's own block keeps where it stands on each list it is for: a list
   holding it has it (a campaign that came after the block and doesn't is
   `partial` until pushed again), one that held it and holds it no longer had
   it taken off in the panel — marked `taken_off`, never put back, which would
-  undo what an administrator did there;
+  undo what an administrator did there. A campaign that ended without taking
+  it is no longer one it is for: its listing goes, so a refusal there never
+  keeps a block `partial`. A block from before listings were kept starts from
+  what it said — an unblock that failed, on the lists holding it, a refusal
+  on those that don't;
 - a block only marked here, or on its way to or off the lists, is left to its
   own way.
 
