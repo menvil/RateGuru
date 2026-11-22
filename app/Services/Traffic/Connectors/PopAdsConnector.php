@@ -182,15 +182,18 @@ final class PopAdsConnector implements EditsBlockLists, ReadsCampaigns, ReadsSpe
         return array_values(array_filter((array) $rows, 'is_array'));
     }
 
-    /** An error PopAds explains is a request it refused, whatever its status — 500 for a list it won't take — never an API that is down. */
+    /**
+     * An error PopAds explains is a request it refused, whatever its status — 500 for a list it won't take — never an
+     * API that is down, nor a refused key: PopAds refuses a key with a page, not an explained error.
+     */
     private function failureOf(Response $response): TrafficConnectorFailure
     {
         $json = $response->json();
 
         return match (true) {
+            is_array($json) && is_array($json['errors'] ?? null) && $json['errors'] !== [] => TrafficConnectorFailure::Rejected,
             in_array($response->status(), [401, 403], true) => TrafficConnectorFailure::Auth,
             $response->status() === 429 => TrafficConnectorFailure::RateLimited,
-            is_array($json) && is_array($json['errors'] ?? null) && $json['errors'] !== [] => TrafficConnectorFailure::Rejected,
             $response->serverError() => TrafficConnectorFailure::Unavailable,
             default => TrafficConnectorFailure::Rejected,
         };
