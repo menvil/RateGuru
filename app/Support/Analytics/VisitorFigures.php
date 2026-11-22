@@ -77,14 +77,6 @@ final readonly class VisitorFigures
             $returning, $this->spend, $this->spendEstimated);
     }
 
-    /** The same figures with the accounts whose days to activate are over counted. */
-    public function withMaturedAccounts(int $matured): self
-    {
-        return new self($this->visitors, $this->newVisitors, $this->starters, $this->completers, $this->goal, $this->signupForm, $this->signups,
-            $this->accounts, $this->activated, $matured, $this->votes, $this->voters, $this->comments, $this->commenters, $this->posts,
-            $this->returning, $this->spend, $this->spendEstimated);
-    }
-
     /** Whether nobody is counted: what each tab shows its empty state for. */
     public function isEmpty(): bool
     {

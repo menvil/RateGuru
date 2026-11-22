@@ -18,7 +18,6 @@ use App\Policies\PersonaPolicy;
 use App\Policies\ProjectSettingsPolicy;
 use App\Policies\StudioPlanPolicy;
 use App\Policies\TrafficSourcePolicy;
-use App\Queries\Analytics\AnalyticsRollupGate;
 use App\Queries\SocialProvidersInUseQuery;
 use App\Services\Media\FilesystemMediaStorage;
 use App\Services\Media\FilesystemMediaUrlResolver;
@@ -84,8 +83,6 @@ class AppServiceProvider extends ServiceProvider
         // a singleton would capture the first scope's instance for good.
         $this->app->scoped(ProjectSettingsManager::class);
         $this->app->scoped(ThemeManager::class);
-        // Whether Analytics reads its own rows of the visits, decided once a request.
-        $this->app->scoped(AnalyticsRollupGate::class);
 
         $this->app->bind(VisualScreenshotRunner::class, PestVisualScreenshotRunner::class);
 

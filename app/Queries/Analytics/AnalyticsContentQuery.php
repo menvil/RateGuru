@@ -4,9 +4,6 @@ namespace App\Queries\Analytics;
 
 use App\Contracts\Persistence\RawSqlPersistenceBoundary;
 use App\Enums\TrafficDevice;
-use App\Models\AnalyticsFirstPostCell;
-use App\Models\AnalyticsPostCell;
-use App\Models\AnalyticsVisit;
 use App\Models\Post;
 use App\Models\TrafficVisit;
 use App\Models\TrafficVisitPost;
@@ -22,17 +19,7 @@ use Illuminate\Database\Eloquent\Collection;
  * conditional distinct counts of browsers and sums, every value bound and
  * every column of the visit named by AnalyticsDimension, never arithmetic on
  * dates or a branch per engine. A visit counts once its page ran, as every
- * Analytics figure counts it (AnalyticsVisitsQuery). The visits are
- * Analytics' own narrow rows of them whenever AnalyticsRollupGate says they
- * are filled and up to date, else the visits themselves — the same figures
- * either way; and where the gate allows the cells of each day's people, a
- * read that fits them counts from them instead: the people who opened a post
- * and voted on one as the union of the cells' sets (AnalyticsVisitsQuery::cellsFor()),
- * each post's people from its own cells (analytics_post_cells). The post a
- * credited visit's session opened first is kept on its row
- * (AnalyticsVisitRow::sessionPost()), and its account in the cells of its
- * day by that post (analytics_first_post_cells): a session is read only
- * while the visits are.
+ * Analytics figure counts it (AnalyticsVisitsQuery).
  *
  *  - figures()       how often the filter's visits opened a post, the
  *                    browsers that opened one, of them those who voted on
@@ -53,18 +40,6 @@ final class AnalyticsContentQuery implements RawSqlPersistenceBoundary
     /** The most posts a list reads. */
     public const int MOST_POSTS = 100;
 
-    /** What figures() reads of the cells, the same figures counted from each visit's posts (AnalyticsVisitRow::postFigures()). */
-    private const string CELL_METRICS = 'COALESCE(SUM(post_views), 0) AS views, COALESCE(rb_cardinality(rb_or_agg(post_viewers::roaringbitmap)), 0) AS viewers, '
-        .'COALESCE(rb_cardinality(rb_or_agg(post_voters::roaringbitmap)), 0) AS voters, COALESCE(SUM(post_shares), 0) AS shares';
-
-    /** The accounts of first post cells, each browser once: the size of the union of their sets. */
-    private const string CELL_ACCOUNTS = 'COALESCE(rb_cardinality(rb_or_agg(accounts::roaringbitmap)), 0) AS accounts';
-
-    public function __construct(
-        private readonly AnalyticsRollupGate $gate,
-        private readonly AnalyticsVisitsQuery $visits,
-    ) {}
-
     /**
      * What the visits the filter admits did with posts: the times they
      * opened one, the browsers that opened at least one, those of them who
@@ -74,13 +49,7 @@ final class AnalyticsContentQuery implements RawSqlPersistenceBoundary
      */
     public function figures(AnalyticsFilter $filter): array
     {
-        $cells = $this->visits->cellsFor($filter);
-
-        if ($cells !== null) {
-            return self::counted((array) $cells->selectRaw(self::CELL_METRICS, [])->toBase()->first());
-        }
-
-        [$metrics, $bindings] = $this->metrics();
+        [$metrics, $bindings] = self::metrics();
 
         return self::counted((array) $this->rows($filter)->selectRaw($metrics, $bindings)->toBase()->first());
     }
@@ -98,15 +67,10 @@ final class AnalyticsContentQuery implements RawSqlPersistenceBoundary
             return [];
         }
 
-        [$metrics, $bindings] = $this->metrics();
-        $cells = $this->visits->cellsFor($filter, ['source_key']);
+        [$metrics, $bindings] = self::metrics();
         $figures = [];
-        $read = $cells !== null
-            // A source is listed once a visit of it has a row of a post, as when the rows of the posts are read.
-            ? $cells->whereIn('source_key', $sourceKeys)->groupBy('source_key')->select('source_key')->selectRaw(self::CELL_METRICS, [])->havingRaw('SUM(post_rows) > ?', [0])
-            : $this->rows($filter)->whereIn('visits.source_key', $sourceKeys)->groupBy('visits.source_key')->select('visits.source_key')->selectRaw($metrics, $bindings);
 
-        foreach ($read->toBase()->get() as $row) {
+        foreach ($this->rows($filter)->whereIn('visits.source_key', $sourceKeys)->groupBy('visits.source_key')->select('visits.source_key')->selectRaw($metrics, $bindings)->toBase()->get() as $row) {
             $row = (array) $row;
             $figures[(string) $row['source_key']] = self::counted($row);
         }
@@ -126,41 +90,20 @@ final class AnalyticsContentQuery implements RawSqlPersistenceBoundary
      */
     public function topPosts(AnalyticsPeriod $period, ?TrafficDevice $device, int $limit): array
     {
-        $filter = new AnalyticsFilter($period, $device);
-        // Each post's people a day and device, over whole days: the union of their sets, the sums summed.
-        $read = $this->gate->readsCells() && $filter->countsWholeDays()
-            ? AnalyticsPostCell::query()
-                ->whereBetween('network_day', [$filter->fromDay(), $filter->toDay()])
-                ->when($device !== null, fn (Builder $query) => $query->where('device', $device))
-                ->groupBy('post_id')
-                ->select('post_id')
-                ->selectRaw(implode(', ', [
-                    'SUM(views) AS views',
-                    'COALESCE(rb_cardinality(rb_or_agg(viewers::roaringbitmap)), 0) AS viewers',
-                    'COALESCE(rb_cardinality(rb_or_agg(engaged::roaringbitmap)), 0) AS engaged',
-                    'SUM(votes) AS votes',
-                    'COALESCE(rb_cardinality(rb_or_agg(voters::roaringbitmap)), 0) AS voters',
-                    'SUM(comments) AS comments',
-                ]), [])
-                ->havingRaw('SUM(views) > ?', [0])
-                ->orderByRaw('SUM(views) DESC', [])
-                ->orderBy('post_id')
-            : null;
-
-        return ($read ?? $this->rows($filter)
+        return $this->rows(new AnalyticsFilter($period, $device))
             ->groupBy('seen.post_id')
             ->select('seen.post_id')
             ->selectRaw(implode(', ', [
                 'SUM(seen.views) AS views',
-                'COUNT(DISTINCT CASE WHEN seen.views > ? THEN '.$this->person('visits').' END) AS viewers',
-                'COUNT(DISTINCT CASE WHEN seen.views > ? AND (seen.voted OR seen.commented) THEN '.$this->person('visits').' END) AS engaged',
+                'COUNT(DISTINCT CASE WHEN seen.views > ? THEN visits.visitor_hash END) AS viewers',
+                'COUNT(DISTINCT CASE WHEN seen.views > ? AND (seen.voted OR seen.commented) THEN visits.visitor_hash END) AS engaged',
                 'SUM(CASE WHEN seen.voted THEN 1 ELSE 0 END) AS votes',
-                'COUNT(DISTINCT CASE WHEN seen.voted THEN '.$this->person('visits').' END) AS voters',
+                'COUNT(DISTINCT CASE WHEN seen.voted THEN visits.visitor_hash END) AS voters',
                 'SUM(CASE WHEN seen.commented THEN 1 ELSE 0 END) AS comments',
             ]), [0, 0])
             ->havingRaw('SUM(seen.views) > ?', [0])
             ->orderByRaw('SUM(seen.views) DESC', [])
-            ->orderBy('seen.post_id'))
+            ->orderBy('seen.post_id')
             ->limit(max(1, min($limit, self::MOST_POSTS)))
             ->toBase()
             ->get()
@@ -199,23 +142,9 @@ final class AnalyticsContentQuery implements RawSqlPersistenceBoundary
             return [];
         }
 
-        // Each credited visit's row keeps the post its session opened first: counted from the cells, else from those rows.
-        if ($this->gate->reads()) {
-            $cells = $this->firstPostCells($period, $device);
-            $read = $cells !== null
-                ? $cells->whereIn('post_id', $postIds)->groupBy('post_id')->select('post_id')->selectRaw(self::CELL_ACCOUNTS, [])
-                : $this->credited($period, $device)
-                    ->whereIn('credited.session_post_id', $postIds)
-                    ->groupBy('credited.session_post_id')
-                    ->select('credited.session_post_id as post_id')
-                    ->selectRaw('COUNT(DISTINCT '.$this->person('credited').') AS accounts', []);
-
-            return $read->toBase()->get()->mapWithKeys(fn (object $row): array => [(int) $row->post_id => (int) $row->accounts])->all();
-        }
-
         $earlier = TrafficVisitPost::query()
             ->from('traffic_visit_posts as earlier')
-            ->join($this->table().' as earlier_visit', 'earlier_visit.id', '=', 'earlier.visit_id')
+            ->join('traffic_visits as earlier_visit', 'earlier_visit.id', '=', 'earlier.visit_id')
             ->whereColumn('earlier_visit.entry_visit_id', 'credited.entry_visit_id')
             ->where('earlier.views', '>', 0)
             ->where(fn (Builder $before) => $before
@@ -225,14 +154,14 @@ final class AnalyticsContentQuery implements RawSqlPersistenceBoundary
         $accounts = [];
 
         foreach ($this->credited($period, $device)
-            ->join($this->table().' as session_visit', 'session_visit.entry_visit_id', '=', 'credited.entry_visit_id')
+            ->join('traffic_visits as session_visit', 'session_visit.entry_visit_id', '=', 'credited.entry_visit_id')
             ->join('traffic_visit_posts as seen', 'seen.visit_id', '=', 'session_visit.id')
             ->where('seen.views', '>', 0)
             ->whereIn('seen.post_id', $postIds)
             ->whereNotExists($earlier)
             ->groupBy('seen.post_id')
             ->select('seen.post_id')
-            ->selectRaw('COUNT(DISTINCT '.$this->person('credited').') AS accounts', [])
+            ->selectRaw('COUNT(DISTINCT credited.visitor_hash) AS accounts', [])
             ->toBase()
             ->get() as $row) {
             $row = (array) $row;
@@ -245,24 +174,15 @@ final class AnalyticsContentQuery implements RawSqlPersistenceBoundary
     /** The accounts credited to a visit of the days and the device given whose session opened no post at all: different browsers. */
     public function unattributedAccounts(AnalyticsPeriod $period, ?TrafficDevice $device): int
     {
-        if ($this->gate->reads()) {
-            $cells = $this->firstPostCells($period, $device);
-            $read = $cells !== null
-                ? $cells->whereNull('post_id')->selectRaw(self::CELL_ACCOUNTS, [])
-                : $this->credited($period, $device)->whereNull('credited.session_post_id')->selectRaw('COUNT(DISTINCT '.$this->person('credited').') AS accounts', []);
-
-            return (int) ($read->toBase()->value('accounts') ?? 0);
-        }
-
         $opened = TrafficVisitPost::query()
             ->from('traffic_visit_posts as seen')
-            ->join($this->table().' as session_visit', 'session_visit.id', '=', 'seen.visit_id')
+            ->join('traffic_visits as session_visit', 'session_visit.id', '=', 'seen.visit_id')
             ->whereColumn('session_visit.entry_visit_id', 'credited.entry_visit_id')
             ->where('seen.views', '>', 0);
 
         $row = (array) $this->credited($period, $device)
             ->whereNotExists($opened)
-            ->selectRaw('COUNT(DISTINCT '.$this->person('credited').') AS accounts', [])
+            ->selectRaw('COUNT(DISTINCT credited.visitor_hash) AS accounts', [])
             ->toBase()
             ->first();
 
@@ -296,11 +216,11 @@ final class AnalyticsContentQuery implements RawSqlPersistenceBoundary
     {
         $query = TrafficVisitPost::query()
             ->from('traffic_visit_posts as seen')
-            ->join($this->table().' as visits', 'visits.id', '=', 'seen.visit_id')
+            ->join('traffic_visits as visits', 'visits.id', '=', 'seen.visit_id')
             ->whereBetween('visits.network_day', [$filter->fromDay(), $filter->toDay()])
             ->where('visits.arrived_at', '>=', $filter->arrivedFrom())
             ->where('visits.arrived_at', '<', $filter->arrivedBefore())
-            ->when($this->gate->reads(), fn (Builder $opened) => $opened->where('visits.opened', true), fn (Builder $opened) => $opened->whereNotNull('visits.opened_at'));
+            ->whereNotNull('visits.opened_at');
 
         foreach ($filter->conditions() as [$column, $value]) {
             $value === null ? $query->whereNull('visits.'.$column) : $query->where('visits.'.$column, $value);
@@ -313,22 +233,18 @@ final class AnalyticsContentQuery implements RawSqlPersistenceBoundary
      * The visits of the days and the device given credited with a new
      * account, their pages run, as `credited`.
      *
-     * @return Builder<TrafficVisit>|Builder<AnalyticsVisit>
+     * @return Builder<TrafficVisit>
      */
     private function credited(AnalyticsPeriod $period, ?TrafficDevice $device): Builder
     {
         $filter = new AnalyticsFilter($period, $device);
-        $query = ($this->gate->reads() ? AnalyticsVisit::query() : TrafficVisit::query())
-            ->from($this->table().' as credited')
+        $query = TrafficVisit::query()
+            ->from('traffic_visits as credited')
             ->whereBetween('credited.network_day', [$filter->fromDay(), $filter->toDay()])
             ->where('credited.arrived_at', '>=', $filter->arrivedFrom())
-            ->where('credited.arrived_at', '<', $filter->arrivedBefore());
-
-        if ($this->gate->reads()) {
-            $query->where('credited.opened', true)->where('credited.account', true);
-        } else {
-            $query->whereNotNull('credited.opened_at')->whereNotNull('credited.account_at');
-        }
+            ->where('credited.arrived_at', '<', $filter->arrivedBefore())
+            ->whereNotNull('credited.opened_at')
+            ->whereNotNull('credited.account_at');
 
         foreach ($filter->conditions() as [$column, $value]) {
             $value === null ? $query->whereNull('credited.'.$column) : $query->where('credited.'.$column, $value);
@@ -338,51 +254,19 @@ final class AnalyticsContentQuery implements RawSqlPersistenceBoundary
     }
 
     /**
-     * The cells of the accounts of the days and the device given by the post
-     * their session opened first, over whole days where the gate allows the
-     * cells; none when the accounts are read from the rows.
-     *
-     * @return Builder<AnalyticsFirstPostCell>|null
-     */
-    private function firstPostCells(AnalyticsPeriod $period, ?TrafficDevice $device): ?Builder
-    {
-        $filter = new AnalyticsFilter($period, $device);
-
-        if (! $this->gate->readsCells() || ! $filter->countsWholeDays()) {
-            return null;
-        }
-
-        return AnalyticsFirstPostCell::query()
-            ->whereBetween('network_day', [$filter->fromDay(), $filter->toDay()])
-            ->when($device !== null, fn (Builder $query) => $query->where('device', $device));
-    }
-
-    /**
      * The figures of a set of post rows, as SQL: the views, the browsers with
      * one, those of them who voted on a post they opened, and the shares.
      *
      * @return array{0: string, 1: list<mixed>}
      */
-    private function metrics(): array
+    private static function metrics(): array
     {
         return [implode(', ', [
             'SUM(seen.views) AS views',
-            'COUNT(DISTINCT CASE WHEN seen.views > ? THEN '.$this->person('visits').' END) AS viewers',
-            'COUNT(DISTINCT CASE WHEN seen.views > ? AND seen.voted THEN '.$this->person('visits').' END) AS voters',
+            'COUNT(DISTINCT CASE WHEN seen.views > ? THEN visits.visitor_hash END) AS viewers',
+            'COUNT(DISTINCT CASE WHEN seen.views > ? AND seen.voted THEN visits.visitor_hash END) AS voters',
             'SUM(CASE WHEN seen.shared_at IS NOT NULL THEN 1 ELSE 0 END) AS shares',
         ]), [0, 0]];
-    }
-
-    /** The table the visits are read from: Analytics' own rows of them once they are filled and up to date, else the visits. */
-    private function table(): string
-    {
-        return $this->gate->reads() ? 'analytics_visits' : 'traffic_visits';
-    }
-
-    /** The column a browser is counted by on the visits of the alias given: its number on Analytics' own rows, its hash on the visits. */
-    private function person(string $alias): string
-    {
-        return $alias.'.'.($this->gate->reads() ? 'visitor_key' : 'visitor_hash');
     }
 
     /**

@@ -2,7 +2,6 @@
 
 namespace App\Actions\Traffic;
 
-use App\Actions\Analytics\MarkAnalyticsPeriodHourAction;
 use App\Actions\Games\GameEventRecorder;
 use App\Actions\Games\GameMilestoneRecorder;
 use App\Enums\GameEventType;
@@ -30,7 +29,6 @@ final class ConfirmAccountAttributionAction
         private readonly GameEventRecorder $events,
         private readonly GameMilestoneRecorder $milestones,
         private readonly MarkTrafficVisitAction $marks,
-        private readonly MarkAnalyticsPeriodHourAction $periodHours,
     ) {}
 
     public function handle(int $userId, CarbonImmutable $now): void
@@ -53,8 +51,6 @@ final class ConfirmAccountAttributionAction
             $attribution->forceFill(['confirmed_at' => $now])->save();
 
             if ($attempt !== null) {
-                // An account of the play's period's funnel from now on.
-                $this->periodHours->ofAttempt($attempt);
                 $visitor = new GameVisitor($attempt->audience, $userId, $attempt->visitor_hash);
                 $this->events->record(GameEventType::AccountConfirmed, (int) $attempt->game_id, $visitor, attempt: $attempt);
                 $goal = $attempt->version->flowGoal();

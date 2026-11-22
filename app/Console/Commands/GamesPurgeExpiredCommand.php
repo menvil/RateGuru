@@ -2,44 +2,24 @@
 
 namespace App\Console\Commands;
 
-use App\Actions\Analytics\MarkAnalyticsDayAction;
-use App\Actions\Analytics\MarkAnalyticsGameCellsAction;
-use App\Actions\Analytics\MarkAnalyticsPeriodHourAction;
-use App\Actions\Analytics\RefreshAnalyticsGameCellsAction;
-use App\Enums\GameEventType;
-use App\Models\GameAssignment;
-use App\Models\GameAttempt;
 use App\Models\GameEmailCapture;
 use App\Models\GameEvent;
-use App\Models\TrafficVisit;
 use Carbon\CarbonImmutable;
-use Closure;
 use Illuminate\Console\Command;
 use Illuminate\Database\Eloquent\Builder;
-use Illuminate\Support\Facades\DB;
 
 /**
  * Deletes what playing games recorded once it is past its retention, and
  * nothing else: game events that occurred more than
  * games.retention_days.events ago, and emails left in a game more than
  * games.retention_days.email_captures ago. Attempts, answers and results stay:
- * they are what a player's result is. Analytics counts the share clicks of
- * the attempts started on each visit, so the days of the visits whose
- * attempts' share clicks go are marked to be read again.
+ * they are what a player's result is.
  *
  * In small batches, each a short DELETE by primary key, so a large backlog
- * never holds one long lock. A result seen and an email are steps of their
- * period's funnel: each batch tells it the hours of the assignments whose
- * results seen or emails go (MarkAnalyticsPeriodHourAction), in the batch's
- * transaction; and the people of the games' days the days of the views it
- * deletes, and of the attempts whose shares, sign-ups begun and ways on go
- * (MarkAnalyticsGameCellsAction), counted again without them. Then
- * the numbers of the guests' browsers no cell of those people holds any more
- * are let go — a browser whose last view a day's cells still held goes once
- * that day is counted again, on a later run. The cutoffs are fixed when the
- * run starts; a run interrupted part way, or run twice, simply deletes what
- * is still older. A retention that is not a positive number of days fails the
- * run without deleting anything.
+ * never holds one long lock. The cutoffs are fixed when the run starts; a run
+ * interrupted part way, or run twice, simply deletes what is still older. A
+ * retention that is not a positive number of days fails the run without
+ * deleting anything.
  */
 final class GamesPurgeExpiredCommand extends Command
 {
@@ -50,7 +30,7 @@ final class GamesPurgeExpiredCommand extends Command
 
     protected $description = 'Delete game events and emails left in games that are older than their configured retention.';
 
-    public function handle(MarkAnalyticsPeriodHourAction $periodHours, MarkAnalyticsGameCellsAction $gameCells, RefreshAnalyticsGameCellsAction $gameCellsRefresh): int
+    public function handle(): int
     {
         $events = $this->retention('events');
         $emails = $this->retention('email_captures');
@@ -68,35 +48,11 @@ final class GamesPurgeExpiredCommand extends Command
         }
 
         $now = CarbonImmutable::now('UTC');
-        // The days of the visits whose attempts' share clicks go: Analytics keeps them on each visit's row.
-        $shareDays = TrafficVisit::query()
-            ->whereIn('id', GameAttempt::query()
-                ->whereNotNull('traffic_visit_id')
-                ->whereIn('id', GameEvent::query()->where('type', GameEventType::ShareClicked->value)->where('occurred_at', '<', $now->subDays($events))->select('attempt_id'))
-                ->select('traffic_visit_id'))
-            ->distinct()
-            ->pluck('network_day')
-            ->map(fn (mixed $day): string => substr((string) $day, 0, 10))
-            ->all();
-        $deletedEvents = $this->purge(GameEvent::query()->where('occurred_at', '<', $now->subDays($events)), $chunk, function (array $ids) use ($periodHours, $gameCells): void {
-            $periodHours->ofAssignments(
-                GameAssignment::query()->whereIn('id', GameAttempt::query()->select('assignment_id')->whereIn('id', GameEvent::query()->select('attempt_id')->whereKey($ids)->where('type', GameEventType::ResultViewed->value))),
-            );
-            $gameCells->removingEvents(GameEvent::query()->whereKey($ids));
-        });
-        $deletedEmails = $this->purge(GameEmailCapture::query()->where('captured_at', '<', $now->subDays($emails)), $chunk, fn (array $ids) => $periodHours->ofAssignments(
-            GameAssignment::query()->whereIn('id', GameAttempt::query()->select('assignment_id')->whereIn('id', GameEmailCapture::query()->select('attempt_id')->whereKey($ids))),
-        ));
-
-        foreach ($shareDays as $day) {
-            app(MarkAnalyticsDayAction::class)->handle($day, $now);
-        }
-
-        $forgotten = $gameCellsRefresh->forgetNumbers();
+        $deletedEvents = $this->purge(GameEvent::query()->where('occurred_at', '<', $now->subDays($events)), $chunk);
+        $deletedEmails = $this->purge(GameEmailCapture::query()->where('captured_at', '<', $now->subDays($emails)), $chunk);
 
         $this->info("Deleted {$deletedEvents} game events older than {$events} days.");
         $this->info("Deleted {$deletedEmails} emails left in games more than {$emails} days ago.");
-        $this->info("Let go of {$forgotten} numbers of guests' browsers no game's people hold any more.");
 
         return self::SUCCESS;
     }
@@ -117,22 +73,16 @@ final class GamesPurgeExpiredCommand extends Command
 
     /**
      * @param  Builder<GameEvent>|Builder<GameEmailCapture>  $expired
-     * @param  Closure(list<int>): void  $telling  what is told of a batch's rows before they go
      */
-    private function purge(Builder $expired, int $chunk, Closure $telling): int
+    private function purge(Builder $expired, int $chunk): int
     {
         $deleted = 0;
 
         do {
-            /** @var list<int> $ids */
-            $ids = (clone $expired)->orderBy('id')->limit($chunk)->pluck('id')->map(fn (mixed $id): int => (int) $id)->all();
+            $ids = (clone $expired)->orderBy('id')->limit($chunk)->pluck('id')->all();
 
             if ($ids !== []) {
-                $deleted += DB::transaction(function () use ($expired, $ids, $telling): int {
-                    $telling($ids);
-
-                    return $expired->getModel()->newQuery()->whereKey($ids)->delete();
-                });
+                $deleted += $expired->getModel()->newQuery()->whereKey($ids)->delete();
             }
         } while (count($ids) === $chunk);
 

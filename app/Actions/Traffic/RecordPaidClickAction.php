@@ -2,7 +2,6 @@
 
 namespace App\Actions\Traffic;
 
-use App\Actions\Analytics\MarkAnalyticsDayAction;
 use App\Actions\Traffic\Concerns\WorksOutClickSpend;
 use App\Enums\TrafficActor;
 use App\Enums\TrafficCampaignEventKind;
@@ -11,7 +10,6 @@ use App\Enums\TrafficChannel;
 use App\Enums\TrafficKnownReason;
 use App\Enums\TrafficSourceType;
 use App\Enums\TrafficSpendBasis;
-use App\Models\AccountAttribution;
 use App\Models\Game;
 use App\Models\TrafficCampaign;
 use App\Models\TrafficCampaignEvent;
@@ -67,7 +65,6 @@ final class RecordPaidClickAction
     public function __construct(
         private readonly VisitorVisitQuery $visits,
         private readonly DomainLogger $logger,
-        private readonly MarkAnalyticsDayAction $analytics,
     ) {}
 
     /**
@@ -202,8 +199,7 @@ final class RecordPaidClickAction
      * The same click asked for again: by the same browser, it is the same
      * visit; by another browser, it passes to that browser while no browser
      * has run its page — priced for that browser's device, unless its spend
-     * was taken from a day's figures, and with the device of an account
-     * already credited to it — and is no click for it once one has.
+     * was taken from a day's figures — and is no click for it once one has.
      *
      * @param  array<string, mixed>  $attributes
      */
@@ -217,8 +213,6 @@ final class RecordPaidClickAction
 
         if ($visit->visitor_hash === $browserHash) {
             $visit->forceFill(['last_seen_at' => $now])->save();
-            // The same click again any time later: Analytics reads the old click's day again.
-            $this->analytics->handle($visit->network_day, $now);
 
             return $visit;
         }
@@ -248,11 +242,6 @@ final class RecordPaidClickAction
                 $visit->arrived_at,
             )),
         ])->save();
-        // An account the click was credited to while it was the other browser's reads its device as it is now; its source
-        // too, which never changes, so one written without either keeps none for the copy step (CopyCreditedKeysAction) to miss.
-        AccountAttribution::query()->where('credited_visit_id', $visit->id)->update(['credited_source_key' => $visit->source_key, 'credited_device' => $visit->device->value]);
-        // A click id can come again any time later: Analytics reads the old click's day again.
-        $this->analytics->handle($visit->network_day, $now);
 
         return $visit;
     }

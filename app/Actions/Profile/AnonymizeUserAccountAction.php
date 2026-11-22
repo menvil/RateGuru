@@ -2,14 +2,12 @@
 
 namespace App\Actions\Profile;
 
-use App\Actions\Analytics\MarkAnalyticsPeriodHourAction;
 use App\Enums\ProfileActivityVisibility;
 use App\Enums\UserRole;
 use App\Enums\UserStatus;
 use App\Models\AccountAttribution;
 use App\Models\AccountBrowser;
 use App\Models\Follow;
-use App\Models\GameAssignment;
 use App\Models\GameAttempt;
 use App\Models\GameEmailCapture;
 use App\Models\PasswordResetToken;
@@ -44,7 +42,6 @@ final class AnonymizeUserAccountAction
     public function __construct(
         private readonly MediaLifecycleService $lifecycleService,
         private readonly DomainLogger $logger,
-        private readonly MarkAnalyticsPeriodHourAction $periodHours,
     ) {}
 
     public function execute(User $user): void
@@ -110,9 +107,7 @@ final class AnonymizeUserAccountAction
 
             // The emails left on game steps by attempts that became this
             // account's: personal data with nothing left to keep it for. The
-            // attempts themselves stay, as the game's anonymous history. An
-            // email is a step of its period's funnel, told before it goes.
-            $this->periodHours->ofAssignments(GameAssignment::query()->whereIn('id', GameAttempt::query()->select('assignment_id')->where('user_id', $locked->id)->whereIn('id', GameEmailCapture::query()->select('attempt_id'))));
+            // attempts themselves stay, as the game's anonymous history.
             GameEmailCapture::query()
                 ->whereIn('attempt_id', GameAttempt::query()->select('id')->where('user_id', $locked->id))
                 ->delete();

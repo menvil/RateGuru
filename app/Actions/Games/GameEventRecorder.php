@@ -2,47 +2,19 @@
 
 namespace App\Actions\Games;
 
-use App\Actions\Analytics\MarkAnalyticsDayAction;
-use App\Actions\Analytics\MarkAnalyticsGameCellsAction;
-use App\Actions\Analytics\MarkAnalyticsPeriodHourAction;
 use App\Enums\GameEventType;
 use App\Models\GameAssignment;
 use App\Models\GameAttempt;
 use App\Models\GameEvent;
-use App\Models\TrafficVisit;
 use App\Support\Games\Play\GameVisitor;
-use InvalidArgumentException;
 
 /**
  * Writes a game's tracked moments (game_events), called by the actions that
  * make them, inside their own transactions: an event exists only if what it
- * records does. Ids and codes only — never anything a visitor typed. An
- * attempt's event is of the attempt's own game and happens now, never before
- * the attempt began: GameMetricsQuery reads an attempt's events only from its
- * game's events since the window began (docs/architecture/games.md). A result
- * seen is a step of its period's funnel, which is told of it
- * (MarkAnalyticsPeriodHourAction) whichever action records it.
- *
- * A share clicked on an attempt started on a visit is counted on that visit
- * by Analytics (AnalyticsVisitRow::attemptFigures()): the visit's day is
- * marked to be read again once the event is written (MarkAnalyticsDayAction)
- * — a result can be shared days after the visit.
- *
- * Every change to what the people of the games' days count of an attempt
- * after it began — completed, its goal reached, taken by an account or an
- * account credited to it confirmed, shared, sent on, signing up begun —
- * comes with an event of it, recorded now: so the people of the attempt's
- * day are told of it here, once the day has closed
- * (MarkAnalyticsGameCellsAction), whichever action records it.
+ * records does. Ids and codes only — never anything a visitor typed.
  */
 final class GameEventRecorder
 {
-    public function __construct(
-        private readonly MarkAnalyticsDayAction $analytics,
-        private readonly MarkAnalyticsPeriodHourAction $periodHours,
-        private readonly MarkAnalyticsGameCellsAction $gameCells,
-    ) {}
-
     /**
      * @param  array{step_type?: string|null, round_index?: int|null, provider?: string|null}  $detail
      */
@@ -55,10 +27,6 @@ final class GameEventRecorder
         ?GameAssignment $assignment = null,
         array $detail = [],
     ): void {
-        if ($attempt !== null && (int) $attempt->game_id !== $gameId) {
-            throw new InvalidArgumentException("An event of attempt {$attempt->id} is of its own game, not of game {$gameId}.");
-        }
-
         $versionId ??= $attempt !== null ? $attempt->version_id : $assignment?->version_id;
         $assignmentId = $assignment !== null ? $assignment->id : $attempt?->assignment_id;
 
@@ -78,19 +46,5 @@ final class GameEventRecorder
             'provider' => $detail['provider'] ?? null,
             'occurred_at' => now(),
         ])->save();
-
-        if ($type === GameEventType::ShareClicked && $attempt?->traffic_visit_id !== null) {
-            // The visit locked before its day is marked, the order every writer of a visit's marks takes.
-            $day = TrafficVisit::query()->whereKey($attempt->traffic_visit_id)->lockForUpdate()->value('network_day');
-            $this->analytics->handle($day === null ? null : (string) $day);
-        }
-
-        if ($type === GameEventType::ResultViewed && $attempt !== null) {
-            $this->periodHours->ofAttempt($attempt);
-        }
-
-        if ($attempt !== null) {
-            $this->gameCells->ofEvent($type, $attempt);
-        }
     }
 }

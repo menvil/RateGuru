@@ -72,6 +72,7 @@ final class GameTrafficQuery
             ->whereNull('ended_at')
             ->whereNotNull('source_id')
             ->with(['versions', 'source:id,name', 'campaign:id,source_id,external_id,name'])
+            ->withCount('assignments')
             ->orderBy('id')
             ->get()
             ->unique(fn (GameTrafficPeriod $period): string => $period->scope()->key())

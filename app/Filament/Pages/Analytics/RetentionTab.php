@@ -123,7 +123,7 @@ final class RetentionTab implements AnalyticsTab
                     'title' => 'Retention by acquisition source',
                     'first' => 'Source',
                     'note' => 'Accounts: '.$periodName.', by the day they signed up. Rates and returns: every cohort old enough to measure, since '.$since.'. A source is where the session of the visit an account is credited to began; Direct / Unknown when none was recorded. Click a row to see its cohorts.',
-                    'rows' => self::drawn($sourceRows),
+                    'rows' => $sourceRows,
                     'answer' => RetentionCohorts::sourcePhrase(self::phraseRows(array_values(array_filter($sourceRows, fn (array $row): bool => $row['dim'] !== RetentionCohorts::OTHER_SOURCES))), $minimum),
                 ],
                 [
@@ -131,7 +131,7 @@ final class RetentionTab implements AnalyticsTab
                     'title' => 'Retention by originating game',
                     'first' => 'First experience',
                     'note' => 'Where the user started before registering: the game they finished before signing up. Accounts: '.$periodName.'; rates and returns: cohorts since '.$since.'. Click a row to see its cohorts.',
-                    'rows' => self::drawn($gameRows),
+                    'rows' => $gameRows,
                     'answer' => RetentionCohorts::gamePhrase(self::phraseRows(array_values(array_filter($gameRows, fn (array $row): bool => $row['dim'] !== RetentionCohorts::OTHER_GAMES))), $minimum),
                 ],
             ],
@@ -313,20 +313,6 @@ final class RetentionTab implements AnalyticsTab
             $percent === null => 'n < '.$share->minimum,
             default => $percent.'%',
         };
-    }
-
-    /**
-     * A table's rows as it draws them: the share each row's sentence is
-     * phrased from is no part of the table, and an object kept with the
-     * figures would come back from the store as no class at all
-     * (AnalyticsReadCache).
-     *
-     * @param  list<array<string, mixed>>  $rows
-     * @return list<array<string, mixed>>
-     */
-    private static function drawn(array $rows): array
-    {
-        return array_map(fn (array $row): array => array_diff_key($row, ['share' => null]), $rows);
     }
 
     /**

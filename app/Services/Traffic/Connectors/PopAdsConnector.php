@@ -17,10 +17,7 @@ use Illuminate\Support\Sleep;
  * `report_advertiser` in UTC, by campaign and website, checked against the
  * same day by campaign alone; campaigns from `apiv2/campaign/details`;
  * websites blocked through the campaign's website exclusion list, which
- * PopAds replaces whole — and refuses empty: the last site taken off turns
- * the campaign's targeting off instead. An error PopAds explains (a JSON
- * `errors` list, sent with HTTP 500 for a request it refused) is a refusal,
- * not an API that is down. The report's fields are not documented: they are
+ * PopAds replaces whole. The report's fields are not documented: they are
  * read under the names third-party clients use, and the connector stays
  * unverified until a real answer has been read. The key opens the whole
  * account, money included — none of those calls is ever made.
@@ -142,27 +139,18 @@ final class PopAdsConnector implements EditsBlockLists, ReadsCampaigns, ReadsSpe
 
         $list = array_values(array_diff(array_unique([...array_map('strval', $items), ...$add]), $remove));
 
-        // A list to exclude needs a site: the campaign's own, emptied, is its targeting turned off; a list other campaigns share can't be turned off for one.
-        if ($list === [] && $mode === 'global') {
-            throw new ConnectorException(TrafficConnectorFailure::SharedList);
-        }
-
         Sleep::for(1)->second();
         $response = $this->call(fn (PendingRequest $client) => $client
             ->withBody(implode("\n", $list), 'text/plain')
-            ->post(self::BASE.$path.'?'.http_build_query(['key' => (string) $session->get('api_key'), 'mode' => $list === [] ? 'none' : 'exclude'])));
+            ->post(self::BASE.$path.'?'.http_build_query(['key' => (string) $session->get('api_key'), 'mode' => 'exclude'])));
         $json = $response->json();
-        $listed = is_array($json) ? ($json['items'] ?? $json['global_items'] ?? (($json['mode'] ?? null) === 'none' ? [] : null)) : null;
+        $listed = is_array($json) ? ($json['items'] ?? $json['global_items'] ?? null) : null;
 
         // An answer without the list proves nothing: the list is read back, never taken to be the one sent — nor an empty one when the read back has none.
         if ($listed === null) {
             Sleep::for(1)->second();
             $again = $this->json($this->get($session, '/api/campaign_website_targeting/'.rawurlencode($campaignId)));
-            $listed = match (true) {
-                ($again['mode'] ?? null) === 'none' => [],
-                $mode === 'global' => $again['global_items'] ?? null,
-                default => $again['items'] ?? null,
-            };
+            $listed = $mode === 'global' ? ($again['global_items'] ?? null) : ($again['items'] ?? null);
 
             if (! is_array($listed)) {
                 throw new ConnectorException(TrafficConnectorFailure::UnexpectedResponse);
@@ -180,20 +168,6 @@ final class PopAdsConnector implements EditsBlockLists, ReadsCampaigns, ReadsSpe
         $rows = $json['rows'] ?? $json['data'] ?? $json;
 
         return array_values(array_filter((array) $rows, 'is_array'));
-    }
-
-    /** An error PopAds explains is a request it refused, whatever its status — 500 for a list it won't take — never an API that is down. */
-    private function failureOf(Response $response): TrafficConnectorFailure
-    {
-        $json = $response->json();
-
-        return match (true) {
-            in_array($response->status(), [401, 403], true) => TrafficConnectorFailure::Auth,
-            $response->status() === 429 => TrafficConnectorFailure::RateLimited,
-            is_array($json) && is_array($json['errors'] ?? null) && $json['errors'] !== [] => TrafficConnectorFailure::Rejected,
-            $response->serverError() => TrafficConnectorFailure::Unavailable,
-            default => TrafficConnectorFailure::Rejected,
-        };
     }
 
     private function get(ConnectorSession $session, string $path): Response

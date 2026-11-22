@@ -2,15 +2,6 @@
 
 namespace App\Console\Commands;
 
-use App\Actions\Analytics\MarkAnalyticsDayAction;
-use App\Models\AnalyticsCell;
-use App\Models\AnalyticsCellAccount;
-use App\Models\AnalyticsFirstPostCell;
-use App\Models\AnalyticsGameDay;
-use App\Models\AnalyticsPerson;
-use App\Models\AnalyticsPid;
-use App\Models\AnalyticsPostCell;
-use App\Models\AnalyticsVisit;
 use App\Models\TrafficBlockEvent;
 use App\Models\TrafficChanceRun;
 use App\Models\TrafficPostback;
@@ -19,7 +10,6 @@ use App\Models\TrafficVisit;
 use App\Models\TrafficVisitDetail;
 use App\Models\TrafficVisitPost;
 use App\Models\UserActivityDay;
-use App\Support\Traffic\Reports\TrafficReportFilter;
 use Carbon\CarbonImmutable;
 use Illuminate\Console\Command;
 use Illuminate\Database\Eloquent\Builder;
@@ -27,19 +17,12 @@ use Illuminate\Database\Eloquent\Builder;
 /**
  * Deletes what the tracker recorded once it is past its retention
  * (config/traffic.php): visits after traffic.retention_days.visits (400) with
- * their conversions and Analytics' own rows of them, and each browser's first
- * day, the cells of each day's people, posts and first posts and the sums of
- * its games' visits once every visit of their day is gone — a day the cutoff
- * runs through is marked for analytics:refresh-visits to write again from the
- * visits left — and a browser's number once no visit of it is left; a
- * click's details, the posts a visit opened and shared — the days of their
- * visits marked, as Analytics keeps what each visit did with posts, and of
- * the visits credited with an account in their sessions, which keep the post
- * the session opened first — and the postback outbox after 90, spend figures
- * and the block log after 400, and every chance working-out but the newest
- * 30 — and the days members did something on the site after
- * analytics.retention_days.activity (400, config/analytics.php). Sources,
- * campaigns, blocks, prices and attributions stay.
+ * their conversions, a click's details, the posts a visit opened and shared
+ * and the postback outbox after 90, spend figures and the block log after
+ * 400, and every chance working-out but the newest 30 — and the days members
+ * did something on the site after analytics.retention_days.activity (400,
+ * config/analytics.php). Sources, campaigns, blocks, prices and attributions
+ * stay.
  *
  * In small batches by primary key, the cutoffs fixed when the run starts; a
  * retention that is not a positive number of days fails the run without
@@ -87,55 +70,15 @@ final class TrafficPurgeExpiredCommand extends Command
         }
 
         $now = CarbonImmutable::now('UTC');
-        [$lastGone, $cut] = self::networkDays($now->subDays($days['visits']));
-        // The days of the visits whose posts go: Analytics keeps what each visit did with posts, and reads those days again.
-        $postDays = TrafficVisitPost::query()
-            ->join('traffic_visits', 'traffic_visits.id', '=', 'traffic_visit_posts.visit_id')
-            ->where('traffic_visit_posts.first_at', '<', $now->subDays($days['visit_details']))
-            ->distinct()
-            ->pluck('traffic_visits.network_day')
-            ->map(fn (mixed $day): string => substr((string) $day, 0, 10))
-            ->all();
-        // And the days of the visits credited with an account in the sessions of those that opened them: each keeps the
-        // post its session opened first.
-        $sessionDays = TrafficVisit::query()
-            ->from('traffic_visits as credited')
-            ->joinSub(TrafficVisitPost::query()
-                ->join('traffic_visits as session_visit', 'session_visit.id', '=', 'traffic_visit_posts.visit_id')
-                ->where('traffic_visit_posts.first_at', '<', $now->subDays($days['visit_details']))
-                ->where('traffic_visit_posts.views', '>', 0)
-                ->distinct()
-                ->select('session_visit.entry_visit_id'), 'gone', 'gone.entry_visit_id', '=', 'credited.entry_visit_id')
-            ->whereNotNull('credited.account_at')
-            ->distinct()
-            ->pluck('credited.network_day')
-            ->map(fn (mixed $day): string => substr((string) $day, 0, 10))
-            ->all();
         $deleted = [
             'click details' => $this->purge(TrafficVisitDetail::query()->where('created_at', '<', $now->subDays($days['visit_details'])), $chunk, 'visit_id'),
             'posts of visits' => $this->purge(TrafficVisitPost::query()->where('first_at', '<', $now->subDays($days['visit_details'])), $chunk, 'visit_id'),
             'postbacks' => $this->purge(TrafficPostback::query()->where('created_at', '<', $now->subDays($days['postbacks'])), $chunk),
             'visits' => $this->purge(TrafficVisit::query()->where('arrived_at', '<', $now->subDays($days['visits'])), $chunk),
-            // Analytics' own row of a visit goes with it; a browser's first day goes once visits that old are gone.
-            'first days of browsers' => $this->purge(AnalyticsPerson::query()->where('first_day', '<', $now->subDays($days['visits'])->format('Y-m-d')), $chunk, 'visitor_key'),
-            // The cells of a day go with its visits; a browser's number once no row of Analytics names it — never the
-            // highest, which the next number counts on from: a number given again would make two browsers one person.
-            'cells of people' => $this->purge(AnalyticsCell::query()->where('network_day', '<=', $lastGone), $chunk),
-            'cells of accounts' => $this->purge(AnalyticsCellAccount::query()->where('network_day', '<=', $lastGone), $chunk),
-            'sums of game days' => $this->purge(AnalyticsGameDay::query()->where('network_day', '<=', $lastGone), $chunk),
-            'cells of posts' => $this->purge(AnalyticsPostCell::query()->where('network_day', '<=', $lastGone), $chunk),
-            'cells of first posts' => $this->purge(AnalyticsFirstPostCell::query()->where('network_day', '<=', $lastGone), $chunk),
-            'browser numbers' => $this->purge(AnalyticsPid::query()
-                ->where('pid', '<', (int) AnalyticsPid::query()->max('pid'))
-                ->whereNotExists(fn ($visit) => $visit->from((new AnalyticsVisit)->getTable())->whereColumn('analytics_visits.visitor_key', 'analytics_pids.visitor_key')), $chunk, 'visitor_key'),
             'spend figures' => $this->purge(TrafficSpendDay::query()->where('network_day', '<', $now->subDays($days['spend_days'])->format('Y-m-d')), $chunk),
             'block log lines' => $this->purge(TrafficBlockEvent::query()->where('occurred_at', '<', $now->subDays($days['block_events'])), $chunk),
             'activity days' => $this->purge(UserActivityDay::query()->where('day', '<', $now->subDays($activityDays)->format('Y-m-d')), $chunk),
         ];
-
-        foreach (array_unique([...$cut, ...$postDays, ...$sessionDays]) as $day) {
-            app(MarkAnalyticsDayAction::class)->handle($day, $now);
-        }
 
         // Only runs older than the oldest one kept: a working-out begun since is newer still, and stays.
         $oldestKept = TrafficChanceRun::query()->orderByDesc('id')->limit(max(1, (int) config('traffic.chance_runs_kept')))->pluck('id')->min();
@@ -146,32 +89,6 @@ final class TrafficPurgeExpiredCommand extends Command
         }
 
         return self::SUCCESS;
-    }
-
-    /**
-     * The network days a cutoff of the visits leaves whole or empty: the last
-     * whose visits all arrived before it, and those it runs through — a
-     * network day's visits arrive over more than its UTC day (TrafficReportFilter),
-     * so some of theirs went and some stay.
-     *
-     * @return array{0: string, 1: list<string>}
-     */
-    private static function networkDays(CarbonImmutable $cutoff): array
-    {
-        $lastGone = $cutoff->subDays(4)->toDateString();
-        $cut = [];
-
-        for ($day = $cutoff->subDays(3); $day->lessThanOrEqualTo($cutoff->addDays(3)); $day = $day->addDay()) {
-            $window = new TrafficReportFilter($day->toDateString(), $day->toDateString());
-
-            if ($window->arrivedBefore()->lessThanOrEqualTo($cutoff)) {
-                $lastGone = $day->toDateString();
-            } elseif ($window->arrivedFrom()->lessThan($cutoff)) {
-                $cut[] = $day->toDateString();
-            }
-        }
-
-        return [$lastGone, $cut];
     }
 
     /** @param  Builder<covariant \Illuminate\Database\Eloquent\Model>  $expired */

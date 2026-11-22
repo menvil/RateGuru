@@ -91,12 +91,6 @@ final readonly class AnalyticsFilter
         return $this->window()->arrivedFrom();
     }
 
-    /** Whether the period counts its days whole: no moment stops it counting arrivals sooner than its last day's end. */
-    public function countsWholeDays(): bool
-    {
-        return $this->arrivedBefore()->equalTo($this->window()->arrivedBefore());
-    }
-
     /** The end of that span — or, sooner, the moment the period stops counting arrivals at (the day before today, as far into it as today has gone). */
     public function arrivedBefore(): CarbonImmutable
     {

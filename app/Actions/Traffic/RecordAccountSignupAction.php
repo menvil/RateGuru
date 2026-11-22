@@ -22,9 +22,7 @@ use Illuminate\Support\Facades\DB;
  * feed or the sign-up page never takes the account from the game that
  * brought it. With no click holding it but one whose window closed, that
  * click is told the account came late, and the account goes to the unpaid
- * visit or to nobody. What Retention groups and filters the account by is
- * copied from the visit and the attempt in the same write
- * (AccountAttribution::creditedKeys()).
+ * visit or to nobody.
  * An account signed up through Google or Facebook is confirmed at once.
  */
 final class RecordAccountSignupAction
@@ -62,7 +60,6 @@ final class RecordAccountSignupAction
                 'signed_up_at' => $now,
                 'credited_attempt_id' => $attempt?->id,
                 'credited_visit_id' => $visit?->id,
-                ...AccountAttribution::creditedKeys($visit, $attempt),
                 'expired_visit_id' => $expired?->id,
                 'late' => $expired !== null,
             ]);

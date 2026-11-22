@@ -2,7 +2,6 @@
 
 namespace App\Actions\Traffic;
 
-use App\Actions\Analytics\MarkAnalyticsDayAction;
 use App\Actions\Analytics\RecordVisitPostAction;
 use App\Enums\TrafficChannel;
 use App\Enums\TrafficEvent;
@@ -70,7 +69,6 @@ final class OpenTrafficVisitAction
         private readonly TrafficVisitWorth $worth,
         private readonly MarkTrafficVisitAction $marks,
         private readonly RecordVisitPostAction $posts,
-        private readonly MarkAnalyticsDayAction $analytics,
     ) {}
 
     public function handle(
@@ -343,9 +341,6 @@ final class OpenTrafficVisitAction
 
             $visit->forceFill($changes)->save();
 
-            // A click opened, given its game or seen again days after it came: Analytics reads its day again.
-            $this->analytics->handle($visit->network_day, $now);
-
             // A paid click that turned out to run in a browser: a step its
             // network can be told of, worth what opening the page is worth.
             if (isset($changes['opened_at'])) {
@@ -366,19 +361,14 @@ final class OpenTrafficVisitAction
      */
     private function touch(TrafficVisit $visit, ?int $gameId, ?int $versionId, CarbonImmutable $now): int
     {
-        $given = TrafficVisit::query()->whereKey($visit->id)->where('last_seen_at', '<', $now)->update(['last_seen_at' => $now]);
+        TrafficVisit::query()->whereKey($visit->id)->where('last_seen_at', '<', $now)->update(['last_seen_at' => $now]);
 
         if ($visit->game_id === null && $gameId !== null) {
-            $given += TrafficVisit::query()->whereKey($visit->id)->whereNull('game_id')->update(['game_id' => $gameId]);
+            TrafficVisit::query()->whereKey($visit->id)->whereNull('game_id')->update(['game_id' => $gameId]);
         }
 
         if ($visit->version_id === null && $versionId !== null && ($visit->game_id ?? $gameId) === $gameId) {
-            $given += TrafficVisit::query()->whereKey($visit->id)->where('game_id', $gameId)->whereNull('version_id')->update(['version_id' => $versionId]);
-        }
-
-        // The holding click can be days old: Analytics reads its day again once it is seen again or shows a game.
-        if ($given > 0) {
-            $this->analytics->handle($visit->network_day, $now);
+            TrafficVisit::query()->whereKey($visit->id)->where('game_id', $gameId)->whereNull('version_id')->update(['version_id' => $versionId]);
         }
 
         return (int) $visit->id;

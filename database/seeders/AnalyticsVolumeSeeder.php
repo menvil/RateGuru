@@ -1107,10 +1107,6 @@ class AnalyticsVolumeSeeder extends Seeder
                 'confirmed_at' => $confirmed === null ? null : self::moment($confirmed),
                 'credited_attempt_id' => $attemptId,
                 'credited_visit_id' => $visitId,
-                // What Retention reads of them, copied as RecordAccountSignupAction copies it.
-                'credited_source_key' => $row['source_key'] ?? null,
-                'credited_device' => $row['device'],
-                'credited_game_id' => $attemptId === null ? null : $this->gameId,
                 'late' => false,
                 'returned_at' => $returned,
                 'activated_at' => $activated,

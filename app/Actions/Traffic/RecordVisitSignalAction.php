@@ -2,7 +2,6 @@
 
 namespace App\Actions\Traffic;
 
-use App\Actions\Analytics\MarkAnalyticsDayAction;
 use App\Actions\Analytics\RecordVisitPostAction;
 use App\Actions\Games\CreditGameSiteActivityAction;
 use App\Models\TrafficSetting;
@@ -11,7 +10,6 @@ use App\Queries\Traffic\VisitorVisitQuery;
 use App\Support\Traffic\Capture\BotSignals;
 use App\Support\Traffic\Capture\VisitorSignals;
 use Carbon\CarbonImmutable;
-use Illuminate\Support\Facades\DB;
 use Throwable;
 
 /**
@@ -35,7 +33,6 @@ final class RecordVisitSignalAction
         private readonly VisitorVisitQuery $visits,
         private readonly RecordVisitPostAction $posts,
         private readonly CreditGameSiteActivityAction $games,
-        private readonly MarkAnalyticsDayAction $analytics,
     ) {}
 
     /** @param  int|null  $postId  the published post a `post_shared` signal names, or the post whose page showed a `signup_form` */
@@ -71,16 +68,8 @@ final class RecordVisitSignalAction
 
         $visit = $this->visits->holding($browserHash, $now) ?? $this->visits->latestTrackedFirst($browserHash, $now->subDay());
 
-        if ($visit === null || $visit->signup_form_at !== null) {
-            return;
+        if ($visit !== null && $visit->signup_form_at === null) {
+            TrafficVisit::query()->whereKey($visit->id)->whereNull('signup_form_at')->update(['signup_form_at' => $now]);
         }
-
-        // The holding click can be days old: Analytics reads its day again,
-        // marked with the write, so neither is kept without the other.
-        DB::transaction(function () use ($visit, $now): void {
-            if (TrafficVisit::query()->whereKey($visit->id)->whereNull('signup_form_at')->update(['signup_form_at' => $now]) > 0) {
-                $this->analytics->handle($visit->network_day, $now);
-            }
-        });
     }
 }
