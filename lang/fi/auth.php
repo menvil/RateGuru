@@ -54,6 +54,9 @@ return [
         'intro' => 'Kiitos rekisteröitymisestä! Ennen kuin aloitat, vahvistaisitko sähköpostiosoitteesi napsauttamalla linkkiä, jonka juuri lähetimme sinulle? Jos et saanut viestiä, lähetämme mielellämme uuden.',
         'link_sent' => 'Uusi vahvistuslinkki on lähetetty sähköpostiosoitteeseen, jonka annoit rekisteröityessäsi.',
         'resend' => 'Lähetä vahvistusviesti uudelleen',
+        'confirmed' => 'Sähköpostiosoitteesi on vahvistettu.',
+        'link_expired' => 'Tämä vahvistuslinkki on vanhentunut. Pyydä uusi alta.',
+        'throttled' => 'Voit pyytää uuden linkin :minutes min kuluttua.',
     ],
 
     'social' => [

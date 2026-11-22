@@ -81,6 +81,7 @@ return [
     ],
     'account_confirmation' => [
         'notice' => 'Potwierdź swój adres e-mail, aby publikować, komentować, głosować i obserwować innych. Wysłaliśmy link na adres :email. Konto niepotwierdzone w ciągu :days dni od rejestracji zostaje usunięte.',
+        'notice_changed_address' => 'Potwierdź swój nowy adres e-mail, aby publikować, komentować, głosować i obserwować innych. Wysłaliśmy link na adres :email.',
         'required' => 'Najpierw potwierdź swój adres e-mail: link jest w wiadomości, którą do Ciebie wysłaliśmy.',
     ],
     'recently_deleted' => [

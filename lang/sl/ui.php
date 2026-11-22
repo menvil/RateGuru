@@ -81,6 +81,7 @@ return [
     ],
     'account_confirmation' => [
         'notice' => 'Potrdi svoj e-poštni naslov, da boš lahko objavljal, komentiral, glasoval in sledil drugim. Povezavo smo poslali na :email. Račun, ki ni potrjen v :days dneh po registraciji, se izbriše.',
+        'notice_changed_address' => 'Potrdi svoj novi e-poštni naslov, da boš lahko objavljal, komentiral, glasoval in sledil drugim. Povezavo smo poslali na :email.',
         'required' => 'Najprej potrdi svoj e-poštni naslov: povezava je v e-poštnem sporočilu, ki smo ti ga poslali.',
     ],
     'recently_deleted' => [

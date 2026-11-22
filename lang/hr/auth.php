@@ -54,6 +54,9 @@ return [
         'intro' => 'Hvala na registraciji! Prije početka potvrdi svoju adresu e-pošte klikom na poveznicu koju smo ti upravo poslali. Ako e-poruku nisi primio, rado ćemo ti poslati novu.',
         'link_sent' => 'Nova poveznica za potvrdu poslana je na adresu e-pošte koju si naveo pri registraciji.',
         'resend' => 'Ponovno pošalji e-poruku za potvrdu',
+        'confirmed' => 'Tvoja adresa e-pošte je potvrđena.',
+        'link_expired' => 'Ova poveznica za potvrdu je istekla. Zatraži novu u nastavku.',
+        'throttled' => 'Novu poveznicu možeš zatražiti za :minutes min.',
     ],
 
     'social' => [

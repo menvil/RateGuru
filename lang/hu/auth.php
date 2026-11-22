@@ -54,6 +54,9 @@ return [
         'intro' => 'Köszönjük, hogy regisztráltál! Mielőtt belekezdenél, megerősítenéd az e-mail-címed az imént elküldött levélben található linkre kattintva? Ha nem kaptad meg a levelet, szívesen küldünk egy újat.',
         'link_sent' => 'Új megerősítő linket küldtünk a regisztrációkor megadott e-mail-címre.',
         'resend' => 'Megerősítő e-mail újraküldése',
+        'confirmed' => 'Az e-mail-címed megerősítve.',
+        'link_expired' => 'Ez a megerősítő link lejárt. Alább kérhetsz újat.',
+        'throttled' => 'Új linket :minutes perc múlva kérhetsz.',
     ],
 
     'social' => [

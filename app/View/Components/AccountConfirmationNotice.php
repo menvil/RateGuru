@@ -27,9 +27,13 @@ final class AccountConfirmationNotice extends Component
         }
 
         return view('components.account-confirmation-notice', [
-            'email' => (string) $user->email,
-            'days' => UnconfirmedAccountsQuery::GRACE_DAYS,
+            // Only an account that never confirmed an address is removed: one
+            // that has changed a confirmed address is not told it will be.
+            'notice' => app(UnconfirmedAccountsQuery::class)->isUnconfirmed($user)
+                ? __('ui.account_confirmation.notice', ['email' => (string) $user->email, 'days' => UnconfirmedAccountsQuery::GRACE_DAYS])
+                : __('ui.account_confirmation.notice_changed_address', ['email' => (string) $user->email]),
             'sent' => session('status') === 'verification-link-sent',
+            'wait' => session('verification_wait'),
         ]);
     }
 }

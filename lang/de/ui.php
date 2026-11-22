@@ -81,6 +81,7 @@ return [
     ],
     'account_confirmation' => [
         'notice' => 'Bestätige deine E-Mail-Adresse, um Beiträge zu posten, zu kommentieren, abzustimmen und anderen zu folgen. Wir haben einen Link an :email gesendet. Ein Konto, das nicht innerhalb von :days Tagen nach der Registrierung bestätigt wird, wird gelöscht.',
+        'notice_changed_address' => 'Bestätige deine neue E-Mail-Adresse, um Beiträge zu posten, zu kommentieren, abzustimmen und anderen zu folgen. Wir haben einen Link an :email gesendet.',
         'required' => 'Bestätige zuerst deine E-Mail-Adresse: Der Link steht in der E-Mail, die wir dir geschickt haben.',
     ],
     'recently_deleted' => [

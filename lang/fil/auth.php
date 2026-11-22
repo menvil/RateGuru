@@ -54,6 +54,9 @@ return [
         'intro' => 'Salamat sa pag-sign up! Bago magsimula, maaari mo bang i-verify ang iyong email address sa pamamagitan ng pag-click sa link na kaka-email lang namin sa iyo? Kung hindi mo natanggap ang email, malugod ka naming padadalhan ng isa pa.',
         'link_sent' => 'Isang bagong verification link ang naipadala sa email address na ibinigay mo noong nagparehistro ka.',
         'resend' => 'Ipadalang Muli ang Verification Email',
+        'confirmed' => 'Nakumpirma na ang iyong email address.',
+        'link_expired' => 'Nag-expire na ang confirmation link na ito. Humiling ng bago sa ibaba.',
+        'throttled' => 'Maaari kang humiling ng bagong link pagkalipas ng :minutes min.',
     ],
 
     'social' => [

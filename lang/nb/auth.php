@@ -54,6 +54,9 @@ return [
         'intro' => 'Takk for at du registrerte deg! Før du begynner, kan du bekrefte e-postadressen din ved å klikke på lenken vi nettopp sendte deg? Hvis du ikke har mottatt e-posten, sender vi deg gjerne en ny.',
         'link_sent' => 'En ny bekreftelseslenke er sendt til e-postadressen du oppga ved registreringen.',
         'resend' => 'Send bekreftelses-e-post på nytt',
+        'confirmed' => 'E-postadressen din er bekreftet.',
+        'link_expired' => 'Denne bekreftelseslenken er utløpt. Be om en ny nedenfor.',
+        'throttled' => 'Du kan be om en ny lenke om :minutes min.',
     ],
 
     'social' => [

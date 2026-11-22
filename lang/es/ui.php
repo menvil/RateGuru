@@ -81,6 +81,7 @@ return [
     ],
     'account_confirmation' => [
         'notice' => 'Confirma tu dirección de correo electrónico para publicar, comentar, votar y seguir a otras personas. Te enviamos un enlace a :email. Una cuenta que no se confirma en los :days días siguientes al registro se elimina.',
+        'notice_changed_address' => 'Confirma tu nueva dirección de correo electrónico para publicar, comentar, votar y seguir a otras personas. Te enviamos un enlace a :email.',
         'required' => 'Primero confirma tu dirección de correo electrónico: el enlace está en el correo que te enviamos.',
     ],
     'recently_deleted' => [

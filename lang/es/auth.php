@@ -54,6 +54,9 @@ return [
         'intro' => '¡Gracias por registrarte! Antes de empezar, ¿podrías verificar tu dirección de correo electrónico haciendo clic en el enlace que te acabamos de enviar? Si no has recibido el correo, con gusto te enviaremos otro.',
         'link_sent' => 'Se ha enviado un nuevo enlace de verificación a la dirección de correo electrónico que indicaste al registrarte.',
         'resend' => 'Reenviar correo de verificación',
+        'confirmed' => 'Tu dirección de correo electrónico está confirmada.',
+        'link_expired' => 'Este enlace de confirmación ha caducado. Solicita uno nuevo a continuación.',
+        'throttled' => 'Podrás solicitar un nuevo enlace en :minutes min.',
     ],
 
     'social' => [

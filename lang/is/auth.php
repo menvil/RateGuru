@@ -54,6 +54,9 @@ return [
         'intro' => 'Takk fyrir að skrá þig! Áður en þú byrjar, gætirðu staðfest netfangið þitt með því að smella á hlekkinn sem við vorum að senda þér í tölvupósti? Ef þú fékkst ekki tölvupóstinn sendum við þér gjarnan annan.',
         'link_sent' => 'Nýr staðfestingarhlekkur hefur verið sendur á netfangið sem þú gafst upp við skráningu.',
         'resend' => 'Senda staðfestingarpóst aftur',
+        'confirmed' => 'Netfangið þitt hefur verið staðfest.',
+        'link_expired' => 'Þessi staðfestingartengill er útrunninn. Biddu um nýjan hér fyrir neðan.',
+        'throttled' => 'Þú getur beðið um nýjan tengil eftir :minutes mín.',
     ],
 
     'social' => [

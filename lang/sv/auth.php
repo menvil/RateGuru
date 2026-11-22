@@ -54,6 +54,9 @@ return [
         'intro' => 'Tack för att du registrerade dig! Innan du sätter igång: bekräfta din e-postadress genom att klicka på länken vi just skickade till dig. Om du inte har fått mejlet skickar vi gärna ett nytt.',
         'link_sent' => 'En ny bekräftelselänk har skickats till e-postadressen du angav när du registrerade dig.',
         'resend' => 'Skicka bekräftelsemejlet igen',
+        'confirmed' => 'Din e-postadress är bekräftad.',
+        'link_expired' => 'Den här bekräftelselänken har gått ut. Begär en ny nedan.',
+        'throttled' => 'Du kan begära en ny länk om :minutes min.',
     ],
 
     'social' => [

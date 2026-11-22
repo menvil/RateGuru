@@ -81,6 +81,7 @@ return [
     ],
     'account_confirmation' => [
         'notice' => 'Bevestig je e-mailadres om te posten, te reageren, te stemmen en anderen te volgen. We hebben een link gestuurd naar :email. Een account dat niet binnen :days dagen na de registratie is bevestigd, wordt verwijderd.',
+        'notice_changed_address' => 'Bevestig je nieuwe e-mailadres om te posten, te reageren, te stemmen en anderen te volgen. We hebben een link gestuurd naar :email.',
         'required' => 'Bevestig eerst je e-mailadres: de link staat in de e-mail die we je hebben gestuurd.',
     ],
     'recently_deleted' => [

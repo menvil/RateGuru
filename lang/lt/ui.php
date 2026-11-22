@@ -81,6 +81,7 @@ return [
     ],
     'account_confirmation' => [
         'notice' => 'Patvirtinkite savo el. pašto adresą, kad galėtumėte skelbti įrašus, komentuoti, balsuoti ir sekti kitus. Nuorodą išsiuntėme adresu :email. Paskyra, nepatvirtinta per :days dienas nuo registracijos, ištrinama.',
+        'notice_changed_address' => 'Patvirtinkite naują el. pašto adresą, kad galėtumėte skelbti įrašus, komentuoti, balsuoti ir sekti kitus. Nuorodą išsiuntėme adresu :email.',
         'required' => 'Pirmiausia patvirtinkite savo el. pašto adresą: nuoroda yra mūsų jums atsiųstame laiške.',
     ],
     'recently_deleted' => [

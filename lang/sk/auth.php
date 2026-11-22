@@ -54,6 +54,9 @@ return [
         'intro' => 'Vďaka za registráciu! Skôr než začneš, over svoju e-mailovú adresu kliknutím na odkaz, ktorý sme ti práve poslali. Ak ti e-mail neprišiel, radi ti pošleme ďalší.',
         'link_sent' => 'Na e-mailovú adresu uvedenú pri registrácii sme poslali nový overovací odkaz.',
         'resend' => 'Znova poslať overovací e-mail',
+        'confirmed' => 'Tvoja e-mailová adresa je potvrdená.',
+        'link_expired' => 'Platnosť tohto potvrdzovacieho odkazu vypršala. Nižšie si vyžiadaj nový.',
+        'throttled' => 'Nový odkaz si môžeš vyžiadať o :minutes min.',
     ],
 
     'social' => [

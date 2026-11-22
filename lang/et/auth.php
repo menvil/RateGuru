@@ -54,6 +54,9 @@ return [
         'intro' => 'Täname registreerumast! Enne alustamist kinnita palun oma e-posti aadress, klõpsates lingil, mille sulle just e-postiga saatsime. Kui sa e-kirja ei saanud, saadame meelsasti uue.',
         'link_sent' => 'Registreerumisel sisestatud e-posti aadressile saadeti uus kinnituslink.',
         'resend' => 'Saada kinnituskiri uuesti',
+        'confirmed' => 'Sinu e-posti aadress on kinnitatud.',
+        'link_expired' => 'See kinnituslink on aegunud. Küsi allpool uus.',
+        'throttled' => 'Uue lingi saad küsida :minutes min pärast.',
     ],
 
     'social' => [

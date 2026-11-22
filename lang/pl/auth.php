@@ -54,6 +54,9 @@ return [
         'intro' => 'Dziękujemy za rejestrację! Zanim zaczniesz, potwierdź swój adres e-mail, klikając link, który właśnie Ci wysłaliśmy. Jeśli wiadomość do Ciebie nie dotarła, chętnie wyślemy kolejną.',
         'link_sent' => 'Nowy link weryfikacyjny został wysłany na adres e-mail podany podczas rejestracji.',
         'resend' => 'Wyślij ponownie e-mail weryfikacyjny',
+        'confirmed' => 'Twój adres e-mail został potwierdzony.',
+        'link_expired' => 'Ten link potwierdzający wygasł. Poproś poniżej o nowy.',
+        'throttled' => 'O nowy link możesz poprosić za :minutes min.',
     ],
 
     'social' => [

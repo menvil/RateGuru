@@ -337,6 +337,7 @@ final class UserEditor extends Component
             ModerationActionType::ShadowbanUser => ['eye-off', 'default', 'Shadowbanned'],
             ModerationActionType::RestoreUserAccess, ModerationActionType::UnbanUser => ['rotate-ccw', 'default', 'Access restored'],
             ModerationActionType::MarkUserTrusted => ['shield-check', 'default', 'Marked trusted'],
+            ModerationActionType::ConfirmUserEmail => ['mail', 'default', 'Email confirmed'],
             ModerationActionType::ApprovePost => ['check', 'default', $subject.' approved'],
             ModerationActionType::RejectPost => ['circle-x', 'danger', $subject.' rejected'],
             ModerationActionType::HidePost, ModerationActionType::HideComment => ['eye-off', 'danger', $subject.' hidden'],

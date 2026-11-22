@@ -5,7 +5,8 @@
      * without closing it: Limit (warning), Shadowban and Ban (danger), each
      * with what it does — as the lifecycle has it: a sanction stops
      * taking part and never locks anyone out of their account — and an
-     * optional reason; Mark trusted (light), with no reason to give.
+     * optional reason; Mark trusted and Confirm email (light), with no reason
+     * to give.
      */
     use App\Filament\Resources\Users\Pages\ListUsers;
 
@@ -16,10 +17,16 @@
         'ban' => ['danger', 'ban', 'Ban '.$name.'?', 'Use for accounts that should no longer take part.', 'Ban user', ['Repeated spam', 'Harassment', 'Scam', 'Ban evasion']],
         'limit' => ['warning', 'shield-alert', 'Limit '.$name.'?', 'A restriction for someone whose activity needs closer review.', 'Limit user', ['Low-quality posts', 'Borderline spam', 'Rule reminders ignored']],
         'shadowban' => ['danger', 'eye-off', 'Shadowban '.$name.'?', 'The same restrictions as a ban, kept apart for accounts that look suspicious.', 'Shadowban user', ['Spam network', 'Ban evasion', 'Coordinated voting']],
+        'confirm_email' => ['default', 'mail', 'Confirm the email of '.$name.'?', 'For someone the confirmation mail cannot reach. Do this only once you know the address is theirs.', 'Confirm email', []],
         default => ['default', 'shield-check', 'Mark '.$name.' as trusted?', 'Trusted people publish without the moderation queue, once their email is confirmed.', 'Mark trusted', []],
     };
 
     $facts = match ($kind) {
+        'confirm_email' => [
+            ['mail', 'Their address counts as confirmed, without the link.'],
+            ['upload', 'They can post, comment, vote and follow.'],
+            ['clock', 'The cleanup of unconfirmed accounts no longer removes them.'],
+        ],
         'trust' => [
             ['upload', 'New posts publish at once. Reports still reach the Reports queue.'],
             ['clock', number_format($dialog['posts']).' '.\Illuminate\Support\Str::plural('post', $dialog['posts']).' so far, '.number_format($dialog['reports']).' '.\Illuminate\Support\Str::plural('report', $dialog['reports']).' on their content.'],
@@ -69,7 +76,7 @@
             </ul>
         </div>
 
-        @unless ($kind === 'trust')
+        @unless (in_array($kind, ['trust', 'confirm_email'], true))
             @include('filament.pages.moderation.reason', [
                 'label' => 'Reason',
                 'required' => false,

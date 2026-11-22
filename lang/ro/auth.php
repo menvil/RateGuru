@@ -54,6 +54,9 @@ return [
         'intro' => 'Mulțumim că te-ai înregistrat! Înainte de a începe, te rugăm să îți confirmi adresa de e-mail accesând linkul pe care tocmai ți l-am trimis. Dacă nu ai primit e-mailul, îți vom trimite cu plăcere altul.',
         'link_sent' => 'Un nou link de confirmare a fost trimis la adresa de e-mail pe care ai indicat-o la înregistrare.',
         'resend' => 'Retrimite e-mailul de confirmare',
+        'confirmed' => 'Adresa ta de e-mail este confirmată.',
+        'link_expired' => 'Acest link de confirmare a expirat. Solicită unul nou mai jos.',
+        'throttled' => 'Poți solicita un link nou peste :minutes min.',
     ],
 
     'social' => [

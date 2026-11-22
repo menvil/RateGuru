@@ -81,6 +81,7 @@ return [
     ],
     'account_confirmation' => [
         'notice' => 'Hãy xác nhận địa chỉ email để đăng bài, bình luận, bình chọn và theo dõi người khác. Chúng tôi đã gửi liên kết đến :email. Tài khoản không được xác nhận trong vòng :days ngày kể từ khi đăng ký sẽ bị xóa.',
+        'notice_changed_address' => 'Hãy xác nhận địa chỉ email mới để đăng bài, bình luận, bình chọn và theo dõi người khác. Chúng tôi đã gửi liên kết đến :email.',
         'required' => 'Vui lòng xác nhận địa chỉ email trước: liên kết nằm trong email chúng tôi đã gửi cho bạn.',
     ],
     'recently_deleted' => [

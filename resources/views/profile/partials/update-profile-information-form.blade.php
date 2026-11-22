@@ -45,6 +45,10 @@
                         </button>
                     </p>
 
+                    @if (filled(session('verification_wait')))
+                        <p class="mt-2 text-sm text-rg-muted" data-testid="profile-verification-wait">{{ session('verification_wait') }}</p>
+                    @endif
+
                     @if (session('status') === 'verification-link-sent')
                         <p class="mt-2 text-sm font-medium text-rg-accent2">
                             {{ __('profile.information.verification_sent') }}

@@ -54,6 +54,9 @@ return [
         'intro' => 'Danke für deine Registrierung! Bevor es losgeht: Bitte bestätige deine E-Mail-Adresse über den Link, den wir dir gerade geschickt haben. Falls keine E-Mail angekommen ist, senden wir dir gern eine neue.',
         'link_sent' => 'Ein neuer Bestätigungslink wurde an die E-Mail-Adresse gesendet, die du bei der Registrierung angegeben hast.',
         'resend' => 'Bestätigungs-E-Mail erneut senden',
+        'confirmed' => 'Deine E-Mail-Adresse ist bestätigt.',
+        'link_expired' => 'Dieser Bestätigungslink ist abgelaufen. Fordere unten einen neuen an.',
+        'throttled' => 'Du kannst in :minutes Min. einen neuen Link anfordern.',
     ],
 
     'social' => [

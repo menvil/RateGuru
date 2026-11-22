@@ -81,6 +81,7 @@ return [
     ],
     'account_confirmation' => [
         'notice' => 'Konfirmo adresën tënde të email-it që të mund të postosh, komentosh, votosh dhe ndjekësh të tjerët. Të dërguam një lidhje në :email. Një llogari që nuk konfirmohet brenda :days ditëve nga regjistrimi fshihet.',
+        'notice_changed_address' => 'Konfirmo adresën tënde të re të email-it që të mund të postosh, komentosh, votosh dhe ndjekësh të tjerët. Të dërguam një lidhje në :email.',
         'required' => 'Fillimisht konfirmo adresën tënde të email-it: lidhja ndodhet në email-in që të dërguam.',
     ],
     'recently_deleted' => [

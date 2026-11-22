@@ -81,6 +81,7 @@ return [
     ],
     'account_confirmation' => [
         'notice' => 'Gönderi paylaşmak, yorum yapmak, oy vermek ve başkalarını takip etmek için e-posta adresinizi doğrulayın. :email adresine bir bağlantı gönderdik. Kayıttan sonraki :days gün içinde doğrulanmayan hesaplar silinir.',
+        'notice_changed_address' => 'Gönderi paylaşmak, yorum yapmak, oy vermek ve başkalarını takip etmek için yeni e-posta adresinizi doğrulayın. :email adresine bir bağlantı gönderdik.',
         'required' => 'Önce e-posta adresinizi doğrulayın: bağlantı size gönderdiğimiz e-postada.',
     ],
     'recently_deleted' => [

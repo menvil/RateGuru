@@ -81,6 +81,7 @@ return [
     ],
     'account_confirmation' => [
         'notice' => 'Sahkan alamat e-mel anda untuk menyiarkan, mengulas, mengundi dan mengikuti orang lain. Kami telah menghantar pautan ke :email. Akaun yang tidak disahkan dalam tempoh :days hari selepas pendaftaran akan dipadamkan.',
+        'notice_changed_address' => 'Sahkan alamat e-mel baharu anda untuk menyiarkan, mengulas, mengundi dan mengikuti orang lain. Kami telah menghantar pautan ke :email.',
         'required' => 'Sahkan alamat e-mel anda dahulu: pautan ada dalam e-mel yang kami hantar kepada anda.',
     ],
     'recently_deleted' => [

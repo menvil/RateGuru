@@ -54,6 +54,9 @@ return [
         'intro' => 'Díky za registraci! Než začneš, ověř prosím svou e-mailovou adresu kliknutím na odkaz, který jsme ti právě poslali. Pokud ti e-mail nepřišel, rádi ti pošleme další.',
         'link_sent' => 'Na e-mailovou adresu zadanou při registraci byl odeslán nový ověřovací odkaz.',
         'resend' => 'Znovu poslat ověřovací e-mail',
+        'confirmed' => 'Tvoje e-mailová adresa je potvrzena.',
+        'link_expired' => 'Platnost tohoto potvrzovacího odkazu vypršela. Níže si vyžádej nový.',
+        'throttled' => 'Nový odkaz si můžeš vyžádat za :minutes min.',
     ],
 
     'social' => [

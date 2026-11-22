@@ -81,6 +81,7 @@ return [
     ],
     'account_confirmation' => [
         'notice' => 'Bekræft din e-mailadresse for at kunne lave opslag, kommentere, stemme og følge andre. Vi har sendt et link til :email. En konto, der ikke er bekræftet inden for :days dage efter tilmeldingen, bliver slettet.',
+        'notice_changed_address' => 'Bekræft din nye e-mailadresse for at kunne lave opslag, kommentere, stemme og følge andre. Vi har sendt et link til :email.',
         'required' => 'Bekræft først din e-mailadresse: linket står i den e-mail, vi har sendt dig.',
     ],
     'recently_deleted' => [

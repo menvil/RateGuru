@@ -54,6 +54,9 @@ return [
         'intro' => 'Hvala za registracijo! Preden začneš, potrdi svoj e-poštni naslov s klikom na povezavo, ki smo ti jo pravkar poslali. Če e-pošta ni prispela, ti bomo z veseljem poslali novo.',
         'link_sent' => 'Nova povezava za potrditev je bila poslana na e-poštni naslov, naveden ob registraciji.',
         'resend' => 'Znova pošlji potrditveno e-pošto',
+        'confirmed' => 'Tvoj e-poštni naslov je potrjen.',
+        'link_expired' => 'Ta povezava za potrditev je potekla. Spodaj zahtevaj novo.',
+        'throttled' => 'Novo povezavo lahko zahtevaš čez :minutes min.',
     ],
 
     'social' => [

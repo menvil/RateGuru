@@ -54,6 +54,9 @@ return [
         'intro' => 'Tak, fordi du har oprettet en konto! Før du går i gang, vil du så bekræfte din e-mailadresse ved at klikke på linket, vi lige har sendt til dig? Hvis du ikke har modtaget e-mailen, sender vi gerne en ny.',
         'link_sent' => 'Et nyt bekræftelseslink er blevet sendt til den e-mailadresse, du angav ved registreringen.',
         'resend' => 'Send bekræftelsesmail igen',
+        'confirmed' => 'Din e-mailadresse er bekræftet.',
+        'link_expired' => 'Dette bekræftelseslink er udløbet. Bed om et nyt herunder.',
+        'throttled' => 'Du kan bede om et nyt link om :minutes min.',
     ],
 
     'social' => [

@@ -54,6 +54,9 @@ return [
         'intro' => 'Kaydolduğunuz için teşekkürler! Başlamadan önce, size az önce e-postayla gönderdiğimiz bağlantıya tıklayarak e-posta adresinizi doğrular mısınız? E-postayı almadıysanız size memnuniyetle yenisini göndeririz.',
         'link_sent' => 'Kayıt sırasında belirttiğiniz e-posta adresine yeni bir doğrulama bağlantısı gönderildi.',
         'resend' => 'Doğrulama e-postasını yeniden gönder',
+        'confirmed' => 'E-posta adresiniz doğrulandı.',
+        'link_expired' => 'Bu doğrulama bağlantısının süresi doldu. Aşağıdan yenisini isteyin.',
+        'throttled' => ':minutes dk sonra yeni bir bağlantı isteyebilirsiniz.',
     ],
 
     'social' => [

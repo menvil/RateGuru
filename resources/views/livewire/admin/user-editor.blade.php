@@ -152,6 +152,9 @@
                 @if ($options['trust']['available'])
                     <x-admin.ui.button size="sm" icon="shield-check" wire:click="askToSanction('trust', {{ $userId }})">Mark trusted</x-admin.ui.button>
                 @endif
+                @if ($options['confirm_email']['available'])
+                    <x-admin.ui.button size="sm" icon="mail" wire:click="askToSanction('confirm_email', {{ $userId }})" data-testid="user-editor-confirm-email">Confirm email</x-admin.ui.button>
+                @endif
                 @if ($options['limit']['available'])
                     <x-admin.ui.button size="sm" icon="shield-alert" wire:click="askToSanction('limit', {{ $userId }})">Limit</x-admin.ui.button>
                 @endif

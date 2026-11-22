@@ -29,6 +29,7 @@ use App\Services\Media\ImageVariantProcessor;
 use App\Services\Media\MediaStorage;
 use App\Services\Media\MediaUrlResolver;
 use App\Support\Auth\RememberSessionGenerationOnLogin;
+use App\Support\Auth\SendConfirmationMailOnSignUp;
 use App\Support\Auth\SocialProviderAvailability;
 use App\Support\Feed\FeedAddress;
 use App\Support\Games\Play\ClaimGameAttemptsOnSignIn;
@@ -63,6 +64,7 @@ use App\Support\VisualRegression\VisualScreenshotRunner;
 use Illuminate\Auth\Events\Login;
 use Illuminate\Auth\Events\Registered;
 use Illuminate\Auth\Events\Verified;
+use Illuminate\Auth\Listeners\SendEmailVerificationNotification;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
@@ -77,6 +79,8 @@ class AppServiceProvider extends ServiceProvider
 {
     public function register(): void
     {
+        $this->app->bind(SendEmailVerificationNotification::class, SendConfirmationMailOnSignUp::class);
+
         // Scoped, not singleton: the settings are cached for one request or
         // one queued job, never for the life of a queue worker, which would
         // otherwise keep serving the languages and defaults it started with.

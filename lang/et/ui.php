@@ -81,6 +81,7 @@ return [
     ],
     'account_confirmation' => [
         'notice' => 'Kinnita oma e-posti aadress, et saaksid postitada, kommenteerida, hääletada ja teisi jälgida. Saatsime lingi aadressile :email. Konto, mida ei kinnitata :days päeva jooksul pärast registreerimist, kustutatakse.',
+        'notice_changed_address' => 'Kinnita oma uus e-posti aadress, et saaksid postitada, kommenteerida, hääletada ja teisi jälgida. Saatsime lingi aadressile :email.',
         'required' => 'Kinnita kõigepealt oma e-posti aadress: link on e-kirjas, mille sulle saatsime.',
     ],
     'recently_deleted' => [

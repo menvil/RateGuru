@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\Users\Concerns;
 
 use App\Actions\Moderation\BanUserAction;
+use App\Actions\Moderation\ConfirmUserEmailAction;
 use App\Actions\Moderation\LimitUserAction;
 use App\Actions\Moderation\MarkUserTrustedAction;
 use App\Actions\Moderation\RestoreUserAccessAction;
@@ -38,7 +39,7 @@ trait ModeratesUsers
     /**
      * The confirmation on screen: what it does and to whom.
      *
-     * @var array{kind: 'ban'|'limit'|'shadowban'|'trust', id: int}|null
+     * @var array{kind: 'ban'|'limit'|'shadowban'|'trust'|'confirm_email', id: int}|null
      */
     #[Locked]
     public ?array $sanction = null;
@@ -49,7 +50,7 @@ trait ModeratesUsers
     {
         $person = User::query()->find($id);
 
-        if ($person !== null && in_array($kind, ['ban', 'limit', 'shadowban', 'trust'], true) && $this->moderationOptions($person)[$kind]['available']) {
+        if ($person !== null && in_array($kind, ['ban', 'limit', 'shadowban', 'trust', 'confirm_email'], true) && $this->moderationOptions($person)[$kind]['available']) {
             $this->sanction = ['kind' => $kind, 'id' => $id];
             $this->reason = '';
             $this->resetErrorBag();
@@ -104,6 +105,12 @@ trait ModeratesUsers
             return;
         }
 
+        if ($kind === 'confirm_email') {
+            $this->moderationToast($person->username.'’s email is confirmed');
+
+            return;
+        }
+
         $this->moderationToast(
             $person->username.' is now '.['ban' => 'banned', 'limit' => 'limited', 'shadowban' => 'shadowbanned'][$kind],
             $wasActive ? ['label' => 'Undo', 'event' => 'restore-user-access', 'params' => ['id' => $id]] : null,
@@ -132,7 +139,7 @@ trait ModeratesUsers
      * What this moderator may do to this person now, each with why not when
      * it is not on offer.
      *
-     * @return array{restore: bool, trust: array{available: bool, hint: string}, limit: array{available: bool, hint: string, shown: bool}, shadowban: array{available: bool, hint: string, shown: bool}, ban: array{available: bool, hint: string, shown: bool}}
+     * @return array{restore: bool, trust: array{available: bool, hint: string}, confirm_email: array{available: bool, hint: string}, limit: array{available: bool, hint: string, shown: bool}, shadowban: array{available: bool, hint: string, shown: bool}, ban: array{available: bool, hint: string, shown: bool}}
      */
     protected function moderationOptions(User $person): array
     {
@@ -155,6 +162,13 @@ trait ModeratesUsers
                 $status !== UserStatus::Active => ['available' => false, 'hint' => 'Restore access first'],
                 ! $admin->can('markTrusted', $person) => ['available' => false, 'hint' => $blocked ?? 'Administrators only'],
                 default => ['available' => true, 'hint' => 'Posts skip the queue'],
+            },
+            'confirm_email' => match (true) {
+                $person->hasVerifiedEmail() => ['available' => false, 'hint' => 'Already confirmed'],
+                $person->role !== UserRole::User => ['available' => false, 'hint' => 'Only members are confirmed here'],
+                $status !== UserStatus::Active => ['available' => false, 'hint' => 'Restore access first'],
+                ! $admin->can('confirmEmail', $person) => ['available' => false, 'hint' => $blocked ?? 'Administrators only'],
+                default => ['available' => true, 'hint' => 'When the mail cannot reach them'],
             },
             'limit' => ['available' => $blocked === null && $status === UserStatus::Active, 'hint' => $blocked ?? 'No posts, comments or votes', 'shown' => $status === UserStatus::Active],
             'shadowban' => ['available' => $blocked === null && in_array($status, [UserStatus::Active, UserStatus::Limited], true), 'hint' => $blocked ?? 'Listed among suspicious users', 'shown' => in_array($status, [UserStatus::Active, UserStatus::Limited], true)],
@@ -188,13 +202,14 @@ trait ModeratesUsers
         ];
     }
 
-    /** @return BanUserAction|LimitUserAction|ShadowbanUserAction|MarkUserTrustedAction */
+    /** @return BanUserAction|LimitUserAction|ShadowbanUserAction|MarkUserTrustedAction|ConfirmUserEmailAction */
     private function sanctionAction(string $kind): object
     {
         return match ($kind) {
             'ban' => app(BanUserAction::class),
             'limit' => app(LimitUserAction::class),
             'shadowban' => app(ShadowbanUserAction::class),
+            'confirm_email' => app(ConfirmUserEmailAction::class),
             default => app(MarkUserTrustedAction::class),
         };
     }
