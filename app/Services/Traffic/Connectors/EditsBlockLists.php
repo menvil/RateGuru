@@ -4,7 +4,8 @@ namespace App\Services\Traffic\Connectors;
 
 use App\Enums\TrafficBlockLevel;
 
-interface EditsBlockLists
+/** Changes campaigns' block lists; whatever changes a list reads it too. */
+interface EditsBlockLists extends ReadsBlockLists
 {
     /** @return list<TrafficBlockLevel> what the network's API can block */
     public function blockLevels(): array;

@@ -18,6 +18,7 @@ use App\Models\TrafficVisit;
 use App\Services\Traffic\Connectors\ConnectorException;
 use App\Services\Traffic\Connectors\ConnectorRegistry;
 use App\Services\Traffic\Connectors\ConnectorSession;
+use App\Services\Traffic\Connectors\EditsBlockLists;
 use App\Services\Traffic\Connectors\NetworkCampaign;
 use App\Services\Traffic\Connectors\ReadsCampaigns;
 use App\Services\Traffic\Connectors\ReadsSpend;
@@ -32,7 +33,10 @@ use Throwable;
  * yesterday closed once its figures came complete and six hours of the next
  * day have passed, then a few older days back to 30 before it was connected;
  * the campaigns' own details each turn, so a campaign that has just had its
- * first click is named within minutes. A turn comes every five minutes.
+ * first click is named within minutes; and every six hours each campaign's
+ * block list, read and never written (ReadTrafficBlockListsAction), so what
+ * was blocked or unblocked in the network's own panel shows. A turn comes
+ * every five minutes.
  * Only campaigns RateGuru saw a
  * click of are read and kept: a network account can hold campaigns sent
  * elsewhere. A failure waits longer each time; a refused key, an account not
@@ -50,10 +54,13 @@ final class SyncTrafficNetworkAction
 
     private const int FAILURES = 5;
 
+    private const int READ_LISTS_EVERY_HOURS = 6;
+
     public function __construct(
         private readonly ConnectorRegistry $registry,
         private readonly ReplaceSpendSliceAction $slices,
         private readonly RecordTrafficCampaignEventAction $history,
+        private readonly ReadTrafficBlockListsAction $lists,
     ) {}
 
     public function handle(TrafficApiConnection $connection, CarbonImmutable $now): void
@@ -88,6 +95,12 @@ final class SyncTrafficNetworkAction
                 $running = TrafficCampaign::query()->where('source_id', $source->id)->where('status', '!=', TrafficCampaignStatus::Archived)->pluck('external_id')->map(fn ($id): string => (string) $id)->all();
                 $this->campaigns($connector->campaigns($session, $running), $source, $now);
                 $connection->campaigns_synced_at = $now;
+            }
+
+            // The campaigns' block lists, read and never written, every few hours: a call a campaign, and what they hold changes by hand.
+            if ($connector instanceof EditsBlockLists && ($connection->block_lists_read_at === null || $connection->block_lists_read_at->addHours(self::READ_LISTS_EVERY_HOURS)->lessThanOrEqualTo($now))) {
+                $this->lists->handle((int) $source->id, $connector, $session);
+                $connection->block_lists_read_at = $now;
             }
 
             $this->settle($connection, $fence, fn (): array => [
