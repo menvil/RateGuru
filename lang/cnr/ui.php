@@ -81,7 +81,6 @@ return [
     ],
     'account_confirmation' => [
         'notice' => 'Potvrdi svoju e-mail adresu da bi mogao objavljivati, komentarisati, glasati i pratiti druge. Poslali smo link na :email. Nalog koji nije potvrđen u roku od :days dana od registracije se briše.',
-        'notice_changed_address' => 'Potvrdi svoju novu e-mail adresu da bi mogao objavljivati, komentarisati, glasati i pratiti druge. Poslali smo link na :email.',
         'required' => 'Prvo potvrdi svoju e-mail adresu: link je u e-mailu koji smo ti poslali.',
     ],
     'recently_deleted' => [

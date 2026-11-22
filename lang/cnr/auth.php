@@ -57,6 +57,7 @@ return [
         'confirmed' => 'Tvoja e-mail adresa je potvrđena.',
         'link_expired' => 'Ovaj link za potvrdu je istekao. Zatraži novi ispod.',
         'throttled' => 'Novi link možeš zatražiti za :minutes min.',
+        'notice_changed_address' => 'Potvrdi svoju novu e-mail adresu da bi mogao objavljivati, komentarisati, glasati i pratiti druge. Poslali smo link na :email.',
     ],
 
     'social' => [

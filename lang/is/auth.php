@@ -57,6 +57,7 @@ return [
         'confirmed' => 'Netfangið þitt hefur verið staðfest.',
         'link_expired' => 'Þessi staðfestingartengill er útrunninn. Biddu um nýjan hér fyrir neðan.',
         'throttled' => 'Þú getur beðið um nýjan tengil eftir :minutes mín.',
+        'notice_changed_address' => 'Staðfestu nýja netfangið þitt til að geta sett inn færslur, skrifað athugasemdir, kosið og fylgst með öðrum. Við sendum tengil á :email.',
     ],
 
     'social' => [

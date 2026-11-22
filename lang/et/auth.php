@@ -57,6 +57,7 @@ return [
         'confirmed' => 'Sinu e-posti aadress on kinnitatud.',
         'link_expired' => 'See kinnituslink on aegunud. Küsi allpool uus.',
         'throttled' => 'Uue lingi saad küsida :minutes min pärast.',
+        'notice_changed_address' => 'Kinnita oma uus e-posti aadress, et saaksid postitada, kommenteerida, hääletada ja teisi jälgida. Saatsime lingi aadressile :email.',
     ],
 
     'social' => [

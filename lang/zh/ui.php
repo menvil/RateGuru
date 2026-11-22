@@ -81,7 +81,6 @@ return [
     ],
     'account_confirmation' => [
         'notice' => '请确认您的电子邮箱地址，才能发帖、评论、投票和关注他人。我们已将链接发送至 :email。注册后 :days 天内未确认的账号将被删除。',
-        'notice_changed_address' => '请确认您的新电子邮箱地址，才能发帖、评论、投票和关注他人。我们已将链接发送至 :email。',
         'required' => '请先确认您的电子邮箱地址：链接在我们发给您的邮件中。',
     ],
     'recently_deleted' => [

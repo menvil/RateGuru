@@ -57,6 +57,7 @@ return [
         'confirmed' => 'E-postadressen din er bekreftet.',
         'link_expired' => 'Denne bekreftelseslenken er utløpt. Be om en ny nedenfor.',
         'throttled' => 'Du kan be om en ny lenke om :minutes min.',
+        'notice_changed_address' => 'Bekreft den nye e-postadressen din for å kunne publisere, kommentere, stemme og følge andre. Vi har sendt en lenke til :email.',
     ],
 
     'social' => [

@@ -57,6 +57,7 @@ return [
         'confirmed' => 'Alamat e-mel anda telah disahkan.',
         'link_expired' => 'Pautan pengesahan ini telah tamat tempoh. Minta pautan baharu di bawah.',
         'throttled' => 'Anda boleh meminta pautan baharu dalam :minutes min.',
+        'notice_changed_address' => 'Sahkan alamat e-mel baharu anda untuk menyiarkan, mengulas, mengundi dan mengikuti orang lain. Kami telah menghantar pautan ke :email.',
     ],
 
     'social' => [

@@ -57,6 +57,7 @@ return [
         'confirmed' => 'Twój adres e-mail został potwierdzony.',
         'link_expired' => 'Ten link potwierdzający wygasł. Poproś poniżej o nowy.',
         'throttled' => 'O nowy link możesz poprosić za :minutes min.',
+        'notice_changed_address' => 'Potwierdź swój nowy adres e-mail, aby publikować, komentować, głosować i obserwować innych. Wysłaliśmy link na adres :email.',
     ],
 
     'social' => [

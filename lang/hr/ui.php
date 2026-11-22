@@ -81,7 +81,6 @@ return [
     ],
     'account_confirmation' => [
         'notice' => 'Potvrdi svoju adresu e-pošte kako bi mogao objavljivati, komentirati, glasati i pratiti druge. Poslali smo poveznicu na :email. Račun koji nije potvrđen u roku od :days dana od registracije briše se.',
-        'notice_changed_address' => 'Potvrdi svoju novu adresu e-pošte kako bi mogao objavljivati, komentirati, glasati i pratiti druge. Poslali smo poveznicu na :email.',
         'required' => 'Najprije potvrdi svoju adresu e-pošte: poveznica je u e-poruci koju smo ti poslali.',
     ],
     'recently_deleted' => [

@@ -57,6 +57,7 @@ return [
         'confirmed' => 'Votre adresse e-mail est confirmée.',
         'link_expired' => 'Ce lien de confirmation a expiré. Demandez-en un nouveau ci-dessous.',
         'throttled' => 'Vous pourrez demander un nouveau lien dans :minutes min.',
+        'notice_changed_address' => 'Confirmez votre nouvelle adresse e-mail pour publier, commenter, voter et suivre d\'autres membres. Nous avons envoyé un lien à :email.',
     ],
 
     'social' => [

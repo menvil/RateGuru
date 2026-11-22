@@ -57,6 +57,7 @@ return [
         'confirmed' => 'Adresa ta de e-mail este confirmată.',
         'link_expired' => 'Acest link de confirmare a expirat. Solicită unul nou mai jos.',
         'throttled' => 'Poți solicita un link nou peste :minutes min.',
+        'notice_changed_address' => 'Confirmă-ți noua adresă de e-mail ca să poți publica, comenta, vota și urmări alți utilizatori. Am trimis un link la :email.',
     ],
 
     'social' => [

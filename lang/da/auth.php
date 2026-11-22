@@ -57,6 +57,7 @@ return [
         'confirmed' => 'Din e-mailadresse er bekræftet.',
         'link_expired' => 'Dette bekræftelseslink er udløbet. Bed om et nyt herunder.',
         'throttled' => 'Du kan bede om et nyt link om :minutes min.',
+        'notice_changed_address' => 'Bekræft din nye e-mailadresse for at kunne lave opslag, kommentere, stemme og følge andre. Vi har sendt et link til :email.',
     ],
 
     'social' => [

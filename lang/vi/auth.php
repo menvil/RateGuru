@@ -57,6 +57,7 @@ return [
         'confirmed' => 'Địa chỉ email của bạn đã được xác nhận.',
         'link_expired' => 'Liên kết xác nhận này đã hết hạn. Hãy yêu cầu liên kết mới bên dưới.',
         'throttled' => 'Bạn có thể yêu cầu liên kết mới sau :minutes phút.',
+        'notice_changed_address' => 'Hãy xác nhận địa chỉ email mới để đăng bài, bình luận, bình chọn và theo dõi người khác. Chúng tôi đã gửi liên kết đến :email.',
     ],
 
     'social' => [

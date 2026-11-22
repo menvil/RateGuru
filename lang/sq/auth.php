@@ -57,6 +57,7 @@ return [
         'confirmed' => 'Adresa jote e email-it u konfirmua.',
         'link_expired' => 'Kjo lidhje konfirmimi ka skaduar. Kërko një të re më poshtë.',
         'throttled' => 'Mund të kërkosh një lidhje të re pas :minutes min.',
+        'notice_changed_address' => 'Konfirmo adresën tënde të re të email-it që të mund të postosh, komentosh, votosh dhe ndjekësh të tjerët. Të dërguam një lidhje në :email.',
     ],
 
     'social' => [

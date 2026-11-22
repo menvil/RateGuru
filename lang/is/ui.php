@@ -81,7 +81,6 @@ return [
     ],
     'account_confirmation' => [
         'notice' => 'Staðfestu netfangið þitt til að geta sett inn færslur, skrifað athugasemdir, kosið og fylgst með öðrum. Við sendum tengil á :email. Aðgangi sem er ekki staðfestur innan :days daga frá skráningu er eytt.',
-        'notice_changed_address' => 'Staðfestu nýja netfangið þitt til að geta sett inn færslur, skrifað athugasemdir, kosið og fylgst með öðrum. Við sendum tengil á :email.',
         'required' => 'Staðfestu fyrst netfangið þitt: tengillinn er í tölvupóstinum sem við sendum þér.',
     ],
     'recently_deleted' => [

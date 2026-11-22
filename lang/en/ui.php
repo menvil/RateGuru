@@ -81,7 +81,6 @@ return [
     ],
     'account_confirmation' => [
         'notice' => 'Confirm your email address to post, comment, vote and follow. We sent a link to :email. An account not confirmed within :days days of signing up is deleted.',
-        'notice_changed_address' => 'Confirm your new email address to post, comment, vote and follow. We sent a link to :email.',
         'required' => 'Confirm your email address first: the link is in the email we sent you.',
     ],
     'recently_deleted' => [

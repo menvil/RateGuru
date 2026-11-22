@@ -57,6 +57,7 @@ return [
         'confirmed' => '您的电子邮箱地址已确认。',
         'link_expired' => '此确认链接已过期，请在下方申请新的链接。',
         'throttled' => '您可以在 :minutes 分钟后申请新链接。',
+        'notice_changed_address' => '请确认您的新电子邮箱地址，才能发帖、评论、投票和关注他人。我们已将链接发送至 :email。',
     ],
 
     'social' => [

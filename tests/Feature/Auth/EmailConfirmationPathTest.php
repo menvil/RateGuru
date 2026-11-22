@@ -233,7 +233,7 @@ it('does not tell someone who changed a confirmed address that the account will 
     ]);
 
     $this->actingAs($user)->get(route('profile.edit'))
-        ->assertSeeText(__('ui.account_confirmation.notice_changed_address', ['email' => 'changed@example.com']))
+        ->assertSeeText(__('auth.verify_email.notice_changed_address', ['email' => 'changed@example.com']))
         ->assertDontSeeText(__('ui.account_confirmation.notice', ['email' => 'changed@example.com', 'days' => 7]));
 });
 

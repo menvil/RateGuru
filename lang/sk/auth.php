@@ -57,6 +57,7 @@ return [
         'confirmed' => 'Tvoja e-mailová adresa je potvrdená.',
         'link_expired' => 'Platnosť tohto potvrdzovacieho odkazu vypršala. Nižšie si vyžiadaj nový.',
         'throttled' => 'Nový odkaz si môžeš vyžiadať o :minutes min.',
+        'notice_changed_address' => 'Potvrď svoju novú e-mailovú adresu, aby si mohol pridávať príspevky, komentovať, hlasovať a sledovať ostatných. Odkaz sme poslali na :email.',
     ],
 
     'social' => [

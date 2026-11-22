@@ -81,7 +81,6 @@ return [
     ],
     'account_confirmation' => [
         'notice' => 'Apstipriniet savu e-pasta adresi, lai varētu publicēt ierakstus, komentēt, balsot un sekot citiem. Mēs nosūtījām saiti uz :email. Konts, kas netiek apstiprināts :days dienu laikā pēc reģistrācijas, tiek dzēsts.',
-        'notice_changed_address' => 'Apstipriniet savu jauno e-pasta adresi, lai varētu publicēt ierakstus, komentēt, balsot un sekot citiem. Mēs nosūtījām saiti uz :email.',
         'required' => 'Vispirms apstipriniet savu e-pasta adresi: saite ir e-pastā, ko mēs jums nosūtījām.',
     ],
     'recently_deleted' => [

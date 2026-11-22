@@ -57,6 +57,7 @@ return [
         'confirmed' => 'Je e-mailadres is bevestigd.',
         'link_expired' => 'Deze bevestigingslink is verlopen. Vraag hieronder een nieuwe aan.',
         'throttled' => 'Je kunt over :minutes min. een nieuwe link aanvragen.',
+        'notice_changed_address' => 'Bevestig je nieuwe e-mailadres om te posten, te reageren, te stemmen en anderen te volgen. We hebben een link gestuurd naar :email.',
     ],
 
     'social' => [

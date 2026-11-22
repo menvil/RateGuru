@@ -57,6 +57,7 @@ return [
         'confirmed' => 'Tvoj e-poštni naslov je potrjen.',
         'link_expired' => 'Ta povezava za potrditev je potekla. Spodaj zahtevaj novo.',
         'throttled' => 'Novo povezavo lahko zahtevaš čez :minutes min.',
+        'notice_changed_address' => 'Potrdi svoj novi e-poštni naslov, da boš lahko objavljal, komentiral, glasoval in sledil drugim. Povezavo smo poslali na :email.',
     ],
 
     'social' => [

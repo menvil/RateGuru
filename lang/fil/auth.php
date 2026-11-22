@@ -57,6 +57,7 @@ return [
         'confirmed' => 'Nakumpirma na ang iyong email address.',
         'link_expired' => 'Nag-expire na ang confirmation link na ito. Humiling ng bago sa ibaba.',
         'throttled' => 'Maaari kang humiling ng bagong link pagkalipas ng :minutes min.',
+        'notice_changed_address' => 'Kumpirmahin ang iyong bagong email address para makapag-post, makapag-comment, makaboto, at makasunod sa iba. Nagpadala kami ng link sa :email.',
     ],
 
     'social' => [

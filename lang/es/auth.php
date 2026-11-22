@@ -57,6 +57,7 @@ return [
         'confirmed' => 'Tu dirección de correo electrónico está confirmada.',
         'link_expired' => 'Este enlace de confirmación ha caducado. Solicita uno nuevo a continuación.',
         'throttled' => 'Podrás solicitar un nuevo enlace en :minutes min.',
+        'notice_changed_address' => 'Confirma tu nueva dirección de correo electrónico para publicar, comentar, votar y seguir a otras personas. Te enviamos un enlace a :email.',
     ],
 
     'social' => [

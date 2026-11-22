@@ -57,6 +57,7 @@ return [
         'confirmed' => 'Jūsų el. pašto adresas patvirtintas.',
         'link_expired' => 'Šios patvirtinimo nuorodos galiojimas baigėsi. Žemiau paprašykite naujos.',
         'throttled' => 'Naujos nuorodos galėsite paprašyti po :minutes min.',
+        'notice_changed_address' => 'Patvirtinkite naują el. pašto adresą, kad galėtumėte skelbti įrašus, komentuoti, balsuoti ir sekti kitus. Nuorodą išsiuntėme adresu :email.',
     ],
 
     'social' => [

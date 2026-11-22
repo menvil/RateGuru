@@ -81,7 +81,6 @@ return [
     ],
     'account_confirmation' => [
         'notice' => 'Conferma il tuo indirizzo e-mail per pubblicare, commentare, votare e seguire altre persone. Abbiamo inviato un link a :email. Un account non confermato entro :days giorni dalla registrazione viene eliminato.',
-        'notice_changed_address' => 'Conferma il tuo nuovo indirizzo e-mail per pubblicare, commentare, votare e seguire altre persone. Abbiamo inviato un link a :email.',
         'required' => 'Prima conferma il tuo indirizzo e-mail: il link è nell\'e-mail che ti abbiamo inviato.',
     ],
     'recently_deleted' => [

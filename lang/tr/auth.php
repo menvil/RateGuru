@@ -57,6 +57,7 @@ return [
         'confirmed' => 'E-posta adresiniz doğrulandı.',
         'link_expired' => 'Bu doğrulama bağlantısının süresi doldu. Aşağıdan yenisini isteyin.',
         'throttled' => ':minutes dk sonra yeni bir bağlantı isteyebilirsiniz.',
+        'notice_changed_address' => 'Gönderi paylaşmak, yorum yapmak, oy vermek ve başkalarını takip etmek için yeni e-posta adresinizi doğrulayın. :email adresine bir bağlantı gönderdik.',
     ],
 
     'social' => [

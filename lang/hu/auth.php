@@ -57,6 +57,7 @@ return [
         'confirmed' => 'Az e-mail-címed megerősítve.',
         'link_expired' => 'Ez a megerősítő link lejárt. Alább kérhetsz újat.',
         'throttled' => 'Új linket :minutes perc múlva kérhetsz.',
+        'notice_changed_address' => 'Erősítsd meg az új e-mail-címed, hogy posztolhass, hozzászólhass, szavazhass és követhess másokat. Elküldtük a linket ide: :email.',
     ],
 
     'social' => [

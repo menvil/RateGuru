@@ -81,7 +81,6 @@ return [
     ],
     'account_confirmation' => [
         'notice' => 'Vahvista sähköpostiosoitteesi, niin voit julkaista, kommentoida, äänestää ja seurata muita. Lähetimme linkin osoitteeseen :email. Tili, jota ei vahvisteta :days päivän kuluessa rekisteröitymisestä, poistetaan.',
-        'notice_changed_address' => 'Vahvista uusi sähköpostiosoitteesi, niin voit julkaista, kommentoida, äänestää ja seurata muita. Lähetimme linkin osoitteeseen :email.',
         'required' => 'Vahvista ensin sähköpostiosoitteesi: linkki on sähköpostissa, jonka lähetimme sinulle.',
     ],
     'recently_deleted' => [

@@ -57,6 +57,7 @@ return [
         'confirmed' => 'Your email address is confirmed.',
         'link_expired' => 'This confirmation link has expired. Request a new one below.',
         'throttled' => 'You can request a new link in :minutes min.',
+        'notice_changed_address' => 'Confirm your new email address to post, comment, vote and follow. We sent a link to :email.',
     ],
 
     'social' => [

@@ -81,7 +81,6 @@ return [
     ],
     'account_confirmation' => [
         'notice' => 'Kumpirmahin ang iyong email address para makapag-post, makapag-comment, makaboto, at makasunod sa iba. Nagpadala kami ng link sa :email. Binubura ang account na hindi nakumpirma sa loob ng :days araw mula nang mag-sign up.',
-        'notice_changed_address' => 'Kumpirmahin ang iyong bagong email address para makapag-post, makapag-comment, makaboto, at makasunod sa iba. Nagpadala kami ng link sa :email.',
         'required' => 'Kumpirmahin muna ang iyong email address: nasa email na ipinadala namin sa iyo ang link.',
     ],
     'recently_deleted' => [

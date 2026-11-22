@@ -81,7 +81,6 @@ return [
     ],
     'account_confirmation' => [
         'notice' => 'Bekräfta din e-postadress för att kunna publicera, kommentera, rösta och följa andra. Vi har skickat en länk till :email. Ett konto som inte bekräftas inom :days dagar efter registreringen raderas.',
-        'notice_changed_address' => 'Bekräfta din nya e-postadress för att kunna publicera, kommentera, rösta och följa andra. Vi har skickat en länk till :email.',
         'required' => 'Bekräfta din e-postadress först: länken finns i mejlet vi skickade till dig.',
     ],
     'recently_deleted' => [

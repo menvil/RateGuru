@@ -57,6 +57,7 @@ return [
         'confirmed' => 'Din e-postadress är bekräftad.',
         'link_expired' => 'Den här bekräftelselänken har gått ut. Begär en ny nedan.',
         'throttled' => 'Du kan begära en ny länk om :minutes min.',
+        'notice_changed_address' => 'Bekräfta din nya e-postadress för att kunna publicera, kommentera, rösta och följa andra. Vi har skickat en länk till :email.',
     ],
 
     'social' => [

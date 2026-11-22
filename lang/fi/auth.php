@@ -57,6 +57,7 @@ return [
         'confirmed' => 'Sähköpostiosoitteesi on vahvistettu.',
         'link_expired' => 'Tämä vahvistuslinkki on vanhentunut. Pyydä uusi alta.',
         'throttled' => 'Voit pyytää uuden linkin :minutes min kuluttua.',
+        'notice_changed_address' => 'Vahvista uusi sähköpostiosoitteesi, niin voit julkaista, kommentoida, äänestää ja seurata muita. Lähetimme linkin osoitteeseen :email.',
     ],
 
     'social' => [

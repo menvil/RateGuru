@@ -81,7 +81,6 @@ return [
     ],
     'account_confirmation' => [
         'notice' => 'Potvrď svoju e-mailovú adresu, aby si mohol pridávať príspevky, komentovať, hlasovať a sledovať ostatných. Odkaz sme poslali na :email. Účet, ktorý nebude potvrdený do :days dní od registrácie, bude odstránený.',
-        'notice_changed_address' => 'Potvrď svoju novú e-mailovú adresu, aby si mohol pridávať príspevky, komentovať, hlasovať a sledovať ostatných. Odkaz sme poslali na :email.',
         'required' => 'Najprv potvrď svoju e-mailovú adresu: odkaz nájdeš v e-maile, ktorý sme ti poslali.',
     ],
     'recently_deleted' => [

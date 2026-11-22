@@ -81,7 +81,6 @@ return [
     ],
     'account_confirmation' => [
         'notice' => 'Erősítsd meg az e-mail-címed, hogy posztolhass, hozzászólhass, szavazhass és követhess másokat. Elküldtük a linket ide: :email. Azt a fiókot, amelyet a regisztrációtól számított :days napon belül nem erősítenek meg, töröljük.',
-        'notice_changed_address' => 'Erősítsd meg az új e-mail-címed, hogy posztolhass, hozzászólhass, szavazhass és követhess másokat. Elküldtük a linket ide: :email.',
         'required' => 'Előbb erősítsd meg az e-mail-címed: a linket az általunk küldött e-mailben találod.',
     ],
     'recently_deleted' => [

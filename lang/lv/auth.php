@@ -57,6 +57,7 @@ return [
         'confirmed' => 'Jūsu e-pasta adrese ir apstiprināta.',
         'link_expired' => 'Šīs apstiprinājuma saites derīguma termiņš ir beidzies. Zemāk pieprasiet jaunu.',
         'throttled' => 'Jaunu saiti varēsiet pieprasīt pēc :minutes min.',
+        'notice_changed_address' => 'Apstipriniet savu jauno e-pasta adresi, lai varētu publicēt ierakstus, komentēt, balsot un sekot citiem. Mēs nosūtījām saiti uz :email.',
     ],
 
     'social' => [
