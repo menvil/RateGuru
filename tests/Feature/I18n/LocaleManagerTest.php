@@ -64,6 +64,42 @@ it('returns the labels and flag each locale is declared with', function () {
     }
 });
 
+// Direction ------------------------------------------------------------------
+
+it('reads a language left to right unless config/locales.php declares it right to left', function () {
+    foreach (config('locales.supported') as $locale => $info) {
+        expect(locales()->direction($locale))->toBe(($info['direction'] ?? null) === 'rtl' ? 'rtl' : 'ltr', $locale);
+    }
+});
+
+it('declares a direction only as ltr or rtl', function () {
+    // A misspelt direction would read the language left to right without a word.
+    foreach (config('locales.supported') as $locale => $info) {
+        if (array_key_exists('direction', $info)) {
+            expect($info['direction'])->toBeIn(['ltr', 'rtl'], "{$locale} declares the direction [{$info['direction']}]");
+        }
+    }
+});
+
+it('installs a language read right to left, for the pages laid out for one to be checked against', function () {
+    expect(rightToLeftLocales())->not->toBeEmpty()
+        ->and(rightToLeftLocales())->not->toContain(config('locales.default'));
+});
+
+it('gives the direction of the language being served when asked about none', function () {
+    [$rightToLeft] = rightToLeftLocales();
+
+    app()->setLocale($rightToLeft);
+    expect(locales()->direction())->toBe('rtl');
+
+    app()->setLocale(config('locales.default'));
+    expect(locales()->direction())->toBe('ltr');
+});
+
+it('reads a language it does not have left to right', function () {
+    expect(locales()->direction(unsupportedLocale()))->toBe('ltr');
+});
+
 // Enabled --------------------------------------------------------------------
 
 it('offers exactly the languages enabled by default when the project never chose any', function () {

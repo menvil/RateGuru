@@ -79,7 +79,7 @@
                 <span class="whitespace-nowrap text-[18px] font-bold text-rg-text2">{{ $pctB }}% ({{ $cntB }})</span>
             </div>
             <div class="relative h-1.5 overflow-hidden rounded-rgPill bg-rg-card2">
-                <div class="absolute bottom-0 left-0 top-0 rounded-rgPill bg-rg-good" style="width: {{ $pctA }}%"></div>
+                <div class="absolute bottom-0 inset-s-0 top-0 rounded-rgPill bg-rg-good" style="width: {{ $pctA }}%"></div>
             </div>
         </div>
     @else

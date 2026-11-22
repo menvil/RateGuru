@@ -99,7 +99,7 @@
             </div>
             <button type="button" class="rg-game__next" x-on:click="next()" data-testid="game-next">
                 <span class="rg-game__timer" x-bind:style="`width: ${progress}%`" aria-hidden="true"></span>
-                <span class="rg-game__button-text">{{ $reveal['last'] ? __('games.play.see_result') : __('games.play.next_pair') }} →</span>
+                <span class="rg-game__button-text">{{ $reveal['last'] ? __('games.play.see_result') : __('games.play.next_pair') }} <span class="rg-mirror-rtl" aria-hidden="true">→</span></span>
             </button>
         @endif
     </div>

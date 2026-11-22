@@ -52,7 +52,7 @@
         <a class="rg-game__button rg-game__button--primary rg-game__button--wide" href="{{ $onward['href'] }}" target="_blank" rel="noopener" x-on:click="$wire.leave('step', true)" data-testid="game-onward-go">{{ $onward['button'] }} <span aria-hidden="true">↗</span></a>
         <p class="rg-game__hint">{{ __('games.play.opens_new_tab') }}</p>
     @else
-        <button type="button" class="rg-game__button rg-game__button--primary rg-game__button--wide" wire:click="leave('step')" wire:loading.attr="disabled" data-testid="game-onward-go">{{ $onward['button'] }} <span aria-hidden="true">→</span></button>
+        <button type="button" class="rg-game__button rg-game__button--primary rg-game__button--wide" wire:click="leave('step')" wire:loading.attr="disabled" data-testid="game-onward-go">{{ $onward['button'] }} <span class="rg-mirror-rtl" aria-hidden="true">→</span></button>
         @if ($onward['autoOpen'])
             <p class="rg-game__hint" data-testid="game-onward-auto">{{ __('games.play.opens_by_itself') }}</p>
         @endif

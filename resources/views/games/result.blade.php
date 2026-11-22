@@ -36,7 +36,7 @@
     <div class="rg-game" data-testid="game-result-page">
         <header class="rg-game__bar">
             <a href="{{ url('/') }}" class="rg-game__brand" data-testid="game-brand"><x-brand-wordmark /></a>
-            <a href="{{ route('feed') }}" class="rg-game__link">{{ __('games.play.go_to_feed') }} →</a>
+            <a href="{{ route('feed') }}" class="rg-game__link">{{ __('games.play.go_to_feed') }} <span class="rg-mirror-rtl" aria-hidden="true">→</span></a>
         </header>
         <div class="rg-game__frame">
             <article class="rg-game__card">
@@ -59,7 +59,7 @@
                 @if ($over)
                     <p class="rg-game__note">{{ __('games.result.over') }}</p>
                 @else
-                    <a href="{{ $playUrl }}" class="rg-game__button rg-game__button--primary rg-game__button--wide" data-testid="game-result-play">{{ __('games.result.play') }} <span aria-hidden="true">→</span></a>
+                    <a href="{{ $playUrl }}" class="rg-game__button rg-game__button--primary rg-game__button--wide" data-testid="game-result-play">{{ __('games.result.play') }} <span class="rg-mirror-rtl" aria-hidden="true">→</span></a>
                 @endif
             </article>
         </div>

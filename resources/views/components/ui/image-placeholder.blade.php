@@ -17,7 +17,7 @@
     <span class="absolute inset-0 bg-[linear-gradient(135deg,rgba(255,255,255,0.08)_0,transparent_18%,rgba(0,0,0,0.16)_48%,transparent_70%)]"></span>
     <span class="absolute inset-0 bg-[radial-gradient(circle_at_center,transparent_42%,rgba(0,0,0,0.48)_100%)]"></span>
     <span class="absolute inset-x-8 top-8 h-px bg-white/10"></span>
-    <span class="absolute inset-y-8 left-10 w-px rotate-12 bg-white/10"></span>
+    <span class="absolute inset-y-8 inset-s-10 w-px rotate-12 bg-white/10"></span>
 
     <span class="absolute bottom-3 left-1/2 max-w-[88%] -translate-x-1/2 whitespace-nowrap rounded-rgPill border border-rg-borderSoft bg-black/35 px-3 py-1 font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-rg-text2 backdrop-blur-md">
         {{ $label }}

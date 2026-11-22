@@ -49,7 +49,7 @@ it('renders copy icon button inside the input field', function () {
     $html = Blade::render('<x-share.copy-link-button url="https://rateguru.test/posts/1" />');
 
     expect($html)
-        ->toContain('absolute right-1 top-1')
+        ->toContain('absolute inset-e-1 top-1')
         ->toContain('data-testid="share-copy-link"');
 });
 

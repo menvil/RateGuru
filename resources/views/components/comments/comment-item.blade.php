@@ -68,7 +68,7 @@
                         x-cloak
                         x-show="actionsOpen"
                         x-on:click.outside="actionsOpen = false"
-                        class="absolute right-0 top-full z-20 mt-2 w-40 rounded-rgControl border border-rg-border bg-rg-card2 p-1 shadow-rgDropdown"
+                        class="absolute inset-e-0 top-full z-20 mt-2 w-40 rounded-rgControl border border-rg-border bg-rg-card2 p-1 shadow-rgDropdown"
                     >
                         @if($canReport)
                             <div data-testid="comment-report">
@@ -87,7 +87,7 @@
                                 wire:click="hideComment({{ $comment->id }})"
                                 wire:confirm="{{ __('ui.comments.hide_confirm') }}"
                                 x-on:click="actionsOpen = false"
-                                class="block w-full cursor-pointer rounded-rgSm px-3 py-1.5 text-left text-sm font-semibold text-rg-muted transition hover:bg-rg-dangerSoft hover:text-rg-dangerText"
+                                class="block w-full cursor-pointer rounded-rgSm px-3 py-1.5 text-start text-sm font-semibold text-rg-muted transition hover:bg-rg-dangerSoft hover:text-rg-dangerText"
                             >
                                 {{ __('ui.comments.hide') }}
                             </button>
@@ -99,7 +99,7 @@
                                 wire:click="deleteComment({{ $comment->id }})"
                                 wire:confirm="{{ __('ui.comments.delete_confirm') }}"
                                 x-on:click="actionsOpen = false"
-                                class="block w-full cursor-pointer rounded-rgSm px-3 py-1.5 text-left text-sm font-semibold text-rg-muted transition hover:bg-rg-dangerSoft hover:text-rg-dangerText"
+                                class="block w-full cursor-pointer rounded-rgSm px-3 py-1.5 text-start text-sm font-semibold text-rg-muted transition hover:bg-rg-dangerSoft hover:text-rg-dangerText"
                             >
                                 {{ __('ui.comments.delete') }}
                             </button>

@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="{{ str_replace('_', '-', app()->getLocale()) }}">
+<html lang="{{ str_replace('_', '-', app()->getLocale()) }}" dir="{{ app(\App\Support\Locale\LocaleManager::class)->direction() }}">
     <body>
         <h1>{{ __('mail.contact.heading') }}</h1>
 

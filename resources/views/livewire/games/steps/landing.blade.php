@@ -11,7 +11,7 @@
     @if (($texts['body'] ?? '') !== '')
         <p class="rg-game__lead">{{ $texts['body'] }}</p>
     @endif
-    <button type="button" class="rg-game__button rg-game__button--primary rg-game__button--wide" wire:click="continue" wire:loading.attr="disabled" data-testid="game-start">{{ $texts['button_label'] }} <span aria-hidden="true">→</span></button>
+    <button type="button" class="rg-game__button rg-game__button--primary rg-game__button--wide" wire:click="continue" wire:loading.attr="disabled" data-testid="game-start">{{ $texts['button_label'] }} <span class="rg-mirror-rtl" aria-hidden="true">→</span></button>
     @if ((bool) ($data['settings']['show_branding'] ?? true))
         <p class="rg-game__note rg-game__note--center">{{ __('games.play.by_site', ['site' => $game['site']]) }}</p>
     @endif

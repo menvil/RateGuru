@@ -187,7 +187,7 @@
                             x-cloak
                             x-show="menuOpen"
                             x-on:click.outside="menuOpen = false"
-                            class="absolute right-0 top-full z-20 mt-2 w-44 rounded-rgControl border border-rg-border bg-rg-card2 p-1 shadow-rgDropdown"
+                            class="absolute inset-e-0 top-full z-20 mt-2 w-44 rounded-rgControl border border-rg-border bg-rg-card2 p-1 shadow-rgDropdown"
                         >
                             @if($canReportPost)
                                 <div>
@@ -204,7 +204,7 @@
                                 <button
                                     type="button"
                                     x-on:click="menuOpen = false; deleteOpen = true"
-                                    class="flex w-full cursor-pointer items-center rounded-rgSm px-3 py-1.5 text-left text-sm font-semibold text-rg-dangerText transition hover:bg-rg-dangerSoft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-dangerText"
+                                    class="flex w-full cursor-pointer items-center rounded-rgSm px-3 py-1.5 text-start text-sm font-semibold text-rg-dangerText transition hover:bg-rg-dangerSoft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-dangerText"
                                 >
                                     {{ __('ui.post.delete') }}
                                 </button>

@@ -1,9 +1,16 @@
 {{--
-    Laravel's HTML email layout, unchanged but for the title: the project's
-    name from its settings, as the site shows it, rather than APP_NAME.
+    Laravel's HTML email layout, unchanged but for the title — the project's
+    name from its settings, as the site shows it, rather than APP_NAME — and
+    the direction: an email in a language read right to left says so on its
+    root and body, and turns the body's text, which the theme aligns to the
+    left by name, to the right (the header and the footer stay centred). The
+    theme is inlined into every element's style when the email is rendered,
+    and so is this, so the alignment holds in a mail client that drops the
+    <style> block.
 --}}
+@php($direction = app(\App\Support\Locale\LocaleManager::class)->direction())
 <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
-<html xmlns="http://www.w3.org/1999/xhtml" lang="{{ str_replace('_', '-', app()->getLocale()) }}">
+<html xmlns="http://www.w3.org/1999/xhtml" lang="{{ str_replace('_', '-', app()->getLocale()) }}" dir="{{ $direction }}">
 <head>
 <title>{{ app(\App\Support\Settings\ProjectSettingsManager::class)->current()->siteName() }}</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -27,9 +34,27 @@ width: 100% !important;
 }
 }
 </style>
+@if ($direction === 'rtl')
+<style>
+.inner-body p,
+.inner-body h1,
+.inner-body h2,
+.inner-body h3,
+.inner-body ul,
+.inner-body ol,
+.inner-body blockquote {
+text-align: right;
+}
+
+.inner-body .panel {
+border-left: 0;
+border-right: #18181b solid 4px;
+}
+</style>
+@endif
 {!! $head ?? '' !!}
 </head>
-<body>
+<body dir="{{ $direction }}">
 
 <table class="wrapper" width="100%" cellpadding="0" cellspacing="0" role="presentation">
 <tr>

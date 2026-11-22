@@ -48,6 +48,66 @@
 }
 
 /*
+ * Languages read right to left. The layout itself turns with the page's dir
+ * (layouts set it from config/locales.php), because the templates name sides
+ * only as start and end; what is left here is the type, and the signs that
+ * point along the line.
+ *
+ * Arabic and Hebrew script are not in Inter, and nothing is downloaded for
+ * them: the system's own faces draw them. Inter stays first, so a Latin name
+ * or a number in the line keeps the site's face, and each Arabic or Hebrew
+ * letter falls through to the first face below that has it — Noto on Android
+ * and Linux, Geeza Pro or Arial Hebrew on Apple systems, Segoe UI or Tahoma on
+ * Windows. Urdu is written in Nastaliq where the system has a face for it, the
+ * Arabic faces otherwise; Nastaliq stands far taller than Latin, so its lines
+ * are spaced to hold it — the leading of every text size, and of the page.
+ */
+@layer base {
+    :root:lang(he) {
+        --font-sans: 'Inter Variable', 'Noto Sans Hebrew', 'Arial Hebrew', 'Segoe UI', Arial, ui-sans-serif, system-ui,
+            sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
+    }
+
+    :root:lang(ar) {
+        --font-sans: 'Inter Variable', 'Noto Naskh Arabic', 'Noto Sans Arabic', 'Geeza Pro', 'Segoe UI', Tahoma,
+            'Arabic Typesetting', ui-sans-serif, system-ui, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji',
+            'Segoe UI Symbol', 'Noto Color Emoji';
+    }
+
+    :root:lang(ur) {
+        --font-sans: 'Inter Variable', 'Noto Nastaliq Urdu', 'Jameel Noori Nastaleeq', 'Urdu Typesetting',
+            'Noto Naskh Arabic', 'Noto Sans Arabic', 'Geeza Pro', 'Segoe UI', Tahoma, ui-sans-serif, system-ui,
+            sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
+        --text-xs--line-height: 2;
+        --text-sm--line-height: 2;
+        --text-base--line-height: 2;
+        --text-lg--line-height: 1.9;
+        --text-xl--line-height: 1.9;
+        --text-2xl--line-height: 1.8;
+        --text-3xl--line-height: 1.7;
+        --text-4xl--line-height: 1.6;
+        --text-6xl--line-height: 1.5;
+
+        line-height: 2;
+    }
+}
+
+/*
+ * A sign that points along the line — on, back, reply, a pager's arrows —
+ * turns round on a page read right to left, where "on" is to the left: the
+ * icons that do (x-ui.icon), the arrows drawn as text in the game. A text
+ * arrow needs a box of its own for the turn to apply; it gets one only on such
+ * a page, so a page read left to right is drawn exactly as before.
+ */
+[dir='rtl'] .rg-mirror-rtl {
+    scale: -1 1;
+}
+
+[dir='rtl'] .rg-mirror-rtl:not(svg) {
+    display: inline-block;
+}
+
+/*
  * A disabled control never shows the pointer, whatever utility classes it
  * carries. Kept outside any layer on purpose: unlayered rules outrank the
  * utilities layer, so a cursor-pointer on the element cannot win.
@@ -306,6 +366,11 @@ select:disabled {
         font-size: clamp(26px, 6.5vw, 38px);
     }
 
+    /* Nastaliq stands far taller than Latin: a headline's tight leading would run its two lines into each other. */
+    :lang(ur) :is(.rg-game__title, .rg-game__question, .rg-game__result-headline, .rg-game__share-card-profile) {
+        line-height: 1.7;
+    }
+
     /* One line as large as the title where it fits: games.js (rgGameLine) measures it; until then its length gives a first guess. */
     .rg-game__line {
         container-type: inline-size;
@@ -444,7 +509,8 @@ select:disabled {
 
     .rg-game__timer {
         position: absolute;
-        inset: 0 auto 0 0;
+        inset-block: 0;
+        inset-inline: 0 auto;
         width: 0;
         background: rgba(255, 255, 255, 0.22);
     }
@@ -471,9 +537,9 @@ select:disabled {
     }
 
     /*
-     * The post the way on leads to, as the reference draws it: its picture on the left, about half the card, its
-     * title and what the step shows of it on the right — small enough that the result, the post and the button
-     * fit on one screen.
+     * The post the way on leads to, as the reference draws it: its picture at the start of the line (the left in a
+     * language read left to right), about half the card, its title and what the step shows of it after — small
+     * enough that the result, the post and the button fit on one screen.
      */
     .rg-game__onward-post {
         display: grid;
@@ -753,7 +819,7 @@ select:disabled {
     .rg-game__label {
         position: absolute;
         top: 12px;
-        left: 12px;
+        inset-inline-start: 12px;
         max-width: calc(100% - 84px);
         height: 34px;
         padding: 0 12px;
@@ -806,7 +872,7 @@ select:disabled {
     .rg-game__badge {
         position: absolute;
         top: 12px;
-        right: 12px;
+        inset-inline-end: 12px;
         padding: 6px 11px;
         border-radius: var(--rg-radius-pill);
         background: #fff;
@@ -1045,7 +1111,7 @@ select:disabled {
         padding: 0;
         border: 0;
         background: transparent;
-        text-align: left;
+        text-align: start;
     }
 
     .rg-game__named {
@@ -1099,7 +1165,7 @@ select:disabled {
     }
 
     .rg-game__lines {
-        text-align: left;
+        text-align: start;
     }
 
     .rg-game__quote {
@@ -1321,9 +1387,8 @@ select:disabled {
 
     .rg-game__share-card-text {
         position: absolute;
-        right: 16px;
         bottom: 14px;
-        left: 16px;
+        inset-inline: 16px;
         display: flex;
         flex-direction: column;
         gap: 4px;

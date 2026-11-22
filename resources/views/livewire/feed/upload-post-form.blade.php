@@ -328,7 +328,7 @@
                 <div
                     x-cloak
                     x-show="tagOpen"
-                    class="absolute left-0 right-0 z-30 mt-1 max-h-52 overflow-y-auto rounded-rgControl border border-rg-border bg-rg-card2 p-1 shadow-rgDropdown"
+                    class="absolute inset-x-0 z-30 mt-1 max-h-52 overflow-y-auto rounded-rgControl border border-rg-border bg-rg-card2 p-1 shadow-rgDropdown"
                     data-testid="upload-tag-menu"
                     role="listbox"
                     id="upload-tag-listbox"
@@ -337,7 +337,7 @@
                         <button
                             type="button"
                             wire:click="toggleTag({{ $tag['id'] }})"
-                            class="flex w-full cursor-pointer items-center rounded-rgSm px-3 py-1.5 text-left text-[13px] text-rg-text2 transition hover:bg-rg-card hover:text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent"
+                            class="flex w-full cursor-pointer items-center rounded-rgSm px-3 py-1.5 text-start text-[13px] text-rg-text2 transition hover:bg-rg-card hover:text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent"
                             data-testid="upload-tag-{{ $tag['id'] }}"
                             role="option"
                             id="upload-tag-option-{{ $tag['id'] }}"

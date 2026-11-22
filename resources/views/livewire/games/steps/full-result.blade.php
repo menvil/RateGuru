@@ -67,9 +67,9 @@
         @endif
 
         @if ($data['hasNext'])
-            <button type="button" class="rg-game__button rg-game__button--wide" wire:click="continue" wire:loading.attr="disabled" data-testid="game-continue">{{ __('games.play.continue') }} →</button>
+            <button type="button" class="rg-game__button rg-game__button--wide" wire:click="continue" wire:loading.attr="disabled" data-testid="game-continue">{{ __('games.play.continue') }} <span class="rg-mirror-rtl" aria-hidden="true">→</span></button>
         @else
-            <button type="button" class="rg-game__button rg-game__button--wide" wire:click="leave('feed')" data-testid="game-feed">{{ __('games.play.go_to_feed') }} →</button>
+            <button type="button" class="rg-game__button rg-game__button--wide" wire:click="leave('feed')" data-testid="game-feed">{{ __('games.play.go_to_feed') }} <span class="rg-mirror-rtl" aria-hidden="true">→</span></button>
         @endif
         @if ($data['canReplay'])
             <button type="button" class="rg-game__link" wire:click="replay" data-testid="game-replay">{{ __('games.play.play_again') }}</button>

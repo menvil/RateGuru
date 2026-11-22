@@ -27,7 +27,7 @@
             type="text"
             readonly
             value="{{ $shareUrl }}"
-            class="h-10 w-full rounded-rgControl border border-rg-border bg-rg-card2 py-0 pl-3 pr-12 font-mono text-xs text-rg-text outline-none focus-visible:border-rg-accent focus-visible:ring-2 focus-visible:ring-rg-accent/25"
+            class="h-10 w-full rounded-rgControl border border-rg-border bg-rg-card2 py-0 ps-3 pe-12 font-mono text-xs text-rg-text outline-none focus-visible:border-rg-accent focus-visible:ring-2 focus-visible:ring-rg-accent/25"
             data-testid="post-share-url"
             aria-label="{{ __('ui.a11y.share_url') }}"
         >
@@ -37,7 +37,7 @@
             x-on:click="copyShareUrl"
             data-testid="post-share-copy"
             aria-label="{{ __('ui.a11y.copy_link') }}"
-            class="absolute right-1 top-1 grid size-8 cursor-pointer place-items-center rounded-rgSm text-rg-muted transition hover:bg-rg-cardHover hover:text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent"
+            class="absolute inset-e-1 top-1 grid size-8 cursor-pointer place-items-center rounded-rgSm text-rg-muted transition hover:bg-rg-cardHover hover:text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent"
         >
             <x-ui.icon name="copy" class="size-4" />
         </button>

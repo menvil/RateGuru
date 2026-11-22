@@ -124,7 +124,7 @@
                         </x-slot:footer>
                     </x-ui.modal>
                 @elseif ($account !== null)
-                    <p class="max-w-xs text-xs text-rg-muted sm:text-right" data-testid="connected-account-last-method">
+                    <p class="max-w-xs text-xs text-rg-muted sm:text-end" data-testid="connected-account-last-method">
                         {{ __('profile.connected.last_method') }}
                     </p>
                 @endif

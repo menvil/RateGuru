@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="{{ str_replace('_', '-', app()->getLocale()) }}" data-theme="{{ $appliedTheme }}" data-theme-preference="{{ $themePreference }}" data-theme-source="{{ $themeSource }}">
+<html lang="{{ str_replace('_', '-', app()->getLocale()) }}" dir="{{ app(\App\Support\Locale\LocaleManager::class)->direction() }}" data-theme="{{ $appliedTheme }}" data-theme-preference="{{ $themePreference }}" data-theme-source="{{ $themeSource }}">
     <head>
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -71,7 +71,7 @@
 
                     <button
                         type="button"
-                        class="ml-auto grid size-9 shrink-0 cursor-pointer place-items-center rounded-rgControl border border-rg-border2 bg-rg-card text-rg-text2 transition hover:text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent lg:hidden"
+                        class="ms-auto grid size-9 shrink-0 cursor-pointer place-items-center rounded-rgControl border border-rg-border2 bg-rg-card text-rg-text2 transition hover:text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent lg:hidden"
                         aria-label="{{ __('ui.feed.search_label') }}"
                         aria-controls="mobile-search-row"
                         data-testid="mobile-search-trigger"
@@ -143,7 +143,7 @@
                                     x-transition:leave-start="opacity-100 scale-100"
                                     x-transition:leave-end="opacity-0 scale-95"
                                     data-testid="header-user-menu"
-                                    class="absolute right-0 z-50 mt-2 w-52 origin-top-right rounded-rgCard border border-rg-border bg-rg-card p-1 text-sm text-rg-text shadow-rgPopover ring-1 ring-rg-borderSoft"
+                                    class="absolute inset-e-0 z-50 mt-2 w-52 ltr:origin-top-right rtl:origin-top-left rounded-rgCard border border-rg-border bg-rg-card p-1 text-sm text-rg-text shadow-rgPopover ring-1 ring-rg-borderSoft"
                                     style="display: none;"
                                 >
                                     <div class="hidden px-3 py-2 lg:block">
@@ -185,7 +185,7 @@
                                         @csrf
                                         <button
                                             type="submit"
-                                            class="flex w-full cursor-pointer items-center gap-2 rounded-rgSm px-3 py-2 text-left text-sm font-medium text-rg-text2 transition hover:bg-rg-card2 hover:text-rg-text"
+                                            class="flex w-full cursor-pointer items-center gap-2 rounded-rgSm px-3 py-2 text-start text-sm font-medium text-rg-text2 transition hover:bg-rg-card2 hover:text-rg-text"
                                         >
                                             {{ __('ui.nav.log_out') }}
                                         </button>
@@ -311,15 +311,15 @@
                 {{-- A modal dialog: the focus stays in it while it is open, the page under
                      it does not scroll, and the focus goes back to the menu button after. --}}
                 <div
-                    class="fixed inset-y-0 left-0 flex w-[85vw] flex-col overflow-y-auto border-r border-rg-border bg-rg-sidebar px-4 py-4"
+                    class="fixed inset-y-0 inset-s-0 flex w-[85vw] flex-col overflow-y-auto border-e border-rg-border bg-rg-sidebar px-4 py-4"
                     data-testid="mobile-nav-panel"
                     x-trap.noscroll="mobileNavOpen"
                     x-transition:enter="transition ease-out duration-200"
-                    x-transition:enter-start="-translate-x-full"
+                    x-transition:enter-start="ltr:-translate-x-full rtl:translate-x-full"
                     x-transition:enter-end="translate-x-0"
                     x-transition:leave="transition ease-in duration-150"
                     x-transition:leave-start="translate-x-0"
-                    x-transition:leave-end="-translate-x-full"
+                    x-transition:leave-end="ltr:-translate-x-full rtl:translate-x-full"
                 >
                     <div class="mb-4 flex items-center justify-between gap-2">
                         <a
@@ -391,7 +391,7 @@
                          "dimmed site content," and the panel looked like it was sliding in
                          from the bare browser edge instead of the site's edge. --}}
                     <div class="relative mx-auto h-full w-full max-w-[1440px]">
-                        {{-- border-r marks the site's edge with a hard, always-crisp line for the
+                        {{-- border-e marks the site's edge with a hard, always-crisp line for the
                              entire time the backdrop is up (not just at rest) — the color contrast
                              between dimmed/undimmed alone was too soft to read as a fixed boundary
                              during the ~200ms slide, making the panel feel like it came from
@@ -405,7 +405,7 @@
                             x-transition:leave="motion-safe:transition-opacity motion-reduce:transition-none ease-in duration-200"
                             x-transition:leave-start="opacity-100"
                             x-transition:leave-end="opacity-0"
-                            class="pointer-events-auto absolute inset-0 border-r border-rg-border2 bg-rg-overlay"
+                            class="pointer-events-auto absolute inset-0 border-e border-rg-border2 bg-rg-overlay"
                             data-testid="post-detail-overlay-backdrop"
                             aria-hidden="true"
                         ></div>

@@ -23,7 +23,7 @@
                         type="button"
                         x-on:click="compactHideOpen = true"
                         data-testid="moderation-hide"
-                        class="flex w-full cursor-pointer items-center rounded-rgSm px-3 py-1.5 text-left text-sm font-semibold text-rg-dangerText transition hover:bg-rg-dangerSoft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-dangerText"
+                        class="flex w-full cursor-pointer items-center rounded-rgSm px-3 py-1.5 text-start text-sm font-semibold text-rg-dangerText transition hover:bg-rg-dangerSoft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-dangerText"
                     >
                         {{ __('ui.moderation.hide') }}
                     </button>
@@ -61,7 +61,7 @@
                         type="button"
                         wire:click="restore"
                         data-testid="moderation-restore"
-                        class="flex w-full cursor-pointer items-center rounded-rgSm px-3 py-1.5 text-left text-sm font-semibold text-rg-text2 transition hover:bg-rg-card hover:text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent"
+                        class="flex w-full cursor-pointer items-center rounded-rgSm px-3 py-1.5 text-start text-sm font-semibold text-rg-text2 transition hover:bg-rg-card hover:text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent"
                     >
                         {{ __('ui.moderation.restore') }}
                     </button>

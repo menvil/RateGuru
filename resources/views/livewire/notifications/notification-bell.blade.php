@@ -21,7 +21,7 @@
                 @if($this->unreadCount > 0)
                     <span
                         data-testid="notification-unread-count"
-                        class="absolute -right-1 -top-1 inline-flex min-w-5 items-center justify-center rounded-rgPill bg-rg-accent px-1.5 py-0.5 text-[11px] font-bold text-rg-onAccent"
+                        class="absolute -inset-e-1 -top-1 inline-flex min-w-5 items-center justify-center rounded-rgPill bg-rg-accent px-1.5 py-0.5 text-[11px] font-bold text-rg-onAccent"
                     >
                         {{ $this->unreadCount }}
                     </span>
@@ -33,7 +33,7 @@
                 x-cloak
                 id="notifications-dropdown"
                 data-testid="notifications-dropdown"
-                class="fixed inset-x-4 top-[68px] z-40 overflow-hidden rounded-rgCard border border-rg-border bg-rg-card shadow-rgPopover sm:absolute sm:inset-x-auto sm:right-0 sm:top-11 sm:w-72 sm:max-w-[calc(100vw-2rem)]"
+                class="fixed inset-x-4 top-[68px] z-40 overflow-hidden rounded-rgCard border border-rg-border bg-rg-card shadow-rgPopover sm:absolute sm:inset-x-auto sm:inset-e-0 sm:top-11 sm:w-72 sm:max-w-[calc(100vw-2rem)]"
             >
                 <div class="border-b border-rg-border px-4 py-3 text-sm font-semibold text-rg-text">
                     {{ __('ui.notifications.title') }}

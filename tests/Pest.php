@@ -1558,7 +1558,7 @@ function waitForPostDetailOverlayClosed(mixed $page): void
             const panel = document.querySelector('[data-testid="post-detail-overlay"]');
 
             return ! panel
-                || (panel.classList.contains('translate-x-full')
+                || (panel.classList.contains('ltr:translate-x-full')
                     && panel.getAnimations().every((animation) => animation.playState === 'finished'));
         })()
     JS);
@@ -8736,6 +8736,22 @@ function localesConfig(): array
 function translatedLocales(): array
 {
     return array_values(array_diff(supportedLocales(), ['en']));
+}
+
+/**
+ * The installed languages read right to left — the ones config/locales.php
+ * declares `'direction' => 'rtl'` — in config order. Read from the file for
+ * the same reason supportedLocales() is, so a test about a right-to-left page
+ * takes its language from here rather than naming one.
+ *
+ * @return list<string>
+ */
+function rightToLeftLocales(): array
+{
+    return array_keys(array_filter(
+        localesConfig()['supported'],
+        fn (array $info): bool => ($info['direction'] ?? null) === 'rtl',
+    ));
 }
 
 /**
