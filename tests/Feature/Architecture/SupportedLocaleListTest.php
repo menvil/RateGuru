@@ -14,7 +14,9 @@ use Symfony\Component\Finder\Finder;
  * supportedLocales(), translatedLocales() or config('locales.supported').
  *
  * A copy takes three shapes, all refused when two or more supported languages
- * sit in the same array: the codes as a list; rows of the registry keyed by
+ * sit in the same array and are no fewer than its other plain strings — a
+ * list of shell commands that happens to hold `tr` and `id` is not a list of
+ * languages: the codes as a list; rows of the registry keyed by
  * code — entries carrying the `label` / `native` / `flag` /
  * `enabled_by_default` a language is declared with, or its name or flag alone, which is what a test overriding config('locales.supported')
  * with its own set writes; and codes keyed to a bare `true` or `false`, which
@@ -63,6 +65,8 @@ function handWrittenLocaleSets(string $source, array $registry): array
             $stack[] = [
                 'array' => true,
                 'codes' => [],
+                // The plain strings of a list that are no language's code.
+                'others' => 0,
                 'row' => false,
                 // A nested array that is the value of a language key may turn
                 // out to be that language's registry row.
@@ -85,7 +89,7 @@ function handWrittenLocaleSets(string $source, array $registry): array
             if ($frame['array']) {
                 $codes = array_values(array_unique($frame['codes']));
 
-                if (count($codes) >= 2) {
+                if (count($codes) >= 2 && count($codes) >= $frame['others']) {
                     $sets[] = $codes;
                 }
 
@@ -121,6 +125,8 @@ function handWrittenLocaleSets(string $source, array $registry): array
             }
         } elseif (isset($registry[$string]) && $endsElement($i + 1)) {
             $stack[$top]['codes'][] = $string;
+        } elseif ($endsElement($i + 1)) {
+            $stack[$top]['others']++;
         }
     }
 
@@ -188,6 +194,7 @@ it('recognises every shape a copied set of languages takes', function () {
         'list of codes' => "<?php foreach (['{$first}', '{$second}'] as \$locale) {}",
         'codes keyed to a flag' => "<?php \$enabled = ['{$first}' => true, '{$second}' => false];",
         'dataset' => "<?php it('x', fn () => null)->with(['{$first}', \"{$second}\"]);",
+        'list with a made-up code' => "<?php \$x = ['{$first}', '{$second}', 'xx'];",
     ];
 
     foreach ($copies as $shape => $source) {
@@ -211,6 +218,7 @@ it('leaves a single language and language-specific content alone', function () {
         'codes as call arguments' => "<?php translate('{$first}', '{$second}');",
         'codes in a comment' => "<?php // ['{$first}', '{$second}']",
         'codes in one string' => "<?php \$pattern = \"['{$first}', '{$second}']\";",
+        'a list of other words holding two codes' => "<?php \$commands = ['readlink', 'sort', '{$first}', 'head', '{$second}', 'rm'];",
     ];
 
     foreach ($allowed as $shape => $source) {
