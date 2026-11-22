@@ -104,6 +104,9 @@ final class TrafficReportQuery implements RawSqlPersistenceBoundary
             ->groupBy('device', 'channel')
             ->select('device', 'channel')
             ->selectRaw(implode(', ', [$metrics, $signups, ...$path]), [...$bindings, ...$signupBindings, 'game', 'post', 'feed', 'other', 600, 3600, 86400])
+            // In one order whatever plan the database picks: the same visits give the same list.
+            ->orderBy('device')
+            ->orderBy('channel')
             ->toBase()
             ->get()
             ->map(fn (object $row): array => [
@@ -191,8 +194,7 @@ final class TrafficReportQuery implements RawSqlPersistenceBoundary
             ->select(...$columns)
             ->selectRaw('MIN(campaign_id) AS campaign_id, COUNT(DISTINCT campaign_id) AS campaigns, MIN(arrived_at) AS first_at, '.$metrics, $bindings)
             ->havingRaw('COUNT(*) >= ?', [$minVisits])
-            ->orderBy('source_id')
-            ->orderBy('site_ref')
+            ->tap(fn (Builder $query) => self::byEveryColumn($query, $columns))
             ->toBase()
             ->get()
             ->map(fn (object $row): array => [
