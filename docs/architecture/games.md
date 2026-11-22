@@ -345,7 +345,9 @@ events the funnel counts people by): `GameEventRecorder` tells the people of
 the attempt's day of it once the day has closed (`MarkAnalyticsGameCellsAction`;
 docs/architecture/analytics.md, "The people of a game's days"), and a game's
 figures find an open day's attempts changed since it was counted by those
-events. So whatever changes those columns of an attempt records the event
+events, and by the moments the attempt keeps of them (`completed_at`,
+`goal_reached_at`, `account_outcome_at`), which stay when an event goes. So
+whatever changes those columns of an attempt records the event
 with the change, at the same moment or after it — an import or a backfill too
 — and whatever deletes views, attempts or their events tells the people of
 their days first.

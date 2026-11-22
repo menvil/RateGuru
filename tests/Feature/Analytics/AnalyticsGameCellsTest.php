@@ -751,6 +751,61 @@ it('counts the plays and views of an unconfirmed account removed with everything
     compareGameCells($version, [['2026-11-01 00:00:00', '2026-11-12 12:00:01']]);
 });
 
+it('finds a guest’s play of an open day finished since its moment by when it finished, once an account purged takes the event that told of it', function () {
+    $this->travelTo('2026-10-01 10:00:00');
+    $version = cellsGame();
+    $bot = User::factory()->unverified()->create(['created_at' => now()]);
+    $attempt = cellsAttempt($version, 'ann', '2026-11-12 10:00:00');
+    $this->travelTo('2026-11-12 14:37:00');
+    countGameCells();
+    // Finished after the moment the day is counted up to, by a visitor signed in to the account on a guest's play it never took.
+    GameAttempt::query()->whereKey($attempt->id)->update(cellsCompleted('2026-11-12 14:38:00'));
+    (new GameEvent)->forceFill([
+        'game_id' => $attempt->game_id,
+        'version_id' => $attempt->version_id,
+        'attempt_id' => $attempt->id,
+        'audience' => GameAudience::Anonymous,
+        'user_id' => $bot->id,
+        'visitor_hash' => $attempt->visitor_hash,
+        'type' => GameEventType::Completed,
+        'occurred_at' => '2026-11-12 14:38:00',
+    ])->save();
+    $scope = cellsScope($version, '2026-11-01 00:00:00', '2026-11-12 14:40:01');
+
+    expect(cellsFunnels($scope)[0]->finishers)->toBe(1);
+
+    $this->travelTo('2026-11-12 14:40:00');
+
+    expect(app(PurgeUnconfirmedAccountAction::class)->handle((int) $bot->id, now()))->toBe(UnconfirmedAccountPurgeOutcome::Purged)
+        ->and(GameAttempt::query()->whereKey($attempt->id)->exists())->toBeTrue()
+        ->and(GameEvent::query()->where('attempt_id', $attempt->id)->exists())->toBeFalse()
+        ->and([cellsFunnels($scope)[0]->completed, cellsFunnels($scope)[0]->finishers])->toBe([1, 1]);
+
+    // Counted again up to a moment still before it finished: found the same way.
+    $this->travelTo('2026-11-12 14:45:00');
+    countGameCells();
+    $scope = cellsScope($version, '2026-11-01 00:00:00', '2026-11-12 14:45:01');
+
+    expect([cellsFunnels($scope)[0]->completed, cellsFunnels($scope)[0]->finishers])->toBe([1, 1]);
+});
+
+it('counts a game nobody saw, and one seen with no version but never played, the same both ways', function () {
+    $this->travelTo('2026-11-01 08:00:00');
+    $empty = cellsGame();
+    $seen = cellsGame();
+    cellsView($seen, 'ann', '2026-11-05 09:00:00', ofVersion: false);
+    cellsView($seen, null, '2026-11-05 09:00:00');
+    $this->travelTo('2026-11-12 12:00:00');
+    countGameCells();
+    $windows = [['2026-11-01 00:00:00', '2026-11-12 12:00:01'], ['2026-11-04 00:00:00', '2026-11-06 00:00:00']];
+
+    compareGameCells($empty, $windows);
+    compareGameCells($seen, $windows);
+
+    expect(cellsVisitors(cellsScope($seen, '2026-11-01 00:00:00', '2026-11-12 12:00:01')))->toBe(1)
+        ->and(cellsFunnels(cellsScope($empty, '2026-11-01 00:00:00', '2026-11-12 12:00:01'))[0]->visitors)->toBe(0);
+});
+
 it('counts the views purged with their retention, their days marked, the plays staying', function () {
     $this->travelTo('2025-10-01 10:15:00');
     $version = cellsGame();

@@ -446,7 +446,11 @@ attempts themselves, the same SQL, in one read (`AnalyticsGameCellsQuery`,
 time since the moment; and of the open days' attempts begun before it, what
 came of them since — found by the event every such change is recorded with
 (`completed`, `goal_reached`, `account_attributed` and what the funnel counts
-an attempt's events by), and an account confirmed since by when it was. A
+an attempt's events by), an account confirmed since by when it was, and an
+attempt completed, its goal reached or taken by an account since by the
+moment it keeps of it, which stays when the event goes (the purge of an
+unconfirmed account takes the events it recorded on a guest's play it never
+took). A
 person read live is looked up by their browser's number; one whose browser
 has none yet is in no cell, and counted on their own. So a game's figures
 are the same as reading every view and attempt, at any moment, however long

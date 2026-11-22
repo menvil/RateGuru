@@ -283,12 +283,14 @@ final class AnalyticsGameCellsQuery implements RawSqlPersistenceBoundary
      * version, flow or content set (`bucket`). The cells it reads, then the
      * attempts begun in every stretch read live and — of those the open days'
      * cells count, begun before their moment — those that changed since,
-     * found by the event recorded with each change or the account confirmed
-     * since: all summed up per person first and taken as one more cell, the
-     * last. The people who played again are those with two attempts or more
-     * in a cell and those a cell shares with the cells before it, and the
-     * attempts nobody can be told apart by as one more when there are several
-     * of them, as grouping them by person puts them together.
+     * found by the event recorded with each change, the account confirmed
+     * since, or the moment it was completed, reached its goal or was taken by
+     * an account, which stays when the event goes: all summed up per person
+     * first and taken as one more cell, the last. The people who played again
+     * are those with two attempts or more in a cell and those a cell shares
+     * with the cells before it, and the attempts nobody can be told apart by
+     * as one more when there are several of them, as grouping them by person
+     * puts them together.
      *
      * @param  string|null  $by  null, or one of GameMetricsQuery::GROUPS
      * @return Builder<AnalyticsGameCell>
@@ -322,8 +324,14 @@ final class AnalyticsGameCellsQuery implements RawSqlPersistenceBoundary
                 ->whereNotNull('attempt_id')
                 ->select('attempt_id')
                 ->union(AccountAttribution::query()->where('confirmed_at', '>=', $moment)->whereNotNull('credited_attempt_id')->select('credited_attempt_id'));
+            // By its own moments as well as by its events: the attempt keeps them, while the event that told
+            // of the change can go — an account purged takes those it recorded on a guest's play it never took.
             $rows[] = self::within($this->plays($scope, $bucket), 'a.started_at', $window->late)
-                ->whereIn('a.id', $changed)
+                ->where(fn (Builder $since): Builder => $since
+                    ->whereIn('a.id', $changed)
+                    ->orWhere('a.completed_at', '>=', $moment)
+                    ->orWhere('a.goal_reached_at', '>=', $moment)
+                    ->orWhere('a.account_outcome_at', '>=', $moment))
                 ->leftJoinSub(self::events($scope->gameId, $window->late[0][0], sharedSince: $moment), 'ev', 'ev.attempt_id', '=', 'a.id')
                 ->selectRaw($flags, $bindings);
         }
