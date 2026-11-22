@@ -437,8 +437,9 @@ in one transaction on the source locked, then its blocks, the order every
 writer of blocks takes them in (`LocksTrafficRecords`), so an unblock, a push
 or a read of the lists waits for it, or it for them. **Push again** (`BlockTrafficRefsAction::push()`)
 sends ticked blocks back to `pending`, to every campaign they are for, and
-blocking again through the API does the same for a `failed`, `partial` or
-`taken_off` block of an administrator's (never the rule's); a block marked by
+an administrator blocking again through the API does the same for a
+`failed`, `partial` or `taken_off` block, whoever made it — the rule never
+sends a block again; a block marked by
 hand, or found in the panel, pushed again becomes RateGuru's own (`api`). A
 batch that went part of the way is logged with `partial` beside `ok`, its note
 counting the campaigns that took all of it. A click through a campaign whose
