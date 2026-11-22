@@ -27,4 +27,21 @@ final class MailAddressee
 
         return app(ProjectSettingsManager::class)->current()->siteName();
     }
+
+    /**
+     * How an email opens. Whoever signs up can type anyone's address, so
+     * what they call themselves never reaches a mailbox not yet confirmed.
+     */
+    public static function greetingFor(object $notifiable): string
+    {
+        return self::isUnconfirmed($notifiable)
+            ? __('mail.fallback_greeting')
+            : __('mail.greeting', ['name' => self::nameOf($notifiable)]);
+    }
+
+    /** Whether this recipient is an account whose address nobody has proved is theirs. */
+    public static function isUnconfirmed(object $notifiable): bool
+    {
+        return $notifiable instanceof User && ! $notifiable->hasVerifiedEmail();
+    }
 }
