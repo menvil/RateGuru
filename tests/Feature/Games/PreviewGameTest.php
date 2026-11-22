@@ -120,7 +120,7 @@ it('plays as an anonymous visitor unless a logged-in player is asked for', funct
 
 it('puts the profile\'s description large above the result card, the site\'s address on it, and no agreement line', function () {
     Livewire::withQueryParams(['start' => 'result:2'])->test(PreviewGame::class, ['game' => $this->draft['game']->id])
-        ->assertSeeInOrder(['game-profile-description', 'You matched every choice.', 'rg-game__share-card', 'Oracle', 'You matched the crowd in 2 of 2 picks · <span class="rg-game__share-card-host" data-testid="game-byline">'.DisplayHost::of(url('/')).'</span>'], false)
+        ->assertSeeInOrder(['game-profile-description', 'You matched every choice.', 'rg-game__share-card', 'Oracle', 'You matched the crowd in 2 of 2 picks · <span class="rg-game__share-card-host" dir="auto" data-testid="game-byline">'.DisplayHost::of(url('/')).'</span>'], false)
         ->assertDontSee('agreement')
         ->assertDontSee('rg-game__eyebrow', false);
 });
