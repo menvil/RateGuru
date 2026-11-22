@@ -1,0 +1,30 @@
+tests/Feature/Analytics/AnalyticsRollupTest.php
+  ai_agent 28
+  s_4b9dc6ab6b25d3::t_a43ec8e2a26120 337,342-350,354-355
+  s_4b9dc6ab6b25d3::t_ce810b2ee75b67 15,338-341,351-353
+app/Console/Commands/AnalyticsRefreshVisitsCommand.php
+  s_4b9dc6ab6b25d3::t_79f1860987a926 42-48,52
+  s_4b9dc6ab6b25d3::t_3e765de3185871 8,10
+  s_4b9dc6ab6b25d3::t_3e0af9321e499d 41,53-57,60-72
+app/Actions/Games/GameEventRecorder.php
+  s_4b9dc6ab6b25d3::t_d1e857d6d085eb 74-75
+app/Actions/Analytics/MarkAnalyticsPeriodHourAction.php
+  s_4b9dc6ab6b25d3::t_52a4fff52cb505 66-67
+  s_4b9dc6ab6b25d3::t_0ea20e10009dc0 80-81
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "9bd3cec06e698f126279a1c2d5272fc476012146",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
