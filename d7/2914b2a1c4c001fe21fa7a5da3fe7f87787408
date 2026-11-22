@@ -1,0 +1,21 @@
+app/Actions/Analytics/RefreshAnalyticsGameCellsAction.php
+  s_4b9dc6ab6b25d3::t_94ee163ba40b97 35-36
+docs/architecture/analytics.md
+  s_4b9dc6ab6b25d3::t_c3d358a451aa33 437-438
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "d72914b2a1c4c001fe21fa7a5da3fe7f87787408",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "unknown"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
