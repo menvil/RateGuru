@@ -1,0 +1,36 @@
+app/Actions/Games/StartGameAttemptAction.php
+  s_4b9dc6ab6b25d3::t_e85ad54642860f 116-117
+app/Models/AnalyticsFirstPostCell.php
+  s_4b9dc6ab6b25d3::t_79d37598c61d45 1-28
+app/Queries/Analytics/AnalyticsRollupQuery.php
+  s_4b9dc6ab6b25d3::t_063c6b5915e28f 21-23
+app/Actions/Games/GameEventRecorder.php
+  s_4b9dc6ab6b25d3::t_935d63d26fd041 68-69
+app/Queries/Analytics/AnalyticsVisitsQuery.php
+  s_4b9dc6ab6b25d3::t_f4a98a8333f590 416,418-425
+  s_4b9dc6ab6b25d3::t_2fcd3df8d17f4f 407-410
+  s_4b9dc6ab6b25d3::t_dae9eb89814396 392-393
+app/Actions/Analytics/RecordVisitPostAction.php
+  s_4b9dc6ab6b25d3::t_3a6757f15c2961 137-138
+database/migrations/2026_11_22_100000_add_attempt_and_session_figures_to_analytics_tables.php
+  s_4b9dc6ab6b25d3::t_368882cb7a6979 1-60
+app/Support/Analytics/AnalyticsVisitRow.php
+  s_4b9dc6ab6b25d3::t_3712831ccdfbfe 123-128
+  s_4b9dc6ab6b25d3::t_688c21bd311abd 16-19
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "8fad87868b0b6f69530a3c98dbf80531c7d55c04",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
