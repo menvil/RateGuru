@@ -52,8 +52,12 @@ return [
 
     'verify_email' => [
         'intro' => 'Hvala na registraciji! Prije nego što počneš, potvrdi svoju e-mail adresu klikom na link koji smo ti upravo poslali. Ako e-mail nije stigao, rado ćemo ti poslati novi.',
-        'link_sent' => 'Novi link za potvrdu poslan je na e-mail adresu navedenu prilikom registracije.',
+        'link_sent' => 'Novi link za potvrdu poslan je na tvoju trenutnu e-mail adresu.',
         'resend' => 'Ponovo pošalji e-mail za potvrdu',
+        'confirmed' => 'Tvoja e-mail adresa je potvrđena.',
+        'link_expired' => 'Ovaj link za potvrdu je istekao. Zatraži novi ispod.',
+        'throttled' => 'Novi link možeš zatražiti za :minutes min.',
+        'notice_changed_address' => 'Potvrdi svoju novu e-mail adresu, :email, da bi mogao objavljivati, komentarisati, glasati i pratiti druge. Ako nemaš link, zatraži novi.',
     ],
 
     'social' => [

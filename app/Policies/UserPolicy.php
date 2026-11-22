@@ -52,6 +52,16 @@ class UserPolicy
     }
 
     /**
+     * An administrator may vouch for a regular member's address. Whether it
+     * still needs confirming is ConfirmUserEmailAction's to check on the
+     * locked row.
+     */
+    public function confirmEmail(User $actor, User $target): bool
+    {
+        return $this->markTrusted($actor, $target);
+    }
+
+    /**
      * Whether the actor could report the target: someone else, while the
      * actor's own account still has reporting.
      */

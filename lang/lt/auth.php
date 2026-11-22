@@ -52,8 +52,12 @@ return [
 
     'verify_email' => [
         'intro' => 'Ačiū, kad užsiregistravote! Prieš pradėdami patvirtinkite savo el. pašto adresą paspausdami nuorodą, kurią ką tik išsiuntėme jums el. paštu. Jei laiško negavote, mielai atsiųsime kitą.',
-        'link_sent' => 'Nauja patvirtinimo nuoroda išsiųsta el. pašto adresu, kurį nurodėte registruodamiesi.',
+        'link_sent' => 'Nauja patvirtinimo nuoroda išsiųsta jūsų dabartiniu el. pašto adresu.',
         'resend' => 'Siųsti patvirtinimo laišką dar kartą',
+        'confirmed' => 'Jūsų el. pašto adresas patvirtintas.',
+        'link_expired' => 'Šios patvirtinimo nuorodos galiojimas baigėsi. Žemiau paprašykite naujos.',
+        'throttled' => 'Naujos nuorodos galėsite paprašyti po :minutes min.',
+        'notice_changed_address' => 'Patvirtinkite naują el. pašto adresą :email, kad galėtumėte skelbti įrašus, komentuoti, balsuoti ir sekti kitus. Jei neturite nuorodos, paprašykite naujos.',
     ],
 
     'social' => [

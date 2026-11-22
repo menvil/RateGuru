@@ -52,8 +52,12 @@ return [
 
     'verify_email' => [
         'intro' => 'Cảm ơn bạn đã đăng ký! Trước khi bắt đầu, bạn vui lòng xác minh địa chỉ email bằng cách nhấp vào liên kết chúng tôi vừa gửi cho bạn. Nếu bạn chưa nhận được email, chúng tôi sẵn lòng gửi lại.',
-        'link_sent' => 'Một liên kết xác minh mới đã được gửi đến địa chỉ email bạn đã cung cấp khi đăng ký.',
+        'link_sent' => 'Một liên kết xác nhận mới đã được gửi đến địa chỉ email hiện tại của bạn.',
         'resend' => 'Gửi lại email xác minh',
+        'confirmed' => 'Địa chỉ email của bạn đã được xác nhận.',
+        'link_expired' => 'Liên kết xác nhận này đã hết hạn. Hãy yêu cầu liên kết mới bên dưới.',
+        'throttled' => 'Bạn có thể yêu cầu liên kết mới sau :minutes phút.',
+        'notice_changed_address' => 'Hãy xác nhận địa chỉ email mới :email để đăng bài, bình luận, bình chọn và theo dõi người khác. Nếu chưa có liên kết, hãy yêu cầu liên kết mới.',
     ],
 
     'social' => [

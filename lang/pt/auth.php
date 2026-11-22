@@ -52,8 +52,12 @@ return [
 
     'verify_email' => [
         'intro' => 'Obrigado por se cadastrar! Antes de começar, você poderia confirmar seu endereço de e-mail clicando no link que acabamos de enviar? Se você não recebeu o e-mail, teremos prazer em enviar outro.',
-        'link_sent' => 'Um novo link de verificação foi enviado para o endereço de e-mail que você informou no cadastro.',
+        'link_sent' => 'Um novo link de confirmação foi enviado para o seu endereço de e-mail atual.',
         'resend' => 'Reenviar e-mail de verificação',
+        'confirmed' => 'Seu endereço de e-mail foi confirmado.',
+        'link_expired' => 'Este link de confirmação expirou. Solicite um novo abaixo.',
+        'throttled' => 'Você poderá solicitar um novo link em :minutes min.',
+        'notice_changed_address' => 'Confirme seu novo endereço de e-mail, :email, para publicar, comentar, votar e seguir outras pessoas. Se você não tiver um link, solicite um novo.',
     ],
 
     'social' => [
