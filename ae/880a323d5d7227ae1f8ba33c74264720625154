@@ -1,0 +1,142 @@
+lang/hi/auth.php
+  s_4b9dc6ab6b25d3::t_fb6ef2dd6fb2f6 1-39,41-76
+  s_4b9dc6ab6b25d3::t_cc155dd95c7c78 40
+lang/bn/auth.php
+  s_4b9dc6ab6b25d3::t_bc79f22a3fcc05 6
+  s_4b9dc6ab6b25d3::t_2e3f340fc28b37 54
+  s_4b9dc6ab6b25d3::t_d714babc9e89d3 1-5,7-53,55-76
+lang/hi/mail.php
+  s_4b9dc6ab6b25d3::t_4c847ee54cef0f 1-12,14-50
+  s_4b9dc6ab6b25d3::t_0d25adb1459b28 13
+lang/id/profile.php
+  s_4b9dc6ab6b25d3::t_d1d421f09eeca9 12
+  s_4b9dc6ab6b25d3::t_67c6a449d98a93 72
+  s_4b9dc6ab6b25d3::t_a83dbb42c39204 1-11,13-71,73-79
+lang/bn/import.php
+  s_4b9dc6ab6b25d3::t_912b169af6106d 1-26
+lang/id/auth.php
+  s_4b9dc6ab6b25d3::t_bf0438171099b9 4
+  s_4b9dc6ab6b25d3::t_255d4613ab32c8 8
+  s_4b9dc6ab6b25d3::t_b63d9b2a218432 1-3,5-7,9-76
+lang/bn/follows.php
+  s_4b9dc6ab6b25d3::t_689e5e11a3ab5e 1-19
+lang/id/mail.php
+  s_4b9dc6ab6b25d3::t_28d8d46124d882 9
+  s_4b9dc6ab6b25d3::t_e70cd27f60f5e4 1-8,10-12,14-44,47-50
+  s_4b9dc6ab6b25d3::t_cf0d62dc9ea0da 13
+  s_4b9dc6ab6b25d3::t_38713484a74083 45-46
+lang/bn/saved_posts.php
+  s_4b9dc6ab6b25d3::t_6413ec68cec908 1-15
+lang/hi/games.php
+  s_4b9dc6ab6b25d3::t_a6df6b05897fd9 16
+  s_4b9dc6ab6b25d3::t_18e3f483b3c5af 13
+  s_4b9dc6ab6b25d3::t_4c3f751020b189 19
+  s_4b9dc6ab6b25d3::t_a2160dd4881442 43
+  s_4b9dc6ab6b25d3::t_ec89265ffbc3df 1-12,14-15,17-18,20-24,27-42,44-72
+  s_4b9dc6ab6b25d3::t_82efc83a22802f 25-26
+lang/hi/validation.php
+  s_4b9dc6ab6b25d3::t_69eef2b5bcf2cf 1-8,11-12,14-17,20-21,23-57
+  s_4b9dc6ab6b25d3::t_f95b8349b87f2b 22
+  s_4b9dc6ab6b25d3::t_7a31bc043c850e 9-10,13
+  s_4b9dc6ab6b25d3::t_992a310f3bfbc1 18-19
+lang/bn/sharing.php
+  s_4b9dc6ab6b25d3::t_e2d8d9ab3bbaf3 1-22
+lang/id/ui.php
+  s_4b9dc6ab6b25d3::t_c8c40ce77f0f1a 52
+  s_4b9dc6ab6b25d3::t_f3bd68aeac9c33 78-79
+  s_4b9dc6ab6b25d3::t_1185609294a216 100
+  s_4b9dc6ab6b25d3::t_5fcd1f3885d328 289-290
+  s_4b9dc6ab6b25d3::t_fa2ab59c61260a 1-51,53-77,80-99,101-179,181-288,291-294,296-324
+  s_4b9dc6ab6b25d3::t_175a5fd609d54c 180
+  s_4b9dc6ab6b25d3::t_11bf0625dd7f25 295
+lang/hi/ui.php
+  s_4b9dc6ab6b25d3::t_fe9e76eec20b17 298
+  s_4b9dc6ab6b25d3::t_4f8bcbe1d59739 126
+  s_4b9dc6ab6b25d3::t_fc0052625efb8e 235-236
+  s_4b9dc6ab6b25d3::t_0e77838eeabde1 115
+  s_4b9dc6ab6b25d3::t_bc64aebadfa465 206
+  s_4b9dc6ab6b25d3::t_62d535d7d9b42e 1-19,21-77,79-114,116-125,127-205,207-234,237-297,299-324
+  s_4b9dc6ab6b25d3::t_8157ca93b13b46 78
+  s_4b9dc6ab6b25d3::t_30521e0a1b92a1 20
+lang/id/games.php
+  s_4b9dc6ab6b25d3::t_d923a96bdaa02d 57
+  s_4b9dc6ab6b25d3::t_6bd5209af5125e 40
+  s_4b9dc6ab6b25d3::t_902b17a55c77b0 11,13-14
+  s_4b9dc6ab6b25d3::t_f33ab07db27ff3 19
+  s_4b9dc6ab6b25d3::t_b4887f7bb869d1 1-10,12,15-18,20-24,27-39,41-56,58-72
+  s_4b9dc6ab6b25d3::t_8b30e816859c0a 25-26
+lang/id/passwords.php
+  s_4b9dc6ab6b25d3::t_28d0dbdb52c73c 1-9
+lang/hi/saved_posts.php
+  s_4b9dc6ab6b25d3::t_a6595776358618 1-15
+lang/bn/validation.php
+  s_4b9dc6ab6b25d3::t_9e0ba9c8240184 8
+  s_4b9dc6ab6b25d3::t_e9055cd1ca8a2a 22
+  s_4b9dc6ab6b25d3::t_884a3eab776582 29-30
+  s_4b9dc6ab6b25d3::t_8d68c8206f4974 1-7,9-21,23-28,31-57
+lang/bn/profile.php
+  s_4b9dc6ab6b25d3::t_c622df40d81f01 23
+  s_4b9dc6ab6b25d3::t_e3146b93618dfb 29
+  s_4b9dc6ab6b25d3::t_a7c406b3146363 1-22,24-28,30-79
+lang/id/saved_posts.php
+  s_4b9dc6ab6b25d3::t_0528d9eafe836f 1-4,6-15
+  s_4b9dc6ab6b25d3::t_19a93188a2f3ec 5
+lang/hi/follows.php
+  s_4b9dc6ab6b25d3::t_30c7f4939d5a00 1-19
+lang/id/import.php
+  s_4b9dc6ab6b25d3::t_5c9845d43ead9f 1-26
+lang/hi/profile.php
+  s_4b9dc6ab6b25d3::t_cc8a8d64aa5803 1-79
+lang/bn/mail.php
+  s_4b9dc6ab6b25d3::t_12e270bf1c6b57 23
+  s_4b9dc6ab6b25d3::t_edc85f263b78f3 1-22,24-50
+lang/bn/ui.php
+  s_4b9dc6ab6b25d3::t_af3ea83a5cd11d 20
+  s_4b9dc6ab6b25d3::t_8fbcc695f028d4 7
+  s_4b9dc6ab6b25d3::t_f9cfc8e095b645 12
+  s_4b9dc6ab6b25d3::t_6cc92d18db8272 25,112
+  s_4b9dc6ab6b25d3::t_a8d7c4dc7f46c6 1-6,8-11,13-19,21-24,26-31,33-111,113-149,151-324
+  s_4b9dc6ab6b25d3::t_93408afc576fff 32
+  s_4b9dc6ab6b25d3::t_1fbe224b8d51c3 150
+lang/id/sharing.php
+  s_4b9dc6ab6b25d3::t_ca9b6c6f6857f1 1-22
+lang/id/follows.php
+  s_4b9dc6ab6b25d3::t_b2ba4b080d6373 1-19
+lang/hi/import.php
+  s_4b9dc6ab6b25d3::t_c6839343560070 16
+  s_4b9dc6ab6b25d3::t_e6e22d76422469 1-15,17-26
+lang/bn/games.php
+  s_4b9dc6ab6b25d3::t_0f39e8c512c102 1-12,14-16,18-25,27-44,46-72
+  s_4b9dc6ab6b25d3::t_7e49ab22eb1280 45
+  s_4b9dc6ab6b25d3::t_cd05b664e61968 26
+  s_4b9dc6ab6b25d3::t_804332bc6fc004 13
+  s_4b9dc6ab6b25d3::t_95575f0a9cab07 17
+lang/hi/sharing.php
+  s_4b9dc6ab6b25d3::t_e11f0dab2806c5 1-15,17-22
+  s_4b9dc6ab6b25d3::t_7fa8f53f104251 16
+lang/id/validation.php
+  s_4b9dc6ab6b25d3::t_07c7505da3573b 1-3,5-12,14-17,19-57
+  s_4b9dc6ab6b25d3::t_facbdf0e3b4f63 13
+  s_4b9dc6ab6b25d3::t_07b0910a1f7a4b 18
+  s_4b9dc6ab6b25d3::t_087871c0c6bf94 4
+lang/hi/passwords.php
+  s_4b9dc6ab6b25d3::t_2238cdb4de652b 1-9
+lang/bn/passwords.php
+  s_4b9dc6ab6b25d3::t_b7105af83fcfbe 1-9
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "ae880a323d5d7227ae1f8ba33c74264720625154",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
