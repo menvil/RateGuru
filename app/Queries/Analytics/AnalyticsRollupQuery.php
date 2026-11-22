@@ -160,7 +160,9 @@ final class AnalyticsRollupQuery
      * have a row whose page ran, each with the earliest network day of those
      * rows, by their number — for traffic:purge-expired once the visits
      * before it are gone. One read of every row, no index of them leading
-     * with the browser: each browser's days, the earliest first.
+     * with the browser: each browser's days, the earliest first, taken one
+     * at a time — a browser that comes back every day has hundreds — so
+     * only the earliest of each is held.
      *
      * @return array<int, string>
      */
@@ -172,8 +174,9 @@ final class AnalyticsRollupQuery
             ->where('opened', true)
             ->distinct()
             ->orderBy('network_day')
+            ->select(['visitor_key', 'network_day'])
             ->toBase()
-            ->get(['visitor_key', 'network_day']);
+            ->cursor();
 
         foreach ($days as $day) {
             $first[(int) $day->visitor_key] ??= (string) $day->network_day;
