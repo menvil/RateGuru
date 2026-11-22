@@ -200,7 +200,7 @@ it('says on a site some campaigns took and others refused how many lists it is o
     // An unblock that took it off one campaign, refused on the other.
     $block('70004', TrafficBlockNetworkState::Partial, 'shared_list', [[$us, false, null], [$eu, true, 'shared_list']]);
 
-    $page = Livewire::withQueryParams(['view' => 'sites', 'list' => 'site', 'segment' => 'blocked'])->test(TrafficSourcesPage::class)->call('load');
+    $page = Livewire::withQueryParams(['view' => 'sites', 'list' => 'site', 'seg' => 'blocked'])->test(TrafficSourcesPage::class)->call('load');
     $flags = collect($page->viewData('list')['rows'])->mapWithKeys(fn (array $row): array => [$row['ref'] => $row['flag']]);
 
     expect($flags['70001'])->toMatchArray(['label' => 'Partly blocked · 1 of 2 campaigns', 'tone' => 'warning'])
@@ -239,7 +239,7 @@ it('pushes the ticked blocks again to the network from Blocked', function () {
     siteClicks($this->source, '70001', 1, 1);
     $block = TrafficBlock::factory()->create(['source_id' => $this->source->id, 'level' => TrafficBlockLevel::Site, 'ref' => '70001', 'method' => 'api', 'network_state' => TrafficBlockNetworkState::Partial, 'network_error' => 'rejected']);
 
-    Livewire::withQueryParams(['view' => 'sites', 'list' => 'site', 'segment' => 'blocked'])->test(TrafficSourcesPage::class)->call('load')
+    Livewire::withQueryParams(['view' => 'sites', 'list' => 'site', 'seg' => 'blocked'])->test(TrafficSourcesPage::class)->call('load')
         ->call('toggleSelected', $this->source->id.':site:70001')
         ->assertSee('Push again')
         ->call('pushSelected')

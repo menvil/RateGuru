@@ -314,16 +314,16 @@
                                 <span class="rg-admin-traffic__tile-label">In force</span>
                                 <strong>{{ number_format($c['sites'] + $c['zones']) }}</strong>
                                 <span class="rg-admin-traffic__note">{{ $c['sites'] + $c['zones'] === 0 ? 'Nothing blocked yet' : implode(' · ', array_filter([$c['sites'] > 0 ? number_format($c['sites']).' '.\Illuminate\Support\Str::plural('site', $c['sites']) : null, $c['zones'] > 0 ? number_format($c['zones']).' '.\Illuminate\Support\Str::plural('zone', $c['zones']) : null])) }}</span>
-                                <span class="rg-admin-traffic__note">{{ number_format($c['by_hand']) }} by hand · {{ number_format($c['by_rule']) }} by the rule</span>
+                                <span class="rg-admin-traffic__note">{{ number_format($c['by_hand']) }} by hand · {{ number_format($c['by_rule']) }} by the rule{{ $c['in_panel'] > 0 ? ' · '.number_format($c['in_panel']).' in the '.$b['network'].' panel' : '' }}</span>
                             </div>
-                            {{-- What the API sent, where an API sends blocks; else only what is marked here, since RateGuru can't see the network's blacklist. --}}
-                            @if ($b['connected'] || $c['pending'] + $c['applied'] + $c['failed'] + $c['removing'] > 0)
+                            {{-- What the API sent, where an API sends blocks; else only what is marked here, since RateGuru can't see the network's blacklist. Partly blocked is neither on the list nor failed. --}}
+                            @if ($b['connected'] || $c['pending'] + $c['applied'] + $c['partial'] + $c['failed'] + $c['taken_off'] + $c['removing'] > 0)
                                 <div>
                                     <span class="rg-admin-traffic__tile-label">Sent through the API</span>
                                     <strong>{{ number_format($c['applied']) }}</strong>
-                                    <span class="rg-admin-traffic__note">on the network’s list · {{ number_format($c['pending']) }} waiting · {{ number_format($c['failed']) }} failed</span>
-                                    @if ($c['marked'] > 0 || $c['removing'] > 0)
-                                        <span class="rg-admin-traffic__note">{{ implode(' · ', array_filter([$c['marked'] > 0 ? number_format($c['marked']).' marked here only, not sent' : null, $c['removing'] > 0 ? number_format($c['removing']).' coming off' : null])) }}</span>
+                                    <span class="rg-admin-traffic__note">on the network’s list{{ $c['partial'] > 0 ? ' · '.number_format($c['partial']).' on some campaigns’ lists only' : '' }} · {{ number_format($c['pending']) }} waiting · {{ number_format($c['failed']) }} failed</span>
+                                    @if ($c['marked'] > 0 || $c['taken_off'] > 0 || $c['removing'] > 0)
+                                        <span class="rg-admin-traffic__note">{{ implode(' · ', array_filter([$c['marked'] > 0 ? number_format($c['marked']).' marked here only, not sent' : null, $c['taken_off'] > 0 ? number_format($c['taken_off']).' taken off in the '.$b['network'].' panel' : null, $c['removing'] > 0 ? number_format($c['removing']).' coming off' : null])) }}</span>
                                     @endif
                                 </div>
                             @else

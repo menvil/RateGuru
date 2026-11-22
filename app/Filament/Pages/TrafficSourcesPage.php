@@ -466,6 +466,32 @@ final class TrafficSourcesPage extends Page
         $this->toast($count.' unblocked');
     }
 
+    /** Sends the blocks ticked to the network again, to every campaign each is for: those whose network's API can't block them are left as they are. */
+    public function pushSelected(): void
+    {
+        $count = 0;
+        $skipped = 0;
+
+        foreach ($this->selectedRefs() as ['source' => $source, 'level' => $level, 'refs' => $refs]) {
+            if (! app(BlockTrafficRefsAction::class)->canBlockViaApi($source, $level)) {
+                $skipped += count($refs);
+
+                continue;
+            }
+
+            try {
+                $count += app(BlockTrafficRefsAction::class)->push($this->admin(), $source, $level, $refs);
+            } catch (CannotManageTrafficException|RateLimitExceededException $exception) {
+                $this->toast($exception->getMessage(), 'error');
+
+                return;
+            }
+        }
+
+        $this->selected = [];
+        $this->toast(trim(($count > 0 ? $count.' sent to the network again. ' : '').($skipped > 0 ? $skipped.' can’t go through their network’s API: add them to its list by hand.' : '')) ?: 'Nothing to send: those are on their way already.', $count === 0 && $skipped > 0 ? 'error' : 'success');
+    }
+
     public function toggleBlockRule(): void
     {
         $this->blockRule = ! $this->blockRule;
