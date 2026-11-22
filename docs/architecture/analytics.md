@@ -396,12 +396,13 @@ Everything else that keeps a tab quick is deliberate and kept together:
   links, segments, posts or visitors there are, each checked by a test;
 - the tabs slow to read on a busy site — every tab but Journeys
   (`GrowthAnalyticsPage::READ_CACHED`) — and the Source and Campaign options are
-  kept for one administrator for `analytics.read_cache_minutes` (10) minutes
-  once read (`AnalyticsReadCache`), keyed by the tab and what in the address its
-  figures depend on (a filter the tab ignores is left out); the page says
-  "Figures read HH:MM UTC" and offers Refresh, and saving, deleting or restoring
-  a segment, or saving a tracking link, drops everything kept, for every
-  administrator, so it is read afresh.
+  kept for everyone who may open the page for `analytics.read_cache_minutes`
+  (10) minutes once read (`AnalyticsReadCache`), keyed by the tab and what in
+  the address its figures depend on (a filter the tab ignores is left out), and
+  read ahead of the administrators for the views likeliest to be opened (below);
+  the page says "Figures read HH:MM UTC" and offers Refresh, and saving,
+  deleting or restoring a segment, or saving a tracking link, drops everything
+  kept, so it is read afresh.
 
 Other thresholds, each a product rule in `config/analytics.php`: a city needs
 20 visitors for a row of its own, the rest of its country counted together; the
@@ -411,6 +412,60 @@ at most six things — a version published, a paid campaign's first click, a
 comparison started; a segment needs 100 new visitors before its rate is shown
 and its source ten accounts before it gets a verdict; a creative needs 500
 visitors before it can be named a campaign's best.
+
+#### The figures kept, and read ahead
+
+What a tab slow to read shows, and what the filters offer, is kept once for
+everyone who may open the page (`manage-traffic-sources`), not once per
+administrator: nothing a tab, the shell (`AnalyticsView`) or a query under them
+returns depends on who reads it. None asks for the account, the session or a
+policy, with two exceptions, both kept apart: a tracking link's details lead to
+its game only for someone who may manage games, so with details open that
+permission is part of the key (`GrowthAnalyticsPage::readState()`); and every
+address in the figures — Open Tracking, a game's or a link's page — starts with
+the site's address the page was asked at, so that is part of every key too. The
+period an administrator last chose (`ReportPeriodMemory`, in their session) only
+decides which period the page opens on, and the period is part of the key.
+What is kept holds plain values only: the cache gives back no object
+(`cache.serializable_classes` is false), so Retention's rows leave out the
+share each sentence is phrased from, and a test checks every tab for objects.
+
+Figures being read are read once: a request asking for the same key while
+another reads it — a second administrator, or the read ahead — waits for it, at
+most `AnalyticsReadCache::WAIT_SECONDS` (30), and reads the figures itself only
+when none were kept by then (a cache lock per key, held at most 120 seconds, as
+long as a request may take). Refresh never waits, reads now, and keeps what it
+read for everyone. The store is the target's `CACHE_STORE` — the host's Redis
+on a deployed target (the environment contract's Cache / Redis section), the
+file store on a developer's machine; Redis, database and file locks all hold
+across processes.
+
+`analytics:warm-figures` reads them ahead, every five minutes
+(`AnalyticsWarmFiguresCommand::EVERY_MINUTES`, in the background, never two runs
+at once): each tab slow to read, with the options, for the views likeliest to
+be opened. Those are the page's default period with no filter, at each site's
+address an administrator opened it at, then each administrator's latest period,
+the latest first, at most `analytics.read_ahead.views` (4) views; every view's
+Overview is read before any view's next tab. It builds the page as `mount()` and `load()` settle it for such a view
+(`GrowthAnalyticsPage::readAhead()`), so it keeps the figures under the very
+keys the page asks for, and builds every address as a request to that site's
+address would. Opening the page, or choosing a period, notes the view
+(`AnalyticsReadCache::opened()`, one cache entry of every administrator's latest
+view). Figures still kept a minute past the next run are not read again, so
+what an administrator just read is left alone and everything read ahead is read
+again before it lapses: the figures of a view read ahead are at most five
+minutes old. A run reads nothing once no administrator opened the page for
+`analytics.read_ahead.idle_hours` (24), nor while the tabs read the visits
+themselves (`AnalyticsRollupGate::reads()` false): every read would then be the
+slowest there is. It starts no read after `--seconds` (240), so a run ends
+before the next is due, and logs each run (`analytics.figures.read_ahead`: the
+views, the figures read and found kept, the failures, the milliseconds).
+Measured on 5.2 million visits over 181 days, a run reading the default 30 days
+cold takes about 21 seconds and keeps 11 entries (the nine tabs and the two
+options), the default and 90 days together about 75 seconds and 21 entries
+(Experiments, of no period, once); opening every tab after it takes about a
+tenth of a second in all, instead of the 21 to 27 seconds the first
+administrator to open a cold view waited.
 
 ### Filters
 
@@ -654,7 +709,8 @@ action. A moderator sees neither.
 | The cells of each day's people, their accounts and each post's people (`analytics_cells`, `analytics_cell_accounts`, `analytics_post_cells`) | until every visit of the day is gone (`traffic:purge-expired`); a day the cutoff runs through is written again from the visits left |
 | A browser's number (`analytics_pids`) | until no row of Analytics names it, but the highest, which the next number counts on from |
 | The sums of each day's games' visits (`analytics_game_days`) | as the cells |
-| A tab's figures and the filter options, per administrator (cache) | 10 minutes (`analytics.read_cache_minutes`), or until Refresh, a segment saved, deleted or restored, or a tracking link saved |
+| A tab's figures and the filter options, for everyone who may open the page (cache) | 10 minutes (`analytics.read_cache_minutes`), or until Refresh, a segment saved, deleted or restored, or a tracking link saved |
+| The view each administrator last opened or chose — the period and the site's address (cache) | 24 hours from their latest (`analytics.read_ahead.idle_hours`) |
 | The accounts of each day by the post their session opened first (`analytics_first_post_cells`) | as the cells |
 | The hours of each period's assignments and their accounts (`analytics_period_hours`, `analytics_period_hour_accounts`) | as their assignments, kept for ever; an hour something of which is purged or removed is counted again |
 | What Retention reads of the visit and attempt an account is credited to — its source key, device and game (`account_attributions.credited_source_key`, `credited_device`, `credited_game_id`) | as the attribution, the source key and device past the purge of the visit; the game until the attempt's pointer is let go |

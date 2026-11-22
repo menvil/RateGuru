@@ -1,5 +1,6 @@
 <?php
 
+use App\Console\Commands\AnalyticsWarmFiguresCommand;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Schedule;
@@ -114,6 +115,18 @@ Schedule::command('traffic:block-losers')->everyFiveMinutes()->withoutOverlappin
 // minutes after it skip while it runs; the rows stay current enough for that.
 Schedule::command('analytics:refresh-visits --recheck='.(int) config('analytics.rollup.recheck_days').' --seconds=540')->dailyAt('03:25')->createMutexNameUsing('analytics-refresh-visits')->withoutOverlapping(10)->runInBackground();
 Schedule::command('analytics:refresh-visits')->everyMinute()->createMutexNameUsing('analytics-refresh-visits')->withoutOverlapping(10)->runInBackground();
+
+// The figures of Growth → Analytics read ahead of the administrators
+// (docs/architecture/analytics.md, "The figures kept, and read ahead"): every
+// five minutes, each tab slow to read for the views likeliest to be opened,
+// kept for everyone for analytics.read_cache_minutes (10) — longer than the
+// next run takes to come — so an administrator opening one finds it read. A
+// run reads nothing once no administrator opened the page for a day, or while
+// the tabs read the visits themselves; it starts no read after four minutes,
+// and goes to the background so the minute's other commands keep their time.
+// Its overlap lock lasts ten minutes: a scheduler killed mid-run holds the
+// next runs back for no longer than what was kept lasts.
+Schedule::command('analytics:warm-figures')->cron('*/'.AnalyticsWarmFiguresCommand::EVERY_MINUTES.' * * * *')->withoutOverlapping(10)->runInBackground();
 
 // The local IP location database (docs/architecture/geo.md). Every minute,
 // but a run with nothing to do ends at once: each edition is checked once a

@@ -21,6 +21,14 @@ return [
     // How long the figures of a tab slow to read are kept once read, in minutes, unless Refresh asks for them again; 0 reads them every time.
     'read_cache_minutes' => 10,
 
+    // The figures read ahead of the administrators every five minutes (analytics:warm-figures).
+    // idle_hours: how long since an administrator last opened Analytics before nothing is read ahead.
+    // views: the most views read ahead at once — the page's default period, then the periods administrators last chose.
+    'read_ahead' => [
+        'idle_hours' => 24,
+        'views' => 4,
+    ],
+
     // The visitors a city needs before it gets a row of its own on Geography.
     'city_min_visitors' => 20,
 
