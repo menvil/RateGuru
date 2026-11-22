@@ -18,8 +18,8 @@ use App\Models\TrafficVisit;
 use App\Services\Traffic\Connectors\ConnectorException;
 use App\Services\Traffic\Connectors\ConnectorRegistry;
 use App\Services\Traffic\Connectors\ConnectorSession;
-use App\Services\Traffic\Connectors\EditsBlockLists;
 use App\Services\Traffic\Connectors\NetworkCampaign;
+use App\Services\Traffic\Connectors\ReadsBlockLists;
 use App\Services\Traffic\Connectors\ReadsCampaigns;
 use App\Services\Traffic\Connectors\ReadsSpend;
 use Carbon\CarbonImmutable;
@@ -35,9 +35,9 @@ use Throwable;
  * the campaigns' own details each turn, so a campaign that has just had its
  * first click is named within minutes; and every six hours each campaign's
  * block list, read and never written (ReadTrafficBlockListsAction), so what
- * was blocked or unblocked in the network's own panel shows. A turn comes
- * every five minutes.
- * Only campaigns RateGuru saw a
+ * was blocked or unblocked in the network's own panel shows — a list that
+ * can't be read failing nothing but itself, short of a refused key. A turn
+ * comes every five minutes. Only campaigns RateGuru saw a
  * click of are read and kept: a network account can hold campaigns sent
  * elsewhere. A failure waits longer each time; a refused key, an account not
  * in dollars or five failures running need the administrator. A connection
@@ -98,8 +98,8 @@ final class SyncTrafficNetworkAction
             }
 
             // The campaigns' block lists, read and never written, every few hours: a call a campaign, and what they hold changes by hand.
-            if ($connector instanceof EditsBlockLists && ($connection->block_lists_read_at === null || $connection->block_lists_read_at->addHours(self::READ_LISTS_EVERY_HOURS)->lessThanOrEqualTo($now))) {
-                $this->lists->handle((int) $source->id, $connector, $session);
+            if ($connector instanceof ReadsBlockLists && ($connection->block_lists_read_at === null || $connection->block_lists_read_at->addHours(self::READ_LISTS_EVERY_HOURS)->lessThanOrEqualTo($now))) {
+                $this->readLists((int) $source->id, $connector, $session);
                 $connection->block_lists_read_at = $now;
             }
 
@@ -212,6 +212,28 @@ final class SyncTrafficNetworkAction
                     $this->history->handle((int) $campaign->id, TrafficCampaignEventKind::Budget, 'Daily budget changed in the network to '.$campaign->daily_budget, TrafficActor::NetworkApi);
                 }
             });
+        }
+    }
+
+    /**
+     * The campaigns' block lists, read beside the spend the turn is for: a
+     * list that can't be read — an answer of a shape RateGuru doesn't know,
+     * the API down for it — changes nothing and fails nothing, and is read
+     * again at the next read; only a key the network refused is the
+     * connection's to answer for. Reported, never with the key.
+     *
+     * @throws ConnectorException
+     */
+    private function readLists(int $sourceId, ReadsBlockLists $connector, ConnectorSession $session): void
+    {
+        try {
+            $this->lists->handle($sourceId, $connector, $session);
+        } catch (ConnectorException $exception) {
+            if ($exception->failure->needsAttention()) {
+                throw $exception;
+            }
+
+            report($exception);
         }
     }
 
