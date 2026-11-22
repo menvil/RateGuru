@@ -21,8 +21,10 @@ use App\Models\TrafficVisitPost;
 use App\Models\UserActivityDay;
 use App\Support\Traffic\Reports\TrafficReportFilter;
 use Carbon\CarbonImmutable;
+use Closure;
 use Illuminate\Console\Command;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Facades\DB;
 
 /**
  * Deletes what the tracker recorded once it is past its retention
@@ -42,8 +44,10 @@ use Illuminate\Database\Eloquent\Builder;
  * campaigns, blocks, prices and attributions stay.
  *
  * In small batches by primary key, the cutoffs fixed when the run starts; a
- * retention that is not a positive number of days fails the run without
- * deleting anything.
+ * batch of the posts of visits marks its days in the transaction that
+ * deletes it, so a run that fails part way leaves no posts gone with their
+ * days unmarked. A retention that is not a positive number of days fails the
+ * run without deleting anything.
  */
 final class TrafficPurgeExpiredCommand extends Command
 {
@@ -88,32 +92,9 @@ final class TrafficPurgeExpiredCommand extends Command
 
         $now = CarbonImmutable::now('UTC');
         [$lastGone, $cut] = self::networkDays($now->subDays($days['visits']));
-        // The days of the visits whose posts go: Analytics keeps what each visit did with posts, and reads those days again.
-        $postDays = TrafficVisitPost::query()
-            ->join('traffic_visits', 'traffic_visits.id', '=', 'traffic_visit_posts.visit_id')
-            ->where('traffic_visit_posts.first_at', '<', $now->subDays($days['visit_details']))
-            ->distinct()
-            ->pluck('traffic_visits.network_day')
-            ->map(fn (mixed $day): string => substr((string) $day, 0, 10))
-            ->all();
-        // And the days of the visits credited with an account in the sessions of those that opened them: each keeps the
-        // post its session opened first.
-        $sessionDays = TrafficVisit::query()
-            ->from('traffic_visits as credited')
-            ->joinSub(TrafficVisitPost::query()
-                ->join('traffic_visits as session_visit', 'session_visit.id', '=', 'traffic_visit_posts.visit_id')
-                ->where('traffic_visit_posts.first_at', '<', $now->subDays($days['visit_details']))
-                ->where('traffic_visit_posts.views', '>', 0)
-                ->distinct()
-                ->select('session_visit.entry_visit_id'), 'gone', 'gone.entry_visit_id', '=', 'credited.entry_visit_id')
-            ->whereNotNull('credited.account_at')
-            ->distinct()
-            ->pluck('credited.network_day')
-            ->map(fn (mixed $day): string => substr((string) $day, 0, 10))
-            ->all();
         $deleted = [
             'click details' => $this->purge(TrafficVisitDetail::query()->where('created_at', '<', $now->subDays($days['visit_details'])), $chunk, 'visit_id'),
-            'posts of visits' => $this->purge(TrafficVisitPost::query()->where('first_at', '<', $now->subDays($days['visit_details'])), $chunk, 'visit_id'),
+            'posts of visits' => $this->purge(TrafficVisitPost::query()->where('first_at', '<', $now->subDays($days['visit_details'])), $chunk, 'visit_id', self::postDays(...), $now),
             'postbacks' => $this->purge(TrafficPostback::query()->where('created_at', '<', $now->subDays($days['postbacks'])), $chunk),
             'visits' => $this->purge(TrafficVisit::query()->where('arrived_at', '<', $now->subDays($days['visits'])), $chunk),
             // Analytics' own row of a visit goes with it; a browser's first day goes once visits that old are gone.
@@ -133,7 +114,8 @@ final class TrafficPurgeExpiredCommand extends Command
             'activity days' => $this->purge(UserActivityDay::query()->where('day', '<', $now->subDays($activityDays)->format('Y-m-d')), $chunk),
         ];
 
-        foreach (array_unique([...$cut, ...$postDays, ...$sessionDays]) as $day) {
+        // A run that fails before this leaves no day lost: the next finds each again, still cut or gone whole with its cells.
+        foreach ($cut as $day) {
             app(MarkAnalyticsDayAction::class)->handle($day, $now);
         }
 
@@ -174,8 +156,40 @@ final class TrafficPurgeExpiredCommand extends Command
         return [$lastGone, $cut];
     }
 
-    /** @param  Builder<covariant \Illuminate\Database\Eloquent\Model>  $expired */
-    private function purge(Builder $expired, int $chunk, string $key = 'id'): int
+    /**
+     * The days Analytics reads again once a batch of the posts of visits goes:
+     * those of the visits whose posts they are, as Analytics keeps what each
+     * visit did with posts, and of the visits credited with an account in the
+     * sessions of those that opened them, each keeping the post its session
+     * opened first.
+     *
+     * @param  Builder<TrafficVisitPost>  $batch
+     * @return list<string>
+     */
+    private static function postDays(Builder $batch): array
+    {
+        $visits = TrafficVisit::query()->whereIn('id', (clone $batch)->select('visit_id'))->distinct()->pluck('network_day');
+        $credited = TrafficVisit::query()
+            ->whereNotNull('account_at')
+            ->whereIn('entry_visit_id', TrafficVisit::query()->whereIn('id', (clone $batch)->where('views', '>', 0)->select('visit_id'))->select('entry_visit_id'))
+            ->distinct()
+            ->pluck('network_day');
+
+        return $visits->merge($credited)->map(fn (mixed $day): string => substr((string) $day, 0, 10))->values()->all();
+    }
+
+    /**
+     * Each batch in a transaction of its own when its rows tell Analytics the
+     * days they leave changed: the days read before the rows go and marked
+     * after, so a run that fails later never leaves rows gone and their days
+     * unmarked — the next run would find no row to tell it them.
+     *
+     * @template TModel of \Illuminate\Database\Eloquent\Model
+     *
+     * @param  Builder<TModel>  $expired
+     * @param  (Closure(Builder<TModel>): list<string>)|null  $days  the days a batch's rows leave changed
+     */
+    private function purge(Builder $expired, int $chunk, string $key = 'id', ?Closure $days = null, ?CarbonImmutable $now = null): int
     {
         $deleted = 0;
 
@@ -187,7 +201,20 @@ final class TrafficPurgeExpiredCommand extends Command
             }
 
             // Still past its retention: a key a table shares among its rows takes only those.
-            $deleted += (clone $expired)->whereIn($key, $ids)->delete();
+            $batch = (clone $expired)->whereIn($key, $ids);
+
+            $deleted += $days === null ? $batch->delete() : DB::transaction(function () use ($batch, $days, $now): int {
+                $changed = array_unique($days(clone $batch));
+                $count = $batch->delete();
+                // The earliest first, so two writers marking some of the same days lock them in one order.
+                sort($changed);
+
+                foreach ($changed as $day) {
+                    app(MarkAnalyticsDayAction::class)->handle($day, $now);
+                }
+
+                return $count;
+            });
         } while ($ids->count() === $chunk);
 
         return $deleted;

@@ -21,6 +21,7 @@ use App\Models\UserActivityDay;
 use Carbon\CarbonImmutable;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Database\Events\QueryExecuted;
+use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -183,6 +184,26 @@ it('marks the days of the visits credited with an account in the sessions whose 
         ->toContain(substr((string) $credited->network_day, 0, 10))
         ->not->toContain(substr((string) $votedCredited->network_day, 0, 10))
         ->and(AnalyticsFirstPostCell::query()->pluck('network_day')->all())->toBe(['2026-11-01']);
+});
+
+it('marks the days of the posts it deleted even when a later purge of the same run fails', function () {
+    $day = fn (int $daysAgo): array => ['arrived_at' => now()->subDays($daysAgo), 'network_day' => now()->subDays($daysAgo)->toDateString()];
+    $entry = TrafficVisit::factory()->create($day(92));
+    $credited = TrafficVisit::factory()->create([...$day(85), 'entry_visit_id' => $entry->id, 'account_at' => now()->subDays(85)]);
+    $entry->forceFill(['entry_visit_id' => $entry->id])->save();
+    TrafficVisitPost::query()->forceCreate(['visit_id' => $entry->id, 'post_id' => 11, 'views' => 1, 'first_at' => now()->subDays(91)]);
+    // The posts go, then the outbox's purge fails: the next run finds no post left to tell it the days.
+    DB::listen(function (QueryExecuted $query): void {
+        if (str_contains($query->sql, 'traffic_postbacks')) {
+            throw new RuntimeException('The outbox could not be purged.');
+        }
+    });
+
+    expect(fn () => Artisan::call('traffic:purge-expired', ['--chunk' => 1]))->toThrow(RuntimeException::class, 'The outbox could not be purged.')
+        ->and(TrafficVisitPost::query()->count())->toBe(0)
+        ->and(AnalyticsDirtyDay::query()->pluck('day')->all())
+        ->toContain(substr((string) $entry->network_day, 0, 10))
+        ->toContain(substr((string) $credited->network_day, 0, 10));
 });
 
 it('keeps what Retention reads of a purged visit on the account credited to it, the pointer let go', function () {
