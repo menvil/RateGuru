@@ -1,0 +1,36 @@
+app/Actions/Traffic/SyncTrafficNetworkAction.php
+  s_4b9dc6ab6b25d3::t_afba1da12c2573 21
+  s_4b9dc6ab6b25d3::t_5bd87d7ff171dd 36-39
+  s_4b9dc6ab6b25d3::t_9e32ed173bfbc4 100-105
+  s_4b9dc6ab6b25d3::t_4e102219e56f46 57-58,63
+app/Services/Traffic/Connectors/ReadsBlockLists.php
+  s_4b9dc6ab6b25d3::t_af47c49e3c6cc0 1-25
+app/Actions/Traffic/ReadTrafficBlockListsAction.php
+  s_4b9dc6ab6b25d3::t_b2d782c6ed8f5e 1-260
+app/Services/Traffic/Connectors/PopAdsConnector.php
+  s_4b9dc6ab6b25d3::t_5fb9b06b713789 197-225
+  s_4b9dc6ab6b25d3::t_0e07864d63df05 125,131,133-139,141-148,153-159,162-163
+  s_4b9dc6ab6b25d3::t_b8f8025830e2f8 21-23
+  s_4b9dc6ab6b25d3::t_a0680a3dd97a23 140,149-150
+app/Services/Traffic/Connectors/EditsBlockLists.php
+  s_4b9dc6ab6b25d3::t_4a756497a82b06 7-8
+app/Services/Traffic/Connectors/ExoClickConnector.php
+  s_4b9dc6ab6b25d3::t_6ee3bbb9cf0353 136-159
+  s_4b9dc6ab6b25d3::t_10547da123dac0 18-20
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "61db8a76cba50e7648af9b7c6f76d6884a30eaf5",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
