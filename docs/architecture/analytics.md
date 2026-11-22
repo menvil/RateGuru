@@ -147,6 +147,25 @@ visit it is credited to — the key of the session that visit belonged to — it
 device that visit's, and its game the game of the attempt it is credited to.
 History starts with the first account recorded: there is nothing to backfill.
 
+All three are copied onto the attribution in the write that credits the
+account (`credited_source_key`, `credited_device`, `credited_game_id`,
+`AccountAttribution::creditedKeys()`), so Retention reads the accounts and
+their days and never a visit or an attempt. A visit purged after 400 days
+lets its attribution's `credited_visit_id` go and leaves the copies, so an
+account keeps its source and device for as long as its attribution — read
+through the visits it fell to "Direct / Unknown" and out of a device's
+cohorts. The game goes only with the attempt's pointer, which the purge of an
+unconfirmed account lets go when its attempts are erased; a paid click passed
+to another browser before any page of it ran takes its new device to an
+account already credited to it. An attribution written without them — only
+by the release before them, while a deploy runs between migrating and
+switching over — gets them on the next run of `analytics:refresh-visits`
+(`CopyCreditedKeysAction`), and the migration that added them copied them
+for every attribution before. Each account's days are joined once and folded
+into its row. Measured on 37,000 accounts over 181 days, with nothing kept
+from an earlier read, the cohorts of 30 or 90 days take 40 to 180
+milliseconds instead of two to three and a half seconds.
+
 ## How it is read
 
 ### People, not visits
@@ -248,8 +267,7 @@ a planner would walk it for the people's order instead of sorting, reading the
 table at random.
 
 The same rows serve the posts of Site engagement (`AnalyticsContentQuery`, the
-sessions joined by `entry_visit_id`), the visit an account is credited to on
-Retention (`RetentionQuery`), and a game's Analytics — its traffic figures
+sessions joined by `entry_visit_id`) and a game's Analytics — its traffic figures
 (`TrafficReportQuery`'s game reads, by `game_id` and arrival) and the plays
 and visitors a device or country narrows to (`GameMetricsQuery`, which is why
 a tracked visit's row keeps its browser hash and when it was last seen).
@@ -428,7 +446,8 @@ docs/architecture/http-and-database-boundaries.md and a behaviour test:
 - `TrafficSegmentsQuery` — a paid source's segments, each click's segment
   worked out once and every segment counted in one read;
 - `RetentionQuery` — weekly cohorts as conditional sums over one read of the
-  accounts;
+  accounts, each account's days joined once and folded by a conditional
+  `MAX`;
 - `TrackingLinksQuery` and `ComparisonPeriodsQuery` — literal searches with
   `ESCAPE`;
 - `GameMetricsQuery::periodFunnel()` — how far the visitors each period sent to
@@ -638,6 +657,7 @@ action. A moderator sees neither.
 | A tab's figures and the filter options, per administrator (cache) | 10 minutes (`analytics.read_cache_minutes`), or until Refresh, a segment saved, deleted or restored, or a tracking link saved |
 | The accounts of each day by the post their session opened first (`analytics_first_post_cells`) | as the cells |
 | The hours of each period's assignments and their accounts (`analytics_period_hours`, `analytics_period_hour_accounts`) | as their assignments, kept for ever; an hour something of which is purged or removed is counted again |
+| What Retention reads of the visit and attempt an account is credited to — its source key, device and game (`account_attributions.credited_source_key`, `credited_device`, `credited_game_id`) | as the attribution, the source key and device past the purge of the visit; the game until the attempt's pointer is let go |
 
 The privacy page is the owner's to update before Record site visits is switched
 on (docs/admin/traffic-sources.md, "Privacy page").
