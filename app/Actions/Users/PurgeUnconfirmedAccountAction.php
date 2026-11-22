@@ -252,7 +252,8 @@ final class PurgeUnconfirmedAccountAction
     /**
      * The games it played: its attempts, their answers, emails and events,
      * and the versions it was assigned — each a part of its period's funnel,
-     * which is told the hours of their assignments first, and the days of the
+     * which is told the hours of their assignments first, as it is of the
+     * results it saw on a play that stays someone else's, and the days of the
      * visits they were played on marked for Analytics (MarkAnalyticsDayAction).
      * Its attribution, never confirmed, was never one of the funnel's accounts.
      */
@@ -264,8 +265,13 @@ final class PurgeUnconfirmedAccountAction
             ->orderBy('id')
             ->lockForUpdate()
             ->pluck('id');
+        // Its events go by the account too: a result it saw on a guest's play it went on with, never taken, is that play's.
+        $seen = GameEvent::query()->where('user_id', $id)->where('type', GameEventType::ResultViewed->value)->whereNotNull('attempt_id')->select('attempt_id');
 
-        $this->periodHours->ofAssignments(GameAssignment::query()->whereIn('id', $assignments)->orWhereIn('id', GameAttempt::query()->whereIn('id', $attempts)->select('assignment_id')));
+        $this->periodHours->ofAssignments(GameAssignment::query()
+            ->whereIn('id', $assignments)
+            ->orWhereIn('id', GameAttempt::query()->whereIn('id', $attempts)->select('assignment_id'))
+            ->orWhereIn('id', GameAttempt::query()->whereIn('id', $seen)->select('assignment_id')));
 
         $events = GameEvent::query()
             ->where(fn ($event) => $event

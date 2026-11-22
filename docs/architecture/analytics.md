@@ -533,8 +533,8 @@ on every change): a play started from an assignment hours or days old, an
 attempt completed, a result seen (whichever action records it), an email
 left, the goal reached, an account credited to one of its plays confirmed or
 activated, and the results seen and emails `games:purge-expired` deletes, the
-plays and assignments of an unconfirmed account removed and the emails of an
-account deleted. `analytics:refresh-visits` counts them first every minute
+plays and assignments of an unconfirmed account removed — with the results it
+saw on a guest's play it went on with — and the emails of an account deleted. `analytics:refresh-visits` counts them first every minute
 (`RefreshAnalyticsPeriodHoursAction`): the hours marked, each unmarked once
 counted unless it changed again meanwhile; then every hour closed ten minutes
 since — longer than a change takes to be kept — the earliest first, from the

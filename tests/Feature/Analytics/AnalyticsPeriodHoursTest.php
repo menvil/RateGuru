@@ -572,6 +572,29 @@ it('counts the plays and assignments of an unconfirmed account removed with ever
     hoursFunnel([$period, $members]);
 });
 
+it('counts a result an unconfirmed account saw on a guest’s play, gone with the account', function () {
+    $this->travelTo('2026-11-01 10:15:00');
+    [$game, $version, $period] = hoursGame();
+    $attempt = app(StartGameAttemptAction::class)->handle($game, hoursGuest('ann'), 'en');
+    GameAttempt::query()->whereKey($attempt->id)->update(['status' => 'completed', 'completed_at' => now()]);
+    $bot = User::factory()->unverified()->create(['created_at' => now()]);
+    // Signed up past the hours a guest's play is taken in, and went on with it: the result seen is the account's, the play stays the guest's.
+    app(GameEventRecorder::class)->record(GameEventType::ResultViewed, (int) $game->id, new GameVisitor(GameAudience::Authenticated, (int) $bot->id, null, hash('sha256', 'ann')), attempt: $attempt->fresh());
+    $this->travelTo('2026-11-12 12:00:00');
+    countPeriodHours();
+
+    expect(hoursFunnel($period)[$period->id][$version->id]->resultViewed)->toBe(1)
+        ->and(app(PurgeUnconfirmedAccountAction::class)->handle((int) $bot->id, UnconfirmedAccountsQuery::cutoff()))->toBe(UnconfirmedAccountPurgeOutcome::Purged)
+        ->and(GameAttempt::query()->whereKey($attempt->id)->exists())->toBeTrue()
+        ->and(markedPeriodHours())->toBe(['2026-11-01 10:00:00'])
+        ->and(hoursFunnel($period)[$period->id][$version->id]->resultViewed)->toBe(0);
+
+    countPeriodHours();
+
+    expect(markedPeriodHours())->toBe([])
+        ->and(hoursFunnel($period)[$period->id][$version->id]->resultViewed)->toBe(0);
+});
+
 it('counts the emails of an account’s plays gone when the account is deleted', function () {
     $this->travelTo('2026-11-01 10:15:00');
     [, $version, $period] = hoursGame();
