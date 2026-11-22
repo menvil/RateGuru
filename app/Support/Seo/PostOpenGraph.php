@@ -80,6 +80,9 @@ final class PostOpenGraph
             'bs' => 'bs_BA',
             'mk' => 'mk_MK',
             'sq' => 'sq_AL',
+            'ar' => 'ar_AR',
+            'ur' => 'ur_PK',
+            'he' => 'he_IL',
             default => 'en_US',
         };
     }
