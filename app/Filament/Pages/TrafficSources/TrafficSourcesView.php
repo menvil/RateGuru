@@ -842,7 +842,8 @@ final class TrafficSourcesView
      * naming those it isn't on and why; refused by every one; taken off them
      * in the network's panel; a taking off that failed, which leaves it
      * blocked until it is unblocked again; blocked in the network's own
-     * panel, not by RateGuru — or blocked, still sending clicks or not.
+     * panel, not by RateGuru, on how many campaigns' lists, or still there
+     * where an unblock failed — or blocked, still sending clicks or not.
      *
      * @return array{label: string, tone: string, tip: string}
      */
@@ -863,6 +864,9 @@ final class TrafficSourcesView
         $stuck = $on->first(fn (TrafficBlockListing $listing): bool => $listing->error !== null);
         $name = fn (TrafficBlockListing $listing): string => $listing->campaign->name ?? 'Campaign '.$listing->campaign->external_id;
         $lists = fn (Collection $some): string => ($some->count() === 1 ? 'the list of ' : 'the lists of ').$some->map($name)->implode(', ');
+        // How many campaigns' lists hold a block found in the panel, counted with the blocks; their names aren't read for it.
+        $count = (int) ($block->getAttribute('lists_holding') ?? $on->count());
+        $holding = $count === 0 ? '' : ' · on '.$count.' '.($count === 1 ? 'campaign’s list' : 'campaigns’ lists');
         $notOn = fn (TrafficBlockListing $listing): string => 'not on '.$name($listing).'’s: '.match ($listing->error) {
             null => 'not sent there yet — Push again sends it.',
             TrafficBlockListing::TAKEN_OFF => 'taken off its list in the '.$network.' panel, not by RateGuru.',
@@ -872,10 +876,12 @@ final class TrafficSourcesView
         return match (true) {
             $block->network_state === TrafficBlockNetworkState::Pending => ['label' => 'Blocking…', 'tone' => 'warning', 'tip' => $tip.' · waiting to be added to the network’s list'],
             $block->network_state === TrafficBlockNetworkState::Removing => ['label' => 'Unblocking…', 'tone' => 'warning', 'tip' => 'Waiting to be taken off the network’s list'],
+            $block->method === TrafficBlockMethod::Panel && $block->network_error !== null => ['label' => 'Blocked on '.$network.' · unblock failed', 'tone' => 'danger',
+                'tip' => 'Blocked in the '.$network.' panel, not by RateGuru · still on '.($on->isNotEmpty() ? $lists($on) : 'the network’s list').': '.$why($block->network_error).' Unblock it again to try again.'],
             $block->method === TrafficBlockMethod::Panel => ['label' => 'Blocked on '.$network, 'tone' => $still ? 'danger' : 'neutral',
-                'tip' => 'Blocked in the '.$network.' panel, not by RateGuru · found '.$block->blocked_at->format('j M').($on->isNotEmpty() ? ' · on '.$lists($on) : '').$since],
+                'tip' => 'Blocked in the '.$network.' panel, not by RateGuru · found '.$block->blocked_at->format('j M').$holding.$since],
             $block->network_state === TrafficBlockNetworkState::Partial && $stuck !== null => ['label' => 'Partly blocked · unblock failed', 'tone' => 'danger',
-                'tip' => 'Still on '.$on->map($name)->implode(', ').'’s list: '.$why($stuck->error).($off->isNotEmpty() ? ' Taken off '.$lists($off).'.' : '').' Unblock it again to try again.'],
+                'tip' => 'Still on '.$lists($on).': '.$why($stuck->error).($off->isNotEmpty() ? ' Taken off '.$lists($off).'.' : '').' Unblock it again to try again.'],
             $block->network_state === TrafficBlockNetworkState::Partial => ['label' => 'Partly blocked · '.$on->count().' of '.$listings->count().' campaigns', 'tone' => 'warning',
                 'tip' => $tip.' · on '.$lists($on).' · '.$off->map($notOn)->implode(' · ')],
             $block->network_state === TrafficBlockNetworkState::TakenOff => ['label' => 'Taken off on the network', 'tone' => 'warning',
@@ -889,17 +895,20 @@ final class TrafficSourcesView
     }
 
     /**
-     * Every block, those whose badge names campaigns — on some lists only,
-     * on none, taken off them, found in the network's panel — with where
-     * they stand on each campaign's list and the campaigns' names; the rest
-     * with none read.
+     * Every block, with how many campaigns' lists hold it; those whose badge
+     * names campaigns — on some lists only, on none, taken off them, or
+     * found in the network's panel and still there after an unblock failed
+     * — with where they stand on each campaign's list and the campaigns'
+     * names; the rest with none read. A block found in the panel is often
+     * on every list: its listings, as many as its campaigns, are counted,
+     * never loaded, on every render.
      *
      * @return EloquentCollection<int, TrafficBlock>
      */
     private function blocksWithListings(): EloquentCollection
     {
-        $blocks = TrafficBlock::query()->get();
-        $named = $blocks->filter(fn (TrafficBlock $block): bool => $block->method === TrafficBlockMethod::Panel
+        $blocks = TrafficBlock::query()->withCount(['listings as lists_holding' => fn ($listings) => $listings->where('listed', true)])->get();
+        $named = $blocks->filter(fn (TrafficBlock $block): bool => ($block->method === TrafficBlockMethod::Panel && $block->network_error !== null)
             || in_array($block->network_state, [TrafficBlockNetworkState::Partial, TrafficBlockNetworkState::Failed, TrafficBlockNetworkState::TakenOff], true));
         (new EloquentCollection($named->all()))->load('listings.campaign:id,name,external_id');
 

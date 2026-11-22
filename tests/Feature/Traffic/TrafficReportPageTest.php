@@ -211,7 +211,7 @@ it('says on a site some campaigns took and others refused how many lists it is o
         ->and($flags['70003'])->toMatchArray(['label' => 'Not blocked on the network', 'tone' => 'danger'])
         ->and($flags['70003']['tip'])->toContain('not on US popunder’s: The network refused the change. · not on EU popunder’s: The network’s API is down.')
         ->and($flags['70004'])->toMatchArray(['label' => 'Partly blocked · unblock failed', 'tone' => 'danger'])
-        ->and($flags['70004']['tip'])->toContain('Still on EU popunder’s list: The campaign blocks the sites of a list shared with other campaigns');
+        ->and($flags['70004']['tip'])->toContain('Still on the list of EU popunder: The campaign blocks the sites of a list shared with other campaigns');
     $page->assertSee('Partly blocked · 1 of 2 campaigns');
 });
 
