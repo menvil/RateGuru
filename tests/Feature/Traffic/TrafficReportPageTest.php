@@ -762,6 +762,21 @@ it('lays out Campaigns: the new campaign to set up, the link with samples, the l
         ->assertSet('campaignId', '')->assertSet('type', '')->assertSet('selected', []);
 });
 
+it('shows a new campaign the network API read by its name and targeting, leaving only its stage to choose', function () {
+    TrafficCampaign::factory()->create(['source_id' => $this->source->id, 'external_id' => '9612052', 'status' => 'new', 'name' => 'PopAds - Tabup/Mobile/All countries - #9612052', 'countries' => null, 'synced_at' => '2026-11-16 09:00:00']);
+
+    $page = Livewire::withQueryParams(['tab' => 'campaigns'])->test(TrafficSourcesPage::class)->call('load')
+        ->assertSee('PopAds main campaign “PopAds - Tabup/Mobile/All countries - #9612052” is new')
+        ->assertSee('its name, targeting, bid and budget come from the PopAds main API')
+        ->assertSee('Choose its stage')
+        ->assertDontSee('Set it up')
+        ->assertDontSee('New campaign 9612052')
+        ->assertDontSee('Not set yet');
+    $row = collect($page->viewData('campaignGroups'))->flatMap(fn (array $group): array => $group['rows'])->firstWhere('name', 'PopAds - Tabup/Mobile/All countries - #9612052');
+
+    expect($row)->toMatchArray(['new' => true, 'synced' => true, 'countries' => null, 'stage' => 'new']);
+});
+
 it('marks the source and the game of the link Campaigns shows as chosen in their pickers', function () {
     $exo = TrafficSource::factory()->create(['name' => 'ExoClick tests', 'link_key' => 'exo']);
     $first = Game::factory()->create(['title' => 'A taste test']);

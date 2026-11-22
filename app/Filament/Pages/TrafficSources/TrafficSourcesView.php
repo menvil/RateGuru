@@ -1162,6 +1162,9 @@ final class TrafficSourcesView
                 'id' => $new->id,
                 'source' => $sources->firstWhere('id', $new->source_id)->name ?? 'A network',
                 'external' => $new->external_id,
+                'name' => $new->name,
+                // Its name, targeting, bid and budget already read from the network's API: only its stage is left to choose.
+                'synced' => $new->synced_at !== null,
                 'visits' => ($figures[$new->id] ?? new ReportFigures)->visits,
                 'since' => $new->first_click_at,
                 'game' => $games->firstWhere('id', $new->game_id)->title ?? null,
@@ -1190,8 +1193,10 @@ final class TrafficSourcesView
                     : 'No API connection for '.$source->name.': targeting, bid and budget typed in here',
                 'rows' => $shown->where('source_id', $source->id)->map(fn (TrafficCampaign $campaign): array => [
                     'id' => $campaign->id,
-                    'name' => $campaign->status === TrafficCampaignStatus::New ? 'New campaign '.$campaign->external_id : ($campaign->name ?? 'Campaign '.$campaign->external_id),
+                    // Its name in the network once the API read it, whatever its stage.
+                    'name' => $campaign->name ?? ($campaign->status === TrafficCampaignStatus::New ? 'New campaign ' : 'Campaign ').$campaign->external_id,
                     'new' => $campaign->status === TrafficCampaignStatus::New,
+                    'synced' => $campaign->synced_at !== null,
                     'sub' => implode(' · ', array_filter([$source->name, $campaign->external_id, $games->firstWhere('id', $campaign->game_id)?->title])),
                     'countries' => $campaign->countries === null ? null : collect($campaign->countries)->map(fn (string $code): string => $countries[$code] ?? $code)->take(3)->implode(', ').(count($campaign->countries) > 3 ? ' +'.(count($campaign->countries) - 3) : ''),
                     'devices' => match (true) {

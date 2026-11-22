@@ -25,7 +25,11 @@ Growth → Traffic sources (`/admin/traffic-sources`), for active administrators
 4. Campaigns → Get the link: choose the source and a game, paste the link as
    the target URL of the network's campaigns. Check a link reads a pasted link
    the way the server reads a click.
-5. Run a small campaign; its clicks appear, and its campaign shows up by itself.
+5. Run a small campaign; its clicks appear, and its campaign shows up by itself,
+   as New. With the source's API connected, its name, targeting, bid and budget
+   are read from the network within a few hours; choose its stage (Testing,
+   Optimising or Scaling) to take it out of New. Without an API, type them in
+   its panel too.
 6. Connect the source's API (PopAds key, or ExoClick API token) in its editor.
    A day's spend closes once the network's figures came whole.
 7. Value → What a new user is worth: price the outcomes once for the whole
