@@ -91,6 +91,15 @@ it('finds the post a session opened first, the lower id at the same moment, what
         ['post_id' => 11, 'first_at' => '2026-11-15 10:04:00'],
         ['post_id' => 2, 'first_at' => '2026-11-15 10:06:00'],
     ]))->toBe(11)
+        // The moment written the ISO way read as the same instant: the earliest alone, and the lower id at a tie.
+        ->and(AnalyticsVisitRow::sessionPost([
+            ['post_id' => 11, 'first_at' => '2026-11-15 10:04:00'],
+            ['post_id' => 12, 'first_at' => '2026-11-15T10:03:00.000000Z'],
+        ]))->toBe(12)
+        ->and(AnalyticsVisitRow::sessionPost([
+            ['post_id' => 11, 'first_at' => '2026-11-15 10:04:00'],
+            ['post_id' => 10, 'first_at' => '2026-11-15T10:04:00.000000Z'],
+        ]))->toBe(10)
         ->and(AnalyticsVisitRow::sessionPost([]))->toBeNull();
 
     $row = AnalyticsVisitRow::fromVisit(rollupSourceVisit(['attempts' => 2, 'share_clicks' => 1, 'shared_results' => 1, 'session_post_id' => 11]));

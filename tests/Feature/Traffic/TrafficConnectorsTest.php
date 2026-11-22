@@ -346,19 +346,26 @@ it('leaves blocked the last sites of a list other campaigns share, saying why, a
     expect($block->fresh())->network_state->toBe(TrafficBlockNetworkState::Applied)->network_error->toBe('shared_list');
 });
 
-it('takes an error PopAds explains for a refusal, not for an API that is down, whatever its status', function () {
+it('takes an error PopAds explains for a refusal, not for an API that is down, whatever its status', function (int $status, array|string $answer, string $error) {
     TrafficApiConnection::factory()->create(['source_id' => $this->popads->id, 'next_sync_at' => now()->addHour()]);
     TrafficCampaign::factory()->create(['source_id' => $this->popads->id, 'external_id' => '881204']);
     Http::fake(fn (Request $request) => $request->method() === 'POST'
-        ? Http::response(['errors' => [['status' => 500, 'code' => 62, 'title' => '"40123" is not an active website ID']]], 500)
+        ? Http::response($answer, $status)
         : Http::response(['mode' => 'exclude', 'items' => ['111']]));
 
     app(BlockTrafficRefsAction::class)->block($this->admin, $this->popads, TrafficBlockLevel::Site, ['40123'], null, true);
     $this->artisan('traffic:sync-networks')->assertSuccessful();
 
-    expect(TrafficBlock::query()->sole())->network_state->toBe(TrafficBlockNetworkState::Failed)->network_error->toBe('rejected')
-        ->and(TrafficBlockEvent::query()->where('kind', 'applied')->sole())->ok->toBeFalse()->http_status->toBe(500);
-});
+    expect(TrafficBlock::query()->sole())->network_state->toBe(TrafficBlockNetworkState::Failed)->network_error->toBe($error)
+        ->and(TrafficBlockEvent::query()->where('kind', 'applied')->sole())->ok->toBeFalse()->http_status->toBe($status);
+})->with([
+    'a site it won’t take, sent with 500' => [500, ['errors' => [['status' => 500, 'code' => 62, 'title' => '"40123" is not an active website ID']]], 'rejected'],
+    'a refusal it explains, sent with 403' => [403, ['errors' => [['status' => 403, 'code' => 0, 'title' => 'Campaign not found']]], 'rejected'],
+    'a refusal it explains, sent with 429' => [429, ['errors' => [['status' => 429, 'code' => 0, 'title' => 'Too many website IDs']]], 'rejected'],
+    'a key it refuses, unexplained' => [403, '403 Forbidden (API Key Not Valid)', 'auth'],
+    'a call it wants slower, unexplained' => [429, '', 'rate_limited'],
+    'an API that is down' => [503, '', 'unavailable'],
+]);
 
 it('sends no PopAds exclusion list rewritten from a targeting read without one', function () {
     TrafficApiConnection::factory()->create(['source_id' => $this->popads->id, 'next_sync_at' => now()->addHour()]);

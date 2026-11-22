@@ -324,17 +324,29 @@ it('writes a day’s cells again when one of its visits changes', function () {
 it('reads the rows, never the cells, once the setting turns them off or before they are filled', function () {
     cellsFixture();
     fillAnalyticsRollup();
+    // The tables the figures of a week are read from.
+    $tables = function (): string {
+        DB::flushQueryLog();
+        DB::enableQueryLog();
+        app(AnalyticsVisitsQuery::class)->figures(analyticsFilter('7d'));
+        $sql = collect(DB::getQueryLog())->pluck('query')->implode(' ');
+        DB::disableQueryLog();
+
+        return $sql;
+    };
 
     config(['analytics.rollup.cells' => false]);
     app()->forgetScopedInstances();
 
-    expect(app(AnalyticsRollupGate::class)->readsCells())->toBeFalse();
+    expect(app(AnalyticsRollupGate::class)->readsCells())->toBeFalse()
+        ->and($tables())->toContain('analytics_visits')->not->toContain('analytics_cells');
 
     config(['analytics.rollup.cells' => true]);
     AnalyticsRollupState::query()->whereKey(AnalyticsRollupState::ID)->update(['cells_filled_at' => null]);
     app()->forgetScopedInstances();
 
-    expect(app(AnalyticsRollupGate::class)->readsCells())->toBeFalse();
+    expect(app(AnalyticsRollupGate::class)->readsCells())->toBeFalse()
+        ->and($tables())->toContain('analytics_visits')->not->toContain('analytics_cells');
 });
 
 it('reads the attempts, the result shares and the accounts each first post brought from the cells, never from the attempts, their events or the sessions', function () {

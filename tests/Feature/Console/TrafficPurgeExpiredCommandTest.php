@@ -7,6 +7,7 @@ use App\Models\AnalyticsCellAccount;
 use App\Models\AnalyticsDirtyDay;
 use App\Models\AnalyticsFirstPostCell;
 use App\Models\AnalyticsGameDay;
+use App\Models\AnalyticsPerson;
 use App\Models\AnalyticsPid;
 use App\Models\AnalyticsVisit;
 use App\Models\TrafficChanceRun;
@@ -18,9 +19,12 @@ use App\Models\TrafficVisit;
 use App\Models\TrafficVisitDetail;
 use App\Models\TrafficVisitPost;
 use App\Models\UserActivityDay;
+use App\Queries\Analytics\AnalyticsVisitsQuery;
+use App\Support\Analytics\AnalyticsVisitRow;
 use Carbon\CarbonImmutable;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Database\Events\QueryExecuted;
+use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -85,6 +89,38 @@ it('deletes the cells of people and the sums of game days with their days’ vis
         ->and(AnalyticsCellAccount::query()->pluck('network_day')->all())->toBe(['2026-11-01'])
         ->and(AnalyticsPid::query()->orderBy('pid')->pluck('pid')->all())->toBe([1, 3])
         ->and(AnalyticsGameDay::query()->pluck('network_day')->all())->toBe(['2026-11-01']);
+});
+
+it('moves a browser’s first day on to the earliest of its visits left, so the rows count who came back as the visits do', function () {
+    // Each first came on a day whose visits go.
+    foreach (['ann', 'bob', 'cid', 'dan', 'eve'] as $browser) {
+        analyticsVisit($browser, ['network_day' => '2025-10-01']);
+    }
+
+    // Ann on two days of the week, Bob once in it and once before it, Cid once in it only, Dan never again — and Eve
+    // on a network day before the cutoff's, in a time zone behind UTC, arriving after it.
+    analyticsVisit('ann', ['network_day' => '2026-11-14']);
+    analyticsVisit('ann', ['network_day' => '2026-11-16']);
+    analyticsVisit('bob', ['network_day' => '2026-10-01']);
+    analyticsVisit('bob', ['network_day' => '2026-11-16']);
+    analyticsVisit('cid', ['network_day' => '2026-11-16']);
+    analyticsVisit('eve', ['network_day' => '2025-10-12', 'arrived_at' => '2025-10-13 05:00:00']);
+    fillAnalyticsRollup();
+
+    $this->artisan('traffic:purge-expired', ['--chunk' => 1])->assertSuccessful();
+
+    // The rows are read as they are, not filled again: only the next read of a day would put a browser back.
+    $returning = function (bool $rows): int {
+        config(['analytics.rollup.read' => $rows, 'analytics.rollup.cells' => false]);
+        app()->forgetScopedInstances();
+
+        return app(AnalyticsVisitsQuery::class)->returning(analyticsFilter('7d'));
+    };
+    $first = fn (string $browser): ?string => AnalyticsPerson::query()->find(AnalyticsVisitRow::key(hash('sha256', $browser)))?->first_day;
+
+    expect($returning(false))->toBe(2)
+        ->and($returning(true))->toBe(2)
+        ->and([$first('ann'), $first('bob'), $first('cid'), $first('dan'), $first('eve')])->toBe(['2026-11-14', '2026-10-01', '2026-11-16', null, '2025-10-12']);
 });
 
 it('deletes the posts a visit opened after 90 days from the first, the visit staying', function () {
@@ -183,6 +219,26 @@ it('marks the days of the visits credited with an account in the sessions whose 
         ->toContain(substr((string) $credited->network_day, 0, 10))
         ->not->toContain(substr((string) $votedCredited->network_day, 0, 10))
         ->and(AnalyticsFirstPostCell::query()->pluck('network_day')->all())->toBe(['2026-11-01']);
+});
+
+it('marks the days of the posts it deleted even when a later purge of the same run fails', function () {
+    $day = fn (int $daysAgo): array => ['arrived_at' => now()->subDays($daysAgo), 'network_day' => now()->subDays($daysAgo)->toDateString()];
+    $entry = TrafficVisit::factory()->create($day(92));
+    $credited = TrafficVisit::factory()->create([...$day(85), 'entry_visit_id' => $entry->id, 'account_at' => now()->subDays(85)]);
+    $entry->forceFill(['entry_visit_id' => $entry->id])->save();
+    TrafficVisitPost::query()->forceCreate(['visit_id' => $entry->id, 'post_id' => 11, 'views' => 1, 'first_at' => now()->subDays(91)]);
+    // The posts go, then the outbox's purge fails: the next run finds no post left to tell it the days.
+    DB::listen(function (QueryExecuted $query): void {
+        if (str_contains($query->sql, 'traffic_postbacks')) {
+            throw new RuntimeException('The outbox could not be purged.');
+        }
+    });
+
+    expect(fn () => Artisan::call('traffic:purge-expired', ['--chunk' => 1]))->toThrow(RuntimeException::class, 'The outbox could not be purged.')
+        ->and(TrafficVisitPost::query()->count())->toBe(0)
+        ->and(AnalyticsDirtyDay::query()->pluck('day')->all())
+        ->toContain(substr((string) $entry->network_day, 0, 10))
+        ->toContain(substr((string) $credited->network_day, 0, 10));
 });
 
 it('keeps what Retention reads of a purged visit on the account credited to it, the pointer let go', function () {

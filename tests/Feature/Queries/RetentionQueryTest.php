@@ -311,8 +311,10 @@ function retentionReadEveryWay(): array
     $first = app(RetentionQuery::class)->firstSignup();
     $read = ['groups' => 0, 'returning' => 0];
 
-    foreach (['7d', '30d', '90d', 'this_month', 'last_month'] as $preset) {
+    foreach (['7d', '30d', '90d', 'this-month', 'last-month'] as $preset) {
         $filter = analyticsFilter($preset);
+        // A name the picker does not offer falls back to its default period and reads it again.
+        expect($filter->period->preset)->toBe($preset);
         $weeks = array_map(fn (string $day): CarbonImmutable => CarbonImmutable::parse($day, 'UTC'), RetentionCohorts::weekStarts($filter->period->today, $first));
 
         foreach ([null, TrafficDevice::Mobile, TrafficDevice::Desktop] as $device) {

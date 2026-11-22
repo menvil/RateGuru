@@ -367,6 +367,8 @@ it('reads the cells, never every view and attempt, while they are kept, and the 
 
     expect($read())->toBe($kept)
         ->and($read('flow'))->toBe($kept)
+        // Today alone, a day not over: its cells up to the moment.
+        ->and($read(of: cellsScope($version, '2026-11-12 00:00:00', '2026-11-12 12:00:01')))->toBe($kept)
         // A device or a country is the recorded visits', which the cells don't keep.
         ->and($read('device'))->toBeFalse()
         ->and($read(of: cellsScope($version, '2026-11-01 00:00:00', '2026-11-12 12:00:01', visits: new VisitFilter(TrafficDevice::Mobile))))->toBeFalse()
@@ -621,6 +623,43 @@ it('counts an attempt completed once the day it began on closed, the day marked 
 
     expect(markedGameDays())->toBe([])
         ->and(cellsFunnels($scope)[0]->finishers)->toBe(1);
+});
+
+it('keeps a day marked when it changes again while a refresh counts it, until a later refresh counts the change', function () {
+    if (! app(AnalyticsRollupGate::class)->cellsKept()) {
+        expect(countGameCells())->toBe(0);
+
+        return;
+    }
+
+    $this->travelTo('2026-11-10 10:15:00');
+    $version = cellsGame();
+    $attempt = app(StartGameAttemptAction::class)->handle($version->game, cellsGuest('ann'), 'en');
+    $this->travelTo('2026-11-12 12:00:00');
+    countGameCells();
+    $scope = cellsScope($version, '2026-11-01 00:00:00', '2026-11-12 12:00:01');
+    app(RecordGameAnswerAction::class)->handle($attempt, cellsGuest('ann'), 0, 0);
+
+    expect(markedGameDays())->toBe(['2026-11-10']);
+
+    // Shared just as the refresh has written the day's cells again, before it takes away the mark it read.
+    $shared = false;
+    DB::listen(function ($query) use (&$shared, $attempt): void {
+        if (! $shared && str_contains($query->sql, 'insert into "analytics_game_cells"')) {
+            $shared = true;
+            app(GameEventRecorder::class)->record(GameEventType::ShareClicked, (int) $attempt->game_id, cellsGuest('ann'), attempt: $attempt);
+        }
+    });
+    countGameCells();
+
+    expect($shared)->toBeTrue()
+        ->and(markedGameDays())->toBe(['2026-11-10'])
+        ->and(cellsFunnels($scope)[0]->sharers)->toBe(1);
+
+    countGameCells();
+
+    expect(markedGameDays())->toBe([])
+        ->and(cellsFunnels($scope)[0]->sharers)->toBe(1);
 });
 
 it('counts an account confirmed days after the play, and the goal it reaches, the day of the play marked', function () {

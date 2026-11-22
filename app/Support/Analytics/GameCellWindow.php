@@ -57,15 +57,16 @@ final readonly class GameCellWindow
                 [$closedFrom, $closedBefore] = [$whole->fromDay, $before];
                 [$start, $end] = [self::midnight($whole->fromDay), self::midnight($before)];
             }
+        }
 
-            // The open days only from their first on, and only up to the moment: past it, only the events and attempts know.
-            $first = max($after, $whole->fromDay);
+        // The open days only from the first the window starts no later than — today alone from its midnight too, which
+        // holds no whole day — and only up to the moment: past it, only the events and attempts know.
+        $first = max($after, (string) ArrivalWindow::of($from)->fromDay);
 
-            if ($moment !== null && self::midnight($first)->lessThan($moment) && $to->greaterThanOrEqualTo($moment)) {
-                [$openFrom, $openThrough] = [$first, GameCellDays::dayOf($moment)];
-                $start ??= self::midnight($first);
-                $end = $moment;
-            }
+        if ($moment !== null && self::midnight($first)->lessThan($moment) && $to->greaterThanOrEqualTo($moment)) {
+            [$openFrom, $openThrough] = [$first, GameCellDays::dayOf($moment)];
+            $start ??= self::midnight($first);
+            $end = $moment;
         }
 
         if ($start === null) {

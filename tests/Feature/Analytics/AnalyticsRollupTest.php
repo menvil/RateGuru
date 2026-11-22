@@ -99,8 +99,8 @@ it('marks an older day changed with a new token each time, and never a day read 
 it('marks a day about to leave the days read every minute, which the next whole read would miss', function () {
     $mark = app(MarkAnalyticsDayAction::class);
 
-    // At 11:50 the 16th is read again at 11:55 still: nothing to tell.
-    $mark->handle('2026-11-16', CarbonImmutable::parse('2026-11-18 11:50:00'));
+    // At 11:45 the 16th is read again at 11:50 and at 11:55 still: nothing to tell.
+    $mark->handle('2026-11-16', CarbonImmutable::parse('2026-11-18 11:45:00'));
 
     expect(AnalyticsDirtyDay::query()->count())->toBe(0);
 
@@ -115,6 +115,23 @@ it('marks a day about to leave the days read every minute, which the next whole 
     $mark->handle('2026-11-16', CarbonImmutable::parse('2026-11-18 11:58:00'));
 
     expect(AnalyticsDirtyDay::query()->find('2026-11-16')->marked_at->toDateTimeString())->toBe('2026-11-18 11:57:00');
+});
+
+it('still reads a change to a day about to leave the days read every minute when the whole read before it leaves is missed', function () {
+    $ann = analyticsVisit('ann', ['network_day' => '2026-11-16']);
+    fillAnalyticsRollup();
+
+    // At 11:52 a step of a visit of the 16th comes. The whole read at 11:55 is
+    // missed — the run of the minute before still busy, or failing — and by
+    // the next, at 12:00, the 16th is no longer among the days read every minute.
+    $this->travelTo(CarbonImmutable::parse('2026-11-18 11:52:00'));
+    $ann->forceFill(['completed_at' => now()])->save();
+    app(MarkAnalyticsDayAction::class)->handle('2026-11-16');
+
+    $this->travelTo(CarbonImmutable::parse('2026-11-18 12:00:00'));
+    app(RefreshAnalyticsVisitsAction::class)->handle(microtime(true) + 30, now: CarbonImmutable::now());
+
+    expect(AnalyticsVisit::query()->find($ann->id)->completed)->toBeTrue();
 });
 
 it('marks the day of a visit days old that a late step, a spend shared out again or a click that came back changes', function () {
