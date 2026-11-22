@@ -8,6 +8,7 @@ use App\Models\TrafficSetting;
 use App\Models\TrafficSource;
 use App\Models\User;
 use Carbon\CarbonImmutable;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Cache;
 use Livewire\Livewire;
 
@@ -171,14 +172,18 @@ it('draws each tab it keeps the same from what was kept, through a store that se
     Cache::forgetDriver('array');
     analyticsVisit('ann', ['country' => 'DE', 'city' => 'Berlin', 'landing_key' => 'feed', 'source_key' => 'reddit:organic', 'campaign_key' => 'tag:spring', 'utm_campaign' => 'spring', 'utm_source' => 'reddit']);
     analyticsVisit('bob', ['country' => 'US', 'landing_key' => 'posts.show', 'account_at' => '2026-11-15 10:05:00', 'signup_at' => '2026-11-15 10:04:00']);
+    // An account whose first week is over, so Retention has shares to draw.
+    retentionAccount('2026-11-02 10:00:00', [1, 7]);
     $read = fn () => Livewire::withQueryParams(['tab' => $tab, 'period' => '7d'])->test(GrowthAnalyticsPage::class)->call('load');
 
     $first = $read();
     $this->travel(1)->minutes();
     $kept = $read();
 
+    // Plain values only: the store gives back no object.
     expect(GrowthAnalyticsPage::READ_CACHED)->toContain($tab)
         ->and($kept->viewData('data'))->toEqual($first->viewData('data'))
+        ->and(array_filter(Arr::dot($first->viewData('data')), 'is_object'))->toBe([])
         ->and($kept->viewData('readAt'))->toBe('12:00');
     $kept->assertSeeText('Figures read 12:00 UTC');
 })->with(GrowthAnalyticsPage::READ_CACHED);
