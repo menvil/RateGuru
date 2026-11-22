@@ -1,0 +1,41 @@
+app/Actions/Users/PurgeUnconfirmedAccountAction.php
+  s_4b9dc6ab6b25d3::t_cdf8adea355a6e 269-270,272
+tests/Feature/Database/AccountAttributionCreditedKeysTest.php
+  s_4b9dc6ab6b25d3::t_b39e46e6c8dd39 1-18,22-24,26-94
+database/factories/AccountAttributionFactory.php
+  s_4b9dc6ab6b25d3::t_1a95913da2dc18 7-8,17-21,30-34,42-44,46-55
+app/Actions/Traffic/RecordPaidClickAction.php
+  s_4b9dc6ab6b25d3::t_f92f000f80c4d9 205-206
+  s_4b9dc6ab6b25d3::t_d660315fa51ee9 251-252
+app/Actions/Traffic/RecordAccountSignupAction.php
+  s_4b9dc6ab6b25d3::t_e1b478df40d08c 65
+  s_4b9dc6ab6b25d3::t_857103cb64a49d 25-27
+app/Models/AccountAttribution.php
+  s_4b9dc6ab6b25d3::t_dd315ab428bdb7 72-89
+database/migrations/2026_11_22_120000_add_credited_keys_to_account_attributions_table.php
+  s_4b9dc6ab6b25d3::t_f44654fdc10c02 1-77
+database/seeders/AnalyticsVolumeSeeder.php
+  s_4b9dc6ab6b25d3::t_c6ab1542854b02 1110-1113
+tests/Feature/Actions/CopyCreditedKeysActionTest.php
+  s_4b9dc6ab6b25d3::t_4f189d8d59b0ba 1-59
+app/Actions/Traffic/CopyCreditedKeysAction.php
+  s_4b9dc6ab6b25d3::t_689e2556ed67a8 1-18,21-53
+tests/Feature/Seeders/AnalyticsVolumeSeederTest.php
+  s_4b9dc6ab6b25d3::t_7187d3bdeb51a0 98-101
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "e7a1d24b67dce38998158e0616361dec6cda6178",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
