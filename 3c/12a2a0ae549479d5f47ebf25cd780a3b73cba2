@@ -1,0 +1,28 @@
+app/Support/Locale/LanguageRules.php
+  s_4b9dc6ab6b25d3::t_c9dde786b72257 51-53
+tests/Pest.php
+  s_6a0f90a935e849::t_8bc14ae1eeb2d5 183
+  s_6a0f90a935e849::t_48b33cef85215b 8308-8311,8313,8316-8317,8320-8326,8328-8331,8340-8343
+lang/hi/follows.php
+  s_4b9dc6ab6b25d3::t_30c7f4939d5a00 1-19
+lang/hi/saved_posts.php
+  s_4b9dc6ab6b25d3::t_a6595776358618 1-15
+lang/bn/saved_posts.php
+  s_4b9dc6ab6b25d3::t_6413ec68cec908 1-15
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "3c12a2a0ae549479d5f47ebf25cd780a3b73cba2",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
