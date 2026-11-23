@@ -17,24 +17,6 @@ use Monolog\LogRecord;
  * forms that post to it.
  */
 
-/** A sign-up as a person sends it: the stamp the page drew, some seconds ago. */
-function screenedSignUp(array $overrides = [], string $page = '/register'): array
-{
-    $html = test()->get($page)->assertOk()->getContent();
-
-    preg_match('/name="'.RegistrationFormStamp::FIELD.'"\s+value="([^"]+)"/', $html, $stamp);
-    test()->travel(10)->seconds();
-
-    return array_merge([
-        'name' => 'New Member',
-        'email' => 'new@example.com',
-        'password' => 'password',
-        'password_confirmation' => 'password',
-        RegistrationFormStamp::FIELD => $stamp[1] ?? null,
-        ScreenRegistrationAction::HONEYPOT_FIELD => '',
-    ], $overrides);
-}
-
 /** @return list<array<string, mixed>> what the checks wrote to the security log */
 function screeningLines(TestHandler $log): array
 {
