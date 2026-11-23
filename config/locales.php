@@ -64,5 +64,8 @@ return [
         'bs' => ['label' => 'Bosnian', 'native' => 'Bosanski', 'flag' => '🇧🇦', 'enabled_by_default' => false],
         'mk' => ['label' => 'Macedonian', 'native' => 'Македонски', 'flag' => '🇲🇰', 'enabled_by_default' => false],
         'sq' => ['label' => 'Albanian', 'native' => 'Shqip', 'flag' => '🇦🇱', 'enabled_by_default' => false],
+        'hi' => ['label' => 'Hindi', 'native' => 'हिन्दी', 'flag' => '🇮🇳', 'enabled_by_default' => false],
+        'bn' => ['label' => 'Bengali', 'native' => 'বাংলা', 'flag' => '🇧🇩', 'enabled_by_default' => false],
+        'id' => ['label' => 'Indonesian', 'native' => 'Bahasa Indonesia', 'flag' => '🇮🇩', 'enabled_by_default' => false],
     ],
 ];

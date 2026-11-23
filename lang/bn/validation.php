@@ -1,0 +1,57 @@
+<?php
+
+return [
+    'accepted' => ':attribute অবশ্যই গ্রহণ করতে হবে।',
+    'required' => ':attribute পূরণ করা আবশ্যক।',
+    'string' => ':attribute অবশ্যই টেক্সট হতে হবে।',
+    'max' => [
+        'array' => ':attribute :maxটির বেশি দেওয়া যাবে না।',
+        'file' => ':attribute :max কিলোবাইটের বেশি হতে পারবে না।',
+        'string' => ':attribute :max অক্ষরের বেশি হতে পারবে না।',
+    ],
+    'min' => [
+        'string' => ':attribute কমপক্ষে :min অক্ষরের হতে হবে।',
+    ],
+    'in' => 'নির্বাচিত :attribute সঠিক নয়।',
+    'unique' => 'এই :attribute আগেই ব্যবহার করা হয়েছে।',
+    'email' => ':attribute অবশ্যই একটি সঠিক ইমেইল ঠিকানা হতে হবে।',
+    'confirmed' => ':attribute নিশ্চিতকরণের সাথে মেলেনি।',
+    'array' => ':attribute অবশ্যই একটি তালিকা হতে হবে।',
+    'boolean' => ':attribute অবশ্যই হ্যাঁ অথবা না হতে হবে।',
+    'current_password' => 'পাসওয়ার্ডটি ভুল।',
+    'dimensions' => ':attribute সঠিক মাপের নয়।',
+    'enum' => 'নির্বাচিত :attribute সঠিক নয়।',
+    'exists' => 'নির্বাচিত :attribute সঠিক নয়।',
+    'image' => ':attribute অবশ্যই একটি ছবি হতে হবে।',
+    'integer' => ':attribute অবশ্যই একটি পূর্ণসংখ্যা হতে হবে।',
+    'lowercase' => ':attribute অবশ্যই ছোট হাতের অক্ষরে হতে হবে।',
+    'mimes' => ':attribute অবশ্যই এই ধরনের ফাইল হতে হবে: :values।',
+    'not_regex' => ':attribute সঠিক ফরম্যাটে নেই।',
+    'regex' => ':attribute সঠিক ফরম্যাটে নেই।',
+    'uploaded' => ':attribute আপলোড করা যায়নি।',
+    'url' => ':attribute অবশ্যই একটি সঠিক URL হতে হবে।',
+
+    // The field names public forms submit, so a message reads as a sentence
+    // in the reader's language instead of carrying an English identifier.
+    'attributes' => [
+        'bio' => 'বায়ো',
+        'categoryId' => 'ক্যাটাগরি',
+        'current_password' => 'বর্তমান পাসওয়ার্ড',
+        'description' => 'বিবরণ',
+        'display_name' => 'প্রদর্শিত নাম',
+        'email' => 'ইমেইল',
+        'image' => 'ছবি',
+        'locale' => 'ভাষা',
+        'message' => 'বার্তা',
+        'name' => 'নাম',
+        'password' => 'পাসওয়ার্ড',
+        'profile_website_url' => 'ওয়েবসাইট',
+        'reason' => 'কারণ',
+        'sourceUrl' => 'উৎস URL',
+        'subject' => 'বিষয়',
+        'tagIds' => 'ট্যাগ',
+        'title' => 'শিরোনাম',
+        'url' => 'URL',
+        'username' => 'ইউজারনেম',
+    ],
+];
