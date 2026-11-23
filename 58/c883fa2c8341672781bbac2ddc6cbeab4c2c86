@@ -1,0 +1,28 @@
+app/Support/Auth/AuthSurfaceContext.php
+  s_6a0f90a935e849::t_0edd07232ca343 10
+  s_6a0f90a935e849::t_e05eb199bcee0d 66,69
+app/Actions/Auth/RegisterUserAction.php
+  s_6a0f90a935e849::t_1f428c3780a52f 27-34
+  s_6a0f90a935e849::t_fa76a1ac0d81e7 16
+tests/Feature/Auth/RegistrationTest.php
+  s_6a0f90a935e849::t_952cbe76e0b9f8 12
+  s_6a0f90a935e849::t_55a19f2d702320 4,10,13
+  s_6a0f90a935e849::t_7f2583c5b52455 185-208,210,213-234
+  s_6a0f90a935e849::t_e9c26bc542db37 209,211-212
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "58c883fa2c8341672781bbac2ddc6cbeab4c2c86",
+  "prompts": {},
+  "sessions": {
+    "s_6a0f90a935e849": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0c534e04-92e1-423d-8dc4-9f4bf22e3c99",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
