@@ -82,10 +82,10 @@ it('rejects a stale password reset for a tombstone generically, without event or
     $passwordBefore = $fresh->password;
     $rememberBefore = $fresh->remember_token;
 
-    Password::shouldReceive('reset')
+    Password::shouldReceive('broker->reset')
         ->once()
         ->andReturnUsing(function (array $credentials, callable $callback) use ($stale): string {
-            $callback($stale);
+            $callback($stale, $credentials['password']);
 
             return Password::PASSWORD_RESET;
         });
