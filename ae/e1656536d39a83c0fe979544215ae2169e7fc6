@@ -1,0 +1,28 @@
+app/Queries/Traffic/TrafficReachQuery.php
+  s_6a0f90a935e849::t_9a6a7615bc923e 59,65
+  s_6a0f90a935e849::t_d2898c3dbc10f3 269-271,275,282
+tests/Feature/Traffic/TrafficReachByCountryTest.php
+  s_6a0f90a935e849::t_4b87b36d87a82b 202-216
+  s_6a0f90a935e849::t_f040eead19493f 115-118
+app/Filament/Pages/TrafficSources/TrafficSourcesView.php
+  s_6a0f90a935e849::t_b9a7d2a6a509d9 367,375-378
+app/Services/Traffic/Connectors/PopAdsConnector.php
+  s_6a0f90a935e849::t_8a2cf826910ae9 110
+  s_6a0f90a935e849::t_a0646d77ff0fbb 101-102
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "aee1656536d39a83c0fe979544215ae2169e7fc6",
+  "prompts": {},
+  "sessions": {
+    "s_6a0f90a935e849": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0c534e04-92e1-423d-8dc4-9f4bf22e3c99",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
