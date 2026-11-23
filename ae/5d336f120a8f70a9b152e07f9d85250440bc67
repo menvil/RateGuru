@@ -1,0 +1,21 @@
+lang/ar/ui.php
+  s_4b9dc6ab6b25d3::t_8aa6f2e0c98d09 14-17
+lang/he/ui.php
+  s_4b9dc6ab6b25d3::t_2e12fab170984a 14-17
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "ae5d336f120a8f70a9b152e07f9d85250440bc67",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}

@@ -1,0 +1,22 @@
+tests/Browser/RightToLeftBrowserTest.php
+  s_4b9dc6ab6b25d3::t_5dafac1ed2ef2b 1-6,8,10,15-16,18-22,24-37,39-57,59-60,66-67,69-71,73-74,76-77,79-83,89,93-97,101-102,104-106,112-115,117,119-122,124-156,158-173
+tests/Pest.php
+  s_4b9dc6ab6b25d3::t_7ec260c209b113 8742-8756,14967,14969,14971,14974-14975,14980,14982,14984,14988,14990,14992,14994-14995,14998,15001-15002,15005,15008-15009
+  s_4b9dc6ab6b25d3::t_2340060ac027ab 14964,14976
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "4d830fff2bd296eca73a6255c659263cd93a6e09",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}

@@ -1,0 +1,74 @@
+resources/views/livewire/games/play-game.blade.php
+  s_4b9dc6ab6b25d3::t_aaa6f01d2a1a5d 65
+resources/views/livewire/notifications/notification-bell.blade.php
+  s_4b9dc6ab6b25d3::t_faf782ed9c4865 50
+resources/views/livewire/feed/feed-page.blade.php
+  s_4b9dc6ab6b25d3::t_ee9d32dd4d2266 88
+app/Support/Games/Play/GamePlayView.php
+  s_4b9dc6ab6b25d3::t_98ae8e038c613f 28
+  s_4b9dc6ab6b25d3::t_2929bc43902c24 36
+  s_4b9dc6ab6b25d3::t_60e4fdd2560b3b 92,97-99,104
+  s_4b9dc6ab6b25d3::t_a1982901c19ba8 121-122,124-125
+  s_4b9dc6ab6b25d3::t_24d58f850b7e76 142,153,155
+  s_4b9dc6ab6b25d3::t_7e4f820bbae458 233,237,242-244,251
+resources/css/app.css
+  s_4b9dc6ab6b25d3::t_7eb724f98a5a3d 51-55,74,80,88,108,148-164
+  s_4b9dc6ab6b25d3::t_53c57d0a1140e4 56-63
+  s_4b9dc6ab6b25d3::t_240f744625a55e 64-73,75-79,82-87,90-105,107,110
+  s_4b9dc6ab6b25d3::t_9bab7ab7de3a5a 111,115,121,129,136,143,1002-1006,1008-1009
+  s_4b9dc6ab6b25d3::t_6c14f0f517d8e0 112-114,116-118
+  s_4b9dc6ab6b25d3::t_616bd1d71f4318 119-120,134,427-431,135,147
+  s_4b9dc6ab6b25d3::t_fe4650dca3fdab 122-128,130
+  s_4b9dc6ab6b25d3::t_6be7f646d23d1a 186-188,191
+  s_4b9dc6ab6b25d3::t_f81f0d17bf2e62 1479-1480
+  s_4b9dc6ab6b25d3::t_890c8594279991 137-142,144-146
+tests/Feature/I18n/UserTextDirectionTest.php
+  s_4b9dc6ab6b25d3::t_f32af0ea1afedf 1-69,71-72,74-86,88-94,96-157,159-160,162-210,212-262,264-381,384-386,389
+tests/Browser/RightToLeftBrowserTest.php
+  s_4b9dc6ab6b25d3::t_5dafac1ed2ef2b 1-2,5-6,9-10,15,17,28-29,31-49,53-71,74-75,120,129,134,143,145-146,148-150,156,158-159,161-162,166-167,169-170,172-176,186-190,192,194-195,197,204,208-209,222,225,228,238,249,253,256-257,262,265,271,276,278,282-283,285-286,288-290,292,296,298,301,304,308,312,316,318,321-322,325,328-329,331,335,345-346,349,352,355-356,360,363,367,370,374,376,381-382,385,388,391,393,396,400,403,410-413,415,417-420,422-454,456-472,80,96,100,107,110,119,473,477-478,481,489,492,495,502,505,508,512-513,516,519,523,525,527,530-531,535,537,542,546,553,557,561,569-570,580,584,591,599-600,602-604,606,613,617,620,625,628,632,635,640,643,645-646,648-651,655
+  s_4b9dc6ab6b25d3::t_a929a608c808fe 72,124,126,128,130,135,139-142,241,251,81-95,97-99,101-106,108-109,111-118,549,555-556,574,582-583,608,615-616
+  s_4b9dc6ab6b25d3::t_3d6f99e8ff1e3f 323,326-327
+  s_4b9dc6ab6b25d3::t_9de176ebb89e83 330
+  s_4b9dc6ab6b25d3::t_fb754cba778eaf 341,343-344,455
+  s_4b9dc6ab6b25d3::t_00c0f798930ee4 25-27
+app/Support/Locale/WrittenText.php
+  s_4b9dc6ab6b25d3::t_ec1920e72d15b6 1-28
+app/Support/Locale/IsolatedTranslation.php
+  s_4b9dc6ab6b25d3::t_1d20fc45eb2df3 1-26,28-38
+  s_4b9dc6ab6b25d3::t_84a024827f62dc 27
+resources/views/components/games/headline.blade.php
+  s_4b9dc6ab6b25d3::t_8a05a0e0796cdb 8-11,21-23,25
+resources/views/components/ui/modal.blade.php
+  s_4b9dc6ab6b25d3::t_5e5dd982f8c065 17
+app/Support/Notifications/NotificationMessage.php
+  s_4b9dc6ab6b25d3::t_740ecdc916f164 5,7
+  s_4b9dc6ab6b25d3::t_dd5839ff78c4fd 31-39
+  s_4b9dc6ab6b25d3::t_0a6576526d7ada 61-82
+resources/views/layouts/app.blade.php
+  s_4b9dc6ab6b25d3::t_46b0d4bab86304 232-233
+  s_4b9dc6ab6b25d3::t_bf67a85d79d0d9 244
+  s_4b9dc6ab6b25d3::t_582108c9eb0050 46-48,50
+  s_4b9dc6ab6b25d3::t_25af879061f815 65
+  s_4b9dc6ab6b25d3::t_30065ba577bb93 101
+  s_4b9dc6ab6b25d3::t_9ea738f27fb37c 242
+  s_4b9dc6ab6b25d3::t_c2c8176894a300 299
+app/Support/Games/Play/StepText.php
+  s_4b9dc6ab6b25d3::t_830870afda1cf9 1-87,93-94,96-97
+  s_4b9dc6ab6b25d3::t_dc59ae970230e6 88-92,95
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "9ec5d89c18755ab2fecb6eb9bbfb1445ac13747c",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}

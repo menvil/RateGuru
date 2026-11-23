@@ -1,0 +1,19 @@
+tests/Feature/I18n/PhysicalDirectionGuardTest.php
+  s_4b9dc6ab6b25d3::t_e49fed75b0625e 1-19,23-259,261,263-268,270,272-301,303-307,309-487,489-504
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "9c2e7addfc58855aa45cf8c93c37d225eb821340",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}

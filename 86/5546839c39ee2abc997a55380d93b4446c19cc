@@ -1,0 +1,28 @@
+resources/css/app.css
+  s_4b9dc6ab6b25d3::t_7eb724f98a5a3d 51-55,64,103-119
+  s_4b9dc6ab6b25d3::t_53c57d0a1140e4 56-63
+  s_4b9dc6ab6b25d3::t_240f744625a55e 65
+  s_4b9dc6ab6b25d3::t_890c8594279991 92
+  s_4b9dc6ab6b25d3::t_616bd1d71f4318 379-383,102
+  s_4b9dc6ab6b25d3::t_9bab7ab7de3a5a 94,98
+  s_4b9dc6ab6b25d3::t_6c14f0f517d8e0 95-97,99-101
+  s_4b9dc6ab6b25d3::t_f81f0d17bf2e62 1424-1425
+tests/Feature/I18n/TextDirectionTest.php
+  s_4b9dc6ab6b25d3::t_118bc3cc61fe43 1-50,54-82,96-120,122,124-135,137-138,140-169
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "865546839c39ee2abc997a55380d93b4446c19cc",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
