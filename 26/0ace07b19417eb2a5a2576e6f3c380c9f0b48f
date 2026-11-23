@@ -1,0 +1,59 @@
+resources/views/layouts/app.blade.php
+  s_4b9dc6ab6b25d3::t_46b0d4bab86304 236-237
+  s_4b9dc6ab6b25d3::t_bf67a85d79d0d9 248
+  s_4b9dc6ab6b25d3::t_582108c9eb0050 47-49,53
+  s_4b9dc6ab6b25d3::t_25af879061f815 68
+  s_4b9dc6ab6b25d3::t_30065ba577bb93 104
+  s_4b9dc6ab6b25d3::t_9ea738f27fb37c 246
+  s_4b9dc6ab6b25d3::t_c2c8176894a300 304
+  s_4b9dc6ab6b25d3::t_844fd12d0b7acc 11-12
+  s_4b9dc6ab6b25d3::t_fc1c8d827f957f 50-51
+  s_4b9dc6ab6b25d3::t_a540d776140a79 78
+  s_4b9dc6ab6b25d3::t_cdf4b2b6c78062 112,118
+  s_4b9dc6ab6b25d3::t_32c6caa54ceff9 119,263-264,268
+  s_4b9dc6ab6b25d3::t_d213dfbcc1cbc8 229
+  s_4b9dc6ab6b25d3::t_0dd01219f4d49e 245
+docs/mobile/mobile-ux-guidelines.md
+  s_4b9dc6ab6b25d3::t_ece56a8c46c805 67
+tests/Feature/Mobile/MobileNavigationPolishTest.php
+  s_4b9dc6ab6b25d3::t_ff169a4b8f7b83 62
+tests/Browser/AuthModalBrowserTest.php
+  s_4b9dc6ab6b25d3::t_34d20acc22f6e1 454-456,458-462,465-466
+  s_4b9dc6ab6b25d3::t_d3073b6022b46f 499-500
+  s_4b9dc6ab6b25d3::t_8f2ee169c2232d 501
+  s_4b9dc6ab6b25d3::t_90452f51590172 457
+tests/Browser/RightToLeftBrowserTest.php
+  s_4b9dc6ab6b25d3::t_5dafac1ed2ef2b 1-2,5-6,9-10,15,17,28-29,31-49,53-71,74-75,120,129,134,143,145-146,148-150,156,158-159,161-162,166-167,169-170,172-176,186-190,192,194-195,197,204,208-209,222,225,228,238,249,253,256-257,262,265,271,276,278,282-283,285-286,288-290,292,296,298,301,304,308,312,316,318,321-322,325,328-329,331,335,345-346,349,352,355-356,360,363,367,370,374,376,381-382,385,388,391,393,396,400,403,410-413,415,417-420,422-454,456-472,80,96,100,107,110,119,473,477-478,481,489,492,495,502,505,508,512-513,516,519,523,525,527,530-531,535,537,542,546,553,557,561,569-570,580,584,591,599-600,602-604,606,613,617,620,625,628,632,635,640,643,645-646,648-651,655
+  s_4b9dc6ab6b25d3::t_a929a608c808fe 72,124,126,128,130,135,139-142,241,251,81-95,97-99,101-106,108-109,111-118,549,555-556,574,582-583,608,615-616
+  s_4b9dc6ab6b25d3::t_3d6f99e8ff1e3f 323,326-327
+  s_4b9dc6ab6b25d3::t_9de176ebb89e83 330
+  s_4b9dc6ab6b25d3::t_fb754cba778eaf 341,343-344,455
+  s_4b9dc6ab6b25d3::t_00c0f798930ee4 25-27
+  s_4b9dc6ab6b25d3::t_7f6bb35fe3cdb2 342
+tests/Browser/AppHeaderRowBrowserTest.php
+  s_4b9dc6ab6b25d3::t_646c2bde52d77b 18-28,34,36-52,57-74,76,87-103,105-106,108,113-122,124,126-127,129-137,139
+  s_4b9dc6ab6b25d3::t_f983a3d60de459 75,123
+resources/js/header-fit.js
+  s_4b9dc6ab6b25d3::t_d4f6ecc780d345 12,80,102
+  s_4b9dc6ab6b25d3::t_dedf8872862a1e 13,20-30,40-44,46-49,66-79,99,103-109,111-118
+  s_4b9dc6ab6b25d3::t_eed03f941a899c 110
+resources/views/components/locale-switcher.blade.php
+  s_4b9dc6ab6b25d3::t_10b6566abbde58 23-28
+  s_4b9dc6ab6b25d3::t_97d96465475528 42
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "260ace07b19417eb2a5a2576e6f3c380c9f0b48f",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
