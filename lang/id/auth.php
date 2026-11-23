@@ -31,6 +31,8 @@ return [
     'register' => [
         'title' => 'Daftar',
         'action' => 'Daftar',
+        'refused' => 'Kami tidak bisa menyelesaikan pendaftaranmu. Coba lagi nanti.',
+        'javascript_required' => 'Pemeriksaan keamanan tidak termuat. Aktifkan JavaScript atau muat ulang halaman untuk menyelesaikan pendaftaran.',
     ],
 
     'divider' => 'atau',
@@ -54,6 +56,10 @@ return [
         'intro' => 'Terima kasih sudah mendaftar! Sebelum mulai, bisakah kamu memverifikasi alamat emailmu dengan mengeklik tautan yang baru saja kami kirimkan? Jika kamu tidak menerima email tersebut, kami akan dengan senang hati mengirimkan yang baru.',
         'link_sent' => 'Tautan verifikasi baru telah dikirim ke alamat email yang kamu berikan saat mendaftar.',
         'resend' => 'Kirim ulang email verifikasi',
+        'confirmed' => 'Alamat emailmu sudah terverifikasi.',
+        'link_expired' => 'Tautan verifikasi ini sudah kedaluwarsa. Minta tautan baru di bawah.',
+        'throttled' => 'Kamu bisa meminta tautan baru dalam :minutes menit.',
+        'notice_changed_address' => 'Verifikasi alamat email barumu, :email, untuk memposting, berkomentar, memberi suara, dan mengikuti. Jika kamu tidak punya tautannya, minta tautan baru.',
     ],
 
     'social' => [
