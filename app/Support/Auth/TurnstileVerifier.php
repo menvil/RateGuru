@@ -6,6 +6,7 @@ use App\Enums\TurnstileOutcome;
 use App\Exceptions\Auth\TurnstileMisconfiguredException;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Http;
+use SensitiveParameter;
 
 /**
  * Asks Cloudflare whether a sign-up's Turnstile token is good. The token is
@@ -32,7 +33,7 @@ final class TurnstileVerifier
         return filled(config('services.turnstile.site_key')) && filled(config('services.turnstile.secret_key'));
     }
 
-    public function verify(mixed $token, string $hostname): TurnstileOutcome
+    public function verify(#[SensitiveParameter] mixed $token, string $hostname): TurnstileOutcome
     {
         if (! is_string($token) || $token === '' || strlen($token) > self::TOKEN_LIMIT) {
             return TurnstileOutcome::Rejected;

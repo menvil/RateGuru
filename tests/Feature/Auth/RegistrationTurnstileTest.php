@@ -7,12 +7,14 @@ use App\Livewire\Games\PreviewGame;
 use App\Models\ProjectSettings;
 use App\Models\User;
 use App\Support\AbuseGuards\RateLimitKey;
+use App\Support\Auth\RegistrationFormStamp;
 use App\Support\Auth\TurnstileVerifier;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\RateLimiter;
+use Illuminate\Validation\ValidationException;
 use Monolog\LogRecord;
 
 /*
@@ -165,6 +167,51 @@ it('reports a secret Cloudflare refuses, and keeps sign-ups going', function (st
     $this->assertAuthenticated();
     Exceptions::assertReported(fn (TurnstileMisconfiguredException $exception): bool => ! str_contains($exception->getMessage(), 'secret-key'));
 })->with(['invalid-input-secret', 'missing-input-secret']);
+
+it('keeps the form and the token out of what it reports about a refused secret', function () {
+    Exceptions::fake();
+    turnstileAnswers(['success' => false, 'error-codes' => ['invalid-input-secret']]);
+    $form = challengedSignUp();
+    $previous = ini_set('zend.exception_ignore_args', '0');
+
+    try {
+        $this->post('/register', $form);
+    } finally {
+        ini_set('zend.exception_ignore_args', (string) $previous);
+    }
+
+    Exceptions::assertReported(function (TurnstileMisconfiguredException $reported): bool {
+        $argument = fn (string $class, string $function): mixed => collect($reported->getTrace())
+            ->first(fn (array $frame): bool => ($frame['class'] ?? null) === $class && $frame['function'] === $function)['args'][0] ?? null;
+
+        return $argument(ScreenRegistrationAction::class, 'execute') instanceof SensitiveParameterValue
+            && $argument(ScreenRegistrationAction::class, 'challengeReasons') instanceof SensitiveParameterValue
+            && $argument(TurnstileVerifier::class, 'verify') instanceof SensitiveParameterValue;
+    });
+});
+
+it('treats a limit it cannot count during an outage like any limit it cannot read', function (string $mode) {
+    config(['registration.screening_mode' => $mode]);
+    $log = fakeSecurityLog();
+    turnstileAnswers([], 503);
+    $stamp = app(RegistrationFormStamp::class)->issue();
+    $this->travel(10)->seconds();
+
+    RateLimiter::shouldReceive('tooManyAttempts')->andReturnFalse();
+    RateLimiter::shouldReceive('hit')->andThrow(new RuntimeException('cache down'));
+
+    $screen = fn () => app(ScreenRegistrationAction::class)->execute([
+        RegistrationFormStamp::FIELD => $stamp,
+        TurnstileVerifier::FIELD => 'a-token',
+    ], '127.0.0.1');
+
+    $mode === 'report'
+        ? expect($screen())->toBe([])
+        : expect($screen)->toThrow(ValidationException::class);
+
+    $line = collect($log->getRecords())->first(fn (LogRecord $record): bool => $record->message === ScreenRegistrationAction::EVENT);
+    expect($line->context)->toMatchArray(['reasons' => ['limits_unavailable'], 'refused' => $mode === 'enforce']);
+})->with(['report', 'enforce']);
 
 it('accepts Cloudflare\'s testing keys anywhere but production', function (string $environment, TurnstileOutcome $outcome) {
     turnstileAnswers(turnstilePassed(['hostname' => 'example.com', 'metadata' => ['result_with_testing_key' => true]]));
