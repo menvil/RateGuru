@@ -315,6 +315,13 @@ shared out over its visits again only when the network's figures for it
 changed. Failures wait longer each time; a refused
 key, an account not in dollars or five failures running need the administrator.
 
+A connector that `ReadsImpressionsByCountry` (PopAds) is asked for the same
+days by country, after the turn's spend is stored, into
+`traffic_spend_day_countries`, and for three older days a turn from the first
+day the API reported (`country_cursor`). That table is never counted as spend.
+A failed or unreadable country report keeps the figures already there and
+leaves the cursor, and does not count as a failure of the connection.
+
 ## Blocking
 
 Sites and zones are blocked by hand — marked, their IDs copied for the network's
@@ -446,6 +453,12 @@ that day's figures name. `TrafficReachQuery::tally()` folds the slices as they c
 zone over its closed days and the others; by source each day and the closed
 days together — so the page never holds a list of every slice: what it keeps
 grows with the sites reported, not with every day of each.
+
+On one country (`tally(country:)`) the figures are that country's rows of
+`traffic_spend_day_countries` and the visits are those located there, matched
+the same way. A day whose first origin is a file or a typed total is left out,
+since only the API reports countries. The Low reach hint is not judged on a
+country: a block takes the whole site.
 
 Sums are kept raw (`ReachFigures`): one slice's visits can outrun its
 impressions when the network's clock and RateGuru's cut a day differently, and

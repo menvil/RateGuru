@@ -113,6 +113,10 @@ final class TrafficSourcesPage extends Page
     #[Url(except: '')]
     public mixed $device = '';
 
+    /** A country's two-letter code, or every country. */
+    #[Url(except: '')]
+    public mixed $country = '';
+
     /** The report's view: a tree — by source, device, country, game or version — or the flat list of sites and zones. */
     #[Url(as: 'view', except: 'sources')]
     public mixed $reportView = 'sources';
@@ -274,11 +278,11 @@ final class TrafficSourcesPage extends Page
 
     public function updated(string $property): void
     {
-        if (in_array($property, ['tab', 'period', 'from', 'to', 'source', 'type', 'campaignId', 'game', 'device', 'log', 'logFilter', 'reportView', 'listBy', 'q', 'minClicks', 'segment'], true)) {
+        if (in_array($property, ['tab', 'period', 'from', 'to', 'source', 'type', 'campaignId', 'game', 'device', 'country', 'log', 'logFilter', 'reportView', 'listBy', 'q', 'minClicks', 'segment'], true)) {
             $this->pageNumber = 1;
         }
 
-        if (in_array($property, ['period', 'from', 'to', 'source', 'type', 'campaignId', 'game', 'device', 'reportView', 'listBy'], true)) {
+        if (in_array($property, ['period', 'from', 'to', 'source', 'type', 'campaignId', 'game', 'device', 'country', 'reportView', 'listBy'], true)) {
             $this->selected = [];
         }
 
@@ -1177,6 +1181,7 @@ final class TrafficSourcesPage extends Page
             'campaign_id' => is_numeric($this->campaignId) ? (int) $this->campaignId : null,
             'game_id' => is_numeric($this->game) ? (int) $this->game : null,
             'device' => in_array($this->device, ['mobile', 'desktop'], true) ? $this->device : null,
+            'country' => is_string($this->country) && Countries::has($this->country) ? $this->country : null,
         ], fn (mixed $value): bool => $value !== null);
 
         // Unpaid traffic is the traffic of no source.
@@ -1196,6 +1201,7 @@ final class TrafficSourcesPage extends Page
         $this->campaignId = is_numeric($this->campaignId) ? (string) (int) $this->campaignId : '';
         $this->game = is_numeric($this->game) ? (string) (int) $this->game : '';
         $this->device = in_array($this->device, ['mobile', 'desktop'], true) ? $this->device : '';
+        $this->country = is_string($this->country) && Countries::has(strtoupper($this->country)) ? strtoupper($this->country) : '';
         $this->reportView = is_string($this->reportView) && array_key_exists($this->reportView, TrafficSourcesView::VIEWS) ? $this->reportView : 'sources';
         $this->signupsBy = is_string($this->signupsBy) && array_key_exists($this->signupsBy, TrafficSourcesView::SIGNUP_DIMENSIONS) ? $this->signupsBy : 'source';
         $this->listBy = $this->listBy === 'site' ? 'site' : 'zone';

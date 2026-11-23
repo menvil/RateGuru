@@ -14,12 +14,14 @@ use App\Models\TrafficApiConnection;
 use App\Models\TrafficCampaign;
 use App\Models\TrafficCampaignPrice;
 use App\Models\TrafficSource;
+use App\Models\TrafficSpendDay;
 use App\Models\TrafficVisit;
 use App\Services\Traffic\Connectors\ConnectorException;
 use App\Services\Traffic\Connectors\ConnectorRegistry;
 use App\Services\Traffic\Connectors\ConnectorSession;
 use App\Services\Traffic\Connectors\NetworkCampaign;
 use App\Services\Traffic\Connectors\ReadsCampaigns;
+use App\Services\Traffic\Connectors\ReadsImpressionsByCountry;
 use App\Services\Traffic\Connectors\ReadsSpend;
 use Carbon\CarbonImmutable;
 use Illuminate\Contracts\Encryption\DecryptException;
@@ -53,6 +55,7 @@ final class SyncTrafficNetworkAction
     public function __construct(
         private readonly ConnectorRegistry $registry,
         private readonly ReplaceSpendSliceAction $slices,
+        private readonly ReplaceSpendCountriesAction $countryFigures,
         private readonly RecordTrafficCampaignEventAction $history,
     ) {}
 
@@ -158,6 +161,56 @@ final class SyncTrafficNetworkAction
         }
 
         $connection->backfill_cursor = $cursor !== null && $cursor >= $yesterday->toDateString() ? null : $cursor;
+
+        if ($connector instanceof ReadsImpressionsByCountry) {
+            $this->countries($connector, $session, $connection, $source, array_values(array_unique($days)), $networkIds, $campaigns, $yesterday->toDateString());
+        }
+    }
+
+    /**
+     * The same days' impressions by country, and a few older days each turn
+     * from the first the API reported, so a connection made before this was
+     * read catches up. Spend for the turn is already stored: a failure here
+     * costs only these figures, and the older days are asked for again.
+     *
+     * @param  list<string>  $days
+     * @param  list<string>  $networkIds
+     * @param  array<string, int>  $campaigns  by the network's ID
+     */
+    private function countries(ReadsImpressionsByCountry $connector, ConnectorSession $session, TrafficApiConnection $connection, TrafficSource $source, array $days, array $networkIds, array $campaigns, string $yesterday): void
+    {
+        $cursor = $connection->country_cursor ?? TrafficSpendDay::query()
+            ->where('source_id', $source->id)
+            ->where('origin', TrafficSpendOrigin::Api)
+            ->whereNotNull('reported_impressions')
+            ->min('network_day');
+
+        for ($n = 0; $cursor !== null && $n < self::BACKFILL_PER_RUN && $cursor < $yesterday; $n++) {
+            $days[] = (string) $cursor;
+            $cursor = CarbonImmutable::parse((string) $cursor)->addDay()->toDateString();
+        }
+
+        try {
+            foreach (array_unique($days) as $day) {
+                $rows = [];
+
+                foreach ($connector->impressionsByCountry($session, $day, $networkIds) as $row) {
+                    if (isset($campaigns[$row['campaign']])) {
+                        $rows[] = ['campaign_id' => $campaigns[$row['campaign']], 'site_ref' => $row['site'], 'country' => $row['country'], 'impressions' => $row['impressions'], 'amount' => $row['amount']];
+                    }
+                }
+
+                $this->countryFigures->handle((int) $source->id, $day, $rows);
+            }
+        } catch (ConnectorException) {
+            return;
+        } catch (Throwable $exception) {
+            report($exception);
+
+            return;
+        }
+
+        $connection->country_cursor = $cursor === null ? null : (string) $cursor;
     }
 
     /** @param  list<NetworkCampaign>  $networkCampaigns */
