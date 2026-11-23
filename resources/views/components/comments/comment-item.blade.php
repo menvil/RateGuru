@@ -38,7 +38,7 @@
                     </a>
                 @else
                     {{-- The deleted author's label in the page's language, as on post cards. --}}
-                    <span class="font-semibold text-rg-text">{{ $comment->user?->resolved_display_name ?? __('ui.user.unknown') }}</span>
+                    <span class="font-semibold text-rg-text"><bdi>{{ $comment->user?->resolved_display_name ?? __('ui.user.unknown') }}</bdi></span>
                 @endif
 
                 @if ($comment->created_at)
@@ -109,7 +109,7 @@
             @endif
         </div>
 
-        <p class="mt-1 break-words leading-5 text-rg-text2">{{ $comment->body }}</p>
+        <p {{ \App\Support\Locale\WrittenText::dir($comment->body) }} class="mt-1 break-words leading-5 text-rg-text2">{{ $comment->body }}</p>
 
         <div class="mt-2 flex items-center gap-3.5 text-[12.5px] text-rg-muted">
             @if($comment->exists)

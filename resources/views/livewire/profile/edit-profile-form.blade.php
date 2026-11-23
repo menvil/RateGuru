@@ -27,6 +27,7 @@
             <x-ui.input
                 id="edit-display-name"
                 name="display_name"
+                dir="auto"
                 wire:model="display_name"
                 type="text"
                 class="mt-1"
@@ -40,6 +41,7 @@
             <x-input-label for="edit-bio" :value="__('profile.bio')" />
             <textarea
                 id="edit-bio"
+                dir="auto"
                 wire:model="bio"
                 rows="3"
                 maxlength="500"

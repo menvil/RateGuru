@@ -15,7 +15,7 @@
         </h2>
 
         <p class="mt-1 text-sm text-rg-muted">
-            {{ __('profile.connected.description', ['site' => app(ProjectSettingsManager::class)->current()->siteName()]) }}
+            {{ \App\Support\Locale\IsolatedTranslation::line('profile.connected.description', ['site' => app(ProjectSettingsManager::class)->current()->siteName()]) }}
         </p>
     </header>
 

@@ -49,6 +49,7 @@
             <x-ui.input
                 id="title"
                 name="title"
+                dir="auto"
                 wire:model.defer="title"
                 :placeholder="__('ui.upload.title_placeholder')"
                 class="mt-1"
@@ -64,6 +65,7 @@
             <x-ui.textarea
                 id="description"
                 name="description"
+                dir="auto"
                 wire:model.defer="description"
                 rows="3"
                 :placeholder="__('ui.upload.description_placeholder')"
@@ -295,7 +297,7 @@
                             class="inline-flex items-center gap-1 rounded-rgPill border border-rg-accentBorder bg-rg-accentSoft px-2 py-0.5 text-xs font-semibold text-rg-accent2"
                             data-testid="upload-selected-tag-{{ $tag['id'] }}"
                         >
-                            {{ $tag['name'] }}
+                            <bdi>{{ $tag['name'] }}</bdi>
                             <button
                                 type="button"
                                 wire:click.stop="toggleTag({{ $tag['id'] }})"
@@ -310,6 +312,7 @@
                     {{-- Search input --}}
                     <input
                         type="text"
+                        dir="auto"
                         x-ref="tagInput"
                         wire:model.live.debounce.200ms="tagSearch"
                         x-on:focus="tagOpen = true"
@@ -343,7 +346,7 @@
                             id="upload-tag-option-{{ $tag['id'] }}"
                             aria-selected="false"
                         >
-                            {{ $tag['name'] }}
+                            <bdi>{{ $tag['name'] }}</bdi>
                         </button>
                     @empty
                         <span class="block px-3 py-2 text-sm text-rg-muted">

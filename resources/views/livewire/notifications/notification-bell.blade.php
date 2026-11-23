@@ -47,7 +47,7 @@
                         >
                             <a href="{{ $notification->data['url'] ?? '#' }}" class="block">
                                 <span class="block break-words font-medium text-rg-text">
-                                    {{ \App\Support\Notifications\NotificationMessage::for($notification) }}
+                                    {{ \App\Support\Notifications\NotificationMessage::html($notification) }}
                                 </span>
                             </a>
 

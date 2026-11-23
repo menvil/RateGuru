@@ -18,11 +18,11 @@
                 </div>
 
                 <div data-testid="profile-identity" class="min-w-0">
-                    <h1 class="truncate text-2xl font-semibold text-rg-text">{{ $this->displayName }}</h1>
+                    <h1 {{ \App\Support\Locale\WrittenText::dir($this->displayName) }} class="w-fit max-w-full truncate text-2xl font-semibold text-rg-text">{{ $this->displayName }}</h1>
                     <p class="mt-0.5 text-sm text-rg-muted"><bdi>{{ '@' . $profileUser->username }}</bdi></p>
 
                     @if($profileUser->bio)
-                        <p class="mt-2 max-w-md text-sm leading-relaxed text-rg-text2" data-testid="profile-bio">{{ $profileUser->bio }}</p>
+                        <p {{ \App\Support\Locale\WrittenText::dir($profileUser->bio) }} class="mt-2 max-w-md text-sm leading-relaxed text-rg-text2" data-testid="profile-bio">{{ $profileUser->bio }}</p>
                     @endif
 
                     @if($profileUser->profile_website_url)
@@ -30,6 +30,7 @@
                             href="{{ $profileUser->profile_website_url }}"
                             target="_blank"
                             rel="noopener noreferrer"
+                            dir="ltr"
                             class="mt-1 inline-flex items-center gap-1 text-xs text-rg-accent hover:underline"
                             data-testid="profile-website"
                         >
@@ -180,11 +181,11 @@
                                 <div class="rounded-rgCard border border-rg-border bg-rg-card p-4" data-testid="profile-activity-item">
                                     <div class="flex items-start justify-between gap-4">
                                         <div class="min-w-0">
-                                            <p class="truncate text-sm font-medium text-rg-text">{{ $vote->post->title ?? '—' }}</p>
+                                            <p {{ \App\Support\Locale\WrittenText::dir($vote->post?->title) }} class="truncate text-sm font-medium text-rg-text">{{ $vote->post->title ?? '—' }}</p>
                                             @if($vote->group && $vote->option)
                                                 <p class="mt-1 text-xs text-rg-muted">
-                                                    {{ $vote->group->translatedLabel() }}:
-                                                    <span class="font-medium text-rg-text2">{{ $vote->option->translatedLabel() }}</span>
+                                                    <bdi>{{ $vote->group->translatedLabel() }}</bdi>:
+                                                    <span class="font-medium text-rg-text2"><bdi>{{ $vote->option->translatedLabel() }}</bdi></span>
                                                 </p>
                                             @endif
                                         </div>

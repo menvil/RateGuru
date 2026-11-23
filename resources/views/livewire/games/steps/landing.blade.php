@@ -7,12 +7,12 @@
         <img class="rg-game__cover" src="{{ $game['cover']->src }}" @if ($game['cover']->srcset) srcset="{{ $game['cover']->srcset }}" sizes="{{ $game['cover']->sizes }}" @endif alt="" @if ($game['cover']->width) width="{{ $game['cover']->width }}" height="{{ $game['cover']->height }}" @endif>
     @endif
     <p class="rg-game__eyebrow">{{ __('games.play.pairs_meta', ['count' => $game['roundCount']]) }}</p>
-    <x-games.headline :text="$texts['title']" />
+    <x-games.headline :text="$shown['title']" />
     @if (($texts['body'] ?? '') !== '')
-        <p class="rg-game__lead">{{ $texts['body'] }}</p>
+        <p class="rg-game__lead" {{ $shown['body']->dir() }}>{{ $shown['body'] }}</p>
     @endif
-    <button type="button" class="rg-game__button rg-game__button--primary rg-game__button--wide" wire:click="continue" wire:loading.attr="disabled" data-testid="game-start">{{ $texts['button_label'] }} <span class="rg-mirror-rtl" aria-hidden="true">→</span></button>
+    <button type="button" class="rg-game__button rg-game__button--primary rg-game__button--wide" wire:click="continue" wire:loading.attr="disabled" data-testid="game-start">{{ $shown['button_label']->inline() }} <span class="rg-mirror-rtl" aria-hidden="true">→</span></button>
     @if ((bool) ($data['settings']['show_branding'] ?? true))
-        <p class="rg-game__note rg-game__note--center">{{ __('games.play.by_site', ['site' => $game['site']]) }}</p>
+        <p class="rg-game__note rg-game__note--center">{{ \App\Support\Locale\IsolatedTranslation::line('games.play.by_site', ['site' => $game['site']]) }}</p>
     @endif
 </section>

@@ -32,7 +32,7 @@
 
     <x-games.headline :text="$round['question']" size="question" />
     @if ($round['description'] !== '')
-        <p class="rg-game__lead">{{ $round['description'] }}</p>
+        <p class="rg-game__lead" {{ \App\Support\Locale\WrittenText::dir($round['description']) }}>{{ $round['description'] }}</p>
     @endif
 
     <div class="rg-game__pair rg-game__pair--{{ $round['shape'] }}" @if ($round['widest'] !== null) style="--rg-game-widest: {{ $round['widest'] }}px" @endif>
@@ -65,7 +65,9 @@
                     <span class="rg-game__image rg-game__image--missing">{{ __('games.play.image_missing') }}</span>
                 @endif
                 @if ($option['label'] !== '')
-                    <span class="rg-game__label">{{ $option['label'] }}</span>
+                    {{-- The pill sits at the start of the picture by the page's direction; the words inside
+                         read their own way, and a long label is cut at its own end. --}}
+                    <span class="rg-game__label"><span {{ \App\Support\Locale\WrittenText::dir($option['label']) }} class="block overflow-hidden text-ellipsis">{{ $option['label'] }}</span></span>
                 @endif
                 @if ($share !== null || $isAnswer)
                     <span class="rg-game__overlay" id="game-option-{{ $position }}-overlay">
@@ -94,7 +96,7 @@
                     <p class="rg-game__note">{{ $reveal['detail'] }}</p>
                 @endif
                 @if ($reveal['message'] !== '')
-                    <p class="rg-game__note rg-game__note--message" title="{{ $reveal['message'] }}">{{ $reveal['message'] }}</p>
+                    <p class="rg-game__note rg-game__note--message" {{ \App\Support\Locale\WrittenText::dir($reveal['message']) }} title="{{ $reveal['message'] }}">{{ $reveal['message'] }}</p>
                 @endif
             </div>
             <button type="button" class="rg-game__next" x-on:click="next()" data-testid="game-next">

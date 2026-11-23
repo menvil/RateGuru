@@ -10,6 +10,11 @@
     'fitViewport' => false,   // never taller than the viewport: header stays put, body scrolls
     'belowHeader' => false,   // laid out between the app header and the bottom of the screen, with equal gaps
     'autofocus' => false,     // with trap-focus: on open, focus the [autofocus] field inside, else the first control
+    // "auto" for a title people wrote (a post's): it reads its own way, or
+    // keeps the page's direction when it has no letter (WrittenText; a title
+    // given as an echoed attribute arrives escaped, and its entities are no
+    // letters of its own). The site's own titles keep the page's direction.
+    'titleDir' => null,
 ])
 
 @php
@@ -80,7 +85,7 @@
             @if ($trapFocus && $autofocus) x-trap.noscroll="{{ $state }}" @elseif ($trapFocus) x-trap.noscroll.noautofocus="{{ $state }}" @endif
         >
             <div class="flex items-start justify-between gap-4 border-b border-rg-border px-5 py-4{{ $fitViewport ? ' shrink-0' : '' }}">
-                <h2 id="{{ $titleId }}" class="text-base font-semibold text-rg-text">
+                <h2 id="{{ $titleId }}" @if ($titleDir === 'auto') {{ \App\Support\Locale\WrittenText::dir(html_entity_decode((string) $title, ENT_QUOTES | ENT_HTML5)) }} @elseif ($titleDir) dir="{{ $titleDir }}" @endif class="text-base font-semibold text-rg-text">
                     {{ $title }}
                 </h2>
 

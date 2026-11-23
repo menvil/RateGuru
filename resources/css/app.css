@@ -132,6 +132,19 @@
         padding-inline-start: 0.75rem;
         padding-inline-end: 2.5rem;
     }
+
+    /*
+     * A field people write in reads its own way (dir="auto"), but while it is
+     * empty it has no letter to go by and a browser lays it out left to
+     * right: on a page read right to left the placeholder then starts at the
+     * wrong end, and so does the caret. The field keeps the page's direction
+     * instead, and each line typed into it takes its own from its first
+     * letters, as dir="auto" would.
+     */
+    :is(input, textarea)[dir='auto'] {
+        direction: inherit;
+        unicode-bidi: plaintext;
+    }
 }
 
 /*
@@ -986,7 +999,14 @@ select:disabled {
         }
     }
 
+    /*
+     * The administrator's message reads its own way (dir="auto") but stays with the verdict at the
+     * page's start: only as wide as its words, so an English line on a page read right to left is not
+     * pushed across to the way on, and it is still cut at its own end.
+     */
     .rg-game__verdict > .rg-game__note--message {
+        align-self: flex-start;
+        max-width: 100%;
         -webkit-line-clamp: 1;
     }
 

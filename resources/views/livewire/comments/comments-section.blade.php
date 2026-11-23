@@ -93,6 +93,7 @@
                         <input
                             name="replyBody"
                             type="text"
+                            dir="auto"
                             wire:model="replyBody"
                             aria-label="{{ __('ui.comments.write_reply') }}"
                             maxlength="1000"

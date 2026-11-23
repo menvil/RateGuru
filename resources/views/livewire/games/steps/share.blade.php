@@ -1,7 +1,7 @@
 {{-- Share: the result's text as it goes out, where to send it, and the way on — or out, when the flow ends here. --}}
 <section class="rg-game__card" data-testid="game-step-share">
-    <x-games.headline :text="($texts['title'] ?? '') !== '' ? $texts['title'] : __('games.play.share_title')" size="sm" />
-    <p class="rg-game__quote">{{ $texts['body'] }}</p>
+    <x-games.headline :text="($texts['title'] ?? '') !== '' ? $shown['title'] : \App\Support\Games\Play\StepText::own(__('games.play.share_title'))" size="sm" />
+    <p class="rg-game__quote" {{ $shown['body']->dir() }}>{{ $shown['body'] }}</p>
     @if ($data['result'] !== null)
         @include('livewire.games.steps.share-buttons', ['share' => [...$data['result']['share'], 'text' => $texts['body']]])
     @endif

@@ -23,6 +23,7 @@
         <input
             type="search"
             name="search"
+            dir="auto"
             value="{{ $value }}"
             aria-label="{{ __('ui.feed.search_label') }}"
             placeholder="{{ __('ui.feed.search_placeholder') }}"

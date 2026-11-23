@@ -19,7 +19,7 @@
 
         <div>
             <x-input-label for="name" :value="__('auth.fields.name')" />
-            <x-ui.input id="name" name="name" type="text" class="mt-1" :value="old('name', $user->name)" required autofocus autocomplete="name" />
+            <x-ui.input id="name" name="name" type="text" dir="auto" class="mt-1" :value="old('name', $user->name)" required autofocus autocomplete="name" />
             <x-input-error class="mt-2" :messages="$errors->get('name')" />
         </div>
 

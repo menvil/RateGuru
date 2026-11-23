@@ -12,6 +12,7 @@
                 data-testid="comment-body"
                 name="body"
                 type="text"
+                dir="auto"
                 wire:model="body"
                 maxlength="1000"
                 placeholder="{{ __('ui.comments.add_comment') }}"

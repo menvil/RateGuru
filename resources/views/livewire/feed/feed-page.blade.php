@@ -119,7 +119,7 @@
                                         color="purple"
                                     />
                                     <span class="min-w-0">
-                                        <span class="block truncate text-sm font-semibold text-rg-text">{{ $matchedUser->resolved_display_name }}</span>
+                                        <span {{ \App\Support\Locale\WrittenText::dir($matchedUser->resolved_display_name) }} class="block w-fit max-w-full truncate text-sm font-semibold text-rg-text">{{ $matchedUser->resolved_display_name }}</span>
                                         <span class="block truncate text-xs text-rg-muted"><bdi>{{ '@'.$matchedUser->username }}</bdi></span>
                                     </span>
                                 </a>

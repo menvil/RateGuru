@@ -62,7 +62,7 @@
                 </div>
             </section>
         @else
-            @include('livewire.games.steps.'.str_replace('_', '-', $play->data['type']), ['data' => $play->data, 'texts' => $play->data['texts'], 'game' => $game])
+            @include('livewire.games.steps.'.str_replace('_', '-', $play->data['type']), ['data' => $play->data, 'texts' => $play->data['texts'], 'shown' => $play->data['shown'], 'game' => $game])
         @endif
     </div>
 </div>

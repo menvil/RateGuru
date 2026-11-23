@@ -35,9 +35,9 @@
             @endif
             <span class="rg-game__share-card-shade" aria-hidden="true"></span>
             <div class="rg-game__share-card-text">
-                <span class="rg-game__share-card-game">{{ $game['title'] }}</span>
+                <span class="rg-game__share-card-game" {{ \App\Support\Locale\WrittenText::dir($game['title']) }}>{{ $game['title'] }}</span>
                 @if ($showProfile)
-                    <h1 class="rg-game__share-card-profile" data-testid="game-profile">{{ $profile['name'] }}</h1>
+                    <h1 class="rg-game__share-card-profile" {{ \App\Support\Locale\WrittenText::dir($profile['name']) }} data-testid="game-profile">{{ $profile['name'] }}</h1>
                 @else
                     <h1 class="sr-only">{{ __('games.play.your_result') }}</h1>
                 @endif
@@ -63,7 +63,8 @@
         @endif
 
         @if ($result['named'] !== null)
-            <p class="rg-game__named" role="status" data-testid="game-named"><x-ui.icon name="check" class="size-4" />{{ __('games.play.name_on_card', ['name' => $result['named']]) }}</p>
+            {{-- The sentence is one item of the row beside the tick, so the space before the @name stays a space. --}}
+            <p class="rg-game__named" role="status" data-testid="game-named"><x-ui.icon name="check" class="size-4" /><span>{{ \App\Support\Locale\IsolatedTranslation::line('games.play.name_on_card', ['name' => $result['named']]) }}</span></p>
         @endif
 
         @if ($data['hasNext'])

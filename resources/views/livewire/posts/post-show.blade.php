@@ -64,9 +64,9 @@
 
                     <div class="min-w-0">
                         @if($post->user?->public_username)
-                            <a href="{{ route('profile.show', $post->user->public_username) }}" wire:navigate class="truncate text-sm font-semibold text-rg-text hover:underline focus-visible:outline-none block">{{ $post->user->resolved_display_name }}</a>
+                            <a href="{{ route('profile.show', $post->user->public_username) }}" wire:navigate {{ \App\Support\Locale\WrittenText::dir($post->user->resolved_display_name) }} class="block w-fit max-w-full truncate text-sm font-semibold text-rg-text hover:underline focus-visible:outline-none">{{ $post->user->resolved_display_name }}</a>
                         @else
-                            <div class="truncate text-sm font-semibold text-rg-text">{{ $post->user?->resolved_display_name ?? __('ui.user.unknown') }}</div>
+                            <div {{ \App\Support\Locale\WrittenText::dir($post->user?->resolved_display_name ?? __('ui.user.unknown')) }} class="w-fit max-w-full truncate text-sm font-semibold text-rg-text">{{ $post->user?->resolved_display_name ?? __('ui.user.unknown') }}</div>
                         @endif
 
                         <div class="truncate text-xs text-rg-muted">
@@ -90,10 +90,10 @@
             </section>
 
             <section class="mt-4">
-                <h1 class="break-words text-base font-bold leading-snug text-rg-text">{{ $post->title }}</h1>
+                <h1 {{ \App\Support\Locale\WrittenText::dir($post->title) }} class="break-words text-base font-bold leading-snug text-rg-text">{{ $post->title }}</h1>
 
                 @if($post->description)
-                    <p class="mt-2 break-words text-[13px] leading-snug text-rg-muted">{{ $post->description }}</p>
+                    <p {{ \App\Support\Locale\WrittenText::dir($post->description) }} class="mt-2 break-words text-[13px] leading-snug text-rg-muted">{{ $post->description }}</p>
                 @endif
             </section>
 
@@ -249,7 +249,7 @@
                 @php
                     $fullscreenImage = $postImagePresenter->responsive($post, \App\Enums\PostImageContext::Fullscreen);
                 @endphp
-                <x-ui.modal title="{{ $post->title }}" state="imageOpen" size="fullscreen" below-header close-on-escape>
+                <x-ui.modal title="{{ $post->title }}" title-dir="auto" state="imageOpen" size="fullscreen" below-header close-on-escape>
                     <x-media.post-image
                         :post="$post"
                         :src="$fullscreenImage?->src"

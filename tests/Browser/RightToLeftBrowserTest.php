@@ -1,8 +1,11 @@
 <?php
 
+use App\Enums\GameFlowStepType;
 use App\Models\Comment;
 use App\Models\GameAnswer;
 use App\Models\GameAttempt;
+use App\Models\GameFlowStep;
+use App\Models\GameRound;
 use App\Models\Post;
 use App\Models\ProjectSettings;
 use App\Models\User;
@@ -19,7 +22,9 @@ use function Pest\Laravel\actingAs;
  * every test). A game plays through to its result with the pair drawn the other
  * way round, and each pick is recorded as the option picked, not the side it
  * was on. The same pages in the default language stay as they were, left to
- * right.
+ * right. Text people wrote reads its own way: an English headline or title on
+ * such a page runs left to right with its "?" at its end, and an Arabic title
+ * on a page in the default language runs right to left.
  *
  * The language is the one the browser asks for (Accept-Language), as on a
  * first visit, or the one on a signed-in reader's account.
@@ -68,6 +73,46 @@ function horizontalBox(mixed $page, string $selector): array
             const box = element.getBoundingClientRect();
 
             return { left: Math.round(box.left), right: Math.round(box.right), top: Math.round(box.top), viewport: window.innerWidth };
+        })()
+    JS);
+}
+
+/**
+ * How a line of text is drawn: the direction its element is laid out in, and
+ * where across the screen its first and its last character are — the last to
+ * the right of the first on a line read left to right, to its left on one read
+ * right to left. A "?" ending an English line that is laid out the wrong way
+ * is drawn at the far left, before the first word.
+ *
+ * @return array{direction: string, first: float, last: float}
+ */
+function drawnLine(mixed $page, string $selector): array
+{
+    return $page->script(<<<JS
+        (() => {
+            const element = [...document.querySelectorAll('{$selector}')].find((candidate) => candidate.checkVisibility());
+            const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+            const nodes = [];
+
+            for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+                if (node.textContent.trim() !== '') nodes.push(node);
+            }
+
+            const first = nodes[0];
+            const last = nodes[nodes.length - 1];
+            const characterLeft = (node, offset) => {
+                const range = document.createRange();
+                range.setStart(node, offset);
+                range.setEnd(node, offset + 1);
+
+                return range.getBoundingClientRect().left;
+            };
+
+            return {
+                direction: getComputedStyle(element).direction,
+                first: characterLeft(first, first.textContent.search(/\S/)),
+                last: characterLeft(last, last.textContent.trimEnd().length - 1),
+            };
         })()
     JS);
 }
@@ -425,3 +470,192 @@ it('draws the pair in reading order left to right, the first option on the left'
         ->and(horizontalBox($page, '[data-testid="game-option-0"]')['right'])
         ->toBeLessThanOrEqual(horizontalBox($page, '[data-testid="game-option-1"]')['left']);
 });
+
+it('lays an English game headline out left to right on a page read right to left, its "?" at the end of the line', function (string $locale, int $width) {
+    // The landing's headline as the admin wrote it, in English only.
+    $draft = publishableGameDraft(1);
+    liveGame($draft);
+
+    $page = visitGame($draft['game']->slug, $width, $locale);
+    $headline = drawnLine($page, '[data-testid="game-step-landing"] .rg-game__title');
+
+    expect($page->script("document.querySelector('[data-testid=\"game-step-landing\"] .rg-game__title').textContent.trim()"))->toBe('Which one would you pick?')
+        ->and($headline['direction'])->toBe('ltr')
+        ->and($headline['last'])->toBeGreaterThan($headline['first'])
+        // The page itself, and the game's own words, still read right to left.
+        ->and(pageDirection($page))->toBe(['dir' => 'rtl', 'direction' => 'rtl', 'overflow' => 0])
+        ->and($page->script("getComputedStyle(document.querySelector('[data-testid=\"game-skip-to-feed\"]')).direction"))->toBe('rtl');
+})->with(rightToLeftLocales())->with([390, 1440]);
+
+it('lays an English post title out left to right on a page read right to left, at the start of its own line', function (string $locale) {
+    $post = Post::factory()->published()->create(['title' => 'Which one is better?']);
+
+    $page = visitInLanguage(route('posts.show', $post), $locale, 1440);
+    $title = drawnLine($page, '[data-testid="post-show-page"] h1');
+
+    // Its own start is the left: the title sits against the card's left edge.
+    expect($title['direction'])->toBe('ltr')
+        ->and($title['last'])->toBeGreaterThan($title['first'])
+        ->and($title['first'] - horizontalBox($page, '[data-testid="post-show-page"] h1')['left'])->toBeLessThan(2)
+        ->and(pageDirection($page))->toBe(['dir' => 'rtl', 'direction' => 'rtl', 'overflow' => 0]);
+})->with(rightToLeftLocales());
+
+it('lays an Arabic post title out right to left on a page in the default language, its "!" at the end of the line', function () {
+    $post = Post::factory()->published()->create(['title' => 'اختر الصورة الأجمل!']);
+
+    $page = visitInLanguage(route('posts.show', $post), config('locales.default'), 1440);
+    $title = drawnLine($page, '[data-testid="post-show-page"] h1');
+
+    expect($title['direction'])->toBe('rtl')
+        ->and($title['last'])->toBeLessThan($title['first'])
+        ->and(pageDirection($page))->toBe(['dir' => 'ltr', 'direction' => 'ltr', 'overflow' => 0]);
+});
+
+it('keeps an English title and headline on a page in the default language as they were, left to right', function () {
+    $post = Post::factory()->published()->create(['title' => 'Which one is better?']);
+
+    $page = visitInLanguage(route('posts.show', $post), config('locales.default'), 1440);
+    $title = drawnLine($page, '[data-testid="post-show-page"] h1');
+
+    expect($title['direction'])->toBe('ltr')
+        ->and($title['last'])->toBeGreaterThan($title['first'])
+        ->and($title['first'] - horizontalBox($page, '[data-testid="post-show-page"] h1')['left'])->toBeLessThan(2);
+
+    $draft = publishableGameDraft(1);
+    liveGame($draft);
+    $headline = drawnLine(visitGame($draft['game']->slug, 390, config('locales.default')), '[data-testid="game-step-landing"] .rg-game__title');
+
+    expect($headline['direction'])->toBe('ltr')
+        ->and($headline['last'])->toBeGreaterThan($headline['first']);
+});
+
+it('keeps an empty comment box in the page\'s direction, its placeholder at the start of a line read right to left', function (string $locale) {
+    $post = Post::factory()->published()->create();
+    actingAs(User::factory()->create(['locale' => $locale]));
+
+    $page = visitInLanguage(route('posts.show', $post), $locale, 1440);
+
+    // The box reads what is typed its own way (dir="auto"); with nothing typed yet it has no letter to go by.
+    expect($page->script("document.querySelector('[data-testid=\"comment-body\"]').getAttribute('dir')"))->toBe('auto')
+        ->and($page->script("getComputedStyle(document.querySelector('[data-testid=\"comment-body\"]')).direction"))->toBe('rtl');
+})->with(rightToLeftLocales());
+
+it('keeps a title with no letter in it in the page\'s direction, at the start of a line read right to left', function (string $locale) {
+    // Digits and punctuation only: a browser lays such text out left to right under dir="auto".
+    $post = Post::factory()->published()->create(['title' => '100% 2024!']);
+
+    $page = visitInLanguage(route('posts.show', $post), $locale, 1440);
+    $title = $page->script(<<<'JS'
+        (() => {
+            const element = document.querySelector('[data-testid="post-show-page"] h1');
+            const range = document.createRange();
+            range.selectNodeContents(element);
+
+            return { direction: getComputedStyle(element).direction, endGap: Math.round(element.getBoundingClientRect().right - range.getBoundingClientRect().right) };
+        })()
+    JS);
+
+    expect($title['direction'])->toBe('rtl')
+        ->and(abs($title['endGap']))->toBeLessThanOrEqual(1);
+})->with(rightToLeftLocales());
+
+it('takes a game text\'s direction from the administrator\'s own words, a Latin title put in front of them reading its own way', function (string $locale) {
+    $draft = publishableGameDraft(1);
+    $draft['game']->forceFill(['title' => 'Pairs game!'])->save();
+    // The page's own words after the game's title, as Urdu's "{game} میں میرا نتیجہ" has them.
+    GameFlowStep::query()->where('flow_id', $draft['flow']->id)->where('type', 'landing')
+        ->update(['body_translations' => [$locale => '{game} '.__('games.play.share_title', [], $locale)]]);
+    $draft['game'] = $draft['game']->fresh();
+    liveGame($draft);
+
+    $page = visitGame($draft['game']->slug, 390, $locale);
+    $title = drawnLine($page, '[data-testid="game-step-landing"] .rg-game__lead bdi');
+    $order = $page->script(<<<'JS'
+        (() => {
+            const lead = document.querySelector('[data-testid="game-step-landing"] .rg-game__lead');
+            const title = lead.querySelector('bdi');
+            const range = document.createRange();
+            range.setStartAfter(title);
+            range.setEnd(lead, lead.childNodes.length);
+
+            return { direction: getComputedStyle(lead).direction, titleLeft: title.getBoundingClientRect().left, wordsRight: range.getBoundingClientRect().right };
+        })()
+    JS);
+
+    // The sentence right to left, the title first in it — at its right — and left to right in itself, its "!" at its end.
+    expect($order['direction'])->toBe('rtl')
+        ->and($order['titleLeft'])->toBeGreaterThanOrEqual($order['wordsRight'] - 1)
+        ->and($title['direction'])->toBe('ltr')
+        ->and($title['last'])->toBeGreaterThan($title['first']);
+})->with(rightToLeftLocales());
+
+it('draws the site\'s own words on a game\'s button in the page\'s direction, the site\'s name where the line puts it', function (string $locale) {
+    $draft = publishableGameDraft(1);
+    // The administrator left the button's label empty: the site's own line, with the site's name in it.
+    replaceFlowSteps($draft['flow'], [GameFlowStepType::Landing, GameFlowStepType::Game, GameFlowStepType::FullResult], settings: [
+        'game' => ['advance' => 'button'],
+        'full_result' => ['onward' => 'feed'],
+    ]);
+    liveGame($draft);
+
+    $page = visitGame($draft['game']->slug, 1440, $locale);
+    $page->click('[data-testid="game-start"]');
+    waitForScript($page, "document.querySelector('[data-testid=\"game-step-game\"]')?.dataset.round", '0', 10.0);
+    pickInGame($page, 0);
+    nextInGame($page, "!! document.querySelector('[data-testid=\"game-onward-go\"]')");
+
+    $button = $page->script(<<<'JS'
+        (() => {
+            const words = document.querySelector('[data-testid="game-onward-go"] > span');
+            const site = words.querySelector('bdi');
+            const box = words.getBoundingClientRect();
+            const name = site.getBoundingClientRect();
+
+            return { direction: getComputedStyle(words).direction, site: site.textContent, startGap: Math.round(box.right - name.right), endGap: Math.round(name.left - box.left) };
+        })()
+    JS);
+
+    // Urdu's line starts with the site's name: at the right, where a line read right to left starts.
+    $startsWithSite = str_starts_with(__('games.play.onward_feed_button', [], $locale), ':site');
+
+    expect($button['direction'])->toBe('rtl')
+        ->and($button['site'])->toBe('RateGuru')
+        ->and($startsWithSite ? $button['startGap'] : $button['endGap'])->toBeLessThanOrEqual(1);
+})->with(rightToLeftLocales());
+
+it('starts an English title in the post drawer where its description starts, on a page read right to left', function (string $locale) {
+    Post::factory()->published()->create(['title' => 'Which one is better?', 'description' => 'Look at both photos, then vote.']);
+
+    $page = visitInLanguage(route('feed'), $locale, 1440);
+    $page->click('[data-testid="post-card"]');
+    waitForScript($page, "!! document.querySelector('[data-testid=\"post-detail-column\"] [data-testid=\"post-drawer-title\"]')", true, 10.0);
+
+    $title = drawnLine($page, '[data-testid="post-detail-column"] #post-drawer-title');
+    $description = drawnLine($page, '[data-testid="post-detail-column"] #post-drawer-title + p');
+
+    expect($title['direction'])->toBe('ltr')
+        ->and($title['last'])->toBeGreaterThan($title['first'])
+        ->and(abs($title['first'] - $description['first']))->toBeLessThan(2);
+})->with(rightToLeftLocales());
+
+it('keeps an English message under a game\'s verdict with the verdict, at the start of a line read right to left', function (string $locale) {
+    $draft = publishableGameDraft(1);
+    buttonPacedGame($draft);
+    GameRound::query()->where('content_set_id', $draft['set']->id)->update(['reveal_message' => 'Nice pick, most people agree.']);
+    liveGame($draft);
+
+    $page = visitGame($draft['game']->slug, 1440, $locale);
+    $page->click('[data-testid="game-start"]');
+    waitForScript($page, "document.querySelector('[data-testid=\"game-step-game\"]')?.dataset.round", '0', 10.0);
+    pickInGame($page, 0);
+
+    $message = horizontalBox($page, '.rg-game__note--message');
+    $verdict = horizontalBox($page, '.rg-game__verdict-title');
+    $line = drawnLine($page, '.rg-game__note--message');
+
+    // Beside the verdict, not across the screen by the way on; read left to right, its "." at its end.
+    expect(abs($message['right'] - $verdict['right']))->toBeLessThanOrEqual(1)
+        ->and($message['left'])->toBeGreaterThan($verdict['left'] + 100)
+        ->and($line['direction'])->toBe('ltr')
+        ->and($line['last'])->toBeGreaterThan($line['first']);
+})->with(rightToLeftLocales());

@@ -55,6 +55,7 @@
             <x-ui.textarea
                 id="{{ $messageId }}"
                 name="message"
+                dir="auto"
                 wire:model.defer="message"
                 rows="4"
                 maxlength="1000"

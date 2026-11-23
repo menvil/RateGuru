@@ -5,9 +5,9 @@
 --}}
 <section class="rg-game__card" data-testid="game-step-registration">
     <span class="rg-game__tile" aria-hidden="true"><x-ui.icon name="user-plus" class="size-6" /></span>
-    <x-games.headline :text="$texts['title']" size="sm" />
+    <x-games.headline :text="$shown['title']" size="sm" />
     @if (($texts['body'] ?? '') !== '')
-        <p class="rg-game__lead">{{ $texts['body'] }}</p>
+        <p class="rg-game__lead" {{ $shown['body']->dir() }}>{{ $shown['body'] }}</p>
     @endif
     @if ($data['signup'] !== null)
         @include('livewire.games.steps.signup', [

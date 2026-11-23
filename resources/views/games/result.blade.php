@@ -41,7 +41,7 @@
         <div class="rg-game__frame">
             <article class="rg-game__card">
                 @if ($profile['description'] !== '')
-                    <p @class(['rg-game__result-headline', 'rg-game__result-headline--long' => mb_strlen($profile['description']) > 80]) data-testid="game-profile-description">{{ $profile['description'] }}</p>
+                    <p @class(['rg-game__result-headline', 'rg-game__result-headline--long' => mb_strlen($profile['description']) > 80]) {{ \App\Support\Locale\WrittenText::dir($profile['description']) }} data-testid="game-profile-description">{{ $profile['description'] }}</p>
                 @endif
                 <div class="rg-game__share-card">
                     @if ($image)
@@ -51,8 +51,8 @@
                     @endif
                     <span class="rg-game__share-card-shade" aria-hidden="true"></span>
                     <div class="rg-game__share-card-text">
-                        <span class="rg-game__share-card-game">{{ $gameTitle }}</span>
-                        <h1 class="rg-game__share-card-profile">{{ $profile['name'] }}</h1>
+                        <span class="rg-game__share-card-game" {{ \App\Support\Locale\WrittenText::dir($gameTitle) }}>{{ $gameTitle }}</span>
+                        <h1 class="rg-game__share-card-profile" {{ \App\Support\Locale\WrittenText::dir($profile['name']) }}>{{ $profile['name'] }}</h1>
                         <span class="rg-game__share-card-line"><span class="rg-game__share-card-host" dir="auto" data-testid="game-result-byline">{{ $byline }}</span></span>
                     </div>
                 </div>

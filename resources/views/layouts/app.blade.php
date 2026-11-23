@@ -106,7 +106,7 @@
                                 elevated
                             >
                                 <x-ui.icon name="upload" class="size-4" />
-                                <span class="hidden sm:inline" data-header-fit="3" data-header-fit-display="inline">{{ $projectSettings->uploadCtaLabel() }}</span>
+                                <span class="hidden sm:inline" data-header-fit="3" data-header-fit-display="inline"><bdi>{{ $projectSettings->uploadCtaLabel() }}</bdi></span>
                             </x-ui.button>
                             @endif
 
@@ -203,7 +203,7 @@
 
                             @if($projectSettings->featureFlag('allow_user_uploads'))
                             <div>
-                                <x-ui.modal :title="$projectSettings->uploadCtaLabel()" size="lg" data-testid="upload-modal" allow-overflow>
+                                <x-ui.modal :title="$projectSettings->uploadCtaLabel()" title-dir="auto" size="lg" data-testid="upload-modal" allow-overflow>
                                     <livewire:feed.upload-post-form />
                                 </x-ui.modal>
                             </div>
@@ -222,7 +222,7 @@
                                     aria-label="{{ $projectSettings->uploadCtaLabel() }}"
                                 >
                                     <x-ui.icon name="upload" class="size-4" />
-                                    <span class="hidden lg:inline" data-header-fit="3" data-header-fit-display="inline">{{ $projectSettings->uploadCtaLabel() }}</span>
+                                    <span class="hidden lg:inline" data-header-fit="3" data-header-fit-display="inline"><bdi>{{ $projectSettings->uploadCtaLabel() }}</bdi></span>
                                 </x-ui.button>
                             @endif
 

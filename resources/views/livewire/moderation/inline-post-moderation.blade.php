@@ -113,6 +113,7 @@
                 <x-ui.textarea
                     name="moderation_reason"
                     id="moderation-reason-{{ $post->id }}"
+                    dir="auto"
                     rows="2"
                     maxlength="{{ \App\Livewire\Moderation\InlinePostModeration::REASON_LIMIT }}"
                     placeholder="{{ __('ui.moderation.reason_placeholder') }}"

@@ -37,6 +37,7 @@
             class="mt-1 block w-full"
             type="text"
             name="name"
+            dir="auto"
             :value="$active ? old('name') : null"
             required
             :autofocus="! $isModal"
