@@ -4,6 +4,7 @@
 const SCRIPT_URL = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
 
 const widgets = new Map();
+const pending = new Set();
 let loading = null;
 
 function loadTurnstile() {
@@ -49,12 +50,13 @@ async function mount(element) {
     }
 
     element.dataset.rgTurnstileMounted = 'true';
+    pending.add(element);
 
     try {
         const turnstile = await loadTurnstile();
 
         // The person may have left the page while the script loaded.
-        if (! element.isConnected) {
+        if (! element.isConnected || ! pending.has(element)) {
             return;
         }
 
@@ -76,6 +78,8 @@ async function mount(element) {
     } catch {
         delete element.dataset.rgTurnstileMounted;
         showFailure(element, true);
+    } finally {
+        pending.delete(element);
     }
 }
 
@@ -102,8 +106,11 @@ if (document.readyState === 'loading') {
 document.addEventListener('livewire:navigated', mountOnPage);
 
 // Before Livewire keeps this page for the Back button: a widget restored from
-// that copy would be a dead frame, so it is drawn anew instead.
+// that copy would be a dead frame, and a form still waiting for the script
+// would look drawn when it is not, so both are drawn anew instead.
 document.addEventListener('livewire:navigating', () => {
+    pending.forEach((element) => delete element.dataset.rgTurnstileMounted);
+    pending.clear();
     widgets.forEach((id, element) => {
         window.turnstile?.remove(id);
         delete element.dataset.rgTurnstileMounted;

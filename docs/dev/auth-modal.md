@@ -175,7 +175,7 @@ standalone page, or the details step of the form inside a game.
 |---|---|---|
 | passed | goes through | goes through |
 | missing, wrong, expired or reused token | logged, goes through | refused |
-| cannot be reached, or refuses our secret | one account per address an hour | the same |
+| cannot be reached, or refuses our secret | past one account per address an hour, logged, goes through | one account per address an hour |
 
 A refused secret is also reported as an error. Cloudflare's testing keys work
 everywhere except production. A browser without JavaScript cannot pass the

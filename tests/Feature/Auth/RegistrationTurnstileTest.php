@@ -80,6 +80,7 @@ it('refuses what Cloudflare does not pass', function (array $answer) {
     'a wrong token' => [['success' => false, 'error-codes' => ['invalid-input-response']]],
     'an expired or reused token' => [['success' => false, 'error-codes' => ['timeout-or-duplicate']]],
     'a token for another action' => [turnstilePassed(['action' => 'login'])],
+    'a real token naming no action' => [array_diff_key(turnstilePassed(), ['action' => true])],
     'a token from another site' => [turnstilePassed(['hostname' => 'elsewhere.example'])],
 ]);
 
@@ -150,6 +151,21 @@ it('keeps sign-ups going while Cloudflare cannot answer, one an hour per address
     'an answer that is not JSON' => [fn () => Http::fake([SITEVERIFY => Http::response('<html>', 200)])],
     'its internal error' => [fn () => turnstileAnswers(['success' => false, 'error-codes' => ['internal-error']])],
 ]);
+
+it('only logs passing the outage limit in report mode, and the sign-up goes through', function () {
+    config(['registration.screening_mode' => 'report']);
+    $log = fakeSecurityLog();
+    turnstileAnswers([], 503);
+
+    $this->post('/register', challengedSignUp())->assertSessionHasNoErrors();
+    auth()->logout();
+    $this->post('/register', challengedSignUp(['email' => 'second@example.com']))->assertSessionHasNoErrors();
+
+    expect(User::query()->where('email', 'second@example.com')->exists())->toBeTrue();
+
+    $line = collect($log->getRecords())->last(fn (LogRecord $record): bool => $record->message === ScreenRegistrationAction::EVENT);
+    expect($line->context)->toMatchArray(['reasons' => ['limit_without_challenge'], 'refused' => false]);
+});
 
 it('does not let a missing token pass while Cloudflare is down', function () {
     Http::fake([SITEVERIFY => fn () => throw new ConnectionException('timed out')]);

@@ -61,7 +61,7 @@ final class TurnstileVerifier
         }
 
         if (($body['success'] ?? false) === true) {
-            return ($body['action'] ?? self::ACTION) === self::ACTION && $this->isThisSite($body, $hostname)
+            return $this->isForThisForm($body, $hostname)
                 ? TurnstileOutcome::Passed
                 : TurnstileOutcome::Rejected;
         }
@@ -70,18 +70,19 @@ final class TurnstileVerifier
     }
 
     /**
-     * Cloudflare's testing keys always report example.com, so they pass
-     * anywhere but production, where a testing key must never open the form.
+     * Cloudflare's testing keys always report example.com and no action, so
+     * they pass anywhere but production, where a testing key must never open
+     * the form. A real token has to name both.
      *
      * @param  array<array-key, mixed>  $body
      */
-    private function isThisSite(array $body, string $hostname): bool
+    private function isForThisForm(array $body, string $hostname): bool
     {
         if (($body['metadata']['result_with_testing_key'] ?? false) === true) {
-            return ! app()->isProduction();
+            return ! app()->isProduction() && ($body['action'] ?? self::ACTION) === self::ACTION;
         }
 
-        return ($body['hostname'] ?? null) === $hostname;
+        return ($body['action'] ?? null) === self::ACTION && ($body['hostname'] ?? null) === $hostname;
     }
 
     /** @param  array<array-key, mixed>  $errors */
