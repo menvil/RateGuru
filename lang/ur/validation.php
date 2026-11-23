@@ -1,0 +1,57 @@
+<?php
+
+return [
+    'accepted' => ':attribute کو قبول کرنا لازمی ہے۔',
+    'required' => ':attribute کا خانہ لازمی ہے۔',
+    'string' => ':attribute کے خانے میں متن ہونا چاہیے۔',
+    'max' => [
+        'array' => ':attribute کے خانے میں :max سے زیادہ آئٹمز نہیں ہونے چاہئیں۔',
+        'file' => ':attribute کی فائل :max کلوبائٹ سے بڑی نہیں ہونی چاہیے۔',
+        'string' => ':attribute کے خانے میں :max سے زیادہ حروف نہیں ہونے چاہئیں۔',
+    ],
+    'min' => [
+        'string' => ':attribute کے خانے میں کم از کم :min حروف ہونے چاہئیں۔',
+    ],
+    'in' => 'منتخب کردہ :attribute درست نہیں ہے۔',
+    'unique' => 'یہ :attribute پہلے سے استعمال میں ہے۔',
+    'email' => ':attribute کے خانے میں درست ای میل پتہ ہونا چاہیے۔',
+    'confirmed' => ':attribute کی تصدیق مماثل نہیں ہے۔',
+    'array' => ':attribute کا خانہ ایک فہرست ہونا چاہیے۔',
+    'boolean' => ':attribute کے خانے کی قدر صحیح یا غلط ہونی چاہیے۔',
+    'current_password' => 'پاس ورڈ غلط ہے۔',
+    'dimensions' => ':attribute کی پیمائش درست نہیں ہے۔',
+    'enum' => 'منتخب کردہ :attribute درست نہیں ہے۔',
+    'exists' => 'منتخب کردہ :attribute درست نہیں ہے۔',
+    'image' => ':attribute کے خانے میں تصویر ہونی چاہیے۔',
+    'integer' => ':attribute کے خانے میں پورا عدد ہونا چاہیے۔',
+    'lowercase' => ':attribute کے خانے میں صرف چھوٹے حروف ہونے چاہئیں۔',
+    'mimes' => ':attribute کے خانے میں ان اقسام کی فائل ہونی چاہیے: :values۔',
+    'not_regex' => ':attribute کے خانے کا فارمیٹ درست نہیں ہے۔',
+    'regex' => ':attribute کے خانے کا فارمیٹ درست نہیں ہے۔',
+    'uploaded' => ':attribute کی فائل اپ لوڈ نہیں ہو سکی۔',
+    'url' => ':attribute کے خانے میں درست URL ہونا چاہیے۔',
+
+    // The field names public forms submit, so a message reads as a sentence
+    // in the reader's language instead of carrying an English identifier.
+    'attributes' => [
+        'bio' => 'تعارف',
+        'categoryId' => 'زمرہ',
+        'current_password' => 'موجودہ پاس ورڈ',
+        'description' => 'تفصیل',
+        'display_name' => 'ظاہری نام',
+        'email' => 'ای میل',
+        'image' => 'تصویر',
+        'locale' => 'زبان',
+        'message' => 'پیغام',
+        'name' => 'نام',
+        'password' => 'پاس ورڈ',
+        'profile_website_url' => 'ویب سائٹ',
+        'reason' => 'وجہ',
+        'sourceUrl' => 'ماخذ کا URL',
+        'subject' => 'موضوع',
+        'tagIds' => 'ٹیگز',
+        'title' => 'عنوان',
+        'url' => 'URL',
+        'username' => 'صارف نام',
+    ],
+];

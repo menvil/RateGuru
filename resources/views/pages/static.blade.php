@@ -9,15 +9,15 @@
         data-page="{{ $pageKey }}"
     >
         <p class="text-sm font-medium uppercase tracking-normal text-rg-accent2">
-            {{ $siteName }}
+            <bdi>{{ $siteName }}</bdi>
         </p>
 
-        <h1 class="mt-3 text-3xl font-semibold text-rg-text sm:text-4xl">
+        <h1 {{ \App\Support\Locale\WrittenText::dir($title) }} class="mt-3 text-3xl font-semibold text-rg-text sm:text-4xl">
             {{ $title }}
         </h1>
 
         <x-ui.card variant="panel" class="mt-6">
-            <div class="whitespace-pre-line text-sm leading-7 text-rg-text2 sm:text-base">
+            <div {{ \App\Support\Locale\WrittenText::dir($content) }} class="whitespace-pre-line text-sm leading-7 text-rg-text2 sm:text-base">
                 {{ $content }}
             </div>
         </x-ui.card>

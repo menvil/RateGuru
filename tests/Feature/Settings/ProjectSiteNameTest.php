@@ -99,7 +99,8 @@ it('names the project in the connected accounts of the profile', function () {
 
     $this->actingAs($user)->get('/profile')
         ->assertOk()
-        ->assertSee('A connected account may use a different email address than your Pawrank account.')
+        // The name reads its own way inside the sentence.
+        ->assertSeeHtml('A connected account may use a different email address than your <bdi>Pawrank</bdi> account.')
         ->assertDontSee('RateGuru');
 });
 

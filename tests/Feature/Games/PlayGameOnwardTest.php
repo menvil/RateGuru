@@ -239,6 +239,7 @@ it('puts the game’s name into the prompt, as into every step’s texts', funct
 
     playOnwardGameToResult($this->draft['game']->slug)->call('continue')
         ->assertSee('data-testid="game-onward-title"', false)
-        ->assertSee('More from '.$this->draft['game']->title)
+        // The game's title reads its own way in the administrator's sentence.
+        ->assertSeeHtml('More from <bdi>'.e($this->draft['game']->title).'</bdi>')
         ->assertDontSee('{game}');
 });

@@ -52,9 +52,9 @@
 
     <div class="rg-game__signup-step" x-show="step === 'email'" @style(['display: none' => $step !== 'email'])>
         @if ($intro)
-            <p class="rg-game__signup-title">{{ $texts['title'] }}</p>
+            <p class="rg-game__signup-title" {{ $shown['title']->dir() }}>{{ $shown['title'] }}</p>
             @if (($texts['body'] ?? '') !== '')
-                <p class="rg-game__lead">{{ $texts['body'] }}</p>
+                <p class="rg-game__lead" {{ $shown['body']->dir() }}>{{ $shown['body'] }}</p>
             @endif
         @endif
         <label class="rg-game__field">
@@ -78,7 +78,7 @@
             </p>
         @elseif ($loginLabel !== '')
             <p class="rg-game__signup-login">
-                <button type="button" class="rg-game__link" wire:click="signUp('login')" data-testid="game-signup-login">{{ $loginLabel }}</button>
+                <button type="button" class="rg-game__link" wire:click="signUp('login')" data-testid="game-signup-login"><bdi>{{ $loginLabel }}</bdi></button>
             </p>
         @endif
     </div>
@@ -91,7 +91,7 @@
         </p>
         <label class="rg-game__field">
             <span class="rg-game__field-label">{{ __('auth.fields.name') }}</span>
-            <input type="text" name="name" class="rg-game__input" autocomplete="name" value="{{ $failed ? old('name') : '' }}" x-ref="name" x-bind:required="step === 'details'" data-testid="game-signup-name">
+            <input type="text" name="name" class="rg-game__input" dir="auto" autocomplete="name" value="{{ $failed ? old('name') : '' }}" x-ref="name" x-bind:required="step === 'details'" data-testid="game-signup-name">
         </label>
         @foreach ($bag->get('name') as $message)
             <p class="rg-game__error" role="alert">{{ $message }}</p>
@@ -112,6 +112,6 @@
         @unless ($preview)
             <x-auth.registration-guard />
         @endunless
-        <button type="submit" class="rg-game__button rg-game__button--primary rg-game__button--wide" data-testid="game-signup-submit">{{ $submitLabel }}</button>
+        <button type="submit" class="rg-game__button rg-game__button--primary rg-game__button--wide" data-testid="game-signup-submit"><bdi>{{ $submitLabel }}</bdi></button>
     </div>
 </form>

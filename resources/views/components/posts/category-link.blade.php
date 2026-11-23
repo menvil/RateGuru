@@ -13,10 +13,10 @@
         @if($testId) data-testid="{{ $testId }}" @endif
         class="inline-flex rounded-rgPill focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent"
     >
-        <x-ui.badge variant="accent">{{ $category->translatedName() }}</x-ui.badge>
+        <x-ui.badge variant="accent"><bdi>{{ $category->translatedName() }}</bdi></x-ui.badge>
     </a>
 @else
     <span @if($testId) data-testid="{{ $testId }}" @endif class="inline-flex">
-        <x-ui.badge variant="accent">{{ $category->translatedName() }}</x-ui.badge>
+        <x-ui.badge variant="accent"><bdi>{{ $category->translatedName() }}</bdi></x-ui.badge>
     </span>
 @endif

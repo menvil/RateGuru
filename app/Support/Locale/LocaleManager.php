@@ -34,7 +34,7 @@ class LocaleManager
     /**
      * Every installed language, in config order.
      *
-     * @return array<string, array{label: string, native: string, flag: string, enabled_by_default: bool}>
+     * @return array<string, array{label: string, native: string, flag: string, enabled_by_default: bool, direction?: 'ltr'|'rtl'}>
      */
     public function supported(): array
     {
@@ -93,7 +93,7 @@ class LocaleManager
      * either (UpdateProjectLocaleSettingsAction); this only keeps an old or
      * damaged row from taking the default away.
      *
-     * @return array<string, array{label: string, native: string, flag: string, enabled_by_default: bool}>
+     * @return array<string, array{label: string, native: string, flag: string, enabled_by_default: bool, direction?: 'ltr'|'rtl'}>
      */
     public function enabled(): array
     {
@@ -106,7 +106,7 @@ class LocaleManager
      * what it offers then.
      *
      * @param  array<mixed>|null  $stored
-     * @return array<string, array{label: string, native: string, flag: string, enabled_by_default: bool}>
+     * @return array<string, array{label: string, native: string, flag: string, enabled_by_default: bool, direction?: 'ltr'|'rtl'}>
      */
     public function offeredBy(?array $stored): array
     {
@@ -182,5 +182,23 @@ class LocaleManager
     public function flag(string $locale): string
     {
         return $this->supported()[$locale]['flag'] ?? '';
+    }
+
+    /**
+     * Which way a language is read: right to left for one config/locales.php
+     * declares `'direction' => 'rtl'`, left to right for every other — one
+     * without the key, and one that is not installed. The language being
+     * served when none is named.
+     *
+     * Read from the registry alone, so installing a right-to-left language is
+     * a line in config/locales.php and nothing else.
+     *
+     * @return 'ltr'|'rtl'
+     */
+    public function direction(?string $locale = null): string
+    {
+        $locale ??= app()->getLocale();
+
+        return ($this->supported()[$locale]['direction'] ?? 'ltr') === 'rtl' ? 'rtl' : 'ltr';
     }
 }

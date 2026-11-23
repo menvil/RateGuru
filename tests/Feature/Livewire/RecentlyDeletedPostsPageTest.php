@@ -50,7 +50,9 @@ it('restores an own post from the page', function () {
 
     Livewire::test(RecentlyDeletedPostsPage::class)
         ->call('restore', $post->id)
-        ->assertSet('statusMessage', __('ui.recently_deleted.restored', ['title' => $post->title]));
+        ->assertSet('restoredTitle', $post->title)
+        ->assertSet('statusMessage', null)
+        ->assertSeeHtml('<bdi>'.e($post->title).'</bdi>');
 
     expect(Post::findOrFail($post->id)->status)->toBe(PostStatus::Published);
 });
@@ -111,7 +113,7 @@ it('resets pagination after restoring the sole post on a later page', function (
         ->call('gotoPage', 2)
         ->call('restore', $lastPagePost->id)
         ->assertSet('paginators.page', 1)
-        ->assertSet('statusMessage', __('ui.recently_deleted.restored', ['title' => $lastPagePost->title]));
+        ->assertSet('restoredTitle', $lastPagePost->title);
 
     expect(Post::findOrFail($lastPagePost->id)->trashed())->toBeFalse();
 });

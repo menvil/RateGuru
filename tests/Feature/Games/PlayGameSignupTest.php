@@ -196,7 +196,9 @@ it('tells a guest who signed up from the result that their name is on the card n
 
     Livewire::test(PlayGame::class, ['slug' => $slug])
         ->assertSeeHtml('data-testid="game-byline">@newbie<')
-        ->assertSee('Your name is on the card now: @newbie')
+        // The @name reads its own way in the sentence, its @ in front on a page read right to left; the
+        // sentence is one item of the row beside the tick, so the space before the @name stays a space.
+        ->assertSeeHtml('<span>Your name is on the card now: <bdi>@newbie</bdi></span>')
         ->assertDontSeeHtml('data-testid="game-signup"');
 });
 
