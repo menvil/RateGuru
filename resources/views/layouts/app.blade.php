@@ -43,7 +43,11 @@
                  dropdowns (user menu, notifications, search suggestions) open invisibly
                  behind the open panel — they cannot escape the header's stacking context. --}}
             <header class="sticky top-0 z-[60] border-b border-rg-border bg-rg-topbar" data-app-header data-testid="app-header">
-                <div class="rg-app-header-layout mx-auto flex h-[60px] w-full max-w-[1440px] items-center gap-1.5 px-3 sm:gap-2 sm:px-4">
+                {{-- The optional controls (data-header-fit, the higher the more important)
+                     are shown as far as the row has room, by resources/js/header-fit.js,
+                     inlined below the header; their breakpoint classes lay the row out
+                     until it has run. --}}
+                <div class="rg-app-header-layout mx-auto flex h-[60px] w-full max-w-[1440px] items-center gap-1.5 px-3 sm:gap-2 sm:px-4" data-header-fit-row>
                     <button
                         type="button"
                         class="grid size-9 shrink-0 cursor-pointer place-items-center rounded-rgControl border border-rg-border2 bg-rg-card text-rg-text2 transition hover:text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent lg:hidden"
@@ -58,7 +62,7 @@
                         {{-- As wide as the name and no wider, at the start of the line: the name
                              reads its own way (x-brand-wordmark), and a box of the column's width
                              would put a Latin name at its left on a page read right to left. --}}
-                        <x-brand-wordmark class="block w-fit max-w-full truncate" />
+                        <x-brand-wordmark class="block w-fit max-w-full truncate" data-header-fit-brand />
                     </a>
 
                     <x-ui.search-form
@@ -68,6 +72,7 @@
                         clear-test-id="desktop-search-clear"
                         auto-submit
                         data-testid="app-header-search"
+                        data-header-fit-search
                         x-data
                         class="relative hidden w-full max-w-[520px] justify-self-center lg:block"
                     />
@@ -93,7 +98,7 @@
                             data-testid="header-auth-actions"
                         >
                             @if($projectSettings->featureFlag('allow_user_uploads'))
-                            {{-- Its words are hidden on a phone: the name is said either way. --}}
+                            {{-- Its words are shown where the row has room: the name is said either way. --}}
                             <x-ui.button
                                 data-testid="open-upload-button"
                                 aria-label="{{ $projectSettings->uploadCtaLabel() }}"
@@ -101,13 +106,13 @@
                                 elevated
                             >
                                 <x-ui.icon name="upload" class="size-4" />
-                                <span class="hidden sm:inline">{{ $projectSettings->uploadCtaLabel() }}</span>
+                                <span class="hidden sm:inline" data-header-fit="3" data-header-fit-display="inline">{{ $projectSettings->uploadCtaLabel() }}</span>
                             </x-ui.button>
                             @endif
 
                             <livewire:notifications.notification-bell />
 
-                            <div class="hidden lg:block">
+                            <div class="hidden lg:block" data-header-fit="2" data-header-fit-display="block">
                                 <x-locale-switcher />
                             </div>
 
@@ -217,7 +222,7 @@
                                     aria-label="{{ $projectSettings->uploadCtaLabel() }}"
                                 >
                                     <x-ui.icon name="upload" class="size-4" />
-                                    <span class="hidden lg:inline">{{ $projectSettings->uploadCtaLabel() }}</span>
+                                    <span class="hidden lg:inline" data-header-fit="3" data-header-fit-display="inline">{{ $projectSettings->uploadCtaLabel() }}</span>
                                 </x-ui.button>
                             @endif
 
@@ -226,13 +231,15 @@
                                      that has no dialog, they lead to the standalone pages. A plain click
                                      opens the dialog instead.
 
-                                     Below the small-screen width only Log in is shown: a phone's row
-                                     has no room for both in a language with long labels, and the brand
-                                     was squeezed out. The sign-in dialog and page both offer the way to
-                                     sign up. --}}
+                                     Log in is always shown. Sign up is the most important of the rest,
+                                     shown wherever the row has room beside the brand's whole name — on
+                                     a narrow phone a language with long labels has room for one only.
+                                     The sign-in dialog and page both offer the way to sign up. --}}
                                 <a
                                     href="{{ route('register') }}"
                                     data-testid="header-register-link"
+                                    data-header-fit="4"
+                                    data-header-fit-display="inline-flex"
                                     x-on:click="rgOpenAuthModal($event, 'register')"
                                     class="hidden sm:inline-flex h-[38px] cursor-pointer items-center justify-center gap-2 rounded-rgControl bg-rg-accent px-4 text-[13px] font-semibold text-rg-onAccent transition-colors hover:bg-rg-accentHover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent focus-visible:ring-offset-2 focus-visible:ring-offset-rg-bg"
                                 >
@@ -249,11 +256,11 @@
                                 {{ __('ui.nav.log_in') }}
                             </a>
 
-                            <div class="hidden lg:block">
+                            <div class="hidden lg:block" data-header-fit="2" data-header-fit-display="block">
                                 <x-locale-switcher />
                             </div>
 
-                            <div class="hidden lg:block" data-testid="desktop-header-theme">
+                            <div class="hidden lg:block" data-testid="desktop-header-theme" data-header-fit="1" data-header-fit-display="block">
                                 <livewire:theme.theme-switcher />
                             </div>
                         </div>
@@ -289,6 +296,7 @@
                     <x-auth.modal />
                 @endguest
             </header>
+            <script>{!! file_get_contents(resource_path('js/header-fit.js')) !!}</script>
             @endif
 
             @unless ($focused)

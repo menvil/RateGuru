@@ -63,7 +63,7 @@ For header controls with text labels, show abbreviated text on mobile and full t
 <span class="hidden sm:inline">{{ $fullName }}</span>
 ```
 
-The guest header is the exception: below `sm` it drops Sign up and keeps Log in alone, because a phone's row has no room for both in a language with long labels. The sign-in dialog and page lead on to sign-up. From `lg`, the brand's column is never narrower than the name, and the search gives way instead.
+The header's own row is fitted rather than switched at breakpoints, because its labels change length with the language and the project's settings. Its optional controls carry `data-header-fit` (the higher, the more important) and `resources/js/header-fit.js` shows them in that order for as long as they fit: nothing runs past the row's end, the brand's whole name is drawn, and the desktop search keeps 240px to type in. For a guest that is Sign up, then the upload button's words, the language switcher and the theme switcher; for a signed-in reader, the upload button's words and the language switcher. Log in, the bell and the account menu are always shown. A guest on a narrow phone may get Log in alone, and the sign-in dialog and page lead on to sign-up. The breakpoint classes on those controls lay the row out until the script has run, and without JavaScript. From `lg`, the brand's column is never narrower than the name, and the search gives way instead.
 
 ## Drawer (Bottom Sheet)
 
