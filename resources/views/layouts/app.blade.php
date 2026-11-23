@@ -50,8 +50,9 @@
                      until it has run. The language and theme switchers are always shown
                      from the desktop width (data-header-fit-always), where the menu that
                      also holds them is gone. The brand's full size comes before all of
-                     them: it is made smaller only once they are all put away. --}}
-                <div class="rg-app-header-layout mx-auto flex h-[60px] w-full max-w-[1440px] items-center gap-1.5 px-3 sm:gap-2 sm:px-4" data-header-fit-row>
+                     them: it is made smaller only once they are all put away. Below 360px
+                     the gaps and the row's ends are tighter, for the brand's sake. --}}
+                <div class="rg-app-header-layout mx-auto flex h-[60px] w-full max-w-[1440px] items-center gap-1.5 px-3 max-[359px]:gap-1 max-[359px]:px-2 sm:gap-2 sm:px-4" data-header-fit-row>
                     <button
                         type="button"
                         class="grid size-9 shrink-0 cursor-pointer place-items-center rounded-rgControl border border-rg-border2 bg-rg-card text-rg-text2 transition hover:text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent lg:hidden"
@@ -102,12 +103,14 @@
                             x-data="{ open: false }"
                             @keydown.escape.window="open = false"
                             @post-uploaded.window="open = false"
-                            class="flex shrink-0 items-center justify-end gap-2 lg:gap-3 lg:justify-self-end"
+                            class="flex shrink-0 items-center justify-end gap-2 max-[359px]:gap-1 lg:gap-3 lg:justify-self-end"
                             data-testid="header-auth-actions"
                         >
                             @if($projectSettings->featureFlag('allow_user_uploads'))
-                            {{-- Its words are shown where the row has room: the name is said either way. --}}
+                            {{-- Its words are shown where the row has room: the name is said either
+                                 way. Without them it is square (rg-header-icon-button). --}}
                             <x-ui.button
+                                class="rg-header-icon-button"
                                 data-testid="open-upload-button"
                                 aria-label="{{ $projectSettings->uploadCtaLabel() }}"
                                 x-on:click="open = true; $dispatch('upload-modal-opened')"
@@ -220,15 +223,17 @@
                         </div>
                     @else
                         <div
-                            class="flex shrink-0 items-center justify-end gap-2 lg:justify-self-end"
+                            class="flex shrink-0 items-center justify-end gap-2 max-[359px]:gap-1 lg:justify-self-end"
                             data-testid="header-guest-actions"
                         >
                             @if($projectSettings->featureFlag('allow_user_uploads'))
                                 {{-- The most important of a guest's optional controls, and its words one
                                      of their own: the narrowest phones put it away for the brand's
                                      full size. It leads only to the sign-up dialog, which Log in
-                                     reaches as well. --}}
+                                     reaches as well. Without its words it is square
+                                     (rg-header-icon-button). --}}
                                 <x-ui.button
+                                    class="rg-header-icon-button"
                                     data-testid="guest-upload-button"
                                     data-header-fit="6"
                                     data-header-fit-display="inline-flex"

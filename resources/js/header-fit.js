@@ -70,8 +70,11 @@
             || search.getBoundingClientRect().width >= Number(search.dataset.headerFitSearch);
     }
 
+    // A control put away is also marked data-header-fit-away, for the styles
+    // of what holds it: an upload button whose words are away is square.
     function show(control, shown) {
         control.style.display = shown ? control.dataset.headerFitDisplay : 'none';
+        control.toggleAttribute('data-header-fit-away', ! shown);
     }
 
     // Each short form shown exactly while its long form is put away.

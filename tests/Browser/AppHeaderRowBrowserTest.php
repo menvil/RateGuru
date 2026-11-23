@@ -10,15 +10,15 @@ use function Pest\Laravel\actingAs;
  * desktop, for a guest and for a signed-in reader. The brand is drawn at its
  * full size and its optional controls are shown in order of importance as far
  * as the row has room: nothing runs past its end, a guest's Log in is always
- * whole, the brand's whole name is drawn (but in a signed-in reader's row
- * at 320px, which has no room for it), and a desktop's search keeps room
+ * whole, the brand's whole name is drawn, and a desktop's search keeps room
  * to type in. The brand's full size comes first: it is smaller only once
  * every optional control is put away, and then as large as still fits. No
  * control is shown while a more important one is put away, and none is put
  * away that would have fitted beside the brand at its full size. From the
  * desktop width, where the drawer is gone, the language switcher (and a
- * guest's theme switcher) are always there. The drawer draws the brand at the
- * header's full size, whole even on the narrowest phone.
+ * guest's theme switcher) are always there. An upload button whose words
+ * are put away is square, like the icon buttons beside it. The drawer draws
+ * the brand at the header's full size, whole even on the narrowest phone.
  */
 
 beforeEach(function () {
@@ -36,11 +36,12 @@ beforeEach(function () {
  * how much of it is drawn as a percentage, and whether it would still fit at
  * a pixel larger (null at its full size); how wide the search is drawn and the
  * least it should be; whether the language and theme switchers are shown; how
- * far the row and the page run past their boxes; and the items of the row and
- * of its action group that are laid out with no width, each of which still
- * takes a gap from the brand.
+ * far the row and the page run past their boxes; the items of the row and of
+ * its action group that are laid out with no width, each of which still takes
+ * a gap from the brand; and the upload button as drawn — its width and height,
+ * and whether its words are shown (null when there is none on screen).
  *
- * @return array{lang: string, shown: list<bool>, nextFits: ?bool, login: ?bool, brandSize: int|float, brandFull: int, brandLeast: int, brandWhole: bool, brand: int, largerFits: ?bool, search: int, searchMin: int, language: bool, theme: ?bool, row: int, page: int, emptyItems: list<string>}
+ * @return array{lang: string, shown: list<bool>, nextFits: ?bool, login: ?bool, brandSize: int|float, brandFull: int, brandLeast: int, brandWhole: bool, brand: int, largerFits: ?bool, search: int, searchMin: int, language: bool, theme: ?bool, row: int, page: int, emptyItems: list<string>, upload: ?array{width: float, height: float, words: bool}}
  */
 function headerRowAt(mixed $page, int $width): array
 {
@@ -82,9 +83,11 @@ function headerRowAt(mixed $page, int $width): array
 
                 brand.style.fontSize = brandFull + 'px';
                 next.style.display = next.dataset.headerFitDisplay;
+                next.removeAttribute('data-header-fit-away');
                 if (short) short.style.display = 'none';
                 nextFits = fits();
                 next.style.display = 'none';
+                next.setAttribute('data-header-fit-away', '');
                 if (short) short.style.display = shortDisplay;
                 brand.style.fontSize = brandStyle;
             }
@@ -108,6 +111,8 @@ function headerRowAt(mixed $page, int $width): array
                 return [child];
             });
             const actions = row.querySelector('[data-testid="header-auth-actions"], [data-testid="header-guest-actions"]');
+            const upload = row.querySelector('[data-testid="open-upload-button"], [data-testid="guest-upload-button"]');
+            const uploadBox = upload?.checkVisibility() ? upload.getBoundingClientRect() : null;
 
             return {
                 lang: document.documentElement.lang,
@@ -130,6 +135,11 @@ function headerRowAt(mixed $page, int $width): array
                 emptyItems: [...items(row), ...items(actions)]
                     .filter((item) => item.getBoundingClientRect().width === 0)
                     .map((item) => item.dataset.testid ?? item.outerHTML.replace(/\s+/g, ' ').slice(0, 80)),
+                upload: uploadBox === null ? null : {
+                    width: uploadBox.width,
+                    height: uploadBox.height,
+                    words: upload.querySelector(':scope > [data-header-fit]').checkVisibility(),
+                },
             };
         })()
     JS);
@@ -150,17 +160,13 @@ function expectHeaderRowFitted(array $row, string $locale, bool $guest, int $wid
         ->and($row['searchMin'])->toBe(240)
         ->and($row['brandSize'])->toBeGreaterThanOrEqual($row['brandLeast'])->toBeLessThanOrEqual($row['brandFull']);
 
-    // The one row too narrow for the whole name: a signed-in reader's at
-    // 320px, where the upload button, the bell and the account menu are always
-    // shown and leave the name 60px — less than it takes even at its least
-    // size (67px, 70px in Arabic and Urdu). There it is cut at its least size
-    // with every optional control put away, more than four fifths of it drawn.
-    if (! $guest && $width <= 320 && ! $row['brandWhole']) {
-        expect($row['brandSize'])->toBe($row['brandLeast'])
-            ->and($allPutAway)->toBeTrue()
-            ->and($row['brand'])->toBeGreaterThanOrEqual(80);
-    } else {
-        expect($row['brandWhole'])->toBeTrue("At {$width}px the brand's name is cut at {$row['brandSize']}px");
+    expect($row['brandWhole'])->toBeTrue("At {$width}px the brand's name is cut at {$row['brandSize']}px");
+
+    if ($row['upload'] !== null) {
+        $upload = $row['upload'];
+
+        expect($upload['words'] ? $upload['width'] > $upload['height'] : abs($upload['width'] - $upload['height']) < 0.5)
+            ->toBeTrue("At {$width}px the upload button is {$upload['width']}×{$upload['height']}px with its words ".($upload['words'] ? 'shown' : 'put away'));
     }
 
     if ($row['brandSize'] < $row['brandFull']) {
@@ -220,7 +226,7 @@ it('fits a signed-in reader\'s header to every width in every language', functio
 
     $page = visit(route('feed'));
 
-    foreach ([320, 360, 375, 640, 768, 1024] as $width) {
+    foreach ([320, 359, 360, 375, 640, 768, 1024] as $width) {
         expectHeaderRowFitted(headerRowAt($page, $width), $locale, guest: false, width: $width);
     }
 })->with(supportedLocales());

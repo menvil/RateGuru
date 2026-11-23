@@ -182,10 +182,19 @@ select:disabled {
 .rg-feed-split-grid {
     display: block;
 }
+/* A header button whose words the fit has put away (resources/js/header-fit.js
+   marks them data-header-fit-away) is as wide as it is tall, like the icon
+   buttons beside it, and takes no more of the row than they do. */
+.rg-header-icon-button:has(> [data-header-fit-away]) {
+    aspect-ratio: 1;
+    padding-inline: 0;
+}
+
 @media (min-width: 1024px) {
-    /* The brand's column is never narrower than the name: the search gives way
-       instead. With 1fr alone the search took its 480px first, and from 1024px
-       to about 1280px a guest's row of controls left the brand no room at all. */
+    /* The brand's column is never narrower than the name: the search narrows
+       first, down to its least width, and then the optional controls are put
+       away. With 1fr alone the search took its 480px first, and from 1024px to
+       about 1280px a guest's row of controls left the brand no room at all. */
     .rg-app-header-layout {
         display: grid;
         grid-template-columns: minmax(max-content, 1fr) minmax(0, 480px) auto;
