@@ -63,6 +63,8 @@ For header controls with text labels, show abbreviated text on mobile and full t
 <span class="hidden sm:inline">{{ $fullName }}</span>
 ```
 
+The guest header is the exception: below `sm` it drops Sign up and keeps Log in alone, because a phone's row has no room for both in a language with long labels. The sign-in dialog and page lead on to sign-up. From `lg`, the brand's column is never narrower than the name, and the search gives way instead.
+
 ## Drawer (Bottom Sheet)
 
 The `<x-ui.drawer>` component renders as a bottom sheet on mobile and a side panel on desktop. This is controlled by Tailwind classes in `resources/views/components/ui/drawer.blade.php`:

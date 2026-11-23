@@ -224,12 +224,17 @@
                             @if (Route::has('register'))
                                 {{-- Real links on purpose: without JavaScript, in a new tab, or on a page
                                      that has no dialog, they lead to the standalone pages. A plain click
-                                     opens the dialog instead. --}}
+                                     opens the dialog instead.
+
+                                     Below the small-screen width only Log in is shown: a phone's row
+                                     has no room for both in a language with long labels, and the brand
+                                     was squeezed out. The sign-in dialog and page both offer the way to
+                                     sign up. --}}
                                 <a
                                     href="{{ route('register') }}"
                                     data-testid="header-register-link"
                                     x-on:click="rgOpenAuthModal($event, 'register')"
-                                    class="inline-flex h-[38px] cursor-pointer items-center justify-center gap-2 rounded-rgControl bg-rg-accent px-4 text-[13px] font-semibold text-rg-onAccent transition-colors hover:bg-rg-accentHover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent focus-visible:ring-offset-2 focus-visible:ring-offset-rg-bg"
+                                    class="hidden sm:inline-flex h-[38px] cursor-pointer items-center justify-center gap-2 rounded-rgControl bg-rg-accent px-4 text-[13px] font-semibold text-rg-onAccent transition-colors hover:bg-rg-accentHover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent focus-visible:ring-offset-2 focus-visible:ring-offset-rg-bg"
                                 >
                                     {{ __('ui.nav.sign_up') }}
                                 </a>

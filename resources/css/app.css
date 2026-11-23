@@ -170,9 +170,12 @@ select:disabled {
     display: block;
 }
 @media (min-width: 1024px) {
+    /* The brand's column is never narrower than the name: the search gives way
+       instead. With 1fr alone the search took its 480px first, and from 1024px
+       to about 1280px a guest's row of controls left the brand no room at all. */
     .rg-app-header-layout {
         display: grid;
-        grid-template-columns: 1fr minmax(0, 480px) auto;
+        grid-template-columns: minmax(max-content, 1fr) minmax(0, 480px) auto;
         gap: 1rem;
         padding-inline: 1.25rem;
     }

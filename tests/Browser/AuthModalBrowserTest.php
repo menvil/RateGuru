@@ -451,15 +451,19 @@ it('points the provider links and the form at the page the person is on now, not
         ->and($page->script('document.querySelector(\''.LOGIN_PANEL.' [data-auth-return-input]\').value'))->toBe('/?sort=newest');
 });
 
-it('fits a phone screen in both modes, with every control reachable', function (string $trigger, string $panel, string $switch, array $viewport) {
-    $page = visit(route('feed'))
-        ->resize(...$viewport)
-        ->click('[data-testid="'.$trigger.'"]')
-        ->assertVisible(AUTH_MODAL)
+it('fits a phone screen in both modes, with every control reachable', function (array $opens, string $panel, string $switch, array $viewport) {
+    $page = visit(route('feed'))->resize(...$viewport);
+
+    // A phone's header offers Log in only: sign-up is the dialog's switch.
+    foreach ($opens as $control) {
+        $page->click($control);
+    }
+
+    $page->assertVisible(AUTH_MODAL)
         ->assertVisible(AUTH_MODAL.' [data-testid="modal-close"]');
 
-    // Settled: the first field has the focus, so nothing will scroll any more.
-    waitForScript($page, 'document.activeElement.hasAttribute("data-auth-initial-focus")');
+    // Settled: the panel's first field has the focus, so nothing will scroll any more.
+    waitForScript($page, 'document.activeElement.matches(\''.$panel.' [data-auth-initial-focus]\')');
 
     expect($page->script('document.documentElement.scrollWidth - window.innerWidth'))->toBeLessThanOrEqual(1);
 
@@ -492,8 +496,9 @@ it('fits a phone screen in both modes, with every control reachable', function (
 
     waitForScript($page, AUTH_MODAL_SHOWN, false);
 })->with([
-    'login' => ['header-login-link', LOGIN_PANEL, 'auth-switch-to-register'],
-    'register' => ['header-register-link', REGISTER_PANEL, 'auth-switch-to-login'],
+    'login' => [['[data-testid="header-login-link"]'], LOGIN_PANEL, 'auth-switch-to-register'],
+    'register' => [['[data-testid="header-login-link"]', AUTH_MODAL.' [data-testid="auth-switch-to-register"]'], REGISTER_PANEL, 'auth-switch-to-login'],
+    'register from upload' => [['[data-testid="guest-upload-button"]'], REGISTER_PANEL, 'auth-switch-to-login'],
 ])->with([
     'small phone' => [MobileViewports::SMALL_MOBILE],
     'phone with the keyboard open' => [[375, 480]],

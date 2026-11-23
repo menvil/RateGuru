@@ -275,11 +275,14 @@ it('keeps the comment form left to right in the default language, its button on 
         ->toBeGreaterThanOrEqual(horizontalBox($page, '[data-testid="comment-body"]')['right']);
 });
 
-it('opens the sign-up dialog right to left, its close button at the end of the title', function (string $locale, int $width) {
+it('opens the sign-up dialog right to left, its close button at the end of the title', function (string $locale, int $width, array $opens) {
     $page = visitInLanguage(route('feed'), $locale, $width);
 
-    $page->click('[data-testid="header-register-link"]');
-    waitForScript($page, 'getComputedStyle(document.querySelector(\'[data-testid="auth-modal"]\')).display !== "none"');
+    foreach ($opens as $control) {
+        $page->click($control);
+    }
+
+    waitForScript($page, 'document.querySelector(\'[data-testid="auth-modal-title-register"]\').checkVisibility()');
 
     $title = horizontalBox($page, '[data-testid="auth-modal-title-register"]');
     $close = horizontalBox($page, '[data-testid="auth-modal"] [data-testid="modal-close"]');
@@ -290,7 +293,11 @@ it('opens the sign-up dialog right to left, its close button at the end of the t
         ->and($dialog['right'])->toBeLessThanOrEqual($width)
         ->and($page->script("getComputedStyle(document.querySelector('[data-testid=\"auth-modal-register-panel\"] input[name=\"name\"]')).direction"))->toBe('rtl')
         ->and(pageDirection($page))->toBe(['dir' => 'rtl', 'direction' => 'rtl', 'overflow' => 0]);
-})->with(rightToLeftLocales())->with([390, 1440]);
+})->with(rightToLeftLocales())->with([
+    // A phone's header offers Log in only: sign-up is the sign-in dialog's switch.
+    'phone' => [390, ['[data-testid="header-login-link"]', '[data-testid="auth-modal"] [data-testid="auth-switch-to-register"]']],
+    'desktop' => [1440, ['[data-testid="header-register-link"]']],
+]);
 
 it('opens the sign-up dialog left to right in the default language, its close button on the right', function () {
     $page = visitInLanguage(route('feed'), config('locales.default'), 1440);
