@@ -60,11 +60,14 @@ it('names the page and heads the full-size picture with the post\'s title escape
     ]);
 
     $html = $this->get(route('posts.show', $post))->assertOk()->getContent();
+    // The heading of the dialog that holds the full-size picture, read as the page writes it.
+    $pictureHeadingId = livewireDom($html)->query('//*[@role="dialog"][.//*[@data-testid="post-fullscreen-image"]]/@aria-labelledby')->item(0)?->nodeValue;
 
     expect($html)
         ->toContain('<title>Tom &amp; Jerry · ')
-        ->toContain('Tom &amp; Jerry')
         ->not->toContain('Tom &amp;amp; Jerry')
+        ->and($pictureHeadingId)->not->toBeNull('no full-size picture dialog on the page')
+        ->and($html)->toMatch('~<h2 id="'.preg_quote((string) $pictureHeadingId, '~').'"[^>]*>\s*Tom &amp; Jerry\s*</h2>~')
         // A title that holds an escape of its own still shows it as written.
         ->and($this->get(route('posts.show', Post::factory()->published()->create(['title' => 'Use &lt;b&gt;'])))->getContent())
         ->toContain('<title>Use &amp;lt;b&amp;gt; · ');

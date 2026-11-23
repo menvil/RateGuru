@@ -19,20 +19,35 @@ use Illuminate\Support\Facades\Blade;
  * logically (PhysicalDirectionGuardTest): so `dir` is what has to be right.
  */
 
+/** An attribute of the page's root element, read by its exact name, or null when the root has none. */
+function rootAttribute(string $html, string $name): ?string
+{
+    $root = livewireDom($html)->document->documentElement;
+
+    return $root?->hasAttribute($name) ? $root->getAttribute($name) : null;
+}
+
 /** The `dir` of the page's root element, or null when it has none. */
 function rootDirection(string $html): ?string
 {
-    return preg_match('~<html\b[^>]*\bdir="([^"]*)"~i', $html, $match) === 1 ? $match[1] : null;
+    return rootAttribute($html, 'dir');
 }
 
-/** The `lang` of the page's root element. */
+/** The `lang` of the page's root element, or null when it has none. */
 function rootLanguage(string $html): ?string
 {
-    return preg_match('~<html\b[^>]*\blang="([^"]*)"~i', $html, $match) === 1 ? $match[1] : null;
+    return rootAttribute($html, 'lang');
 }
 
 beforeEach(function () {
     offerLocales(rightToLeftLocales());
+});
+
+it('reads the root element\'s own dir and lang, never a data attribute named after them', function () {
+    expect(rootDirection('<!DOCTYPE html><html data-dir="rtl" data-lang="ar"><body></body></html>'))->toBeNull()
+        ->and(rootLanguage('<!DOCTYPE html><html data-dir="rtl" data-lang="ar"><body></body></html>'))->toBeNull()
+        ->and(rootDirection('<!DOCTYPE html><html lang="en" dir="ltr" data-lang="ar" data-dir="rtl"><body></body></html>'))->toBe('ltr')
+        ->and(rootLanguage('<!DOCTYPE html><html lang="en" dir="ltr" data-lang="ar" data-dir="rtl"><body></body></html>'))->toBe('en');
 });
 
 dataset('public pages', [
@@ -104,6 +119,7 @@ it('lays an email out right to left in a language read right to left', function 
         $mail = renderedMail(new ResetPassword('a-token'), User::factory()->create(['locale' => $locale]));
 
         expect(rootDirection($mail['body']))->toBe('rtl', "{$locale} email")
+            ->and(rootLanguage($mail['body']))->toBe($locale)
             ->and($mail['body'])->toMatch('~<body\b[^>]*\bdir="rtl"~')
             // Webmail such as Gmail drops the root and the body with their
             // attributes: the table that wraps everything still says it, as
@@ -124,6 +140,7 @@ it('keeps an email left to right in a language read left to right', function () 
     $mail = renderedMail(new VerifyEmail, User::factory()->unverified()->create());
 
     expect(rootDirection($mail['body']))->toBe('ltr')
+        ->and(rootLanguage($mail['body']))->toBe(config('locales.default'))
         ->and($mail['body'])->toMatch('~<body\b[^>]*\bdir="ltr"~')
         ->and($mail['body'])->toMatch('~<table\b[^>]*class="wrapper"[^>]*\bdir="ltr"~')
         // Exactly the theme's own alignment and direction, as before.
@@ -144,10 +161,12 @@ it('gives the contact message the direction of the language it is written in', f
     // On the root, and on what wraps the message, for webmail that drops the root.
     app()->setLocale($locale);
     expect(rootDirection($view()))->toBe('rtl')
+        ->and(rootLanguage($view()))->toBe($locale)
         ->and($view())->toMatch('~<body>\s*<div dir="rtl">~');
 
     app()->setLocale(config('locales.default'));
     expect(rootDirection($view()))->toBe('ltr')
+        ->and(rootLanguage($view()))->toBe(config('locales.default'))
         ->and($view())->toMatch('~<body>\s*<div dir="ltr">~');
 });
 

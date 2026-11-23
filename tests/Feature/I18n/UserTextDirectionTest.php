@@ -95,14 +95,20 @@ function readsItsOwnWayOrIsMissing(string $html, string $text): bool
     return $holder === null;
 }
 
-/** Whether the field of this name, the first the page has, reads what is typed into it its own way. */
-function fieldReadsItsOwnWay(string $html, string $query): bool
+/** The `dir` of the field this query finds first, or null when it has none and takes the page's direction. */
+function fieldDirection(string $html, string $query): ?string
 {
     $field = livewireDom($html)->query($query)->item(0);
 
     expect($field)->toBeInstanceOf(DOMElement::class, "no field [{$query}] on the page");
 
-    return $field->getAttribute('dir') === 'auto';
+    return $field->hasAttribute('dir') ? $field->getAttribute('dir') : null;
+}
+
+/** Whether the field of this name, the first the page has, reads what is typed into it its own way. */
+function fieldReadsItsOwnWay(string $html, string $query): bool
+{
+    return fieldDirection($html, $query) === 'auto';
 }
 
 /** A published post with English written all over it: its title, description, author, comment, category, tag and the site's rating. */
@@ -200,7 +206,8 @@ it('lets a name and a bio typed on the profile page read their own way, never an
 
     expect(fieldReadsItsOwnWay($html, '//*[@id="edit-display-name"]'))->toBeTrue()
         ->and(fieldReadsItsOwnWay($html, '//*[@id="edit-bio"]'))->toBeTrue()
-        ->and(fieldReadsItsOwnWay($html, '//*[@id="edit-website"]'))->toBeFalse()
+        // A web address reads left to right in every language, its "://" never turned round.
+        ->and(fieldDirection($html, '//*[@id="edit-website"]'))->toBe('ltr')
         ->and(fieldReadsItsOwnWay($html, '//input[@type="email"]'))->toBeFalse()
         ->and(fieldReadsItsOwnWay($html, '//input[@type="password"]'))->toBeFalse();
 });

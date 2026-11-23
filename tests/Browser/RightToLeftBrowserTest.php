@@ -129,13 +129,21 @@ function drawnIcons(mixed $page): array
     return $page->script(<<<'JS'
         (() => {
             const visible = [...document.querySelectorAll('svg')].filter((svg) => svg.checkVisibility());
-            const turned = (svg) => getComputedStyle(svg).scale === '-1 1';
+            // Turned round: drawn as its mirror image, by its scale or its
+            // transform. A drawing made larger or smaller, or rotated, is not.
+            const turned = (svg) => {
+                const style = getComputedStyle(svg);
+                const [scaleX, scaleY = scaleX] = style.scale === 'none' ? [1] : style.scale.split(' ').map(parseFloat);
+                const matrix = new DOMMatrix(style.transform === 'none' ? undefined : style.transform);
+
+                return scaleX * scaleY * (matrix.a * matrix.d - matrix.b * matrix.c) < 0;
+            };
             const directional = visible.filter((svg) => svg.classList.contains('rg-mirror-rtl'));
 
             return {
                 directional: directional.length,
                 directionalTurned: directional.filter(turned).length,
-                otherTurned: visible.filter((svg) => ! svg.classList.contains('rg-mirror-rtl') && getComputedStyle(svg).scale !== 'none').length,
+                otherTurned: visible.filter((svg) => ! svg.classList.contains('rg-mirror-rtl') && turned(svg)).length,
             };
         })()
     JS);
@@ -223,22 +231,36 @@ it('draws each language read right to left in its own script\'s faces, the defau
 })->with(rightToLeftLocales());
 
 it('spaces Urdu\'s Nastaliq lines to hold it, at every text size', function () {
-    $leading = <<<'JS'
-        (() => {
+    // Every text size the views use, as they write it — the largest but one
+    // only from the small breakpoint on, which a wide page is past — and the
+    // leading Nastaliq needs at it.
+    $urdu = [
+        'text-xs' => 2, 'text-sm' => 2, 'text-base' => 2, 'text-lg' => 1.9, 'text-xl' => 1.9,
+        'text-2xl' => 1.8, 'text-3xl' => 1.7, 'sm:text-4xl' => 1.6, 'text-6xl' => 1.5,
+    ];
+    $sizes = json_encode(array_keys($urdu));
+    $leading = <<<JS
+        (() => Object.fromEntries({$sizes}.map((size) => {
             const probe = document.createElement('p');
-            probe.className = 'text-sm';
+            probe.className = size;
             probe.textContent = 'x';
             document.body.append(probe);
             const style = getComputedStyle(probe);
-            const ratio = parseFloat(style.lineHeight) / parseFloat(style.fontSize);
+            const ratio = Math.round(parseFloat(style.lineHeight) / parseFloat(style.fontSize) * 100) / 100;
             probe.remove();
 
-            return ratio;
-        })()
+            return [size, ratio];
+        })))()
     JS;
 
-    expect(visitInLanguage(route('feed'), 'ur', 1440)->script($leading))->toBe(2)
-        ->and(visitInLanguage(route('feed'), config('locales.default'), 1440)->script($leading))->toBeLessThan(2);
+    $default = visitInLanguage(route('feed'), config('locales.default'), 1440)->script($leading);
+
+    expect(visitInLanguage(route('feed'), 'ur', 1440)->script($leading))->toEqual($urdu);
+
+    // The site's own, tighter leading everywhere else.
+    foreach ($urdu as $size => $ratio) {
+        expect($default[$size])->toBeLessThan($ratio, $size);
+    }
 });
 
 it('turns the signs that point along the line round on a right-to-left page, and no other', function (string $locale) {
@@ -371,23 +393,28 @@ it('turns the page round as the language switcher changes to a language read the
 
 it('draws a select\'s chevron at the end of the line and keeps an address field left to right', function (string $locale) {
     $controls = <<<'JS'
-        (() => ({
-            chevronFromTheRight: getComputedStyle(document.querySelector('#locale')).backgroundPositionX.startsWith('calc(100%'),
-            address: getComputedStyle(document.querySelector('#edit-website')).direction,
-        }))()
+        (() => {
+            const select = getComputedStyle(document.querySelector('#locale'));
+
+            return {
+                // Where the chevron is drawn from, if one is drawn at all.
+                chevron: select.backgroundImage === 'none' ? null : select.backgroundPositionX,
+                address: getComputedStyle(document.querySelector('#edit-website')).direction,
+            };
+        })()
     JS;
 
     actingAs(User::factory()->create(['locale' => $locale]));
     $page = visitInLanguage(route('profile.edit'), $locale, 1440);
 
     // On the left, where the chosen option's line ends: on the right it covered its first letters.
-    expect($page->script($controls))->toBe(['chevronFromTheRight' => false, 'address' => 'ltr'])
+    expect($page->script($controls))->toBe(['chevron' => '8px', 'address' => 'ltr'])
         ->and(pageDirection($page))->toBe(['dir' => 'rtl', 'direction' => 'rtl', 'overflow' => 0]);
 
     actingAs(User::factory()->create(['locale' => config('locales.default')]));
     $page = visitInLanguage(route('profile.edit'), config('locales.default'), 1440);
 
-    expect($page->script($controls))->toBe(['chevronFromTheRight' => true, 'address' => 'ltr']);
+    expect($page->script($controls))->toBe(['chevron' => 'calc(100% - 8px)', 'address' => 'ltr']);
 })->with(rightToLeftLocales());
 
 it('lays the sign-in page out right to left at every width, never wider than the screen', function (string $locale, int $width) {

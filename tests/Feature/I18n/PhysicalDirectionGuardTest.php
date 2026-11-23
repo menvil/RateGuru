@@ -140,9 +140,10 @@ function physicalDirectionUtilities(string $source): array
     $source = (string) preg_replace('/\{\{--.*?--\}\}/s', '', $source);
     $found = [];
 
-    // Split where a class list ends — spaces, quotes, commas, braces — but not on
-    // the brackets of an arbitrary variant such as [&>svg]: .
-    foreach (preg_split('/[\s"\'`,{}=]+/', $source) ?: [] as $class) {
+    // Split where a class list ends — spaces, quotes, commas, braces, an = —
+    // but not on the brackets of an arbitrary variant such as [&>svg]: , nor on
+    // an = inside them, as in data-[state=open]: .
+    foreach (preg_split('/[\s"\'`,{}]+|=(?![^\s"\'`,{}=\[\]]*\])/', $source) ?: [] as $class) {
         if ($class === '') {
             continue;
         }
@@ -230,8 +231,9 @@ function physicalDirectionInDeclarations(string $declarations): array
             preg_match('/^(?:(?:margin|padding|scroll-margin|scroll-padding)-(?:left|right)|left|right|border-(?:left|right)(?:-(?:width|style|color))?|border-(?:top|bottom)-(?:left|right)-radius)$/', $property) === 1 => true,
             in_array($property, ['text-align', 'float', 'clear', 'justify-self', 'justify-items'], true) => in_array($lower, ['left', 'right'], true),
             in_array($property, ['margin', 'padding', 'inset', 'border-width', 'border-style', 'border-color', 'scroll-margin', 'scroll-padding'], true) => count($values) === 4 && $values[1] !== $values[3],
-            $property === 'border-radius' => (function () use ($lower): bool {
-                $corners = physicalDirectionValues(explode('/', $lower)[0]);
+            // The horizontal radii, and after a slash the vertical ones.
+            $property === 'border-radius' => array_filter(explode('/', $lower), function (string $radii): bool {
+                $corners = physicalDirectionValues($radii);
 
                 return match (count($corners)) {
                     2 => $corners[0] !== $corners[1],
@@ -239,15 +241,15 @@ function physicalDirectionInDeclarations(string $declarations): array
                     4 => $corners[0] !== $corners[1] || $corners[2] !== $corners[3],
                     default => false,
                 };
-            })(),
+            }) !== [],
             $property === 'translate' => isset($values[0]) && preg_match('/^-?0(?:px|%)?$/', $values[0]) !== 1,
             in_array($property, ['transform-origin', 'background-position', 'object-position', 'perspective-origin'], true) => preg_match('/\b(?:left|right)\b/', $lower) === 1,
             default => false,
         };
 
         $physical = $physical
-            || preg_match('/translatex\(\s*(?!-?0(?:px|%)?\s*\))/', $lower) === 1
-            || preg_match('/translate\(\s*(?!-?0(?:px|%)?\s*[,)])/', $lower) === 1 && $property !== 'translate'
+            || preg_match('/translatex\(\s*+(?!-?0(?:px|%)?\s*\))/', $lower) === 1
+            || preg_match('/translate\(\s*+(?!-?0(?:px|%)?\s*[,)])/', $lower) === 1 && $property !== 'translate'
             || preg_match('/linear-gradient\(\s*(?:to\s+(?:left|right)\s*,|(?:90|270)deg)/', $lower) === 1;
 
         if ($physical) {
@@ -290,7 +292,11 @@ function physicalDirectionScopedToOneDirection(string $selectors): bool
     $list[] = $current;
 
     foreach ($list as $selector) {
-        if (preg_match('/\[dir=([\'"]?)(?:ltr|rtl)\1\]|:dir\((?:ltr|rtl)\)/i', $selector) !== 1) {
+        // Only what stands outside a pseudo-class's argument scopes the rule:
+        // :is([dir="rtl"] .a, .b) applies to .b on every page.
+        $outside = (string) preg_replace('/(?<!:dir)(\((?:[^()]++|(?1))*\))/i', '', $selector);
+
+        if (preg_match('/\[dir=([\'"]?)(?:ltr|rtl)\1\]|:dir\((?:ltr|rtl)\)/i', $outside) !== 1) {
             return false;
         }
     }
@@ -338,9 +344,9 @@ function physicalDirectionInTemplateStyles(string $source): array
         array_push($found, ...physicalDirectionInStylesheet($block));
     }
 
-    preg_match_all('~(?<![\w-])(?:x-bind:|:)?style="([^"]*)"~i', $source, $attributes);
+    preg_match_all('~(?<![\w-])(?:x-bind:|:)?style=(["\'])(.*?)\1~is', $source, $attributes);
 
-    foreach ($attributes[1] as $attribute) {
+    foreach ($attributes[2] as $attribute) {
         array_push($found, ...physicalDirectionInDeclarations(trim($attribute, '`')));
     }
 
@@ -351,12 +357,15 @@ function physicalDirectionInTemplateStyles(string $source): array
  * Every place in a script — a file of its own or one in a template — that
  * reads or sets a horizontal position (an event's x, a box's left or right
  * edge, an element's left), or hears the left or right arrow key, or names a
- * side in an Alpine modifier (x-transition.origin.top.left).
+ * side in an Alpine modifier (x-transition.origin.top.left). Blade comments
+ * are prose and are left out.
  *
  * @return list<string>
  */
 function physicalDirectionInScript(string $source): array
 {
+    $source = (string) preg_replace('/\{\{--.*?--\}\}/s', '', $source);
+
     preg_match_all('/\b(?:ArrowLeft|ArrowRight|scrollLeft|offsetLeft|clientX|pageX|screenX|movementX|deltaX|offsetX|layerX)\b|\.style\.(?:left|right|margin(?:Left|Right)|padding(?:Left|Right))\b|keydown\.(?:left|right|arrow-left|arrow-right)\b|\.(?:left|right)\b/', $source, $matches);
 
     return array_values(array_unique($matches[0]));
@@ -497,12 +506,13 @@ it('finds every shape a physical utility takes', function (string $class) {
     'translate-x-full', '-translate-x-full', 'translate-x-1/2', 'group-hover:translate-x-1',
     'origin-top-right', 'origin-left', 'bg-left', 'object-right-top',
     'bg-gradient-to-r', 'bg-linear-to-l', '!ml-2', 'ml-2!', 'hover:[&>svg]:mr-1',
+    'data-[state=open]:ml-4', '[&[aria-sort=ascending]]:pr-2',
 ]);
 
 it('leaves logical utilities, one-direction utilities and prose alone', function (string $source) {
     expect(physicalDirectionUtilities($source))->toBe([]);
 })->with([
-    'logical spacing' => ['<div class="ms-4 me-auto -ms-2 ps-3.5 pe-10 scroll-ms-4"></div>'],
+    'logical spacing' => ['<div class="ms-4 me-auto -ms-2 ps-3.5 pe-10 scroll-ms-4 data-[state=open]:ms-4"></div>'],
     'logical insets' => ['<div class="inset-s-0 inset-e-1/2 -inset-e-1 start-0 end-0 inset-x-0"></div>'],
     'logical edges' => ['<div class="text-start text-end rounded-s rounded-ee-lg border-s border-e-0 float-start"></div>'],
     'symmetric' => ['<div class="mx-auto px-4 inset-x-0 space-x-2 divide-x rounded-lg border translate-x-0 -translate-y-1/2"></div>'],
@@ -522,8 +532,8 @@ it('finds every shape a physical declaration takes', function (string $declarati
     'border-right-width: 2px', 'border-top-left-radius: 4px', 'scroll-margin-left: 8px',
     'text-align: left', 'text-align: right !important', 'float: right', 'clear: left',
     'margin: 0 4px 0 0', 'padding: 1px 2px 3px 4px', 'inset: 0 auto 0 0',
-    'border-radius: 4px 0', 'border-radius: 4px 4px 0 4px',
-    'transform: translateX(-100%)', 'transform: rotate(2deg) translate(10px, 0)', 'translate: 50% 0',
+    'border-radius: 4px 0', 'border-radius: 4px 4px 0 4px', 'border-radius: 8px / 2px 6px',
+    'transform: translateX(-100%)', 'transform: translateX( 4px )', 'transform: rotate(2deg) translate(10px, 0)', 'translate: 50% 0',
     'transform-origin: top right', 'background-position: left center',
     'background: linear-gradient(to right, red, blue)', 'background-image: linear-gradient(90deg, red, blue)',
 ]);
@@ -532,8 +542,9 @@ it('leaves logical and symmetric declarations alone', function (string $css) {
     expect(physicalDirectionInStylesheet(".x { {$css} }"))->toBe([]);
 })->with([
     'logical' => ['margin-inline-start: 4px; padding-inline-end: 1rem; inset-inline-start: 12px; inset-inline: 0 auto; text-align: start; float: inline-start'],
-    'symmetric shorthands' => ['margin: 0 auto; padding: 12px 16px 32px; inset: 0; border-radius: 8px; border-radius: 4px 4px 0 0; padding: 1px 2px 3px 2px'],
+    'symmetric shorthands' => ['margin: 0 auto; padding: 12px 16px 32px; inset: 0; border-radius: 8px; border-radius: 4px 4px 0 0; border-radius: 8px / 2px; padding: 1px 2px 3px 2px'],
     'vertical' => ['transform: translateY(-3px); translate: 0 4px; background: linear-gradient(180deg, #16161f, #0d0d14); text-align: center'],
+    'nothing sideways, spaced' => ['transform: translateX( 0px ); transform: translate( 0, 4px )'],
     'lighting' => ['background: linear-gradient(135deg, red 0%, blue 100%), radial-gradient(circle at 28% 26%, red, transparent)'],
     'in a comment' => ['/* margin-left: 4px; text-align: left */ color: red'],
 ]);
@@ -545,12 +556,15 @@ it('leaves a stylesheet rule written for one direction alone, and only such a ru
         // One selector in the list that is not scoped puts the side on every page.
         ->and(physicalDirectionInStylesheet("[dir='rtl'] .a, .b { margin-left: 2px }"))->toBe(['margin-left: 2px'])
         // A direction named only inside a pseudo-class argument scopes nothing.
-        ->and(physicalDirectionInStylesheet('.a:not(.b) { left: 0 }'))->toBe(['left: 0']);
+        ->and(physicalDirectionInStylesheet('.a:not(.b) { left: 0 }'))->toBe(['left: 0'])
+        ->and(physicalDirectionInStylesheet(':is([dir="rtl"] .a, .b) { left: 0 }'))->toBe(['left: 0']);
 });
 
 it('reads the styles a template carries itself', function () {
     expect(physicalDirectionInTemplateStyles('<style>.a { margin-left: 2px }</style>'))->toBe(['margin-left: 2px'])
         ->and(physicalDirectionInTemplateStyles('<p style="text-align: left">x</p>'))->toBe(['text-align: left'])
+        ->and(physicalDirectionInTemplateStyles("<p style='text-align: right'>x</p>"))->toBe(['text-align: right'])
+        ->and(physicalDirectionInTemplateStyles("<p style=\"text-align: start\">x</p><p style='text-align: end'>y</p>"))->toBe([])
         ->and(physicalDirectionInTemplateStyles('<span x-bind:style="`left: ${x}px`"></span>'))->toBe(['left: ${x}px'])
         ->and(physicalDirectionInTemplateStyles('<div style="width: {{ $pct }}%; --rg-game-widest: 4px"></div>'))->toBe([]);
 });
@@ -567,4 +581,11 @@ it('finds script that reads a horizontal position or hears the arrow keys', func
     'const { right } = box; edge = box.right',
     '<div x-show="open" x-transition.origin.top.left></div>',
     'const x = event.offsetX',
+]);
+
+it('leaves script that reads no horizontal position, and prose, alone', function (string $source) {
+    expect(physicalDirectionInScript($source))->toBe([]);
+})->with([
+    'vertical' => ['const y = event.clientY; list.scrollTop += 100'],
+    'a Blade comment' => ['{{-- The old control used ArrowLeft. --}}'],
 ]);
