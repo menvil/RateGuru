@@ -180,6 +180,7 @@ use Livewire\Features\SupportTesting\Testable;
 use Livewire\Livewire;
 use Monolog\Handler\TestHandler;
 use PHPUnit\Framework\AssertionFailedError;
+use PHPUnit\Framework\ExpectationFailedException;
 use Sentry\ClientBuilder as SentryClientBuilder;
 use Sentry\Event as SentryEvent;
 use Sentry\EventType as SentryEventType;
@@ -8287,15 +8288,30 @@ function expectLivewireModelNotFound(string $component, array $parameters): void
  * on a CI runner that is busy with the rest of the suite. This polls the
  * expression until it evaluates to the expected value, and fails with the
  * last value it saw when the time runs out.
+ *
+ * A script that throws because what it reads is not there yet, Alpine before
+ * it has loaded say, is not ready rather than failed: the browser plugin gives
+ * up on one after its own five seconds, which a busy runner can outlast.
  */
-function waitForScript(mixed $page, string $expression, mixed $expected = true, float $timeoutSeconds = 5.0): void
+function waitForScript(mixed $page, string $expression, mixed $expected = true, float $timeoutSeconds = 10.0): void
 {
     $deadline = microtime(true) + $timeoutSeconds;
+    $actual = null;
+    $scriptError = null;
 
     do {
-        $actual = $page->script($expression);
+        try {
+            $actual = $page->script($expression);
+            $scriptError = null;
+        } catch (ExpectationFailedException $failure) {
+            if (preg_match('/^(?:Reference|Type)Error: /', $failure->getMessage()) !== 1) {
+                throw $failure;
+            }
 
-        if ($actual === $expected) {
+            $scriptError = strtok($failure->getMessage(), "\n");
+        }
+
+        if ($scriptError === null && $actual === $expected) {
             break;
         }
 
@@ -8304,7 +8320,10 @@ function waitForScript(mixed $page, string $expression, mixed $expected = true, 
         browserTestPause(0.025);
     } while (microtime(true) < $deadline);
 
-    expect($actual)->toBe($expected, "[{$expression}] did not become ".var_export($expected, true)." within {$timeoutSeconds}s");
+    $outcome = "[{$expression}] did not become ".var_export($expected, true)." within {$timeoutSeconds}s";
+
+    expect($scriptError)->toBeNull("{$outcome}: {$scriptError}");
+    expect($actual)->toBe($expected, $outcome);
 }
 
 /**

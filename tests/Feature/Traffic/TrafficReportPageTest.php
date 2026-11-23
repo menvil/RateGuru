@@ -485,6 +485,7 @@ it('shows in Sites & zones each site’s paid impressions and the share that rea
     $page->assertSeeInOrder(['Paid impr.', 'Reached', 'Visits'])
         ->assertSee('Low reach')
         ->assertSee('67.1%')
+        ->assertDontSeeHtml('data-testid="traffic-sites-reach-note"')
         ->call('toggleBlockRule')
         ->assertSeeText('Low reach: at least 50 paid impressions on days the network has closed, and fewer of them reached RateGuru than 70% of the source’s share — for networks that bill by the impression. Shown, never blocked by itself.')
         ->call('toggleBlockRule')
@@ -506,11 +507,26 @@ it('shows in Sites & zones each site’s paid impressions and the share that rea
 
     expect(collect(Livewire::withQueryParams(['view' => 'sites', 'list' => 'site'])->test(TrafficSourcesPage::class)->call('load')->viewData('list')['rows'])->keyBy('ref')['70001']['state'])->toBe('early');
 
-    // On a device the network has no impressions to set beside the visits: dashes, and no hint.
-    $mobile = collect(Livewire::withQueryParams(['view' => 'sites', 'list' => 'site', 'device' => 'mobile'])->test(TrafficSourcesPage::class)->call('load')->viewData('list')['rows'])->keyBy('ref');
+    // On a device the network has no impressions to set beside the visits: dashes, no hint, and a note saying why.
+    $onMobile = Livewire::withQueryParams(['view' => 'sites', 'list' => 'site', 'device' => 'mobile'])->test(TrafficSourcesPage::class)->call('load');
+    $mobile = collect($onMobile->viewData('list')['rows'])->keyBy('ref');
 
     expect($mobile['70001']['reach'])->toBeNull()
         ->and($mobile['70001']['state'])->toBe('early');
+
+    $onMobile->assertSeeHtml('data-testid="traffic-sites-reach-note"')
+        ->assertSeeText('Paid impressions are counted by day, campaign and site, not by device, country or game. On these filters Paid impr. and Reached show “—” and no site is marked Low reach.');
+});
+
+it('says nothing of impressions left out of Sites & zones where the period has none', function () {
+    $campaign = TrafficCampaign::factory()->create(['source_id' => $this->source->id]);
+    reachedVisits($this->source, '2026-11-16', 3, 3, 0, ['campaign_id' => $campaign->id, 'site_ref' => '70005']);
+
+    Livewire::withQueryParams(['view' => 'sites', 'list' => 'site', 'device' => 'mobile'])
+        ->test(TrafficSourcesPage::class)
+        ->call('load')
+        ->assertSee('70005')
+        ->assertDontSeeHtml('data-testid="traffic-sites-reach-note"');
 });
 
 it('lists a place the network billed that sent no visit at all once its closed days reach the impressions asked, judged, counted and shown past the clicks threshold', function () {
