@@ -1593,6 +1593,7 @@ final class TrafficSourcesView
                     'reported' => (string) $reported,
                     'estimated' => $figures->spendEstimated,
                     'without' => (string) $without,
+                    'narrowed' => $narrowed,
                     'network' => match (true) {
                         $source->spend_mode === TrafficSpendMode::Fixed => ['Agreed price', null],
                         $networkFacts->isEmpty() => ['Not checked', $source->spend_mode === TrafficSpendMode::Api ? 'Waiting for the first sync' : 'Import the network’s CSV to compare'],

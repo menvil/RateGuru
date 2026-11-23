@@ -196,8 +196,9 @@ against the visits located there. RateGuru places a visit by its own IP
 database and the network by its own, so a country's share can differ a little
 from what the network would say. A day counted from a file or a typed total
 has no countries, and is left out on this filter. **Spend** keeps the network's
-own figure for the whole source: on a country, device, game or campaign it says
-"For the whole source" and works out no difference against the part on screen.
+own figure for the whole source and each whole campaign: on a country, device,
+game or campaign it says "For the whole source" or "For the whole campaign" and
+works out no difference against the part on screen.
 
 **Sites & zones** shows **Paid impr.** and **Reached** — the share of them that
 became visits, with how many — for every site the network reported, sortable
