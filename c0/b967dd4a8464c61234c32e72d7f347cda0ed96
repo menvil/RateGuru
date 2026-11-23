@@ -1,0 +1,22 @@
+tests/Feature/I18n/TextDirectionTest.php
+  s_4b9dc6ab6b25d3::t_20aa50c461d550 52-55
+bootstrap/app.php
+  s_4b9dc6ab6b25d3::t_c633be37adb35e 50-53
+  s_4b9dc6ab6b25d3::t_ecba83a75fd4c3 15
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "c0b967dd4a8464c61234c32e72d7f347cda0ed96",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
