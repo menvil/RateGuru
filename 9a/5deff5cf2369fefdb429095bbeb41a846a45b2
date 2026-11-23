@@ -1,0 +1,84 @@
+app/Services/Traffic/Connectors/ReadsImpressionsByCountry.php
+  s_6a0f90a935e849::t_e28b469aeb7028 1-15
+docs/admin/traffic-sources.md
+  s_6a0f90a935e849::t_a2740df0061e33 187-198,204-209
+docs/architecture/traffic.md
+  s_6a0f90a935e849::t_35b336c1302ce1 457-462
+  s_6a0f90a935e849::t_c0c15864e38291 318-324
+resources/views/filament/pages/traffic-sources/reach.blade.php
+  s_6a0f90a935e849::t_4724b6ad9d971d 7-9
+  s_6a0f90a935e849::t_16d05313e4738d 16
+app/Models/TrafficApiConnection.php
+  s_6a0f90a935e849::t_85c5c67118f83b 29
+app/Models/TrafficSpendDayCountry.php
+  s_6a0f90a935e849::t_5d0bf39d06ad71 1-45
+app/Console/Commands/TrafficPurgeExpiredCommand.php
+  s_6a0f90a935e849::t_3d617a3459db4e 119
+  s_6a0f90a935e849::t_97483ff254ea1d 18
+app/Actions/Traffic/SyncTrafficNetworkAction.php
+  s_6a0f90a935e849::t_187112055264a2 164-213
+  s_6a0f90a935e849::t_995cab755ffabc 17,24
+  s_6a0f90a935e849::t_18c1e33769a120 58
+resources/views/filament/pages/traffic-sources/sites.blade.php
+  s_6a0f90a935e849::t_959cb678dad688 60-62
+app/Queries/Traffic/TrafficReachQuery.php
+  s_6a0f90a935e849::t_f78826ba878c7f 102,106
+  s_6a0f90a935e849::t_3dd868ec9bd1df 58-79
+  s_6a0f90a935e849::t_899647a29e10eb 270-305,308-309,314,321
+  s_6a0f90a935e849::t_9b7d823f6476b1 11
+  s_6a0f90a935e849::t_1777bcf5165028 44,46,50
+  s_6a0f90a935e849::t_4b4a9c39d599a3 88-89,93
+app/Services/Traffic/Connectors/PopAdsConnector.php
+  s_6a0f90a935e849::t_05abfb216cca40 75-128
+  s_6a0f90a935e849::t_4c3b6890e39ae1 48
+  s_6a0f90a935e849::t_28cc5d94edca81 28
+app/Actions/Traffic/ReplaceSpendCountriesAction.php
+  s_6a0f90a935e849::t_88dc1ac680f5ca 1-66
+tests/Feature/Traffic/TrafficReachByCountryTest.php
+  s_6a0f90a935e849::t_67dc30f78b57cf 1-172,174-227
+  s_6a0f90a935e849::t_562ba80264c5e6 173
+resources/views/filament/pages/traffic-sources.blade.php
+  s_6a0f90a935e849::t_34508ee1cc12a5 32
+database/factories/TrafficSpendDayCountryFactory.php
+  s_6a0f90a935e849::t_74df221bdba6a2 1-27
+app/Filament/Pages/TrafficSources/TrafficSourcesView.php
+  s_6a0f90a935e849::t_4a61030baaff11 351-356,364-365,367,371-375,377,381-386
+  s_6a0f90a935e849::t_127d1887762d10 544-545,551
+  s_6a0f90a935e849::t_14d385a9050680 515-516
+  s_6a0f90a935e849::t_6e6c6726c2f242 202
+  s_6a0f90a935e849::t_ae1924d5e2f256 460-461,463-469
+  s_6a0f90a935e849::t_9de7daf108dbad 473-494
+  s_6a0f90a935e849::t_6882201cad4fc0 134
+  s_6a0f90a935e849::t_4eb583b7a0c145 449-451
+  s_6a0f90a935e849::t_1c9ab525e7d8a4 235-236
+  s_6a0f90a935e849::t_65538567e01e88 401,404
+database/migrations/2026_11_23_100000_create_traffic_spend_day_countries_table.php
+  s_6a0f90a935e849::t_7832300b43e5a9 1-47
+app/Filament/Pages/TrafficSourcesPage.php
+  s_6a0f90a935e849::t_cccdaf02e6c7c4 1184
+  s_6a0f90a935e849::t_6381d5a7576459 1204
+  s_6a0f90a935e849::t_60adb8ee2a7171 116-119
+  s_6a0f90a935e849::t_2b786735a6067b 281,285
+tests/Feature/Traffic/TrafficReportPageTest.php
+  s_6a0f90a935e849::t_fec8fb50d1dbe6 518
+  s_6a0f90a935e849::t_f835e618204819 450
+tests/Pest.php
+  s_6a0f90a935e849::t_6f76583c2aee91 15676-15688
+  s_6a0f90a935e849::t_3259b3637ec78c 103
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "9a5deff5cf2369fefdb429095bbeb41a846a45b2",
+  "prompts": {},
+  "sessions": {
+    "s_6a0f90a935e849": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0c534e04-92e1-423d-8dc4-9f4bf22e3c99",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
