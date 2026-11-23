@@ -50,6 +50,10 @@
             "description": "Per-provider OAuth credentials. A provider is offered only when its own\nswitch is enabled AND both of its keys are present."
         },
         {
+            "name": "Bot protection",
+            "description": "Cloudflare Turnstile on the sign-up forms, from one widget per site in the\nCloudflare dashboard. Blank means no challenge: the other sign-up checks\nstill run. Both keys belong to the domains of this target."
+        },
+        {
             "name": "Mail",
             "description": "Transport only. Which addresses are allowed to receive mail is an\napplication concern, not an environment one."
         },
@@ -427,6 +431,12 @@
             "value": "60"
         },
         {
+            "key": "REGISTRATION_SCREENING_MODE",
+            "section": "Rate limits",
+            "classification": "target",
+            "value": "report"
+        },
+        {
             "key": "SESSION_DRIVER",
             "section": "Sessions",
             "classification": "target",
@@ -502,6 +512,20 @@
         {
             "key": "FACEBOOK_CLIENT_SECRET",
             "section": "Social login",
+            "classification": "target",
+            "value": "",
+            "sensitive": true
+        },
+        {
+            "key": "TURNSTILE_SITE_KEY",
+            "section": "Bot protection",
+            "classification": "target",
+            "value": "",
+            "sensitive": true
+        },
+        {
+            "key": "TURNSTILE_SECRET_KEY",
+            "section": "Bot protection",
             "classification": "target",
             "value": "",
             "sensitive": true

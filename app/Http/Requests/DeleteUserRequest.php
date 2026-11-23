@@ -3,6 +3,7 @@
 namespace App\Http\Requests;
 
 use App\Models\User;
+use App\Rules\ContainsNoNullCharacter;
 use Closure;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Support\Str;
@@ -39,7 +40,7 @@ final class DeleteUserRequest extends FormRequest
         }
 
         return [
-            'password' => ['required', 'string', 'max:255', 'current_password'],
+            'password' => ['required', 'string', 'max:255', new ContainsNoNullCharacter, 'current_password'],
         ];
     }
 }

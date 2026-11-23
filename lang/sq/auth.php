@@ -31,6 +31,8 @@ return [
     'register' => [
         'title' => 'Regjistrim',
         'action' => 'Regjistrohu',
+        'refused' => 'Nuk arritëm ta përfundojmë regjistrimin tënd. Provo përsëri më vonë.',
+        'javascript_required' => 'Kontrolli i sigurisë nuk u ngarkua. Aktivizo JavaScript ose ringarko faqen për të përfunduar regjistrimin.',
     ],
 
     'divider' => 'ose',
@@ -52,8 +54,12 @@ return [
 
     'verify_email' => [
         'intro' => 'Faleminderit që u regjistrove! Para se të fillosh, a mund ta verifikosh adresën tënde të email-it duke klikuar lidhjen që sapo të dërguam? Nëse nuk e ke marrë email-in, me kënaqësi do të të dërgojmë një tjetër.',
-        'link_sent' => 'Një lidhje e re verifikimi u dërgua në adresën e email-it që dhe gjatë regjistrimit.',
+        'link_sent' => 'Një lidhje e re konfirmimi u dërgua në adresën tënde aktuale të email-it.',
         'resend' => 'Ridërgo email-in e verifikimit',
+        'confirmed' => 'Adresa jote e email-it u konfirmua.',
+        'link_expired' => 'Kjo lidhje konfirmimi ka skaduar. Kërko një të re më poshtë.',
+        'throttled' => 'Mund të kërkosh një lidhje të re pas :minutes min.',
+        'notice_changed_address' => 'Konfirmo adresën tënde të re të email-it, :email, që të mund të postosh, komentosh, votosh dhe ndjekësh të tjerët. Nëse nuk ke lidhje, kërko një të re.',
     ],
 
     'social' => [

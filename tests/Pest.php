@@ -2,6 +2,7 @@
 
 use App\Actions\Analytics\RefreshAnalyticsDayAction;
 use App\Actions\Analytics\RefreshAnalyticsGameCellsAction;
+use App\Actions\Auth\ScreenRegistrationAction;
 use App\Actions\Games\ApplyGameTrafficAction;
 use App\Actions\Games\ChangeGameStatusAction;
 use App\Actions\Games\PublishGameVersionAction;
@@ -116,6 +117,7 @@ use App\Support\Analytics\AnalyticsFilter;
 use App\Support\Analytics\AnalyticsPeriod;
 use App\Support\Analytics\AnalyticsSource;
 use App\Support\Analytics\CampaignKey;
+use App\Support\Auth\RegistrationFormStamp;
 use App\Support\Games\Flow\FlowStepDraft;
 use App\Support\Games\Flow\GameFlowValidator;
 use App\Support\Games\Results\ResultProfileCoverage;
@@ -166,6 +168,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -175,6 +178,7 @@ use Laravel\Nightwatch\Events\IngestingEvents as NightwatchIngestingEvents;
 use Laravel\Socialite\Two\User as SocialiteUser;
 use Livewire\Features\SupportTesting\Testable;
 use Livewire\Livewire;
+use Monolog\Handler\TestHandler;
 use PHPUnit\Framework\AssertionFailedError;
 use Sentry\ClientBuilder as SentryClientBuilder;
 use Sentry\Event as SentryEvent;
@@ -14796,6 +14800,83 @@ function demoGameWithMembers(int $members = 200): User
     (new TrafficSetting)->forceFill(['id' => 1, 'capture_enabled' => true, 'postbacks_enabled' => false])->save();
 
     return $admin;
+}
+
+/** A sign-up as a person sends it: the stamp the page drew, some seconds ago. */
+function screenedSignUp(array $overrides = [], string $page = '/register'): array
+{
+    $html = test()->get($page)->assertOk()->getContent();
+
+    preg_match('/name="'.RegistrationFormStamp::FIELD.'"\s+value="([^"]+)"/', $html, $stamp);
+    test()->travel(10)->seconds();
+
+    return array_merge([
+        'name' => 'New Member',
+        'email' => 'new@example.com',
+        'password' => 'password',
+        'password_confirmation' => 'password',
+        RegistrationFormStamp::FIELD => $stamp[1] ?? null,
+        ScreenRegistrationAction::HONEYPOT_FIELD => '',
+    ], $overrides);
+}
+
+/** The security channel, swapped for a handler the test can read. */
+function fakeSecurityLog(): TestHandler
+{
+    config(['logging.channels.security' => ['driver' => 'monolog', 'handler' => TestHandler::class]]);
+
+    return Log::channel('security')->getLogger()->getHandlers()[0];
+}
+
+/**
+ * Every value in the call arguments a failure carries, through its previous
+ * exceptions, as the error tracker is sent them. The test client's own calls
+ * are left out: they hold the form it was asked to send.
+ *
+ * @return list<mixed>
+ */
+function reportedCallArguments(Closure $failing): array
+{
+    $ignored = ini_set('zend.exception_ignore_args', '0');
+    $failure = null;
+
+    try {
+        $failing();
+    } catch (Throwable $caught) {
+        $failure = $caught;
+    } finally {
+        ini_set('zend.exception_ignore_args', (string) $ignored);
+    }
+
+    if ($failure === null) {
+        test()->fail('The call was expected to fail.');
+    }
+
+    $arguments = [];
+
+    for ($current = $failure; $current !== null; $current = $current->getPrevious()) {
+        $application = array_filter(
+            $current->getTrace(),
+            fn (array $frame): bool => ($frame['class'] ?? null) !== Illuminate\Foundation\Testing\TestCase::class,
+        );
+        $arguments[] = array_column($application, 'args');
+    }
+
+    $values = [];
+    array_walk_recursive($arguments, function (mixed $value) use (&$values): void {
+        $values[] = $value;
+    });
+
+    return $values;
+}
+
+/** An anonymous visitor's one-question game, played as far as its Full Result step. */
+function playToResult(string $slug): Testable
+{
+    return Livewire::withCookie((string) config('games.visitor_cookie.name'), str_repeat('s', 40))
+        ->test(PlayGame::class, ['slug' => $slug])
+        ->call('init')->call('continue')->call('choose', 0)->call('next')
+        ->assertSee('data-testid="game-step-full_result"', false);
 }
 
 /**

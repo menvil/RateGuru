@@ -6,11 +6,12 @@ use App\Models\Concerns\LocksActorForWrite;
 use App\Models\User;
 use App\Support\Auth\SessionGeneration;
 use Illuminate\Auth\Events\PasswordReset;
+use Illuminate\Contracts\Hashing\Hasher;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Password;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
+use SensitiveParameter;
 
 final class ResetPasswordAction
 {
@@ -20,20 +21,22 @@ final class ResetPasswordAction
      * @param  array{token: string, email: string, password: string}  $validated
      * @param  User|null  $signedIn  the account this session is signed in to: kept as the reset left it when it is the one reset, so the caller can keep this session current
      */
-    public function execute(array $validated, ?User $signedIn = null): string
+    public function execute(#[SensitiveParameter] array $validated, ?User $signedIn = null): string
     {
         $terminalRejected = false;
 
-        $status = Password::reset(
+        // On the broker, not the facade: the facade's call would hold the
+        // password in its arguments for the whole reset.
+        $status = Password::broker()->reset(
             $validated,
-            function (User $user) use ($validated, $signedIn, &$terminalRejected): void {
+            function (User $user, #[SensitiveParameter] string $password) use ($signedIn, &$terminalRejected): void {
                 // The broker-provided instance may be stale: anonymization
                 // can commit between token validation and this write. Lock
                 // the row by immutable primary key and require an account
                 // that may sign in — a tombstone or a Persona gets no
                 // password, no fresh remember_token and no PasswordReset
                 // event, whatever token was presented.
-                $written = DB::transaction(function () use ($user, $validated): ?User {
+                $written = DB::transaction(function () use ($user, $password): ?User {
                     $locked = $this->lockActor($user);
 
                     if ($locked === null || ! $locked->canSignIn()) {
@@ -41,7 +44,7 @@ final class ResetPasswordAction
                     }
 
                     $locked->forceFill([
-                        'password' => Hash::make($validated['password']),
+                        'password' => app(Hasher::class)->make($password),
                         'remember_token' => Str::random(60),
                         // A reset proves control of the mailbox, not of
                         // whoever is signed in: every existing session ends.

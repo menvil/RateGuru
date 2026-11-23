@@ -6,6 +6,7 @@ use App\Actions\Moderation\MarkUserTrustedAction;
 use App\Enums\ProfileActivityVisibility;
 use App\Enums\UserRole;
 use App\Enums\UserStatus;
+use App\Support\Auth\EmailCanonicalizer;
 use App\Support\Locale\LocaleManager;
 use App\Support\Media\AvatarUrlResolver;
 use Database\Factories\UserFactory;
@@ -35,10 +36,11 @@ use SensitiveParameter;
  * @property Carbon|null $anonymized_at
  * @property Carbon|null $email_verified_at
  * @property Carbon|null $email_first_verified_at
+ * @property string|null $email_canonical
  * @property string|null $session_generation
  */
 #[Fillable(['name', 'display_name', 'username', 'email', 'locale', 'theme_preference', 'notify_followed_author_posts', 'avatar_asset_id', 'bio', 'profile_website_url', 'rating_activity_visibility', 'role', 'status', 'trust_level', 'password'])]
-#[Hidden(['password', 'remember_token', 'session_generation'])]
+#[Hidden(['password', 'remember_token', 'session_generation', 'email_canonical'])]
 class User extends Authenticatable implements FilamentUser, HasLocalePreference, MustVerifyEmail
 {
     /** @use HasFactory<UserFactory> */
@@ -59,6 +61,14 @@ class User extends Authenticatable implements FilamentUser, HasLocalePreference,
         static::creating(function (User $user): void {
             if ($user->trust_level === null) {
                 $user->trust_level = MarkUserTrustedAction::TRUSTED_LEVEL;
+            }
+        });
+
+        // Follows the address through every write, a tombstone's included,
+        // whose address is no mailbox.
+        static::saving(function (User $user): void {
+            if (! $user->exists || $user->isDirty('email')) {
+                $user->email_canonical = EmailCanonicalizer::canonical($user->email);
             }
         });
 

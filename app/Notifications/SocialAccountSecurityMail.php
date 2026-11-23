@@ -22,10 +22,12 @@ final class SocialAccountSecurityMail
 
         $message = (new MailMessage)
             ->subject(__("{$keys}.subject", $replace))
-            ->greeting(__('mail.greeting', ['name' => MailAddressee::nameOf($notifiable)]))
+            ->greeting(MailAddressee::greetingFor($notifiable))
             ->line(__("{$keys}.line", $replace));
 
-        if ($providerEmail !== null && $providerEmail !== '') {
+        // Whoever registered an address that is not theirs can connect their
+        // own provider account, so its address is not shown to that mailbox.
+        if ($providerEmail !== null && $providerEmail !== '' && ! MailAddressee::isUnconfirmed($notifiable)) {
             $message->line(__('mail.social.account', ['provider' => $provider->label(), 'email' => $providerEmail]));
         }
 

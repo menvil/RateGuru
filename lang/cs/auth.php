@@ -31,6 +31,8 @@ return [
     'register' => [
         'title' => 'Registrace',
         'action' => 'Zaregistrovat se',
+        'refused' => 'Registraci se nepodařilo dokončit. Zkus to znovu později.',
+        'javascript_required' => 'Bezpečnostní kontrola se nenačetla. Zapni JavaScript nebo znovu načti stránku a dokonči registraci.',
     ],
 
     'divider' => 'nebo',
@@ -52,8 +54,12 @@ return [
 
     'verify_email' => [
         'intro' => 'Díky za registraci! Než začneš, ověř prosím svou e-mailovou adresu kliknutím na odkaz, který jsme ti právě poslali. Pokud ti e-mail nepřišel, rádi ti pošleme další.',
-        'link_sent' => 'Na e-mailovou adresu zadanou při registraci byl odeslán nový ověřovací odkaz.',
+        'link_sent' => 'Na tvou aktuální e-mailovou adresu byl odeslán nový potvrzovací odkaz.',
         'resend' => 'Znovu poslat ověřovací e-mail',
+        'confirmed' => 'Tvoje e-mailová adresa je potvrzena.',
+        'link_expired' => 'Platnost tohoto potvrzovacího odkazu vypršela. Níže si vyžádej nový.',
+        'throttled' => 'Nový odkaz si můžeš vyžádat za :minutes min.',
+        'notice_changed_address' => 'Potvrď svou novou e-mailovou adresu :email, abys mohl přidávat příspěvky, komentovat, hlasovat a sledovat ostatní. Pokud odkaz nemáš, vyžádej si nový.',
     ],
 
     'social' => [

@@ -31,6 +31,8 @@ return [
     'register' => [
         'title' => 'Înregistrare',
         'action' => 'Înregistrează-te',
+        'refused' => 'Nu am putut finaliza înregistrarea ta. Încearcă din nou mai târziu.',
+        'javascript_required' => 'Verificarea de securitate nu s-a încărcat. Activează JavaScript sau reîncarcă pagina pentru a finaliza înregistrarea.',
     ],
 
     'divider' => 'sau',
@@ -52,8 +54,12 @@ return [
 
     'verify_email' => [
         'intro' => 'Mulțumim că te-ai înregistrat! Înainte de a începe, te rugăm să îți confirmi adresa de e-mail accesând linkul pe care tocmai ți l-am trimis. Dacă nu ai primit e-mailul, îți vom trimite cu plăcere altul.',
-        'link_sent' => 'Un nou link de confirmare a fost trimis la adresa de e-mail pe care ai indicat-o la înregistrare.',
+        'link_sent' => 'Un nou link de confirmare a fost trimis la adresa ta de e-mail actuală.',
         'resend' => 'Retrimite e-mailul de confirmare',
+        'confirmed' => 'Adresa ta de e-mail este confirmată.',
+        'link_expired' => 'Acest link de confirmare a expirat. Solicită unul nou mai jos.',
+        'throttled' => 'Poți solicita un link nou peste :minutes min.',
+        'notice_changed_address' => 'Confirmă-ți noua adresă de e-mail, :email, ca să poți publica, comenta, vota și urmări alți utilizatori. Dacă nu ai un link, solicită unul nou.',
     ],
 
     'social' => [

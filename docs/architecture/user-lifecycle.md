@@ -107,6 +107,14 @@ comment or reply, a follow, a post) say to confirm the address
 (`User::needsAddressConfirmation()`: living and unsanctioned, lacking only
 that). A sanctioned account reads its own notice instead.
 
+Whoever signs up can type anyone's address, so mail to an address not yet
+confirmed carries nothing the account wrote: it opens with a plain greeting
+(`MailAddressee::greetingFor()`) and leaves out a connected provider's
+address. A name or display name typed at sign-up or on the profile may not
+contain a link (`ContainsNoLink`), though an account keeps one it already has
+until it changes it. A name a provider supplies is not held to this: it is
+only ever mailed to an address that is confirmed.
+
 A week after signing up (`UnconfirmedAccountsQuery::GRACE_DAYS`) an account
 still unconfirmed is removed by the daily `users:purge-unconfirmed`
 (`--dry-run` lists who would go). It is an account of the User role, living,
@@ -114,7 +122,16 @@ whose address is not confirmed, which never confirmed one
 (`email_first_verified_at`, set the first time any address is confirmed and
 never cleared — a change of address clears only `email_verified_at`), and
 which no Google or Facebook identity signs in to. The confirmation mail says
-so to exactly those accounts.
+so to exactly those accounts, and so does the notice: one that has changed a
+confirmed address is only asked to confirm the new one.
+
+A confirmation link lasts a day. An expired one opens `/verify-email`, which
+says so and offers a new one, after signing in if need be. Links are sent on
+signing up and on changing the address, and at most once a minute and five
+times an hour per account (`SendEmailVerificationNotificationAction`). A mail
+server that is down never fails the sign-up or the change. For someone the
+mail cannot reach, an administrator can confirm the address from the user's
+page (`ConfirmUserEmailAction`), which the moderation log records.
 
 `PurgeUnconfirmedAccountAction` asks the account again on its locked row,
 locks the posts and then the comments it touched in ascending id order, and

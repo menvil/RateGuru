@@ -31,6 +31,8 @@ return [
     'register' => [
         'title' => 'Registrer deg',
         'action' => 'Registrer deg',
+        'refused' => 'Vi kunne ikke fullføre registreringen din. Prøv igjen senere.',
+        'javascript_required' => 'Sikkerhetskontrollen ble ikke lastet inn. Slå på JavaScript eller last inn siden på nytt for å fullføre registreringen.',
     ],
 
     'divider' => 'eller',
@@ -52,8 +54,12 @@ return [
 
     'verify_email' => [
         'intro' => 'Takk for at du registrerte deg! Før du begynner, kan du bekrefte e-postadressen din ved å klikke på lenken vi nettopp sendte deg? Hvis du ikke har mottatt e-posten, sender vi deg gjerne en ny.',
-        'link_sent' => 'En ny bekreftelseslenke er sendt til e-postadressen du oppga ved registreringen.',
+        'link_sent' => 'En ny bekreftelseslenke er sendt til den nåværende e-postadressen din.',
         'resend' => 'Send bekreftelses-e-post på nytt',
+        'confirmed' => 'E-postadressen din er bekreftet.',
+        'link_expired' => 'Denne bekreftelseslenken er utløpt. Be om en ny nedenfor.',
+        'throttled' => 'Du kan be om en ny lenke om :minutes min.',
+        'notice_changed_address' => 'Bekreft den nye e-postadressen din, :email, for å kunne publisere, kommentere, stemme og følge andre. Har du ingen lenke, kan du be om en ny.',
     ],
 
     'social' => [

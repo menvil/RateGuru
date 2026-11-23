@@ -38,7 +38,7 @@ final class MailLocalizationServiceProvider extends ServiceProvider
         VerifyEmail::toMailUsing(function (object $notifiable, string $url): MailMessage {
             $mail = (new MailMessage)
                 ->subject(__('mail.verify.subject'))
-                ->greeting(__('mail.greeting', ['name' => MailAddressee::nameOf($notifiable)]))
+                ->greeting(MailAddressee::greetingFor($notifiable))
                 ->line(__('mail.verify.line'))
                 ->action(__('mail.verify.action'), $url);
 
@@ -55,7 +55,7 @@ final class MailLocalizationServiceProvider extends ServiceProvider
 
         ResetPassword::toMailUsing(fn (object $notifiable, string $token): MailMessage => (new MailMessage)
             ->subject(__('mail.reset.subject'))
-            ->greeting(__('mail.greeting', ['name' => MailAddressee::nameOf($notifiable)]))
+            ->greeting(MailAddressee::greetingFor($notifiable))
             ->line(__('mail.reset.line'))
             ->action(__('mail.reset.action'), self::resetUrl($token, $notifiable))
             ->line(__('mail.reset.expire', [

@@ -27,6 +27,7 @@ class VerifyEmailController extends Controller
             return redirect()->intended(route('dashboard', absolute: false));
         }
 
-        return redirect()->intended(route('dashboard', absolute: false).'?verified=1');
+        return redirect()->intended(route('dashboard', absolute: false).'?verified=1')
+            ->with('toast', ['message' => __('auth.verify_email.confirmed')]);
     }
 }

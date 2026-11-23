@@ -103,6 +103,20 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Email Confirmation Links
+    |--------------------------------------------------------------------------
+    |
+    | How many minutes a confirmation link stays valid. A day, so a link read
+    | the next morning still works; a new one is a click away on every page.
+    |
+    */
+
+    'verification' => [
+        'expire' => 1440,
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Password Confirmation Timeout
     |--------------------------------------------------------------------------
     |
