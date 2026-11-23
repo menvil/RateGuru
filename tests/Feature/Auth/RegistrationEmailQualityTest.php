@@ -5,11 +5,13 @@ use App\Actions\Auth\ScreenRegistrationAction;
 use App\Actions\Profile\AnonymizeUserAccountAction;
 use App\Models\User;
 use App\Support\AbuseGuards\RateLimitKey;
+use App\Support\Auth\DisposableDomainList;
 use App\Support\Auth\EmailCanonicalizer;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Validation\ValidationException;
 use Monolog\LogRecord;
+use Propaganistas\LaravelDisposableEmail\Contracts\Fetcher;
 
 /*
  * Throwaway addresses and other spellings of a Gmail mailbox, at sign-up and
@@ -188,4 +190,82 @@ it('only logs a new address in report mode', function () {
 it('throws for a refused new address', function () {
     expect(fn () => app(ScreenEmailChangeAction::class)->execute(User::factory()->create(), 'someone@mailinator.com'))
         ->toThrow(ValidationException::class);
+});
+
+/** The domain list read from a scratch file, which the test removes. */
+function disposableListIn(string $dir, ?string $contents): DisposableDomainList
+{
+    $path = $dir.'/domains.json';
+    config(['disposable-email.storage' => $path]);
+
+    if ($contents !== null) {
+        file_put_contents($path, $contents);
+    }
+
+    app()->forgetInstance('disposable_email.domains');
+
+    return app('disposable_email.domains');
+}
+
+it('uses the shipped list when the stored one was cut short', function () {
+    $dir = makeScratchDir('disposable-list');
+
+    try {
+        expect(disposableListIn($dir, '["mailinator.com","trash')->isDisposable('someone@mailinator.com'))->toBeTrue();
+    } finally {
+        removeScratchDir($dir);
+    }
+});
+
+it('repairs a broken list with the scheduled update', function () {
+    $dir = makeScratchDir('disposable-list');
+    disposableListIn($dir, 'not json');
+    app()->forgetInstance('disposable_email.domains');
+    app()->bind('test-domain-fetcher', fn () => new class implements Fetcher
+    {
+        public function handle($url): array
+        {
+            return ['fresh-throwaway.example'];
+        }
+    });
+    config(['disposable-email.fetcher' => 'test-domain-fetcher', 'disposable-email.sources' => ['https://list.example/domains.json']]);
+
+    try {
+        $this->artisan('disposable:update')->assertSuccessful();
+
+        expect(json_decode((string) file_get_contents($dir.'/domains.json'), true))->toBe(['fresh-throwaway.example'])
+            ->and(glob($dir.'/*'))->toHaveCount(1);
+    } finally {
+        removeScratchDir($dir);
+    }
+});
+
+it('keeps the list it had when a new one is empty or malformed', function (array $replacement) {
+    $dir = makeScratchDir('disposable-list');
+    $list = disposableListIn($dir, '["kept.example"]');
+
+    try {
+        expect($list->saveToStorage($replacement))->toBeFalse()
+            ->and(file_get_contents($dir.'/domains.json'))->toBe('["kept.example"]')
+            ->and(glob($dir.'/*'))->toHaveCount(1);
+    } finally {
+        removeScratchDir($dir);
+    }
+})->with([
+    'empty' => [[]],
+    'not a list of domains' => [[['nested']]],
+]);
+
+it('leaves nothing behind when the new list cannot take the place of the old', function () {
+    $dir = makeScratchDir('disposable-list', ['', '/domains.json']);
+    file_put_contents($dir.'/domains.json/occupied', 'x');
+    config(['disposable-email.storage' => $dir.'/domains.json']);
+    app()->forgetInstance('disposable_email.domains');
+
+    try {
+        expect(app('disposable_email.domains')->saveToStorage(['new.example']))->toBeFalse()
+            ->and(glob($dir.'/*'))->toBe([$dir.'/domains.json']);
+    } finally {
+        removeScratchDir($dir);
+    }
 });

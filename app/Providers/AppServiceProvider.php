@@ -28,6 +28,7 @@ use App\Services\Media\ImageIngestor;
 use App\Services\Media\ImageVariantProcessor;
 use App\Services\Media\MediaStorage;
 use App\Services\Media\MediaUrlResolver;
+use App\Support\Auth\DisposableDomainList;
 use App\Support\Auth\RememberSessionGenerationOnLogin;
 use App\Support\Auth\SendConfirmationMailOnSignUp;
 use App\Support\Auth\SocialProviderAvailability;
@@ -80,6 +81,14 @@ class AppServiceProvider extends ServiceProvider
     public function register(): void
     {
         $this->app->bind(SendEmailVerificationNotification::class, SendConfirmationMailOnSignUp::class);
+
+        // The package's own binding, with a list that cannot stop sign-ups.
+        // Its cache stays off (config/disposable-email.php).
+        $this->app->singleton('disposable_email.domains', fn () => (new DisposableDomainList)
+            ->setIncludeSubdomains((bool) config('disposable-email.include_subdomains'))
+            ->setStoragePath((string) config('disposable-email.storage'))
+            ->setWhitelist((array) config('disposable-email.whitelist'))
+            ->bootstrap());
 
         // Scoped, not singleton: the settings are cached for one request or
         // one queued job, never for the life of a queue worker, which would

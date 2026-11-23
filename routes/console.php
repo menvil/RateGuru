@@ -139,7 +139,7 @@ Schedule::command('analytics:warm-figures')->cron('*/'.AnalyticsWarmFiguresComma
 Schedule::command('geo:update')->everyMinute()->withoutOverlapping(60)->runInBackground();
 
 // The list of throwaway mail domains a sign-up is checked against. A failed
-// fetch leaves the list it had.
+// fetch or write leaves the list it had (DisposableDomainList).
 Schedule::command('disposable:update')->weekly()->withoutOverlapping();
 
 // Accounts that signed up with an email address and did not confirm one

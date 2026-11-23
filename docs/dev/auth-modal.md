@@ -147,9 +147,15 @@ A blank or unknown value reads as `report`. The log line carries the reasons
 and the browser's bot flags, never the name or the address. A refusal only
 about the address is shown on the email field, in the words a mistyped or
 taken address gets; any other is the one generic message. A new address on
-the profile gets the same address check (`ScreenEmailChangeAction`). Signing
-in with Google or Facebook is not screened, so someone whose alias was
-registered by another can still reach their mailbox's account that way.
+the profile gets the same address check (`ScreenEmailChangeAction`). The
+Gmail check reads before the account is written and takes no lock, so two
+sign-ups at the same moment can both pass it. Signing in with Google or
+Facebook is not screened and matches an exact address only: someone whose
+alias another person registered gets a separate account for their own address.
+
+The list of throwaway domains is replaced whole (`DisposableDomainList`). A
+failed update keeps the list it had, and a stored list that cannot be read
+gives way to the one the package ships with.
 
 When the cache holding the counts cannot be reached, the log line gives the
 reason `limits_unavailable`. `report` still lets the sign-up through, and
