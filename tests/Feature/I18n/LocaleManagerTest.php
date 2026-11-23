@@ -220,6 +220,12 @@ it('reaches a language installed as one variant of several only by its own scrip
     'no-NO' => ['no-NO', 'nb'],
     'nn-NO: Nynorsk is not installed' => ['nn-NO', null],
     'nn' => ['nn', null],
+    'hi-IN' => ['hi-IN', 'hi'],
+    'bn-BD' => ['bn-BD', 'bn'],
+    'bn-IN' => ['bn-IN', 'bn'],
+    'id-ID' => ['id-ID', 'id'],
+    'in: the withdrawn code for Indonesian' => ['in', 'id'],
+    'in-ID' => ['in-ID', 'id'],
 ]);
 
 it('goes on to the next language when the preferred one is another variant of an installed language', function (string $header, string $expected) {
