@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests\Auth;
 
+use App\Rules\ContainsNoNullCharacter;
 use Illuminate\Foundation\Http\FormRequest;
 
 final class ConfirmPasswordRequest extends FormRequest
@@ -9,7 +10,7 @@ final class ConfirmPasswordRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'password' => ['required', 'string', 'max:255'],
+            'password' => ['required', 'string', 'max:255', new ContainsNoNullCharacter],
         ];
     }
 }

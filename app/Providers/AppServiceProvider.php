@@ -20,6 +20,7 @@ use App\Policies\StudioPlanPolicy;
 use App\Policies\TrafficSourcePolicy;
 use App\Queries\Analytics\AnalyticsRollupGate;
 use App\Queries\SocialProvidersInUseQuery;
+use App\Rules\ContainsNoNullCharacter;
 use App\Services\Media\FilesystemMediaStorage;
 use App\Services\Media\FilesystemMediaUrlResolver;
 use App\Services\Media\GdImageIngestor;
@@ -74,6 +75,7 @@ use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\View;
 use Illuminate\Support\ServiceProvider;
+use Illuminate\Validation\Rules\Password;
 use Livewire\Livewire;
 
 class AppServiceProvider extends ServiceProvider
@@ -170,6 +172,9 @@ class AppServiceProvider extends ServiceProvider
         // A component drawn on the feed, a post or a profile keeps that
         // page's guest check on every later request it makes.
         Livewire::addPersistentMiddleware([RequireSignInWhileGuestViewingIsOff::class, EnsureGamesAreEnabled::class]);
+
+        // Here so that every form setting a password refuses it.
+        Password::defaults(fn (): Password => Password::min(8)->rules([new ContainsNoNullCharacter]));
 
         Gate::define('moderate-content', [ModerationPolicy::class, 'moderateContent']);
         Gate::define('ban-user', [ModerationPolicy::class, 'banUser']);
