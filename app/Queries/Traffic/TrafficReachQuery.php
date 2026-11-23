@@ -56,15 +56,13 @@ final class TrafficReachQuery implements RawSqlPersistenceBoundary
 
     /**
      * The countries the API reported impressions in over the period, with
-     * how many, the most first.
+     * how many, the most first: the same figures a country's report counts.
      *
      * @return array<string, int>
      */
     public function countries(string $fromDay, string $toDay, ?int $sourceId = null, ?int $campaignId = null): array
     {
-        return TrafficSpendDayCountry::query()
-            ->whereBetween('network_day', [$fromDay, $toDay])
-            ->when($sourceId !== null, fn (Builder $query) => $query->where('source_id', $sourceId))
+        return $this->countryFigures($fromDay, $toDay, $sourceId)
             ->when($campaignId !== null, fn (Builder $query) => $query->where('campaign_id', $campaignId))
             ->groupBy('country')
             ->select('country')
@@ -268,20 +266,20 @@ final class TrafficReachQuery implements RawSqlPersistenceBoundary
     }
 
     /**
-     * One country's figures of the period, and of one source when given. Only
-     * the API reports countries, so a day a file or a typed total counts from
-     * has none here.
+     * The figures by country of the period, of one country and one source
+     * when given. Only the API reports countries, so a day a file or a typed
+     * total counts from has none here.
      *
      * @return Builder<TrafficSpendDayCountry>
      */
-    private function countryFigures(string $fromDay, string $toDay, ?int $sourceId, string $country): Builder
+    private function countryFigures(string $fromDay, string $toDay, ?int $sourceId, ?string $country = null): Builder
     {
         $table = (new TrafficSpendDayCountry)->getTable();
         $figures = (new TrafficSpendDay)->getTable();
 
         return TrafficSpendDayCountry::query()
             ->whereBetween('network_day', [$fromDay, $toDay])
-            ->where('country', $country)
+            ->when($country !== null, fn (Builder $query) => $query->where('country', $country))
             ->when($sourceId !== null, fn (Builder $query) => $query->where('source_id', $sourceId))
             ->whereNotExists(fn ($before) => $before->from($figures)
                 ->whereColumn("{$figures}.source_id", "{$table}.source_id")

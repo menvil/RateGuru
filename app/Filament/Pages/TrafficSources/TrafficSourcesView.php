@@ -364,13 +364,18 @@ final class TrafficSourcesView
         // Whether there is anything to leave out is the period's, whichever country is on screen.
         $period = $this->reachTally(new TrafficReportFilter($filter->fromDay, $filter->toDay, array_diff_key($filter->where, ['country' => true])));
 
-        if ($period === null || $period->total($sourceId, $campaignId)->impressions === 0) {
+        if ($period === null) {
             return null;
         }
 
         $tally = $this->reachTally($filter) ?? $period;
         $total = $tally->total($sourceId, $campaignId);
         $country = self::reachCountry($filter);
+
+        // A country's own figures can outlive the day's: they are something to show even with none for the whole period.
+        if ($period->total($sourceId, $campaignId)->impressions === 0 && $total->impressions === 0) {
+            return null;
+        }
 
         if ($this->reachSplit($filter) || $total->impressions === 0) {
             $network = array_reduce(array_filter($summary, fn (array $row): bool => $row['channel'] === TrafficChannel::Network->value), fn (ReportFigures $sum, array $row): ReportFigures => $sum->plus($row['figures']), new ReportFigures);

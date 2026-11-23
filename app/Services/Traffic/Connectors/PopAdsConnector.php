@@ -98,7 +98,8 @@ final class PopAdsConnector implements EditsBlockLists, ReadsCampaigns, ReadsImp
         foreach ($ofDay as $row) {
             $country = strtoupper((string) ($row['country'] ?? ''));
 
-            if (preg_match('/\A[A-Z]{2}\z/', $country) !== 1 || ! isset($row['impressions'])) {
+            // A row of no country no visit could match. One of a country without its count would leave that country's figures out of the day.
+            if (preg_match('/\A[A-Z]{2}\z/', $country) !== 1) {
                 continue;
             }
 
@@ -106,7 +107,7 @@ final class PopAdsConnector implements EditsBlockLists, ReadsCampaigns, ReadsImp
                 'campaign' => (string) ($row['campaign_id'] ?? $row['campaign'] ?? ''),
                 'site' => (string) ($row['website_id'] ?? $row['website'] ?? ''),
                 'country' => $country,
-                'impressions' => $this->impressionCount($row['impressions']),
+                'impressions' => $this->impressionCount($row['impressions'] ?? null),
                 'amount' => TrafficMoney::stored($row['cost'] ?? $row['spent'] ?? $row['amount'] ?? 0),
             ];
         }

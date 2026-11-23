@@ -112,6 +112,10 @@ it('leaves the turn’s spend and the connection alone when the country report f
     'a message under its rows' => [fn () => fn () => Http::response(['data' => ['message' => 'unexpected report format']])],
     'a count in words' => [fn () => fn (string $day) => Http::response(['rows' => [['datetime' => $day, 'country' => 'DE', 'campaign_id' => '881204', 'website_id' => '40123', 'impressions' => 'unavailable', 'cost' => '0.09']]])],
     'a negative count' => [fn () => fn (string $day) => Http::response(['rows' => [['datetime' => $day, 'country' => 'DE', 'campaign_id' => '881204', 'website_id' => '40123', 'impressions' => -5, 'cost' => '0.09']]])],
+    'a country without its count, beside one with' => [fn () => fn (string $day) => Http::response(['rows' => [
+        ['datetime' => $day, 'country' => 'DE', 'campaign_id' => '881204', 'website_id' => '40123', 'impressions' => null, 'cost' => '0.09'],
+        ['datetime' => $day, 'country' => 'US', 'campaign_id' => '881204', 'website_id' => '40123', 'impressions' => 5, 'cost' => '0.05'],
+    ]])],
 ]);
 
 it('takes an empty report for a day with no impressions', function (array $answer) {
@@ -195,6 +199,21 @@ it('matches a country’s figures of a source with none by site left in the peri
     $germany = app(TrafficReachQuery::class)->tally('2026-11-16', '2026-11-16', country: 'DE')->total();
 
     expect([$germany->impressions, $germany->reached])->toBe([60, 30]);
+
+    $card = Livewire::withQueryParams(['period' => '30d', 'country' => 'DE'])->test(TrafficSourcesPage::class)->call('load')->viewData('reach');
+
+    expect($card['split'])->toBeFalse()
+        ->and([$card['steps'][0]['count'], $card['steps'][1]['count']])->toBe([60, 30]);
+});
+
+it('counts in the Country filter only the figures a country’s report counts', function () {
+    paidImpressions($this->source, '2026-11-16', 100, '1.00', ['campaign_id' => $this->campaign->id, 'site_ref' => '40123', 'origin' => TrafficSpendOrigin::Csv]);
+    paidImpressionsIn('DE', $this->source, '2026-11-16', 60, '0.60', ['campaign_id' => $this->campaign->id, 'site_ref' => '40123']);
+    paidImpressionsIn('FR', $this->source, '2026-11-16', 40, '0.40', ['campaign_id' => $this->campaign->id, 'site_ref' => '40123']);
+    paidImpressions($this->source, '2026-11-15', 50, '0.50', ['campaign_id' => $this->campaign->id, 'site_ref' => '40123']);
+    paidImpressionsIn('DE', $this->source, '2026-11-15', 20, '0.20', ['campaign_id' => $this->campaign->id, 'site_ref' => '40123']);
+
+    expect(app(TrafficReachQuery::class)->countries('2026-11-15', '2026-11-16'))->toBe(['DE' => 20]);
 });
 
 it('sets no part of a source against the network’s whole bill on Spend', function (array $narrowedBy) {
