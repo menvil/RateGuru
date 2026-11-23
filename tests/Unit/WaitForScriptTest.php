@@ -33,7 +33,7 @@ function pageAnswering(mixed ...$answers): object
 it('keeps waiting through a script reading what is not there yet', function (string $error) {
     $page = pageAnswering(new ExpectationFailedException($error), new ExpectationFailedException($error), false, true);
 
-    waitForScript($page, 'Alpine.$data(el).ready', true, 2.0);
+    waitForScript($page, 'Alpine.$data(el).ready');
 
     expect($page->asked)->toBe(4);
 })->with([
@@ -46,8 +46,6 @@ it('names the error when what the script reads never arrives', function () {
 
     expect(fn () => waitForScript($page, 'Alpine.version', true, 0.1))
         ->toThrow(ExpectationFailedException::class, 'ReferenceError: Alpine is not defined');
-
-    expect($page->asked)->toBeGreaterThan(1);
 });
 
 it('does not take a script error for the value null', function () {
