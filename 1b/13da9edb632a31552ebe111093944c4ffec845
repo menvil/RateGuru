@@ -1,0 +1,25 @@
+resources/js/header-fit.js
+  s_4b9dc6ab6b25d3::t_f3c7485b94a489 73-74,77
+resources/css/app.css
+  s_4b9dc6ab6b25d3::t_d3c7439ed70a17 185-192,194-197
+resources/views/layouts/app.blade.php
+  s_4b9dc6ab6b25d3::t_56f3c2d7fb7570 226,233-234,236
+  s_4b9dc6ab6b25d3::t_3526c4ed9c574a 53-55
+  s_4b9dc6ab6b25d3::t_dbd0f579f9f8b9 106,110-111,113
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "1b13da9edb632a31552ebe111093944c4ffec845",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
