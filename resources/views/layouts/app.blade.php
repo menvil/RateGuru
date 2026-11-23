@@ -8,7 +8,8 @@
             <meta name="rg-arrival" content="{{ $trafficArrival }}">
         @endif
 
-        <title>{{ strip_tags($__env->yieldContent('title', $projectSettings->siteName())) }}</title>
+        {{-- A section given its text inline, and the fallback, come back escaped; they are unescaped first, so the tab reads "Tom & Jerry", not "Tom &amp; Jerry". --}}
+        <title>{{ html_entity_decode(strip_tags($__env->yieldContent('title', $projectSettings->siteName())), ENT_QUOTES | ENT_HTML5) }}</title>
 
         @include('layouts.partials.favicons')
 

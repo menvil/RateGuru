@@ -379,8 +379,7 @@ it('puts a game\'s title and a result\'s name into an administrator\'s text each
 it('reads a dialog\'s title its own way only when asked to: a post\'s title, never the site\'s own', function () {
     $written = Blade::render('<x-ui.modal title="Which one is better?" title-dir="auto">Picture</x-ui.modal>');
     $own = Blade::render('<x-ui.modal title="Share this post">Links</x-ui.modal>');
-    // Echoed into the attribute, as a post's title is, it arrives escaped: "&amp;" is not a letter of its own.
-    $letterless = livewireDom(Blade::render('<x-ui.modal title="{{ $title }}" title-dir="auto">Picture</x-ui.modal>', ['title' => '100 & 200!']))->query('//h2')->item(0);
+    $letterless = livewireDom(Blade::render('<x-ui.modal :title="$title" title-dir="auto">Picture</x-ui.modal>', ['title' => '100 & 200!']))->query('//h2')->item(0);
 
     expect(writtenTextMark($written, 'Which one is better?'))->toBe('auto')
         ->and(readsItsOwnWayOrIsMissing($own, 'Share this post'))->toBeFalse()

@@ -118,7 +118,7 @@ it('lays a dialog out below the app header when asked to', function () {
 
 it('opts every image viewer into the below-header layout, closing on Escape before what it is over, its title the post\'s own read its own way', function (string $view) {
     expect(file_get_contents(resource_path('views/'.$view)))
-        ->toContain('<x-ui.modal title="{{ $post->title }}" title-dir="auto" state="imageOpen" size="fullscreen" below-header close-on-escape>');
+        ->toContain('<x-ui.modal :title="$post->title" title-dir="auto" state="imageOpen" size="fullscreen" below-header close-on-escape>');
 })->with([
     'components/feed/post-card.blade.php',
     'livewire/posts/post-show.blade.php',
