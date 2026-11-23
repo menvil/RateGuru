@@ -64,6 +64,8 @@
         $watch('display', (value) => $wire.set('device', value === 'page' ? 'page' : 'desktop'))
         // Fitted on the next frame, so the frame's new size never feeds back into the same observation.
         new ResizeObserver(() => requestAnimationFrame(() => fit())).observe($refs.body)
+        // A frame that finished before this page's scripts ran has fired its load already, and nothing would read it.
+        if ($refs.frame?.contentDocument?.readyState === 'complete' && $refs.frame.contentWindow.location.href !== 'about:blank') apply()
     "
     x-on:keydown.escape.window="fs = false"
 >
