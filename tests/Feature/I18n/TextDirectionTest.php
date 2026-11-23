@@ -49,9 +49,10 @@ dataset('public pages', [
 
         return route('games.play', $draft['game']->slug);
     }, 200],
-    // Not found once the language is known. A post that is not there is found
-    // missing before it is (route model binding comes first), and gets the
-    // not-found page in the default language, laid out the way that is read.
+    // Not found, in the visitor's language: a post is found missing by route
+    // model binding, which the language is resolved ahead of, and a profile by
+    // its controller.
+    'a post that is not there' => [fn (): string => route('posts.show', 999999), 404],
     'a profile that is not there' => [fn (): string => route('profile.show', 'nobody-goes-by-this-name'), 404],
 ]);
 
