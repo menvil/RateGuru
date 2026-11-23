@@ -129,6 +129,12 @@ class LocaleManager
         return array_key_exists($locale, $this->enabled());
     }
 
+    /** Whether a visitor has a language to choose: with one on offer, nothing asks them to. */
+    public function offersChoice(): bool
+    {
+        return count($this->enabled()) > 1;
+    }
+
     /**
      * A locale to serve for a value read from somewhere: the value itself when
      * it is offered, otherwise the default. For reading only — a write of a

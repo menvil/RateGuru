@@ -332,6 +332,13 @@ select:disabled {
         font-size: 13px;
     }
 
+    .rg-game__bar-start {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        min-width: 0;
+    }
+
     .rg-game__brand {
         min-width: 0;
         overflow: hidden;
@@ -389,14 +396,17 @@ select:disabled {
         margin-bottom: clamp(8px, 1.6vh, 14px);
     }
 
+    /* Centred over the pair. Only the line's place: its size stays rgGameLine's. */
     .rg-game__round > .rg-game__question {
         margin-bottom: clamp(10px, 2.4vh, 22px);
+        text-align: center;
     }
 
     .rg-game__round > .rg-game__lead {
         display: -webkit-box;
         margin: -4px 0 clamp(10px, 2.2vh, 20px);
         overflow: hidden;
+        text-align: center;
         -webkit-box-orient: vertical;
         -webkit-line-clamp: 2;
     }
@@ -706,12 +716,16 @@ select:disabled {
         cursor: pointer;
     }
 
+    /* Short of room it wraps before the site's name is cut. */
     .rg-game__bar > .rg-game__link {
+        flex: 0 1000 auto;
         min-height: 0;
         padding: 0;
         color: var(--rg-muted);
         font-size: 13.5px;
         font-weight: 400;
+        line-height: 1.15;
+        text-align: end;
     }
 
     .rg-game__link:hover {
