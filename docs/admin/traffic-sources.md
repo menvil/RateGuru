@@ -184,18 +184,32 @@ impressions. A day is closed once the network's figures for it are final — an
 API day once the sync closes it, six hours into the next day; a file's once
 the day is over. The card counts the days not closed yet too and names them:
 "Includes today, not closed yet: the network’s figures can lag a few minutes
-behind." It follows the source, campaign and type of traffic chosen and the
-period. Filtered by device or game the network has no such split: the card
-shows only the networks' visits, opened and started, and says the impressions
-are left out.
+behind." It follows the source, campaign, country and type of traffic chosen
+and the period. Filtered by device or game the network has no such split: the
+card shows only the networks' visits, opened and started, and says the
+impressions are left out.
+
+The **Country** filter lists the countries the network reported impressions in
+over the period, the most first. PopAds reports them by campaign and site, so
+on a country the card and the columns below are that country's impressions
+against the visits located there. RateGuru places a visit by its own IP
+database and the network by its own, so a country's share can differ a little
+from what the network would say. A day counted from a file or a typed total
+has no countries, and is left out on this filter. **Spend** keeps the network's
+own figure for the whole source and each whole campaign: on a country, device,
+game or campaign it says "For the whole source" or "For the whole campaign" and
+works out no difference against the part on screen.
 
 **Sites & zones** shows **Paid impr.** and **Reached** — the share of them that
 became visits, with how many — for every site the network reported, sortable
 like the other columns; a zone shows them only where its network reports
 zones (PopAds reports sites), and any other row shows "—". Paid impressions
-are counted by day, campaign and site, so filtered by device, country, city,
-game or version both columns show "—", no site is marked Low reach, and a note
-above the list says so. A site with at
+are counted by day, campaign, site and country, so filtered by device, city,
+game or version, or on a country the network reported nothing for, both columns
+show "—", no site is marked Low reach, and a note above the list says so. On a
+country the columns are filled, but Low reach is still judged across all
+countries: a block takes the whole site, so one country's figures do not mark
+it. A site with at
 least 500 paid impressions over the period's closed days, reached below 70 %
 of its source's share over the same days, is marked **Low reach** and counted
 in Worth blocking, its badge saying why: "Paid impressions mostly never reach

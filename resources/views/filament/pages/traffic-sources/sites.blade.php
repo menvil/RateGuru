@@ -57,9 +57,9 @@
     @endforeach
 </div>
 
-{{-- $reach is the report's On the way here: none where the period has no paid impressions to leave out. --}}
-@if ($reach !== null && $reach['split'])
-    <p class="rg-admin-traffic__insight" data-testid="traffic-sites-reach-note"><x-admin.ui.icon name="info" :size="14" />Paid impressions are counted by day, campaign and site, not by device, country or game. On these filters Paid impr. and Reached show “—” and no site is marked Low reach.</p>
+{{-- $reach is the report's On the way here: none where the period has no paid impressions, and no note where the columns need none. --}}
+@if (($reach['listNote'] ?? null) !== null)
+    <p class="rg-admin-traffic__insight" data-testid="traffic-sites-reach-note"><x-admin.ui.icon name="info" :size="14" />{{ $reach['listNote'] }}</p>
 @endif
 
 @if ($list['insight'] !== null)
