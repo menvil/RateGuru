@@ -6,12 +6,12 @@
 --}}
 <section class="rg-game__card" data-testid="game-step-result_preview">
     @if ((bool) ($data['settings']['show_partial'] ?? true))
-        <x-games.headline :text="$texts['title']" />
+        <x-games.headline :text="$shown['title']" />
         @if (($texts['body'] ?? '') !== '')
-            <p class="rg-game__lead">{{ $texts['body'] }}</p>
+            <p class="rg-game__lead" {{ $shown['body']->dir() }}>{{ $shown['body'] }}</p>
         @endif
     @else
-        @php($teaser = ($texts['body'] ?? '') !== '' ? $texts['body'] : $texts['title'])
+        @php($teaser = ($texts['body'] ?? '') !== '' ? $shown['body'] : $shown['title'])
         <div class="rg-game__line">
             <x-games.headline :text="$teaser" />
         </div>
@@ -21,5 +21,5 @@
         <span class="rg-game__locked-line"></span>
         <span class="rg-game__locked-line rg-game__locked-line--short"></span>
     </div>
-    <button type="button" class="rg-game__button rg-game__button--primary rg-game__button--wide" wire:click="continue" wire:loading.attr="disabled" data-testid="game-continue">{{ $texts['button_label'] }}</button>
+    <button type="button" class="rg-game__button rg-game__button--primary rg-game__button--wide" wire:click="continue" wire:loading.attr="disabled" data-testid="game-continue">{{ $shown['button_label']->inline() }}</button>
 </section>

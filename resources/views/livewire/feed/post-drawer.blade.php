@@ -36,7 +36,7 @@
                 close() {
                     this.open = false
                     this.$el.classList.remove('translate-x-0', 'pointer-events-auto', 'shadow-rgPopover')
-                    this.$el.classList.add('translate-x-full', 'pointer-events-none', 'shadow-none')
+                    this.$el.classList.add('ltr:translate-x-full', 'rtl:-translate-x-full', 'pointer-events-none', 'shadow-none')
                     this.$el.setAttribute('inert', '')
                     document.documentElement.classList.remove('overflow-hidden')
                     this.returnFocusEl?.focus()
@@ -78,7 +78,7 @@
                  open-state classes as a no-op. --}}
             x-on:select-post.window="
                 if (@js($mobileOnly) && window.innerWidth >= 1024) return;
-                $el.classList.remove('translate-x-full', 'pointer-events-none', 'shadow-none');
+                $el.classList.remove('ltr:translate-x-full', 'rtl:-translate-x-full', 'pointer-events-none', 'shadow-none');
                 $el.classList.add('translate-x-0', 'pointer-events-auto', 'shadow-rgPopover');
                 $el.removeAttribute('inert');
                 open = true;
@@ -141,14 +141,16 @@
                 {{-- transition-[translate,...]: Tailwind v4's translate-x-* utilities set the
                      native CSS `translate` property (not `transform`), so `translate` is what
                      must be listed in transition-property for the slide to animate. --}}
-                'absolute right-0 top-0 bottom-0 w-full overflow-y-auto border-l border-rg-border bg-rg-card px-2 py-3 transition-[translate,box-shadow] duration-200 ease-out motion-reduce:transition-none sm:px-4 sm:py-5 lg:px-6 focus:outline-none',
+                'absolute inset-e-0 top-0 bottom-0 w-full overflow-y-auto border-s border-rg-border bg-rg-card px-2 py-3 transition-[translate,box-shadow] duration-200 ease-out motion-reduce:transition-none sm:px-4 sm:py-5 lg:px-6 focus:outline-none',
                 'rg-desktop-post-detail-overlay' => ! $mobileOnly,
                 'pointer-events-auto translate-x-0 shadow-rgPopover' => $isOpen,
-                {{-- shadow-none while closed: the panel parks with its left edge flush against
-                     the site's right border, so a persistent shadow's blur would bleed left into
-                     the visible page as a permanent smudge along the site edge. The shadow is
-                     part of the transition so it fades in/out with the slide. --}}
-                'pointer-events-none translate-x-full shadow-none' => ! $isOpen,
+                {{-- shadow-none while closed: the panel parks with its inner edge flush against
+                     the site's end border (the right one on a page read left to right, where it
+                     slides in from the right; the left one on a page read right to left), so a
+                     persistent shadow's blur would bleed into the visible page as a permanent
+                     smudge along the site edge. The shadow is part of the transition so it fades
+                     in/out with the slide. --}}
+                'pointer-events-none ltr:translate-x-full rtl:-translate-x-full shadow-none' => ! $isOpen,
             ])
         >
             @if(! $mobileOnly || $post || $postId)

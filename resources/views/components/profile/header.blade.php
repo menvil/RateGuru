@@ -12,11 +12,11 @@
         </div>
 
         <div data-testid="profile-identity" class="min-w-0">
-            <h1 class="truncate text-2xl font-semibold text-rg-text">{{ $user->resolved_display_name }}</h1>
-            <p class="mt-0.5 text-sm text-rg-muted">{{ '@' . $user->username }}</p>
+            <h1 {{ \App\Support\Locale\WrittenText::dir($user->resolved_display_name) }} class="w-fit max-w-full truncate text-2xl font-semibold text-rg-text">{{ $user->resolved_display_name }}</h1>
+            <p class="mt-0.5 text-sm text-rg-muted"><bdi>{{ '@' . $user->username }}</bdi></p>
 
             @if($user->bio)
-                <p class="mt-2 max-w-md text-sm leading-relaxed text-rg-text2" data-testid="profile-bio">{{ $user->bio }}</p>
+                <p {{ \App\Support\Locale\WrittenText::dir($user->bio) }} class="mt-2 max-w-md text-sm leading-relaxed text-rg-text2" data-testid="profile-bio">{{ $user->bio }}</p>
             @endif
 
             @if($user->profile_website_url)
@@ -24,6 +24,7 @@
                     href="{{ $user->profile_website_url }}"
                     target="_blank"
                     rel="noopener noreferrer"
+                    dir="ltr"
                     class="mt-1 inline-flex items-center gap-1 text-xs text-rg-accent hover:underline"
                     data-testid="profile-website"
                 >

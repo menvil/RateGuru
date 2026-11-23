@@ -13,7 +13,7 @@
             @if(filled($search))
                 <x-ui.empty-state
                     :title="__('ui.feed.no_results_title')"
-                    :description="__('ui.feed.no_results_description', ['search' => $search])"
+                    :description="\App\Support\Locale\IsolatedTranslation::line('ui.feed.no_results_description', ['search' => $search])"
                     class="-mx-2 w-[calc(100%+1rem)] rounded-none! sm:mx-0 sm:w-full sm:rounded-rgCard!"
                     data-testid="feed-empty-state"
                 />

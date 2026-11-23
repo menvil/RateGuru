@@ -36,12 +36,12 @@
     <div class="rg-game" data-testid="game-result-page">
         <header class="rg-game__bar">
             <a href="{{ url('/') }}" class="rg-game__brand" data-testid="game-brand"><x-brand-wordmark /></a>
-            <a href="{{ route('feed') }}" class="rg-game__link">{{ __('games.play.go_to_feed') }} →</a>
+            <a href="{{ route('feed') }}" class="rg-game__link">{{ __('games.play.go_to_feed') }} <span class="rg-mirror-rtl" aria-hidden="true">→</span></a>
         </header>
         <div class="rg-game__frame">
             <article class="rg-game__card">
                 @if ($profile['description'] !== '')
-                    <p @class(['rg-game__result-headline', 'rg-game__result-headline--long' => mb_strlen($profile['description']) > 80]) data-testid="game-profile-description">{{ $profile['description'] }}</p>
+                    <p @class(['rg-game__result-headline', 'rg-game__result-headline--long' => mb_strlen($profile['description']) > 80]) {{ \App\Support\Locale\WrittenText::dir($profile['description']) }} data-testid="game-profile-description">{{ $profile['description'] }}</p>
                 @endif
                 <div class="rg-game__share-card">
                     @if ($image)
@@ -51,15 +51,15 @@
                     @endif
                     <span class="rg-game__share-card-shade" aria-hidden="true"></span>
                     <div class="rg-game__share-card-text">
-                        <span class="rg-game__share-card-game">{{ $gameTitle }}</span>
-                        <h1 class="rg-game__share-card-profile">{{ $profile['name'] }}</h1>
-                        <span class="rg-game__share-card-line" data-testid="game-result-byline">{{ $byline }}</span>
+                        <span class="rg-game__share-card-game" {{ \App\Support\Locale\WrittenText::dir($gameTitle) }}>{{ $gameTitle }}</span>
+                        <h1 class="rg-game__share-card-profile" {{ \App\Support\Locale\WrittenText::dir($profile['name']) }}>{{ $profile['name'] }}</h1>
+                        <span class="rg-game__share-card-line"><span class="rg-game__share-card-host" dir="auto" data-testid="game-result-byline">{{ $byline }}</span></span>
                     </div>
                 </div>
                 @if ($over)
                     <p class="rg-game__note">{{ __('games.result.over') }}</p>
                 @else
-                    <a href="{{ $playUrl }}" class="rg-game__button rg-game__button--primary rg-game__button--wide" data-testid="game-result-play">{{ __('games.result.play') }} <span aria-hidden="true">→</span></a>
+                    <a href="{{ $playUrl }}" class="rg-game__button rg-game__button--primary rg-game__button--wide" data-testid="game-result-play">{{ __('games.result.play') }} <span class="rg-mirror-rtl" aria-hidden="true">→</span></a>
                 @endif
             </article>
         </div>

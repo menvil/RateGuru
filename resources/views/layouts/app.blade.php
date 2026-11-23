@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="{{ str_replace('_', '-', app()->getLocale()) }}" data-theme="{{ $appliedTheme }}" data-theme-preference="{{ $themePreference }}" data-theme-source="{{ $themeSource }}">
+<html lang="{{ str_replace('_', '-', app()->getLocale()) }}" dir="{{ app(\App\Support\Locale\LocaleManager::class)->direction() }}" data-theme="{{ $appliedTheme }}" data-theme-preference="{{ $themePreference }}" data-theme-source="{{ $themeSource }}">
     <head>
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -8,7 +8,8 @@
             <meta name="rg-arrival" content="{{ $trafficArrival }}">
         @endif
 
-        <title>{{ strip_tags($__env->yieldContent('title', $projectSettings->siteName())) }}</title>
+        {{-- A section given its text inline, and the fallback, come back escaped; they are unescaped first, so the tab reads "Tom & Jerry", not "Tom &amp; Jerry". --}}
+        <title>{{ html_entity_decode(strip_tags($__env->yieldContent('title', $projectSettings->siteName())), ENT_QUOTES | ENT_HTML5) }}</title>
 
         @include('layouts.partials.favicons')
 
@@ -43,7 +44,15 @@
                  dropdowns (user menu, notifications, search suggestions) open invisibly
                  behind the open panel — they cannot escape the header's stacking context. --}}
             <header class="sticky top-0 z-[60] border-b border-rg-border bg-rg-topbar" data-app-header data-testid="app-header">
-                <div class="rg-app-header-layout mx-auto flex h-[60px] w-full max-w-[1440px] items-center gap-1.5 px-3 sm:gap-2 sm:px-4">
+                {{-- The optional controls (data-header-fit, the higher the more important)
+                     are shown as far as the row has room, by resources/js/header-fit.js,
+                     inlined below the header; their breakpoint classes lay the row out
+                     until it has run. The language and theme switchers are always shown
+                     from the desktop width (data-header-fit-always), where the menu that
+                     also holds them is gone. The brand's full size comes before all of
+                     them: it is made smaller only once they are all put away. Below 360px
+                     the gaps and the row's ends are tighter, for the brand's sake. --}}
+                <div class="rg-app-header-layout mx-auto flex h-[60px] w-full max-w-[1440px] items-center gap-1.5 px-3 max-[359px]:gap-1 max-[359px]:px-2 sm:gap-2 sm:px-4" data-header-fit-row>
                     <button
                         type="button"
                         class="grid size-9 shrink-0 cursor-pointer place-items-center rounded-rgControl border border-rg-border2 bg-rg-card text-rg-text2 transition hover:text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent lg:hidden"
@@ -54,8 +63,15 @@
                         <x-ui.icon name="menu" class="size-5" />
                     </button>
 
-                    <a href="{{ url('/') }}" class="min-w-0 shrink self-center rounded-rgControl px-1 py-1 text-[17px] font-extrabold tracking-tight text-rg-text transition-colors hover:text-rg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent focus-visible:ring-offset-2 focus-visible:ring-offset-rg-bg sm:px-2 sm:text-[22px]" data-testid="site-brand">
-                        <x-brand-wordmark class="block truncate" />
+                    {{-- Drawn at 22px, the drawer's size too, wherever its whole name fits beside
+                         the controls that are always shown; where it does not, the fit steps it
+                         down to the largest size that does, no lower than 15px. The breakpoint
+                         sizes stand until the fit has run, and without JavaScript. --}}
+                    <a href="{{ url('/') }}" class="min-w-0 shrink self-center rounded-rgControl px-1 py-1 text-[17px] font-extrabold tracking-tight text-rg-text transition-colors hover:text-rg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent focus-visible:ring-offset-2 focus-visible:ring-offset-rg-bg sm:px-2 sm:text-[22px]" data-testid="site-brand" data-header-fit-brand-size="22" data-header-fit-brand-min-size="15">
+                        {{-- As wide as the name and no wider, at the start of the line: the name
+                             reads its own way (x-brand-wordmark), and a box of the column's width
+                             would put a Latin name at its left on a page read right to left. --}}
+                        <x-brand-wordmark class="block w-fit max-w-full truncate" data-header-fit-brand />
                     </a>
 
                     <x-ui.search-form
@@ -65,13 +81,14 @@
                         clear-test-id="desktop-search-clear"
                         auto-submit
                         data-testid="app-header-search"
+                        data-header-fit-search="240"
                         x-data
                         class="relative hidden w-full max-w-[520px] justify-self-center lg:block"
                     />
 
                     <button
                         type="button"
-                        class="ml-auto grid size-9 shrink-0 cursor-pointer place-items-center rounded-rgControl border border-rg-border2 bg-rg-card text-rg-text2 transition hover:text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent lg:hidden"
+                        class="ms-auto grid size-9 shrink-0 cursor-pointer place-items-center rounded-rgControl border border-rg-border2 bg-rg-card text-rg-text2 transition hover:text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent lg:hidden"
                         aria-label="{{ __('ui.feed.search_label') }}"
                         aria-controls="mobile-search-row"
                         data-testid="mobile-search-trigger"
@@ -86,25 +103,28 @@
                             x-data="{ open: false }"
                             @keydown.escape.window="open = false"
                             @post-uploaded.window="open = false"
-                            class="flex shrink-0 items-center justify-end gap-2 lg:gap-3 lg:justify-self-end"
+                            class="flex shrink-0 items-center justify-end gap-2 max-[359px]:gap-1 lg:gap-3 lg:justify-self-end"
                             data-testid="header-auth-actions"
                         >
                             @if($projectSettings->featureFlag('allow_user_uploads'))
-                            {{-- Its words are hidden on a phone: the name is said either way. --}}
+                            {{-- Its words are shown where the row has room: the name is said either
+                                 way. Without them it is square (rg-header-icon-button). --}}
                             <x-ui.button
+                                class="rg-header-icon-button"
                                 data-testid="open-upload-button"
                                 aria-label="{{ $projectSettings->uploadCtaLabel() }}"
                                 x-on:click="open = true; $dispatch('upload-modal-opened')"
                                 elevated
                             >
                                 <x-ui.icon name="upload" class="size-4" />
-                                <span class="hidden sm:inline">{{ $projectSettings->uploadCtaLabel() }}</span>
+                                <span class="hidden sm:inline" data-header-fit="4" data-header-fit-display="inline"><bdi>{{ $projectSettings->uploadCtaLabel() }}</bdi></span>
                             </x-ui.button>
                             @endif
 
                             <livewire:notifications.notification-bell />
 
-                            <div class="hidden lg:block">
+                            {{-- Below the desktop width the drawer also holds it; from there on only here. The theme is in the account menu. --}}
+                            <div class="hidden lg:block" data-header-fit="3" data-header-fit-display="block" data-header-fit-always="(min-width: 1024px)">
                                 <x-locale-switcher />
                             </div>
 
@@ -143,7 +163,7 @@
                                     x-transition:leave-start="opacity-100 scale-100"
                                     x-transition:leave-end="opacity-0 scale-95"
                                     data-testid="header-user-menu"
-                                    class="absolute right-0 z-50 mt-2 w-52 origin-top-right rounded-rgCard border border-rg-border bg-rg-card p-1 text-sm text-rg-text shadow-rgPopover ring-1 ring-rg-borderSoft"
+                                    class="absolute inset-e-0 z-50 mt-2 w-52 ltr:origin-top-right rtl:origin-top-left rounded-rgCard border border-rg-border bg-rg-card p-1 text-sm text-rg-text shadow-rgPopover ring-1 ring-rg-borderSoft"
                                     style="display: none;"
                                 >
                                     <div class="hidden px-3 py-2 lg:block">
@@ -185,7 +205,7 @@
                                         @csrf
                                         <button
                                             type="submit"
-                                            class="flex w-full cursor-pointer items-center gap-2 rounded-rgSm px-3 py-2 text-left text-sm font-medium text-rg-text2 transition hover:bg-rg-card2 hover:text-rg-text"
+                                            class="flex w-full cursor-pointer items-center gap-2 rounded-rgSm px-3 py-2 text-start text-sm font-medium text-rg-text2 transition hover:bg-rg-card2 hover:text-rg-text"
                                         >
                                             {{ __('ui.nav.log_out') }}
                                         </button>
@@ -194,39 +214,54 @@
                             </div>
 
                             @if($projectSettings->featureFlag('allow_user_uploads'))
-                            <div>
-                                <x-ui.modal :title="$projectSettings->uploadCtaLabel()" size="lg" data-testid="upload-modal" allow-overflow>
-                                    <livewire:feed.upload-post-form />
-                                </x-ui.modal>
-                            </div>
+                            {{-- Fixed over the page, so no item of this row: a box around it would
+                                 be one, empty, and still take a gap from the brand. --}}
+                            <x-ui.modal :title="$projectSettings->uploadCtaLabel()" title-dir="auto" size="lg" data-testid="upload-modal" allow-overflow>
+                                <livewire:feed.upload-post-form />
+                            </x-ui.modal>
                             @endif
                         </div>
                     @else
                         <div
-                            class="flex shrink-0 items-center justify-end gap-2 lg:justify-self-end"
+                            class="flex shrink-0 items-center justify-end gap-2 max-[359px]:gap-1 lg:justify-self-end"
                             data-testid="header-guest-actions"
                         >
                             @if($projectSettings->featureFlag('allow_user_uploads'))
+                                {{-- The most important of a guest's optional controls, and its words one
+                                     of their own: the narrowest phones put it away for the brand's
+                                     full size. It leads only to the sign-up dialog, which Log in
+                                     reaches as well. Without its words it is square
+                                     (rg-header-icon-button). --}}
                                 <x-ui.button
+                                    class="rg-header-icon-button"
                                     data-testid="guest-upload-button"
+                                    data-header-fit="6"
+                                    data-header-fit-display="inline-flex"
                                     x-on:click="rgOpenAuthModal($event, 'register', {{ \Illuminate\Support\Js::from(route('register')) }})"
                                     elevated
                                     aria-label="{{ $projectSettings->uploadCtaLabel() }}"
                                 >
                                     <x-ui.icon name="upload" class="size-4" />
-                                    <span class="hidden lg:inline">{{ $projectSettings->uploadCtaLabel() }}</span>
+                                    <span class="hidden lg:inline" data-header-fit="4" data-header-fit-display="inline"><bdi>{{ $projectSettings->uploadCtaLabel() }}</bdi></span>
                                 </x-ui.button>
                             @endif
 
                             @if (Route::has('register'))
                                 {{-- Real links on purpose: without JavaScript, in a new tab, or on a page
                                      that has no dialog, they lead to the standalone pages. A plain click
-                                     opens the dialog instead. --}}
+                                     opens the dialog instead.
+
+                                     Log in is always shown. Sign up comes after the upload button among
+                                     the rest, shown wherever the row has room beside the brand at its
+                                     full size — a narrow phone may have room for Log in alone. The
+                                     sign-in dialog and page both offer the way to sign up. --}}
                                 <a
                                     href="{{ route('register') }}"
                                     data-testid="header-register-link"
+                                    data-header-fit="5"
+                                    data-header-fit-display="inline-flex"
                                     x-on:click="rgOpenAuthModal($event, 'register')"
-                                    class="inline-flex h-[38px] cursor-pointer items-center justify-center gap-2 rounded-rgControl bg-rg-accent px-4 text-[13px] font-semibold text-rg-onAccent transition-colors hover:bg-rg-accentHover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent focus-visible:ring-offset-2 focus-visible:ring-offset-rg-bg"
+                                    class="hidden sm:inline-flex h-[38px] cursor-pointer items-center justify-center gap-2 rounded-rgControl bg-rg-accent px-4 text-[13px] font-semibold text-rg-onAccent transition-colors hover:bg-rg-accentHover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent focus-visible:ring-offset-2 focus-visible:ring-offset-rg-bg"
                                 >
                                     {{ __('ui.nav.sign_up') }}
                                 </a>
@@ -241,11 +276,12 @@
                                 {{ __('ui.nav.log_in') }}
                             </a>
 
-                            <div class="hidden lg:block">
+                            {{-- Below the desktop width the drawer also holds both; from there on only here. --}}
+                            <div class="hidden lg:block" data-header-fit="3" data-header-fit-display="block" data-header-fit-always="(min-width: 1024px)">
                                 <x-locale-switcher />
                             </div>
 
-                            <div class="hidden lg:block" data-testid="desktop-header-theme">
+                            <div class="hidden lg:block" data-testid="desktop-header-theme" data-header-fit="2" data-header-fit-display="block" data-header-fit-always="(min-width: 1024px)">
                                 <livewire:theme.theme-switcher />
                             </div>
                         </div>
@@ -281,6 +317,7 @@
                     <x-auth.modal />
                 @endguest
             </header>
+            <script>{!! file_get_contents(resource_path('js/header-fit.js')) !!}</script>
             @endif
 
             @unless ($focused)
@@ -311,20 +348,21 @@
                 {{-- A modal dialog: the focus stays in it while it is open, the page under
                      it does not scroll, and the focus goes back to the menu button after. --}}
                 <div
-                    class="fixed inset-y-0 left-0 flex w-[85vw] flex-col overflow-y-auto border-r border-rg-border bg-rg-sidebar px-4 py-4"
+                    class="fixed inset-y-0 inset-s-0 flex w-[85vw] flex-col overflow-y-auto border-e border-rg-border bg-rg-sidebar px-4 py-4"
                     data-testid="mobile-nav-panel"
                     x-trap.noscroll="mobileNavOpen"
                     x-transition:enter="transition ease-out duration-200"
-                    x-transition:enter-start="-translate-x-full"
+                    x-transition:enter-start="ltr:-translate-x-full rtl:translate-x-full"
                     x-transition:enter-end="translate-x-0"
                     x-transition:leave="transition ease-in duration-150"
                     x-transition:leave-start="translate-x-0"
-                    x-transition:leave-end="-translate-x-full"
+                    x-transition:leave-end="ltr:-translate-x-full rtl:translate-x-full"
                 >
                     <div class="mb-4 flex items-center justify-between gap-2">
+                        {{-- The header brand's full size: the two match wherever the header has room for it. --}}
                         <a
                             href="{{ url('/') }}"
-                            class="min-w-0 truncate text-[20px] font-extrabold tracking-tight text-rg-text transition-colors hover:text-rg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent"
+                            class="min-w-0 truncate text-[22px] font-extrabold tracking-tight text-rg-text transition-colors hover:text-rg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent"
                             data-testid="mobile-nav-brand"
                         >
                             <x-brand-wordmark />
@@ -391,7 +429,7 @@
                          "dimmed site content," and the panel looked like it was sliding in
                          from the bare browser edge instead of the site's edge. --}}
                     <div class="relative mx-auto h-full w-full max-w-[1440px]">
-                        {{-- border-r marks the site's edge with a hard, always-crisp line for the
+                        {{-- border-e marks the site's edge with a hard, always-crisp line for the
                              entire time the backdrop is up (not just at rest) — the color contrast
                              between dimmed/undimmed alone was too soft to read as a fixed boundary
                              during the ~200ms slide, making the panel feel like it came from
@@ -405,7 +443,7 @@
                             x-transition:leave="motion-safe:transition-opacity motion-reduce:transition-none ease-in duration-200"
                             x-transition:leave-start="opacity-100"
                             x-transition:leave-end="opacity-0"
-                            class="pointer-events-auto absolute inset-0 border-r border-rg-border2 bg-rg-overlay"
+                            class="pointer-events-auto absolute inset-0 border-e border-rg-border2 bg-rg-overlay"
                             data-testid="post-detail-overlay-backdrop"
                             aria-hidden="true"
                         ></div>

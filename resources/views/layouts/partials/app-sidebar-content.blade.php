@@ -31,7 +31,7 @@
                 @if($category['active']) aria-current="page" @endif
                 class="{{ $category['active'] ? 'border-rg-accentBorder bg-rg-accentSoft text-rg-text' : 'border-transparent text-rg-text2 hover:bg-rg-card hover:text-rg-text' }} block rounded-rgControl border px-3.5 py-2 text-[13.5px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent"
             >
-                {{ $category['label'] }}
+                <bdi>{{ $category['label'] }}</bdi>
             </a>
         @endforeach
     </div>
@@ -46,6 +46,8 @@
                 <a
                     href="{{ $tag['href'] }}"
                     @if($tag['active']) aria-current="page" @endif
+                    {{-- Read its own way, as a post's tag links are, so the "#" stays in front of the name. --}}
+                    dir="auto"
                     class="{{ $tag['active'] ? 'border-rg-accentBorder bg-rg-accentSoft text-rg-text' : 'border-rg-border bg-rg-card text-rg-text2 hover:border-rg-accent hover:text-rg-text' }} rounded-rgPill border px-2.5 py-1 text-xs font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent"
                 >
                     {{ $tag['label'] }}
