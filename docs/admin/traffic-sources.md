@@ -192,7 +192,10 @@ are left out.
 **Sites & zones** shows **Paid impr.** and **Reached** — the share of them that
 became visits, with how many — for every site the network reported, sortable
 like the other columns; a zone shows them only where its network reports
-zones (PopAds reports sites), and any other row shows "—". A site with at
+zones (PopAds reports sites), and any other row shows "—". Paid impressions
+are counted by day, campaign and site, so filtered by device, country, city,
+game or version both columns show "—", no site is marked Low reach, and a note
+above the list says so. A site with at
 least 500 paid impressions over the period's closed days, reached below 70 %
 of its source's share over the same days, is marked **Low reach** and counted
 in Worth blocking, its badge saying why: "Paid impressions mostly never reach

@@ -48,13 +48,14 @@ final class LanguageRules
     /**
      * A primary language a browser may send for an installed one, by the tag's
      * primary language: Norwegian (no) is Bokmål, the only Norwegian
-     * installed. Nynorsk (nn) is not, and reaches nothing. Hebrew's withdrawn
-     * code (iw), which older Android and Java-based browsers still send, is
-     * Hebrew.
+     * installed. Nynorsk (nn) is not, and reaches nothing. The withdrawn codes
+     * older Android and Java-based browsers still send are the languages they
+     * stood for: iw is Hebrew, in is Indonesian.
      */
     public const BROWSER_ALIASES = [
         'no' => 'nb',
         'iw' => 'he',
+        'in' => 'id',
     ];
 
     /**
