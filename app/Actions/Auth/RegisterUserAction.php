@@ -13,6 +13,7 @@ use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\ValidationException;
+use SensitiveParameter;
 
 final class RegisterUserAction
 {
@@ -23,8 +24,14 @@ final class RegisterUserAction
         private readonly LocaleManager $locales,
     ) {}
 
-    /** @param array{name: string, email: string, password: string} $validated */
-    public function execute(array $validated): User
+    /**
+     * The form is marked sensitive because it holds the plain password, and a
+     * failure reported from under this call carries its arguments to the error
+     * tracker.
+     *
+     * @param  array{name: string, email: string, password: string}  $validated
+     */
+    public function execute(#[SensitiveParameter] array $validated): User
     {
         $password = Hash::make($validated['password']);
 

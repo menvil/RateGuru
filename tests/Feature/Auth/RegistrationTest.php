@@ -1,12 +1,16 @@
 <?php
 
 use App\Actions\Auth\RegisterUserAction;
+use App\Actions\Auth\ScreenRegistrationAction;
 use App\Actions\Moderation\MarkUserTrustedAction;
 use App\Actions\Users\GenerateUniqueUsernameAction;
 use App\Enums\UserRole;
 use App\Enums\UserStatus;
 use App\Models\User;
+use App\Support\Auth\AuthSurfaceContext;
 use Illuminate\Database\QueryException;
+use Illuminate\Foundation\Testing\TestCase;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Notification;
 
 test('registration screen can be rendered', function () {
@@ -178,3 +182,53 @@ test('counts registrations on their own, so reset links asked for from the same 
 
     $this->assertAuthenticated();
 });
+
+test('keeps the password out of the call arguments a failed sign-up reports', function () {
+    $ignoredArguments = ini_set('zend.exception_ignore_args', '0');
+    $failure = null;
+
+    Event::listen('eloquent.creating: '.User::class, function (): void {
+        throw new QueryException((string) config('database.default'), 'insert into users', [], new PDOException('server has gone away'));
+    });
+
+    try {
+        $this->withoutExceptionHandling()->post('/register', [
+            'name' => 'Ada',
+            'email' => 'ada@example.test',
+            'password' => 'a-long-password',
+            'password_confirmation' => 'a-long-password',
+        ]);
+    } catch (QueryException $caught) {
+        $failure = $caught;
+    } finally {
+        ini_set('zend.exception_ignore_args', (string) $ignoredArguments);
+    }
+
+    $arguments = [];
+
+    // The test client's own calls hold the form it was asked to send.
+    for ($current = $failure; $current !== null; $current = $current->getPrevious()) {
+        $application = array_filter($current->getTrace(), fn (array $frame): bool => ($frame['class'] ?? null) !== TestCase::class);
+        $arguments[] = array_column($application, 'args');
+    }
+
+    $values = [];
+    array_walk_recursive($arguments, function (mixed $value) use (&$values): void {
+        $values[] = $value;
+    });
+
+    // The address is there, so the frames did carry their arguments.
+    expect($failure)->not->toBeNull()
+        ->and($values)->toContain('ada@example.test')
+        ->and($values)->not->toContain('a-long-password');
+});
+
+test('marks the whole sign-up form as sensitive wherever it is passed', function (string $class, string $method) {
+    $form = (new ReflectionMethod($class, $method))->getParameters()[0];
+
+    expect($form->getAttributes(SensitiveParameter::class))->toHaveCount(1);
+})->with([
+    'creating the account' => [RegisterUserAction::class, 'execute'],
+    'screening the sign-up' => [ScreenRegistrationAction::class, 'execute'],
+    'reading the surface' => [AuthSurfaceContext::class, 'fromInput'],
+]);
