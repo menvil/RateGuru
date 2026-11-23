@@ -32,7 +32,8 @@
     data-testid="copy-link-button"
     class="space-y-1.5"
 >
-    <div class="relative">
+    {{-- A URL reads left to right in every language, and the copy button sits at its end. --}}
+    <div class="relative" dir="ltr">
         <input
             x-ref="copyInput"
             type="text"

@@ -9,6 +9,11 @@
     headline on a page read right to left keeps its "?" at its end. A step's
     text comes as a StepText, which knows its direction and what was put into
     it; any other text people wrote, as a string.
+
+    wire:ignore.self keeps Livewire from touching the element's own attributes,
+    so a step drawn in the place of another would keep the last headline's
+    direction and size. Keyed by its text and direction, a different headline
+    is a new element, fitted and directed afresh.
 --}}
 @props(['text', 'as' => 'h1', 'size' => 'title'])
 @php
@@ -21,5 +26,6 @@
     $stepText = $text instanceof \App\Support\Games\Play\StepText;
     $length = mb_strlen($stepText ? $text->text : (string) $text);
     $dir = $stepText ? $text->dir() : \App\Support\Locale\WrittenText::dir((string) $text);
+    $key = 'game-headline-'.md5(($stepText ? $text->text : (string) $text).'|'.$dir);
 @endphp
-<{{ $as }} {{ $attributes->class([$classes, 'rg-game__fit', 'rg-game__fit--two' => $length > 80]) }} {{ $dir }} style="--rg-game-line-chars: {{ max(1, $length) }}" data-lines="{{ $length > 80 ? 2 : 1 }}" x-data="rgGameLine" x-on:resize.window="fit()" wire:ignore.self>{{ $text }}</{{ $as }}>
+<{{ $as }} {{ $attributes->class([$classes, 'rg-game__fit', 'rg-game__fit--two' => $length > 80]) }} {{ $dir }} style="--rg-game-line-chars: {{ max(1, $length) }}" data-lines="{{ $length > 80 ? 2 : 1 }}" x-data="rgGameLine" x-on:resize.window="fit()" wire:key="{{ $key }}" wire:ignore.self>{{ $text }}</{{ $as }}>

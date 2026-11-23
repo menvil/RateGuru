@@ -21,7 +21,8 @@
 >
     <p class="text-xs text-rg-muted">Copy the public post URL.</p>
 
-    <div class="relative">
+    {{-- A URL reads left to right in every language, and the copy button sits at its end. --}}
+    <div class="relative" dir="ltr">
         <input
             x-ref="shareUrl"
             type="text"

@@ -386,3 +386,17 @@ it('reads a dialog\'s title its own way only when asked to: a post\'s title, nev
         ->and($letterless)->toBeInstanceOf(DOMElement::class)
         ->and($letterless->hasAttribute('dir'))->toBeFalse();
 });
+
+it('keys a game headline by its text and direction, so a step drawn in another\'s place gets a new headline element', function () {
+    $key = fn (string $blade, array $data = []): string => livewireDom(Blade::render($blade, $data))->query('//h1')->item(0)->getAttribute('wire:key');
+
+    $english = $key('<x-games.headline :text="$text" />', ['text' => StepText::written('Which one would you pick?')]);
+    $sameAgain = $key('<x-games.headline :text="$text" />', ['text' => StepText::written('Which one would you pick?')]);
+    $siteOwn = $key('<x-games.headline :text="$text" />', ['text' => StepText::own('Which one would you pick?')]);
+    $another = $key('<x-games.headline :text="$text" />', ['text' => StepText::written('Pick the cuter one')]);
+
+    expect($english)->toStartWith('game-headline-')
+        ->and($sameAgain)->toBe($english)
+        ->and($siteOwn)->not->toBe($english)
+        ->and($another)->not->toBe($english);
+});
