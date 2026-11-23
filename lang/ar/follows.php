@@ -2,7 +2,9 @@
 
 return [
     'follow' => 'متابعة',
-    'following' => 'متابَع',
+    // The follow button once pressed. Not 'متابَع': it differs from 'متابِع'
+    // (a follower) only by a vowel mark many fonts draw faintly.
+    'following' => 'تتابعه',
     'unfollow' => 'إلغاء المتابعة',
     'followers' => 'المتابِعون',
     'following_count' => 'يتابِع',
