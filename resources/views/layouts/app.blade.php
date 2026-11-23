@@ -49,7 +49,8 @@
                      inlined below the header; their breakpoint classes lay the row out
                      until it has run. The language and theme switchers are always shown
                      from the desktop width (data-header-fit-always), where the menu that
-                     also holds them is gone. --}}
+                     also holds them is gone. The brand's full size comes before all of
+                     them: it is made smaller only once they are all put away. --}}
                 <div class="rg-app-header-layout mx-auto flex h-[60px] w-full max-w-[1440px] items-center gap-1.5 px-3 sm:gap-2 sm:px-4" data-header-fit-row>
                     <button
                         type="button"
@@ -61,7 +62,11 @@
                         <x-ui.icon name="menu" class="size-5" />
                     </button>
 
-                    <a href="{{ url('/') }}" class="min-w-0 shrink self-center rounded-rgControl px-1 py-1 text-[17px] font-extrabold tracking-tight text-rg-text transition-colors hover:text-rg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent focus-visible:ring-offset-2 focus-visible:ring-offset-rg-bg sm:px-2 sm:text-[22px]" data-testid="site-brand">
+                    {{-- Drawn at 22px, the drawer's size too, wherever its whole name fits beside
+                         the controls that are always shown; where it does not, the fit steps it
+                         down to the largest size that does, no lower than 15px. The breakpoint
+                         sizes stand until the fit has run, and without JavaScript. --}}
+                    <a href="{{ url('/') }}" class="min-w-0 shrink self-center rounded-rgControl px-1 py-1 text-[17px] font-extrabold tracking-tight text-rg-text transition-colors hover:text-rg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent focus-visible:ring-offset-2 focus-visible:ring-offset-rg-bg sm:px-2 sm:text-[22px]" data-testid="site-brand" data-header-fit-brand-size="22" data-header-fit-brand-min-size="15">
                         {{-- As wide as the name and no wider, at the start of the line: the name
                              reads its own way (x-brand-wordmark), and a box of the column's width
                              would put a Latin name at its left on a page read right to left. --}}
@@ -206,11 +211,11 @@
                             </div>
 
                             @if($projectSettings->featureFlag('allow_user_uploads'))
-                            <div>
-                                <x-ui.modal :title="$projectSettings->uploadCtaLabel()" title-dir="auto" size="lg" data-testid="upload-modal" allow-overflow>
-                                    <livewire:feed.upload-post-form />
-                                </x-ui.modal>
-                            </div>
+                            {{-- Fixed over the page, so no item of this row: a box around it would
+                                 be one, empty, and still take a gap from the brand. --}}
+                            <x-ui.modal :title="$projectSettings->uploadCtaLabel()" title-dir="auto" size="lg" data-testid="upload-modal" allow-overflow>
+                                <livewire:feed.upload-post-form />
+                            </x-ui.modal>
                             @endif
                         </div>
                     @else
@@ -219,8 +224,14 @@
                             data-testid="header-guest-actions"
                         >
                             @if($projectSettings->featureFlag('allow_user_uploads'))
+                                {{-- The most important of a guest's optional controls, and its words one
+                                     of their own: the narrowest phones put it away for the brand's
+                                     full size. It leads only to the sign-up dialog, which Log in
+                                     reaches as well. --}}
                                 <x-ui.button
                                     data-testid="guest-upload-button"
+                                    data-header-fit="6"
+                                    data-header-fit-display="inline-flex"
                                     x-on:click="rgOpenAuthModal($event, 'register', {{ \Illuminate\Support\Js::from(route('register')) }})"
                                     elevated
                                     aria-label="{{ $projectSettings->uploadCtaLabel() }}"
@@ -235,10 +246,10 @@
                                      that has no dialog, they lead to the standalone pages. A plain click
                                      opens the dialog instead.
 
-                                     Log in is always shown. Sign up is the most important of the rest,
-                                     shown wherever the row has room beside the brand's whole name — a
-                                     narrow phone may have room for Log in alone. The sign-in dialog and
-                                     page both offer the way to sign up. --}}
+                                     Log in is always shown. Sign up comes after the upload button among
+                                     the rest, shown wherever the row has room beside the brand at its
+                                     full size — a narrow phone may have room for Log in alone. The
+                                     sign-in dialog and page both offer the way to sign up. --}}
                                 <a
                                     href="{{ route('register') }}"
                                     data-testid="header-register-link"
@@ -343,9 +354,10 @@
                     x-transition:leave-end="ltr:-translate-x-full rtl:translate-x-full"
                 >
                     <div class="mb-4 flex items-center justify-between gap-2">
+                        {{-- The header brand's full size: the two match wherever the header has room for it. --}}
                         <a
                             href="{{ url('/') }}"
-                            class="min-w-0 truncate text-[20px] font-extrabold tracking-tight text-rg-text transition-colors hover:text-rg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent"
+                            class="min-w-0 truncate text-[22px] font-extrabold tracking-tight text-rg-text transition-colors hover:text-rg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent"
                             data-testid="mobile-nav-brand"
                         >
                             <x-brand-wordmark />

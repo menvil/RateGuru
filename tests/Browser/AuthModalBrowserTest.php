@@ -455,7 +455,10 @@ it('fits a phone screen in both modes, with every control reachable', function (
     $page = visit(route('feed'))->resize(...$viewport);
 
     // Sign-up is reached through the dialog's switch: a narrow phone's header may have room for Log in alone.
+    // The upload button is one of the controls the header puts away where the row has no room for it, and a
+    // click on a control that is not drawn never returns: each is waited for first, so one put away fails here.
     foreach ($opens as $control) {
+        waitForScript($page, "document.querySelector('{$control}').checkVisibility()");
         $page->click($control);
     }
 

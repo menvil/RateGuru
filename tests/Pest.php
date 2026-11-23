@@ -1581,6 +1581,23 @@ function waitForPostDetailOverlayOpen(mixed $page): void
     JS);
 }
 
+/**
+ * Opens the menu drawer with the header's menu button and waits until it has
+ * stopped sliding in — the state its geometry is measured in.
+ */
+function openMobileNav(mixed $page): void
+{
+    $page->click('[data-testid="mobile-nav-trigger"]');
+
+    waitForScript($page, <<<'JS'
+        (() => {
+            const panel = document.querySelector('[data-testid="mobile-nav-panel"]');
+
+            return panel.checkVisibility() && panel.getAnimations().every((animation) => animation.playState === 'finished');
+        })()
+    JS);
+}
+
 /*
 |--------------------------------------------------------------------------
 | Restore Target Data — Restore Target Data harness

@@ -175,14 +175,7 @@ it('lays the feed out right to left on a phone, the menu button and its drawer o
     $trigger = horizontalBox($page, '[data-testid="mobile-nav-trigger"]');
     expect($trigger['right'])->toBeGreaterThan(390 - 40);
 
-    $page->click('[data-testid="mobile-nav-trigger"]');
-    waitForScript($page, <<<'JS'
-        (() => {
-            const panel = document.querySelector('[data-testid="mobile-nav-panel"]');
-
-            return panel.checkVisibility() && panel.getAnimations().every((animation) => animation.playState === 'finished');
-        })()
-    JS);
+    openMobileNav($page);
 
     $drawer = horizontalBox($page, '[data-testid="mobile-nav-panel"]');
     expect($drawer['right'])->toBe(390)
@@ -197,14 +190,7 @@ it('lays the feed out left to right on a phone in the default language, the menu
 
     expect(horizontalBox($page, '[data-testid="mobile-nav-trigger"]')['left'])->toBeLessThan(40);
 
-    $page->click('[data-testid="mobile-nav-trigger"]');
-    waitForScript($page, <<<'JS'
-        (() => {
-            const panel = document.querySelector('[data-testid="mobile-nav-panel"]');
-
-            return panel.checkVisibility() && panel.getAnimations().every((animation) => animation.playState === 'finished');
-        })()
-    JS);
+    openMobileNav($page);
 
     $drawer = horizontalBox($page, '[data-testid="mobile-nav-panel"]');
     expect($drawer['left'])->toBe(0)
