@@ -256,6 +256,13 @@ it('reaches a language installed as one variant of several only by its own scrip
     'no-NO' => ['no-NO', 'nb'],
     'nn-NO: Nynorsk is not installed' => ['nn-NO', null],
     'nn' => ['nn', null],
+    'ar-SA' => ['ar-SA', 'ar'],
+    'ar-EG' => ['ar-EG', 'ar'],
+    'ur-PK' => ['ur-PK', 'ur'],
+    'ur-IN' => ['ur-IN', 'ur'],
+    'he-IL' => ['he-IL', 'he'],
+    'iw: the withdrawn code for Hebrew' => ['iw', 'he'],
+    'iw-IL' => ['iw-IL', 'he'],
 ]);
 
 it('goes on to the next language when the preferred one is another variant of an installed language', function (string $header, string $expected) {
