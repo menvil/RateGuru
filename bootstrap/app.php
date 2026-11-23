@@ -8,6 +8,7 @@ use App\Http\Middleware\EnsureAccountIsNotTombstoned;
 use App\Http\Middleware\EnsureSessionGenerationIsCurrent;
 use App\Http\Middleware\RecordAccountReturn;
 use App\Http\Middleware\SetLocale;
+use App\Support\Auth\TurnstileVerifier;
 use App\Support\Observability\ExceptionContextBuilder;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
@@ -58,6 +59,9 @@ return Application::configure(basePath: dirname(__DIR__))
         // 5xx failures from HTTP, Artisan and queue workers all arrive here
         // exactly once. Nothing else in the application calls captureException.
         Integration::handles($exceptions);
+
+        // Single-use, and of no use to the form drawn after a failure.
+        $exceptions->dontFlash([TurnstileVerifier::FIELD]);
 
         $exceptions->context(function (Throwable $e) {
             return app(ExceptionContextBuilder::class)->build($e);

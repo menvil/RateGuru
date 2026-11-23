@@ -32,6 +32,7 @@ return [
         'title' => 'Opret konto',
         'action' => 'Opret konto',
         'refused' => 'Vi kunne ikke gennemføre din tilmelding. Prøv igen senere.',
+        'javascript_required' => 'Sikkerhedstjekket blev ikke indlæst. Slå JavaScript til, eller genindlæs siden for at gennemføre tilmeldingen.',
     ],
 
     'divider' => 'eller',

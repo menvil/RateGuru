@@ -32,6 +32,7 @@ return [
         'title' => 'Registracija',
         'action' => 'Registruotis',
         'refused' => 'Nepavyko užbaigti registracijos. Bandykite dar kartą vėliau.',
+        'javascript_required' => 'Saugumo patikra neįsikėlė. Įjunkite „JavaScript“ arba iš naujo įkelkite puslapį, kad užbaigtumėte registraciją.',
     ],
 
     'divider' => 'arba',

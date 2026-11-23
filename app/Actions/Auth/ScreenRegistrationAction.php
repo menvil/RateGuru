@@ -3,20 +3,25 @@
 namespace App\Actions\Auth;
 
 use App\Enums\RegistrationScreeningMode;
+use App\Enums\TurnstileOutcome;
 use App\Services\Traffic\RequestSignals;
 use App\Support\AbuseGuards\RateLimitKey;
 use App\Support\Auth\EmailQualityCheck;
 use App\Support\Auth\RegistrationFormStamp;
+use App\Support\Auth\TurnstileVerifier;
 use App\Support\Observability\SecurityLog;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Validation\ValidationException;
+use SensitiveParameter;
 use Throwable;
 
 /**
  * The checks a sign-up passes after its fields are valid and before an
  * account is created: a field only a script fills in, how long the form took,
- * how many accounts this network has created lately, and whether the address
- * is a throwaway one or another spelling of a Gmail mailbox already here.
+ * how many accounts this network has created lately, whether the address is
+ * a throwaway one or another spelling of a Gmail mailbox already here, and,
+ * last so that a mistake elsewhere does not spend its single-use token,
+ * Cloudflare Turnstile.
  *
  * What they find goes to the security log, without the name or the address.
  * Whether it is also refused is the mode's to say, so the checks can be
@@ -26,8 +31,11 @@ use Throwable;
  *
  * A cache that cannot be reached is one more thing the checks found. Report
  * mode lets the sign-up through, as it does everything; enforce mode refuses
- * it, since the limits could not be applied. It is not reported from here:
- * the frames of this call hold the submitted form, password included.
+ * it, since the limits could not be applied. It is logged rather than
+ * reported: the throttle on the same route reports a cache that is down.
+ *
+ * The form and the token are marked sensitive, because a failure reported
+ * from under this call carries its arguments to the error tracker.
  */
 final class ScreenRegistrationAction
 {
@@ -52,6 +60,7 @@ final class ScreenRegistrationAction
     public function __construct(
         private readonly RegistrationFormStamp $stamp,
         private readonly EmailQualityCheck $emails,
+        private readonly TurnstileVerifier $turnstile,
         private readonly SecurityLog $log,
     ) {}
 
@@ -62,7 +71,7 @@ final class ScreenRegistrationAction
      *
      * @throws ValidationException when the mode refuses what the checks found
      */
-    public function execute(array $validated, ?string $ip): array
+    public function execute(#[SensitiveParameter] array $validated, ?string $ip): array
     {
         $mode = RegistrationScreeningMode::current();
 
@@ -76,6 +85,10 @@ final class ScreenRegistrationAction
             ...$this->emails->reasonsFor((string) ($validated['email'] ?? '')),
         ];
         $counted = [];
+
+        if ($reasons === [] || $mode === RegistrationScreeningMode::Report) {
+            $reasons = [...$reasons, ...$this->challengeReasons($validated[TurnstileVerifier::FIELD] ?? null, $ip)];
+        }
 
         // An attempt about to be refused creates no account, so it is not
         // counted; one let through is, and may be what reaches the limit.
@@ -154,6 +167,40 @@ final class ScreenRegistrationAction
         }
 
         return $reasons;
+    }
+
+    /**
+     * While Cloudflare cannot be asked nobody can be told apart, so sign-ups
+     * go on under a far lower limit rather than stopping for everyone. A
+     * missing or wrong token is never that case.
+     *
+     * @return list<string>
+     */
+    private function challengeReasons(#[SensitiveParameter] mixed $token, ?string $ip): array
+    {
+        if (! $this->turnstile->isConfigured()) {
+            return [];
+        }
+
+        return match ($this->turnstile->verify($token, request()->getHost())) {
+            TurnstileOutcome::Passed => [],
+            TurnstileOutcome::Rejected => ['challenge_failed'],
+            TurnstileOutcome::Unavailable => $this->limitWithoutChallenge($ip),
+        };
+    }
+
+    /** @return list<string> */
+    private function limitWithoutChallenge(?string $ip): array
+    {
+        try {
+            $hits = RateLimiter::hit(RateLimitKey::registration('without-challenge', $ip), self::HOUR);
+        } catch (Throwable) {
+            return [self::LIMITS_UNAVAILABLE];
+        }
+
+        return $hits > (int) config('rate_limits.registration.per_hour_without_challenge')
+            ? ['limit_without_challenge']
+            : [];
     }
 
     /** @return list<string> */

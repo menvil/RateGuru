@@ -32,6 +32,7 @@ return [
         'title' => 'Kaydol',
         'action' => 'Kaydol',
         'refused' => 'Kaydınızı tamamlayamadık. Daha sonra yeniden deneyin.',
+        'javascript_required' => 'Güvenlik kontrolü yüklenemedi. Kaydı tamamlamak için JavaScript\'i açın veya sayfayı yeniden yükleyin.',
     ],
 
     'divider' => 'veya',

@@ -32,6 +32,7 @@ return [
         'title' => 'Registrarse',
         'action' => 'Registrarse',
         'refused' => 'No hemos podido completar tu registro. Inténtalo de nuevo más tarde.',
+        'javascript_required' => 'La comprobación de seguridad no se ha cargado. Activa JavaScript o recarga la página para completar el registro.',
     ],
 
     'divider' => 'o',

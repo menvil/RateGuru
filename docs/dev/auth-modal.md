@@ -133,7 +133,9 @@ checks, in this order:
    landing just after a window ended takes one from the next;
 4. the address: a throwaway domain (`propaganistas/laravel-disposable-email`,
    subdomains included, its list updated weekly), or another spelling of a
-   Gmail mailbox an account already has (`users.email_canonical`).
+   Gmail mailbox an account already has (`users.email_canonical`);
+5. Cloudflare Turnstile, last, so a mistake elsewhere does not spend its
+   single-use token.
 
 `REGISTRATION_SCREENING_MODE` says what happens to what they find:
 
@@ -160,6 +162,25 @@ gives way to the one the package ships with.
 When the cache holding the counts cannot be reached, the log line gives the
 reason `limits_unavailable`. `report` still lets the sign-up through, and
 `enforce` refuses it, because the limits could not be applied.
+
+### Turnstile
+
+Set `TURNSTILE_SITE_KEY` and `TURNSTILE_SECRET_KEY` from one widget in the
+Cloudflare dashboard, with the site's domains on it. Without both there is no
+widget and no check. `resources/js/turnstile.js` loads Cloudflare's script
+only when a sign-up form is on screen: the modal in its register state, the
+standalone page, or the details step of the form inside a game.
+
+| Cloudflare's answer | `report` | `enforce` |
+|---|---|---|
+| passed | goes through | goes through |
+| missing, wrong, expired or reused token | logged, goes through | refused |
+| cannot be reached, or refuses our secret | past one account per address an hour, logged, goes through | one account per address an hour |
+
+A refused secret is also reported as an error. Cloudflare's testing keys work
+everywhere except production. A browser without JavaScript cannot pass the
+challenge under `enforce`; the form says so, and Google and Facebook still
+work.
 
 ## The shared modal
 

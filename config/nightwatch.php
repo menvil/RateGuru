@@ -113,7 +113,7 @@ return [
     // be reached.
     'redact_payload_fields' => explode(',', (string) env(
         'NIGHTWATCH_REDACT_PAYLOAD_FIELDS',
-        '_token,password,password_confirmation,current_password,token,remember_token,authorization,cookie,email,url',
+        '_token,cf-turnstile-response,password,password_confirmation,current_password,token,remember_token,authorization,cookie,email,url',
     )),
 
     // RateGuru: the vendor list, plus X-CSRF-TOKEN (the header Laravel accepts

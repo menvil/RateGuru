@@ -32,6 +32,7 @@ return [
         'title' => 'Înregistrare',
         'action' => 'Înregistrează-te',
         'refused' => 'Nu am putut finaliza înregistrarea ta. Încearcă din nou mai târziu.',
+        'javascript_required' => 'Verificarea de securitate nu s-a încărcat. Activează JavaScript sau reîncarcă pagina pentru a finaliza înregistrarea.',
     ],
 
     'divider' => 'sau',

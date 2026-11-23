@@ -32,6 +32,7 @@ return [
         'title' => 'Registrácia',
         'action' => 'Zaregistrovať sa',
         'refused' => 'Registráciu sa nepodarilo dokončiť. Skús to znova neskôr.',
+        'javascript_required' => 'Bezpečnostná kontrola sa nenačítala. Zapni JavaScript alebo znova načítaj stránku a dokonči registráciu.',
     ],
 
     'divider' => 'alebo',

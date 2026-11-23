@@ -32,6 +32,7 @@ return [
         'title' => 'Inscription',
         'action' => 'S\'inscrire',
         'refused' => 'Nous n\'avons pas pu finaliser votre inscription. Réessayez plus tard.',
+        'javascript_required' => 'La vérification de sécurité ne s\'est pas chargée. Activez JavaScript ou rechargez la page pour finaliser votre inscription.',
     ],
 
     'divider' => 'ou',

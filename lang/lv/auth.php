@@ -32,6 +32,7 @@ return [
         'title' => 'Reģistrācija',
         'action' => 'Reģistrēties',
         'refused' => 'Neizdevās pabeigt reģistrāciju. Mēģiniet vēlreiz vēlāk.',
+        'javascript_required' => 'Drošības pārbaude netika ielādēta. Ieslēdziet JavaScript vai pārlādējiet lapu, lai pabeigtu reģistrāciju.',
     ],
 
     'divider' => 'vai',

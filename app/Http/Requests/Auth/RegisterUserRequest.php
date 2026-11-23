@@ -8,6 +8,7 @@ use App\Http\Requests\Auth\Concerns\CarriesAuthSurface;
 use App\Models\User;
 use App\Rules\ContainsNoLink;
 use App\Support\Auth\RegistrationFormStamp;
+use App\Support\Auth\TurnstileVerifier;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rules;
 
@@ -25,6 +26,7 @@ final class RegisterUserRequest extends FormRequest
             // mean: a rule here would refuse even while it only reports.
             ScreenRegistrationAction::HONEYPOT_FIELD => ['sometimes', 'nullable'],
             RegistrationFormStamp::FIELD => ['sometimes', 'nullable'],
+            TurnstileVerifier::FIELD => ['sometimes', 'nullable'],
             ...$this->authSurfaceRules(),
         ];
     }

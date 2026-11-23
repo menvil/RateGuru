@@ -32,6 +32,7 @@ return [
         'title' => 'Nýskráning',
         'action' => 'Nýskrá',
         'refused' => 'Ekki tókst að ljúka skráningunni. Reyndu aftur síðar.',
+        'javascript_required' => 'Öryggisathugunin hlóðst ekki. Kveiktu á JavaScript eða endurhlaðaðu síðuna til að ljúka skráningunni.',
     ],
 
     'divider' => 'eða',

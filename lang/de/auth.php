@@ -32,6 +32,7 @@ return [
         'title' => 'Registrieren',
         'action' => 'Registrieren',
         'refused' => 'Wir konnten deine Registrierung nicht abschließen. Versuche es später noch einmal.',
+        'javascript_required' => 'Die Sicherheitsprüfung wurde nicht geladen. Aktiviere JavaScript oder lade die Seite neu, um die Registrierung abzuschließen.',
     ],
 
     'divider' => 'oder',

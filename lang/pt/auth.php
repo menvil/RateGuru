@@ -32,6 +32,7 @@ return [
         'title' => 'Cadastrar-se',
         'action' => 'Cadastrar-se',
         'refused' => 'Não foi possível concluir seu cadastro. Tente novamente mais tarde.',
+        'javascript_required' => 'A verificação de segurança não carregou. Ative o JavaScript ou recarregue a página para concluir o cadastro.',
     ],
 
     'divider' => 'ou',
