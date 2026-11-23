@@ -48,7 +48,7 @@ final class PopAdsConnector implements EditsBlockLists, ReadsCampaigns, ReadsImp
         $form = $this->reportForm($networkDay, $campaignIds);
         $rows = [];
 
-        foreach ($this->reportRows($this->json($this->post($session, '/api/report_advertiser', [...$form, 'groups' => 'campaign,website,datetime:day']))) as $row) {
+        foreach ($this->spendReport($session, [...$form, 'groups' => 'campaign,website,datetime:day']) as $row) {
             $day = substr((string) ($row['datetime'] ?? $row['date'] ?? $networkDay), 0, 10);
 
             if ($day !== $networkDay) {
@@ -61,12 +61,12 @@ final class PopAdsConnector implements EditsBlockLists, ReadsCampaigns, ReadsImp
                 'zone' => '',
                 'amount' => TrafficMoney::stored($row['cost'] ?? $row['spent'] ?? $row['amount'] ?? 0),
                 'clicks' => null,
-                'impressions' => isset($row['impressions']) ? (int) $row['impressions'] : null,
+                'impressions' => isset($row['impressions']) ? $this->impressionCount($row['impressions']) : null,
             ];
         }
 
         Sleep::for(1)->second();
-        $totals = array_sum(array_map(fn (array $row): float => (float) ($row['cost'] ?? $row['spent'] ?? $row['amount'] ?? 0), $this->reportRows($this->json($this->post($session, '/api/report_advertiser', [...$form, 'groups' => 'campaign,datetime:day'])))));
+        $totals = array_sum(array_map(fn (array $row): float => (float) ($row['cost'] ?? $row['spent'] ?? $row['amount'] ?? 0), $this->spendReport($session, [...$form, 'groups' => 'campaign,datetime:day'])));
         $sum = array_sum(array_map(fn (array $row): float => (float) $row['amount'], $rows));
 
         return new SpendDayReport($rows, abs($totals - $sum) < 0.01);
@@ -86,13 +86,8 @@ final class PopAdsConnector implements EditsBlockLists, ReadsCampaigns, ReadsImp
         }
 
         Sleep::for(1)->second();
-        $answer = $this->json($this->post($session, '/api/report_advertiser', [...$this->reportForm($networkDay, $campaignIds), 'groups' => 'country,campaign,website,datetime:day']));
-
-        if (! $this->isReport($answer)) {
-            throw new ConnectorException(TrafficConnectorFailure::UnexpectedResponse);
-        }
-
-        $ofDay = array_filter($this->reportRows($answer), fn (array $row): bool => substr((string) ($row['datetime'] ?? $row['date'] ?? $networkDay), 0, 10) === $networkDay);
+        $reported = $this->report($session, [...$this->reportForm($networkDay, $campaignIds), 'groups' => 'country,campaign,website,datetime:day']);
+        $ofDay = array_filter($reported, fn (array $row): bool => substr((string) ($row['datetime'] ?? $row['date'] ?? $networkDay), 0, 10) === $networkDay);
         $rows = [];
 
         foreach ($ofDay as $row) {
@@ -120,13 +115,57 @@ final class PopAdsConnector implements EditsBlockLists, ReadsCampaigns, ReadsImp
     }
 
     /**
+     * A report's rows. An answer that is no report is never read as a day
+     * with nothing in it: the figures already kept would be replaced by none.
+     *
+     * @param  array<string, string>  $form
+     * @return array<int, array<string, mixed>>
+     *
+     * @throws ConnectorException
+     */
+    private function report(ConnectorSession $session, array $form): array
+    {
+        $answer = $this->json($this->post($session, '/api/report_advertiser', $form));
+
+        if (! $this->isReport($answer)) {
+            throw new ConnectorException(TrafficConnectorFailure::UnexpectedResponse);
+        }
+
+        return $this->reportRows($answer);
+    }
+
+    /**
+     * A report read for its spend: rows with no cost among them say nothing
+     * about what the day cost, least of all that it cost nothing.
+     *
+     * @param  array<string, string>  $form
+     * @return array<int, array<string, mixed>>
+     *
+     * @throws ConnectorException
+     */
+    private function spendReport(ConnectorSession $session, array $form): array
+    {
+        $rows = $this->report($session, $form);
+
+        if ($rows !== [] && array_filter($rows, fn (array $row): bool => isset($row['cost']) || isset($row['spent']) || isset($row['amount'])) === []) {
+            throw new ConnectorException(TrafficConnectorFailure::UnexpectedResponse);
+        }
+
+        return $rows;
+    }
+
+    /**
      * Whether an answer is a report, if an empty one: its rows bare or under
-     * `rows` or `data`. A message in their place is not.
+     * `rows` or `data`. A message or a list of errors in their place is not.
      *
      * @param  array<mixed>  $answer
      */
     private function isReport(array $answer): bool
     {
+        if (array_key_exists('errors', $answer)) {
+            return false;
+        }
+
         $rows = match (true) {
             array_key_exists('rows', $answer) => $answer['rows'],
             array_key_exists('data', $answer) => $answer['data'],

@@ -8,6 +8,7 @@ use App\Enums\TrafficBlockMethod;
 use App\Enums\TrafficBlockNetworkState;
 use App\Enums\TrafficConnectionStatus;
 use App\Enums\TrafficConnector;
+use App\Enums\TrafficConnectorFailure;
 use App\Enums\TrafficSpendOrigin;
 use App\Exceptions\Traffic\CannotManageTrafficException;
 use App\Models\TrafficApiConnection;
@@ -142,6 +143,50 @@ it('reads the campaigns’ own details on every turn, five minutes apart, and th
         // The network's spend for the day came back the same: the day isn't shared out over its visits again.
         ->and(TrafficSpendDay::query()->where('network_day', '2026-11-16')->sole())->id->toBe($fact->id)->allocated_at->not->toBeNull();
 });
+
+it('keeps a day’s spend when PopAds answers with anything but a report', function (Closure $answer) {
+    $connection = TrafficApiConnection::factory()->create(['source_id' => $this->popads->id, 'next_sync_at' => now(), 'backfill_cursor' => null]);
+    $closed = $connection->spend_closed_through;
+    $campaign = TrafficCampaign::factory()->create(['source_id' => $this->popads->id, 'external_id' => '881204']);
+    $figure = TrafficSpendDay::factory()->create(['source_id' => $this->popads->id, 'campaign_id' => $campaign->id, 'network_day' => '2026-11-17', 'origin' => TrafficSpendOrigin::Api, 'site_ref' => '40123', 'amount' => '1.25']);
+    Http::fake(fn (Request $request) => str_contains($request->url(), 'report_advertiser') ? $answer($request) : Http::response(['data' => []]));
+
+    app(SyncTrafficNetworkAction::class)->handle($connection, CarbonImmutable::now());
+
+    $kept = TrafficSpendDay::query()->where('origin', TrafficSpendOrigin::Api)->sole();
+
+    expect($kept->id)->toBe($figure->id)
+        ->and($kept->amount)->toBe('1.25000000')
+        ->and($connection->fresh()->failures)->toBe(1)
+        ->and($connection->fresh()->last_error)->toBe(TrafficConnectorFailure::UnexpectedResponse->value)
+        ->and($connection->fresh()->spend_closed_through)->toBe($closed);
+})->with([
+    'a message' => [fn () => fn () => Http::response(['message' => 'unexpected report format'])],
+    'an error list' => [fn () => fn () => Http::response(['errors' => [['status' => 400, 'code' => 1, 'title' => 'Bad request']]])],
+    'a message under its rows' => [fn () => fn () => Http::response(['data' => ['message' => 'unexpected report format']])],
+    'rows with no cost' => [fn () => fn () => Http::response(['rows' => [['campaign_id' => '881204', 'website_id' => '40123', 'datetime' => '2026-11-17']]])],
+    'a count in words' => [fn () => fn () => Http::response(['rows' => [['campaign_id' => '881204', 'website_id' => '40123', 'datetime' => '2026-11-17', 'cost' => '0.50', 'impressions' => 'unavailable']]])],
+    'totals that are a message' => [fn () => fn (Request $request) => str_contains($request->body(), 'website')
+        ? Http::response(['rows' => [['campaign_id' => '881204', 'website_id' => '40123', 'datetime' => '2026-11-17', 'cost' => '0.50']]])
+        : Http::response(['message' => 'unexpected report format'])],
+]);
+
+it('still takes an empty report for a day with no spend', function (array $answer) {
+    $connection = TrafficApiConnection::factory()->create(['source_id' => $this->popads->id, 'next_sync_at' => now(), 'backfill_cursor' => null]);
+    $campaign = TrafficCampaign::factory()->create(['source_id' => $this->popads->id, 'external_id' => '881204']);
+    TrafficSpendDay::factory()->create(['source_id' => $this->popads->id, 'campaign_id' => $campaign->id, 'network_day' => '2026-11-17', 'origin' => TrafficSpendOrigin::Api, 'site_ref' => '40123', 'amount' => '1.25']);
+    Http::fake(fn (Request $request) => str_contains($request->url(), 'report_advertiser') ? Http::response($answer) : Http::response(['data' => []]));
+
+    app(SyncTrafficNetworkAction::class)->handle($connection, CarbonImmutable::now());
+
+    expect(TrafficSpendDay::query()->where('origin', TrafficSpendOrigin::Api)->count())->toBe(0)
+        ->and($connection->fresh()->failures)->toBe(0);
+})->with([
+    'bare' => [[]],
+    'no rows' => [['rows' => []]],
+    'no data' => [['data' => []]],
+    'null rows' => [['rows' => null]],
+]);
 
 it('reads every day back to the one before yesterday before it stops reading back', function () {
     $connection = TrafficApiConnection::factory()->create(['source_id' => $this->popads->id, 'next_sync_at' => now(), 'backfill_cursor' => '2026-11-14']);
