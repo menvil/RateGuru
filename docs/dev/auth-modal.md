@@ -157,7 +157,10 @@ alias another person registered gets a separate account for their own address.
 
 The list of throwaway domains is replaced whole (`DisposableDomainList`). A
 failed update keeps the list it had, and a stored list that cannot be read
-gives way to the one the package ships with.
+gives way to the one the package ships with. `pp.ua`, `it.com`, `za.com` and
+`msk.ru` are exempt as whole zones (`disposable-email.whitelist`), because they
+hold the domains of unrelated people. A throwaway service on one is still
+caught by its own entry in the list; one not listed yet passes this check.
 
 When the cache holding the counts cannot be reached, the log line gives the
 reason `limits_unavailable`. `report` still lets the sign-up through, and

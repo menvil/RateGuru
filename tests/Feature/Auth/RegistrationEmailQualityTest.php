@@ -88,13 +88,14 @@ it('refuses a throwaway address at sign-up, on the address field', function (str
 })->with([
     'a listed domain' => 'someone@mailinator.com',
     'a subdomain of one' => 'someone@inbox.mailinator.com',
+    'a listed service on a shared registry' => 'someone@6th.pp.ua',
 ]);
 
 it('lets an ordinary address through', function (string $email) {
     $this->post('/register', screenedSignUp(['email' => $email]))->assertSessionHasNoErrors();
 
     $this->assertAuthenticated();
-})->with(['someone@outlook.com', 'someone@gmail.com', 'someone@example.com']);
+})->with(['someone@outlook.com', 'someone@gmail.com', 'someone@example.com', 'someone@company.pp.ua']);
 
 it('refuses another spelling of a Gmail mailbox, as a taken address', function (string $spelling) {
     User::factory()->create(['email' => 'ivan@gmail.com']);
@@ -206,6 +207,41 @@ function disposableListIn(string $dir, ?string $contents): DisposableDomainList
 
     return app('disposable_email.domains');
 }
+
+it('tells a throwaway service from the other domains of a shared registry', function (string $email, bool $disposable) {
+    $dir = makeScratchDir('disposable-list');
+
+    try {
+        $list = disposableListIn($dir, '["pp.ua","it.com","za.com","msk.ru","6th.pp.ua","ddns.net"]');
+
+        expect($list->isDisposable($email))->toBe($disposable);
+    } finally {
+        removeScratchDir($dir);
+    }
+})->with([
+    'a domain on pp.ua' => ['someone@company.pp.ua', false],
+    'a domain on it.com' => ['someone@company.it.com', false],
+    'a domain on za.com' => ['someone@company.za.com', false],
+    'a domain on msk.ru' => ['someone@company.msk.ru', false],
+    'a listed service' => ['someone@6th.pp.ua', true],
+    'a subdomain of a listed service' => ['someone@inbox.6th.pp.ua', true],
+    'a dynamic DNS zone stays listed' => ['someone@host.ddns.net', true],
+]);
+
+it('keeps a shared registry open after the list is updated', function () {
+    $dir = makeScratchDir('disposable-list');
+
+    try {
+        disposableListIn($dir, '["kept.example"]')->saveToStorage(['pp.ua', 'fresh-throwaway.example']);
+        app()->forgetInstance('disposable_email.domains');
+        $updated = app('disposable_email.domains');
+
+        expect($updated->isDisposable('someone@company.pp.ua'))->toBeFalse()
+            ->and($updated->isDisposable('someone@fresh-throwaway.example'))->toBeTrue();
+    } finally {
+        removeScratchDir($dir);
+    }
+});
 
 it('uses the shipped list when the stored one was cut short', function () {
     $dir = makeScratchDir('disposable-list');
