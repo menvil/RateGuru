@@ -9,7 +9,6 @@ use App\Enums\UserStatus;
 use App\Models\User;
 use App\Support\Auth\AuthSurfaceContext;
 use Illuminate\Database\QueryException;
-use Illuminate\Foundation\Testing\TestCase;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Notification;
 
@@ -184,43 +183,32 @@ test('counts registrations on their own, so reset links asked for from the same 
 });
 
 test('keeps the password out of the call arguments a failed sign-up reports', function () {
-    $ignoredArguments = ini_set('zend.exception_ignore_args', '0');
-    $failure = null;
-
     Event::listen('eloquent.creating: '.User::class, function (): void {
         throw new QueryException((string) config('database.default'), 'insert into users', [], new PDOException('server has gone away'));
     });
 
-    try {
-        $this->withoutExceptionHandling()->post('/register', [
-            'name' => 'Ada',
-            'email' => 'ada@example.test',
-            'password' => 'a-long-password',
-            'password_confirmation' => 'a-long-password',
-        ]);
-    } catch (QueryException $caught) {
-        $failure = $caught;
-    } finally {
-        ini_set('zend.exception_ignore_args', (string) $ignoredArguments);
-    }
-
-    $arguments = [];
-
-    // The test client's own calls hold the form it was asked to send.
-    for ($current = $failure; $current !== null; $current = $current->getPrevious()) {
-        $application = array_filter($current->getTrace(), fn (array $frame): bool => ($frame['class'] ?? null) !== TestCase::class);
-        $arguments[] = array_column($application, 'args');
-    }
-
-    $values = [];
-    array_walk_recursive($arguments, function (mixed $value) use (&$values): void {
-        $values[] = $value;
-    });
+    $values = reportedCallArguments(fn () => $this->withoutExceptionHandling()->post('/register', [
+        'name' => 'Ada',
+        'email' => 'ada@example.test',
+        'password' => 'a-long-password',
+        'password_confirmation' => 'a-long-password',
+    ]));
 
     // The address is there, so the frames did carry their arguments.
-    expect($failure)->not->toBeNull()
-        ->and($values)->toContain('ada@example.test')
+    expect($values)->toContain('ada@example.test')
         ->and($values)->not->toContain('a-long-password');
+});
+
+test('keeps the password out of the call arguments when it cannot be hashed', function () {
+    $password = "long-enough\0password";
+
+    $values = reportedCallArguments(fn () => app(RegisterUserAction::class)->execute([
+        'name' => 'Ada',
+        'email' => 'ada@example.test',
+        'password' => $password,
+    ]));
+
+    expect($values)->not->toContain($password);
 });
 
 test('marks the whole sign-up form as sensitive wherever it is passed', function (string $class, string $method) {

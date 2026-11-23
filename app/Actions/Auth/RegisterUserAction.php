@@ -9,9 +9,9 @@ use App\Models\User;
 use App\Support\Database\UniqueColumnViolation;
 use App\Support\Locale\LocaleManager;
 use Illuminate\Auth\Events\Registered;
+use Illuminate\Contracts\Hashing\Hasher;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\ValidationException;
 use SensitiveParameter;
 
@@ -33,7 +33,9 @@ final class RegisterUserAction
      */
     public function execute(#[SensitiveParameter] array $validated): User
     {
-        $password = Hash::make($validated['password']);
+        // The hasher itself, not the facade: the facade's call would hold the
+        // password in its arguments if hashing failed.
+        $password = app(Hasher::class)->make($validated['password']);
 
         try {
             $user = $this->createUserWithUniqueUsername(

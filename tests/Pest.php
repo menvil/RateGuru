@@ -14828,6 +14828,48 @@ function fakeSecurityLog(): TestHandler
     return Log::channel('security')->getLogger()->getHandlers()[0];
 }
 
+/**
+ * Every value in the call arguments a failure carries, through its previous
+ * exceptions, as the error tracker is sent them. The test client's own calls
+ * are left out: they hold the form it was asked to send.
+ *
+ * @return list<mixed>
+ */
+function reportedCallArguments(Closure $failing): array
+{
+    $ignored = ini_set('zend.exception_ignore_args', '0');
+    $failure = null;
+
+    try {
+        $failing();
+    } catch (Throwable $caught) {
+        $failure = $caught;
+    } finally {
+        ini_set('zend.exception_ignore_args', (string) $ignored);
+    }
+
+    if ($failure === null) {
+        test()->fail('The call was expected to fail.');
+    }
+
+    $arguments = [];
+
+    for ($current = $failure; $current !== null; $current = $current->getPrevious()) {
+        $application = array_filter(
+            $current->getTrace(),
+            fn (array $frame): bool => ($frame['class'] ?? null) !== Illuminate\Foundation\Testing\TestCase::class,
+        );
+        $arguments[] = array_column($application, 'args');
+    }
+
+    $values = [];
+    array_walk_recursive($arguments, function (mixed $value) use (&$values): void {
+        $values[] = $value;
+    });
+
+    return $values;
+}
+
 /** An anonymous visitor's one-question game, played as far as its Full Result step. */
 function playToResult(string $slug): Testable
 {
