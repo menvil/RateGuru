@@ -186,6 +186,7 @@ it('still takes an empty report for a day with no spend', function (array $answe
     'no rows' => [['rows' => []]],
     'no data' => [['data' => []]],
     'null rows' => [['rows' => null]],
+    'as PopAds sends a period with no data' => [['fdow' => 'mon', 'campaigns' => [['id' => 881204]], 'time' => ['zone' => 'UTC'], 'websites' => [], 'mode' => 'advertiser', 'countries' => [], 'groups' => ['campaign', 'website', 'datetime:day'], 'orders' => [], 'generated' => 1795000000, 'rows' => []]],
 ]);
 
 it('reads every day back to the one before yesterday before it stops reading back', function () {
