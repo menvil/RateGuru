@@ -74,6 +74,7 @@ use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\View;
 use Illuminate\Support\ServiceProvider;
+use Illuminate\Validation\Rules\Password;
 use Livewire\Livewire;
 
 class AppServiceProvider extends ServiceProvider
@@ -170,6 +171,10 @@ class AppServiceProvider extends ServiceProvider
         // A component drawn on the feed, a post or a profile keeps that
         // page's guest check on every later request it makes.
         Livewire::addPersistentMiddleware([RequireSignInWhileGuestViewingIsOff::class, EnsureGamesAreEnabled::class]);
+
+        // Bcrypt answers a null character with an error instead of a hash, so
+        // every form setting a password refuses one as a mistake in the field.
+        Password::defaults(fn (): Password => Password::min(8)->rules(['not_regex:/\x00/']));
 
         Gate::define('moderate-content', [ModerationPolicy::class, 'moderateContent']);
         Gate::define('ban-user', [ModerationPolicy::class, 'banUser']);
