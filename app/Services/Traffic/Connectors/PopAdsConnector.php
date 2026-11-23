@@ -74,9 +74,10 @@ final class PopAdsConnector implements EditsBlockLists, ReadsCampaigns, ReadsImp
 
     /**
      * A day's impressions by campaign, website and country, the country as a
-     * two-letter code like a visit's. A report with rows and not one this can
-     * read is an answer it does not understand, never a day with no
-     * impressions, so the figures already kept stay.
+     * two-letter code like a visit's. An answer that is no report, a count
+     * that is no count, or a report with rows and not one this can read is an
+     * answer it does not understand, never a day with no impressions, so the
+     * figures already kept stay.
      */
     public function impressionsByCountry(ConnectorSession $session, string $networkDay, array $campaignIds): array
     {
@@ -85,8 +86,13 @@ final class PopAdsConnector implements EditsBlockLists, ReadsCampaigns, ReadsImp
         }
 
         Sleep::for(1)->second();
-        $reported = $this->reportRows($this->json($this->post($session, '/api/report_advertiser', [...$this->reportForm($networkDay, $campaignIds), 'groups' => 'country,campaign,website,datetime:day'])));
-        $ofDay = array_filter($reported, fn (array $row): bool => substr((string) ($row['datetime'] ?? $row['date'] ?? $networkDay), 0, 10) === $networkDay);
+        $answer = $this->json($this->post($session, '/api/report_advertiser', [...$this->reportForm($networkDay, $campaignIds), 'groups' => 'country,campaign,website,datetime:day']));
+
+        if (! $this->isReport($answer)) {
+            throw new ConnectorException(TrafficConnectorFailure::UnexpectedResponse);
+        }
+
+        $ofDay = array_filter($this->reportRows($answer), fn (array $row): bool => substr((string) ($row['datetime'] ?? $row['date'] ?? $networkDay), 0, 10) === $networkDay);
         $rows = [];
 
         foreach ($ofDay as $row) {
@@ -100,7 +106,7 @@ final class PopAdsConnector implements EditsBlockLists, ReadsCampaigns, ReadsImp
                 'campaign' => (string) ($row['campaign_id'] ?? $row['campaign'] ?? ''),
                 'site' => (string) ($row['website_id'] ?? $row['website'] ?? ''),
                 'country' => $country,
-                'impressions' => (int) $row['impressions'],
+                'impressions' => $this->impressionCount($row['impressions']),
                 'amount' => TrafficMoney::stored($row['cost'] ?? $row['spent'] ?? $row['amount'] ?? 0),
             ];
         }
@@ -110,6 +116,35 @@ final class PopAdsConnector implements EditsBlockLists, ReadsCampaigns, ReadsImp
         }
 
         return $rows;
+    }
+
+    /**
+     * Whether an answer is a report, if an empty one: its rows bare or under
+     * `rows` or `data`. A message in their place is not.
+     *
+     * @param  array<mixed>  $answer
+     */
+    private function isReport(array $answer): bool
+    {
+        $rows = match (true) {
+            array_key_exists('rows', $answer) => $answer['rows'],
+            array_key_exists('data', $answer) => $answer['data'],
+            default => $answer,
+        };
+
+        return $rows === null || (is_array($rows) && array_filter($rows, 'is_array') === $rows);
+    }
+
+    /** A whole number of impressions, zero included, as a number or in a string. */
+    private function impressionCount(mixed $value): int
+    {
+        $count = is_numeric($value) ? (float) $value : -1.0;
+
+        if ($count < 0 || is_infinite($count) || floor($count) !== $count) {
+            throw new ConnectorException(TrafficConnectorFailure::UnexpectedResponse);
+        }
+
+        return (int) $count;
     }
 
     /**

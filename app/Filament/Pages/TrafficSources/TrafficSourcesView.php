@@ -233,7 +233,7 @@ final class TrafficSourcesView
         $summary = $this->reports->summary($filter, $cutoff);
         $sum = fn (iterable $rows): ReportFigures => collect($rows)->reduce(fn (ReportFigures $total, array $row): ReportFigures => $total->plus($row['figures']), new ReportFigures);
         // Spend no visit took counts in the totals, but only where nothing narrows the visits to a game, a device, a country, a campaign or unpaid traffic.
-        $unallocated = array_intersect_key($filter->where, array_flip(['game_id', 'device', 'country', 'campaign_id'])) === [] && ! (array_key_exists('source_id', $filter->where) && $filter->where['source_id'] === null) && ($filter->where['channel'] ?? 'network') === 'network'
+        $unallocated = ! $this->narrowsVisits($filter) && ! (array_key_exists('source_id', $filter->where) && $filter->where['source_id'] === null) && ($filter->where['channel'] ?? 'network') === 'network'
             ? $this->spend->unallocated($filter->fromDay, $filter->toDay, isset($filter->where['source_id']) ? (int) $filter->where['source_id'] : null)
             : [];
         $extra = array_reduce($unallocated, fn (string $total, array $row): string => TrafficMoney::stored(TrafficMoney::of($total)->plus(TrafficMoney::of($row['amount']))), '0');
@@ -1548,7 +1548,9 @@ final class TrafficSourcesView
     private function spendTab(TrafficSourcesPage $page, TrafficReportFilter $filter, $sources): array
     {
         $paid = $sources->whereIn('type', [TrafficSourceType::Network, TrafficSourceType::Placement])->values()->loadCount('campaigns');
-        $unallocated = collect($this->spend->unallocated($filter->fromDay, $filter->toDay));
+        // On a game, device, country or campaign the visits are that part of the source, and the network's bill and the spend no visit took are the whole of it.
+        $narrowed = $this->narrowsVisits($filter);
+        $unallocated = $narrowed ? collect() : collect($this->spend->unallocated($filter->fromDay, $filter->toDay));
         $bySource = collect($this->reports->level($filter, TrafficDimension::Source))->keyBy(fn (array $group): string => (string) ($group['keys']['source_id'] ?? ''));
         // What the network itself says, one origin a source's day as the day is counted: its file where one was taken, else its API.
         $network = TrafficSpendDay::query()->whereBetween('network_day', [$filter->fromDay, $filter->toDay])->whereIn('origin', [TrafficSpendOrigin::Api, TrafficSpendOrigin::Csv])->get(['source_id', 'campaign_id', 'origin', 'network_day', 'amount'])
@@ -1571,7 +1573,7 @@ final class TrafficSourcesView
                 ['icon' => 'calendar', 'name' => 'Fixed price', 'text' => 'A set amount for a day, a month or once, spread evenly over the days and split across visits.', 'users' => $users([TrafficSpendMode::Fixed])],
                 ['icon' => 'file', 'name' => 'Typed in or imported', 'text' => 'Type the spend per campaign and day, or import the network’s CSV export. It replaces any estimate for those days.', 'users' => $users([TrafficSpendMode::Manual])],
             ],
-            'spendRows' => $paid->map(function (TrafficSource $source) use ($bySource, $unallocated, $network, $campaignFigures, $connections, $page): array {
+            'spendRows' => $paid->map(function (TrafficSource $source) use ($bySource, $unallocated, $narrowed, $network, $campaignFigures, $connections, $page): array {
                 $figures = $bySource->get((string) $source->id)['figures'] ?? new ReportFigures;
                 $without = $unallocated->where('source_id', $source->id)->sum(fn (array $row): float => (float) $row['amount']);
                 $reported = TrafficMoney::of($figures->spend)->plus(TrafficMoney::of($without));
@@ -1594,6 +1596,7 @@ final class TrafficSourcesView
                     'network' => match (true) {
                         $source->spend_mode === TrafficSpendMode::Fixed => ['Agreed price', null],
                         $networkFacts->isEmpty() => ['Not checked', $source->spend_mode === TrafficSpendMode::Api ? 'Waiting for the first sync' : 'Import the network’s CSV to compare'],
+                        $narrowed => [TrafficMoney::format($networkSum), 'For the whole source'],
                         default => [TrafficMoney::format($networkSum), $networkSum > 0 ? 'Differs by '.number_format(((float) (string) $reported - $networkSum) / $networkSum * 100, 1).'%' : null],
                     },
                     'status' => $this->spendStatus($source, $connection),
@@ -1625,6 +1628,12 @@ final class TrafficSourcesView
             // The days a correction is offered for, the last fourteen in the network's own time zone.
             'correctDay' => ['min' => CarbonImmutable::parse($today)->subDays(13)->toDateString(), 'max' => $today, 'timezone' => $chosen->reporting_timezone ?? 'UTC'],
         ];
+    }
+
+    /** Whether a filter keeps only a game's, a device's, a country's or a campaign's visits of a source. */
+    private function narrowsVisits(TrafficReportFilter $filter): bool
+    {
+        return array_intersect_key($filter->where, array_flip(['game_id', 'device', 'country', 'campaign_id'])) !== [];
     }
 
     /** @return array{icon: string, text: string} how a source's spend is worked out, as Spend says it */

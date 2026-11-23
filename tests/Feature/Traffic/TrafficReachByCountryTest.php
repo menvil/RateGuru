@@ -1,5 +1,6 @@
 <?php
 
+use App\Actions\Traffic\ReplaceSpendCountriesAction;
 use App\Actions\Traffic\SyncTrafficNetworkAction;
 use App\Enums\TrafficConnectionStatus;
 use App\Enums\TrafficConnector;
@@ -10,10 +11,12 @@ use App\Models\TrafficCampaign;
 use App\Models\TrafficSource;
 use App\Models\TrafficSpendDay;
 use App\Models\TrafficSpendDayCountry;
+use App\Models\TrafficVisit;
 use App\Models\User;
 use App\Queries\Traffic\TrafficReachQuery;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\Client\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Sleep;
@@ -105,7 +108,52 @@ it('leaves the turn’s spend and the connection alone when the country report f
 })->with([
     'refused' => [fn () => fn () => Http::response(['errors' => [['title' => 'nope']]], 500)],
     'rows it cannot read' => [fn () => fn (string $day) => Http::response(['rows' => [['datetime' => $day, 'campaign_id' => '881204', 'impressions' => 5]]])],
+    'a message for a report' => [fn () => fn () => Http::response(['message' => 'unexpected report format'])],
+    'a message under its rows' => [fn () => fn () => Http::response(['data' => ['message' => 'unexpected report format']])],
+    'a count in words' => [fn () => fn (string $day) => Http::response(['rows' => [['datetime' => $day, 'country' => 'DE', 'campaign_id' => '881204', 'website_id' => '40123', 'impressions' => 'unavailable', 'cost' => '0.09']]])],
+    'a negative count' => [fn () => fn (string $day) => Http::response(['rows' => [['datetime' => $day, 'country' => 'DE', 'campaign_id' => '881204', 'website_id' => '40123', 'impressions' => -5, 'cost' => '0.09']]])],
 ]);
+
+it('takes an empty report for a day with no impressions', function (array $answer) {
+    popAdsAnswering(fn () => Http::response($answer));
+    paidImpressionsIn('DE', $this->source, '2026-11-16', 9, '0.09', ['campaign_id' => $this->campaign->id, 'site_ref' => '40123']);
+    $connection = connectedPopAds($this->source, ['country_cursor' => '2026-11-10']);
+
+    app(SyncTrafficNetworkAction::class)->handle($connection, CarbonImmutable::now());
+
+    expect(TrafficSpendDayCountry::query()->count())->toBe(0)
+        ->and($connection->fresh()->country_cursor)->toBe('2026-11-13');
+})->with([
+    'bare' => [[]],
+    'no rows' => [['rows' => []]],
+    'no data' => [['data' => []]],
+    'null rows' => [['rows' => null]],
+]);
+
+it('reads a count sent as a string, zero included', function () {
+    popAdsAnswering([
+        ['datetime' => '2026-11-16', 'country' => 'DE', 'campaign_id' => '881204', 'website_id' => '40123', 'impressions' => '60', 'cost' => '0.60'],
+        ['datetime' => '2026-11-16', 'country' => 'US', 'campaign_id' => '881204', 'website_id' => '40123', 'impressions' => '0', 'cost' => '0'],
+    ]);
+
+    app(SyncTrafficNetworkAction::class)->handle(connectedPopAds($this->source), CarbonImmutable::now());
+
+    expect(TrafficSpendDayCountry::query()->where('network_day', '2026-11-16')->orderBy('country')->pluck('impressions')->all())->toBe([60, 0]);
+});
+
+it('leaves a day to the turn already writing it', function () {
+    $row = ['campaign_id' => $this->campaign->id, 'site_ref' => '40123', 'country' => 'DE', 'impressions' => 60, 'amount' => '0.60'];
+    $held = Cache::lock("traffic-spend-countries:{$this->source->id}:2026-11-16", 60);
+    $held->get();
+
+    expect(app(ReplaceSpendCountriesAction::class)->handle($this->source->id, '2026-11-16', [$row]))->toBeFalse()
+        ->and(TrafficSpendDayCountry::query()->count())->toBe(0);
+
+    $held->release();
+
+    expect(app(ReplaceSpendCountriesAction::class)->handle($this->source->id, '2026-11-16', [$row]))->toBeTrue()
+        ->and(TrafficSpendDayCountry::query()->sole()->impressions)->toBe(60);
+});
 
 it('catches up on older days a few at a time, from the first the API reported', function () {
     popAdsAnswering(fn (string $day) => Http::response(['rows' => [['datetime' => $day, 'country' => 'DE', 'campaign_id' => '881204', 'website_id' => '40123', 'impressions' => 10, 'cost' => '0.10']]]));
@@ -139,6 +187,35 @@ it('sets one country’s impressions against the visits located there, of the sa
         ->and($germany->amount)->toBe('0.60000000')
         ->and([$everywhere->impressions, $everywhere->reached])->toBe([100, 35]);
 });
+
+it('matches a country’s figures of a source with none by site left in the period', function () {
+    paidImpressionsIn('DE', $this->source, '2026-11-16', 60, '0.60', ['campaign_id' => $this->campaign->id, 'site_ref' => '40123']);
+    reachedVisits($this->source, '2026-11-16', 30, 20, 10, ['campaign_id' => $this->campaign->id, 'site_ref' => '40123', 'country' => 'DE']);
+
+    $germany = app(TrafficReachQuery::class)->tally('2026-11-16', '2026-11-16', country: 'DE')->total();
+
+    expect([$germany->impressions, $germany->reached])->toBe([60, 30]);
+});
+
+it('sets no part of a source against the network’s whole bill on Spend', function (array $narrowedBy) {
+    $this->source->update(['spend_mode' => 'api', 'reporting_timezone' => 'UTC']);
+    TrafficSpendDay::query()->forceCreate(['source_id' => $this->source->id, 'campaign_id' => $this->campaign->id, 'network_day' => '2026-11-16', 'origin' => 'api', 'site_ref' => '', 'zone_ref' => '', 'amount' => '10.00', 'counted' => true, 'allocated_amount' => '2.00', 'allocated_at' => now()]);
+    TrafficVisit::factory()->create(['source_id' => $this->source->id, 'campaign_id' => $this->campaign->id, 'arrived_at' => '2026-11-16 10:00:00', 'network_day' => '2026-11-16', 'spend' => '2.00', 'country' => 'DE', 'device' => 'mobile']);
+
+    $row = fn (array $query) => Livewire::withQueryParams(['tab' => 'spend', 'period' => '30d', ...$query])->test(TrafficSourcesPage::class)->call('load')->viewData('spendRows')[0];
+    $part = $row($narrowedBy);
+    $whole = $row([]);
+
+    expect($part['network'])->toBe(['$10.00', 'For the whole source'])
+        ->and((float) $part['without'])->toBe(0.0)
+        ->and((float) $part['reported'])->toBe(2.0)
+        ->and($whole['network'][1])->toStartWith('Differs by')
+        ->and((float) $whole['without'])->toBe(8.0)
+        ->and((float) $whole['reported'])->toBe(10.0);
+})->with([
+    'a country' => [['country' => 'DE']],
+    'a device' => [['device' => 'mobile']],
+]);
 
 it('leaves out a country’s figures for a day a file or a typed total counts from', function () {
     paidImpressions($this->source, '2026-11-16', 100, '1.00', ['campaign_id' => $this->campaign->id, 'site_ref' => '40123', 'origin' => TrafficSpendOrigin::Csv]);

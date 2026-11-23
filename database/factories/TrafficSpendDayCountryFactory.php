@@ -17,7 +17,7 @@ class TrafficSpendDayCountryFactory extends Factory
         return [
             'source_id' => TrafficSource::factory(),
             'network_day' => now('UTC')->format('Y-m-d'),
-            'campaign_id' => TrafficCampaign::factory(),
+            'campaign_id' => fn (array $attributes) => TrafficCampaign::factory()->state(['source_id' => $attributes['source_id']]),
             'site_ref' => '',
             'country' => 'US',
             'impressions' => 100,

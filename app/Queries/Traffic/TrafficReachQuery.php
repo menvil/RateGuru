@@ -92,7 +92,8 @@ final class TrafficReachQuery implements RawSqlPersistenceBoundary
      */
     public function slices(string $fromDay, string $toDay, ?int $sourceId = null, ?int $campaignId = null, ?CarbonImmutable $now = null, ?string $country = null): Generator
     {
-        $sourceIds = $this->figures($fromDay, $toDay, $sourceId)->distinct()->pluck('source_id')->map(fn (mixed $id): int => (int) $id)->values()->all();
+        $figures = $country === null ? $this->figures($fromDay, $toDay, $sourceId) : $this->countryFigures($fromDay, $toDay, $sourceId, $country);
+        $sourceIds = $figures->distinct()->pluck('source_id')->map(fn (mixed $id): int => (int) $id)->values()->all();
 
         if ($sourceIds === []) {
             return;
@@ -267,18 +268,18 @@ final class TrafficReachQuery implements RawSqlPersistenceBoundary
     }
 
     /**
-     * One country's figures, shaped as facts() reads them, in order of source
-     * and day. Only the API reports countries, so a day a file or a typed
-     * total counts from has none here. Never a figure spend was shared out
-     * from: the hint that asks is judged over every country.
+     * One country's figures of the period, and of one source when given. Only
+     * the API reports countries, so a day a file or a typed total counts from
+     * has none here.
      *
-     * @return Generator<int, object>
+     * @return Builder<TrafficSpendDayCountry>
      */
-    private function countryFacts(string $fromDay, string $toDay, ?int $sourceId, string $country): Generator
+    private function countryFigures(string $fromDay, string $toDay, ?int $sourceId, string $country): Builder
     {
         $table = (new TrafficSpendDayCountry)->getTable();
         $figures = (new TrafficSpendDay)->getTable();
-        $rows = TrafficSpendDayCountry::query()
+
+        return TrafficSpendDayCountry::query()
             ->whereBetween('network_day', [$fromDay, $toDay])
             ->where('country', $country)
             ->when($sourceId !== null, fn (Builder $query) => $query->where('source_id', $sourceId))
@@ -287,7 +288,19 @@ final class TrafficReachQuery implements RawSqlPersistenceBoundary
                 ->whereColumn("{$figures}.network_day", "{$table}.network_day")
                 ->whereIn("{$figures}.origin", [TrafficSpendOrigin::Manual->value, TrafficSpendOrigin::Csv->value])
                 ->whereNotNull("{$figures}.reported_impressions")
-                ->where(fn ($noClicks) => $noClicks->whereNull("{$figures}.reported_clicks")->orWhere("{$figures}.reported_clicks", 0)))
+                ->where(fn ($noClicks) => $noClicks->whereNull("{$figures}.reported_clicks")->orWhere("{$figures}.reported_clicks", 0)));
+    }
+
+    /**
+     * Those figures, shaped as facts() reads them, in order of source and
+     * day. Never a figure spend was shared out from: the hint that asks is
+     * judged over every country.
+     *
+     * @return Generator<int, object>
+     */
+    private function countryFacts(string $fromDay, string $toDay, ?int $sourceId, string $country): Generator
+    {
+        $rows = $this->countryFigures($fromDay, $toDay, $sourceId, $country)
             ->select('source_id', 'network_day', 'campaign_id', 'site_ref', 'impressions', 'amount')
             ->orderBy('source_id')
             ->orderBy('network_day')
