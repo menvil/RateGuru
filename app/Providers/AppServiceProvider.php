@@ -20,6 +20,7 @@ use App\Policies\StudioPlanPolicy;
 use App\Policies\TrafficSourcePolicy;
 use App\Queries\Analytics\AnalyticsRollupGate;
 use App\Queries\SocialProvidersInUseQuery;
+use App\Rules\ContainsNoNullCharacter;
 use App\Services\Media\FilesystemMediaStorage;
 use App\Services\Media\FilesystemMediaUrlResolver;
 use App\Services\Media\GdImageIngestor;
@@ -172,9 +173,8 @@ class AppServiceProvider extends ServiceProvider
         // page's guest check on every later request it makes.
         Livewire::addPersistentMiddleware([RequireSignInWhileGuestViewingIsOff::class, EnsureGamesAreEnabled::class]);
 
-        // Bcrypt answers a null character with an error instead of a hash, so
-        // every form setting a password refuses one as a mistake in the field.
-        Password::defaults(fn (): Password => Password::min(8)->rules(['not_regex:/\x00/']));
+        // Here so that every form setting a password refuses it.
+        Password::defaults(fn (): Password => Password::min(8)->rules([new ContainsNoNullCharacter]));
 
         Gate::define('moderate-content', [ModerationPolicy::class, 'moderateContent']);
         Gate::define('ban-user', [ModerationPolicy::class, 'banUser']);

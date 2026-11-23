@@ -4,6 +4,7 @@ namespace App\Http\Requests;
 
 use App\Models\User;
 use App\Rules\ContainsNoLink;
+use App\Rules\ContainsNoNullCharacter;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
@@ -40,7 +41,7 @@ class ProfileUpdateRequest extends FormRequest
             // password yet — one made through Google or Facebook — has none
             // to give.
             'current_password' => $this->changesEmailOfAccountWithPassword()
-                ? ['required', 'string', 'max:255', 'current_password']
+                ? ['required', 'string', 'max:255', new ContainsNoNullCharacter, 'current_password']
                 : ['nullable'],
         ];
     }

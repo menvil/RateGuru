@@ -64,11 +64,55 @@ it('refuses it in the account editor', function () {
     expect(Hash::check('password', $person->fresh()->password))->toBeTrue();
 });
 
-it('answers a sign-in with one as a wrong password', function () {
+// Bcrypt reads only as far as the character, so each of these would pass as
+// the account's real password, "password", without the rule.
+it('does not sign in with the password and one after it', function () {
     $user = User::factory()->create();
 
-    $this->post('/login', ['email' => $user->email, 'password' => $this->password])
-        ->assertSessionHasErrors('email');
+    $this->post('/login', ['email' => $user->email, 'password' => "password\0suffix"])
+        ->assertSessionHasErrors('password');
 
     $this->assertGuest();
+});
+
+it('does not confirm the password with one after it', function () {
+    $user = User::factory()->create();
+
+    $this->actingAs($user)->post('/confirm-password', ['password' => "password\0suffix"])
+        ->assertSessionHasErrors('password')
+        ->assertSessionMissing('auth.password_confirmed_at');
+});
+
+it('does not take it as the current password for a new one', function () {
+    $user = User::factory()->create();
+
+    $this->actingAs($user)->from('/profile')->put('/password', [
+        'current_password' => "password\0suffix",
+        'password' => 'new-password',
+        'password_confirmation' => 'new-password',
+    ])->assertSessionHasErrorsIn('updatePassword', 'current_password');
+
+    expect(Hash::check('password', $user->fresh()->password))->toBeTrue();
+});
+
+it('does not take it as the password that deletes the account', function () {
+    $user = User::factory()->create();
+
+    $this->actingAs($user)->from('/profile')->delete('/profile', ['password' => "password\0suffix"])
+        ->assertSessionHasErrorsIn('userDeletion', 'password');
+
+    expect($user->fresh()->isTombstoned())->toBeFalse();
+});
+
+it('does not take it as the password that moves the account to a new address', function () {
+    $user = User::factory()->create(['email' => 'kept@example.com']);
+
+    $this->actingAs($user)->from('/profile')->patch('/profile', [
+        'name' => $user->name,
+        'username' => $user->username,
+        'email' => 'moved@example.com',
+        'current_password' => "password\0suffix",
+    ])->assertSessionHasErrors('current_password');
+
+    expect($user->fresh()->email)->toBe('kept@example.com');
 });
