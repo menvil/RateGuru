@@ -10,9 +10,10 @@ use App\Exceptions\Moderation\CannotModerateUserException;
 use App\Exceptions\Users\CannotUpdateUserAccountException;
 use App\Models\User;
 use App\Support\Database\UniqueColumnViolation;
+use Illuminate\Contracts\Hashing\Hasher;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Hash;
+use SensitiveParameter;
 
 /**
  * An administrator's edit of someone's account: their name, username and
@@ -44,7 +45,7 @@ final class UpdateUserAccountAction
      * @param  array{name: string, username: string, email: string, role: UserRole, trusted: bool|null, password?: string|null}  $changes  `trusted` null leaves trust as it is
      * @param  array{name: string, username: string, email: string, role: string}  $drawnFrom  the account as the editor read it
      */
-    public function handle(User $admin, User $target, array $changes, array $drawnFrom): void
+    public function handle(User $admin, User $target, #[SensitiveParameter] array $changes, array $drawnFrom): void
     {
         if (! $admin->can('manage', $target)) {
             throw CannotUpdateUserAccountException::becauseUserIsNotAllowed();
@@ -72,7 +73,7 @@ final class UpdateUserAccountAction
      * @param  array{name: string, username: string, email: string, role: string}  $drawnFrom
      * @return bool whether the address changed
      */
-    private function write(User $admin, User $target, array $changes, array $drawnFrom): bool
+    private function write(User $admin, User $target, #[SensitiveParameter] array $changes, array $drawnFrom): bool
     {
         return DB::transaction(function () use ($admin, $target, $changes, $drawnFrom): bool {
             try {
@@ -110,7 +111,7 @@ final class UpdateUserAccountAction
             }
 
             if (filled($changes['password'] ?? null)) {
-                $locked->password = Hash::make((string) $changes['password']);
+                $locked->password = app(Hasher::class)->make((string) $changes['password']);
             }
 
             $locked->save();

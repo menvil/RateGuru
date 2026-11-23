@@ -8,13 +8,14 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
+use SensitiveParameter;
 
 final class AuthenticateUserAction
 {
     private const MAX_ATTEMPTS = 5;
 
     /** @param array{email: string, password: string, remember?: bool|string} $validated */
-    public function execute(array $validated, Request $request): void
+    public function execute(#[SensitiveParameter] array $validated, Request $request): void
     {
         $throttleKey = $this->throttleKey($validated['email'], $request);
 
@@ -27,7 +28,9 @@ final class AuthenticateUserAction
             $this->lockOut($throttleKey, $request);
         }
 
-        if (! Auth::attempt([
+        // On the guard, not the facade: the facade's call would hold the
+        // password in its arguments for the whole attempt.
+        if (! Auth::guard()->attempt([
             'email' => $validated['email'],
             'password' => $validated['password'],
         ], (bool) ($validated['remember'] ?? false))) {
