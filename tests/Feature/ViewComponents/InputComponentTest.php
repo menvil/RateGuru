@@ -31,3 +31,12 @@ it('renders supported input states', function () {
         ->toContain('disabled:text-rg-muted')
         ->toContain('text-rg-text');
 });
+
+it('reads a URL field left to right in every language, and leaves every other field to the page', function () {
+    // An address keeps its "://" and a closing "/" where they belong on a page read right to left.
+    expect(Blade::render('<x-ui.input name="website" type="url" placeholder="https://" />'))->toContain('dir="ltr"')
+        ->and(Blade::render('<x-ui.input name="title" />'))->not->toContain('dir=')
+        ->and(Blade::render('<x-ui.input name="email" type="email" />'))->not->toContain('dir=')
+        // A direction the caller gives is the one it gets, once.
+        ->and(substr_count(Blade::render('<x-ui.input name="website" type="url" dir="auto" />'), 'dir='))->toBe(1);
+});

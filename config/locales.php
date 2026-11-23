@@ -67,5 +67,8 @@ return [
         'hi' => ['label' => 'Hindi', 'native' => 'हिन्दी', 'flag' => '🇮🇳', 'enabled_by_default' => false],
         'bn' => ['label' => 'Bengali', 'native' => 'বাংলা', 'flag' => '🇧🇩', 'enabled_by_default' => false],
         'id' => ['label' => 'Indonesian', 'native' => 'Bahasa Indonesia', 'flag' => '🇮🇩', 'enabled_by_default' => false],
+        'ar' => ['label' => 'Arabic', 'native' => 'العربية', 'flag' => '🇸🇦', 'enabled_by_default' => false, 'direction' => 'rtl'],
+        'ur' => ['label' => 'Urdu', 'native' => 'اردو', 'flag' => '🇵🇰', 'enabled_by_default' => false, 'direction' => 'rtl'],
+        'he' => ['label' => 'Hebrew', 'native' => 'עברית', 'flag' => '🇮🇱', 'enabled_by_default' => false, 'direction' => 'rtl'],
     ],
 ];

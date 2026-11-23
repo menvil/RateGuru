@@ -1559,7 +1559,7 @@ function waitForPostDetailOverlayClosed(mixed $page): void
             const panel = document.querySelector('[data-testid="post-detail-overlay"]');
 
             return ! panel
-                || (panel.classList.contains('translate-x-full')
+                || (panel.classList.contains('ltr:translate-x-full')
                     && panel.getAnimations().every((animation) => animation.playState === 'finished'));
         })()
     JS);
@@ -1578,6 +1578,23 @@ function waitForPostDetailOverlayOpen(mixed $page): void
             return Boolean(panel)
                 && panel.classList.contains('translate-x-0')
                 && panel.getAnimations().every((animation) => animation.playState === 'finished');
+        })()
+    JS);
+}
+
+/**
+ * Opens the menu drawer with the header's menu button and waits until it has
+ * stopped sliding in — the state its geometry is measured in.
+ */
+function openMobileNav(mixed $page): void
+{
+    $page->click('[data-testid="mobile-nav-trigger"]');
+
+    waitForScript($page, <<<'JS'
+        (() => {
+            const panel = document.querySelector('[data-testid="mobile-nav-panel"]');
+
+            return panel.checkVisibility() && panel.getAnimations().every((animation) => animation.playState === 'finished');
         })()
     JS);
 }
@@ -8758,6 +8775,22 @@ function translatedLocales(): array
 }
 
 /**
+ * The installed languages read right to left — the ones config/locales.php
+ * declares `'direction' => 'rtl'` — in config order. Read from the file for
+ * the same reason supportedLocales() is, so a test about a right-to-left page
+ * takes its language from here rather than naming one.
+ *
+ * @return list<string>
+ */
+function rightToLeftLocales(): array
+{
+    return array_keys(array_filter(
+        localesConfig()['supported'],
+        fn (array $info): bool => ($info['direction'] ?? null) === 'rtl',
+    ));
+}
+
+/**
  * The languages a behaviour test runs for when only data differs from one
  * language to the next: the default, which every other language is checked
  * against; the first translated language, an ordinary one; and every language
@@ -14962,6 +14995,52 @@ function liveGame(array $draft): GameVersion
     allowGames();
 
     return $version;
+}
+
+/**
+ * Makes each round of the draft's flow wait for its Next button, so a browser
+ * test's click never races the round's timer.
+ *
+ * @param  array{admin: User, game: Game, set: GameContentSet, flow: GameFlow}  $draft
+ */
+function buttonPacedGame(array $draft): void
+{
+    GameFlowStep::query()->where('flow_id', $draft['flow']->id)->where('type', GameFlowStepType::Game->value)->get()
+        ->each(fn (GameFlowStep $step) => $step->forceFill(['settings' => [...$step->settings, 'advance' => 'button']])->save());
+}
+
+/**
+ * A game's page open in the browser at this width, once Livewire has it —
+ * asked for in this language by the browser (Accept-Language) when one is
+ * given.
+ */
+function visitGame(string $slug, int $width = 1440, ?string $locale = null): mixed
+{
+    $pending = visit('/games/'.$slug);
+
+    if ($locale !== null) {
+        $pending = $pending->withLocale($locale);
+    }
+
+    $page = $pending->resize($width, 900);
+
+    waitForScript($page, "!! window.Livewire && window.Livewire.all().length > 0 && !! document.querySelector('[data-testid=\"game-page\"]')", true, 10.0);
+
+    return $page;
+}
+
+/** Picks an option and waits for the reveal's Next button. */
+function pickInGame(mixed $page, int $position): void
+{
+    $page->click('[data-testid="game-option-'.$position.'"]');
+    waitForScript($page, "!! document.querySelector('[data-testid=\"game-next\"]')", true, 10.0);
+}
+
+/** Presses the reveal's Next button and waits until the expression holds. */
+function nextInGame(mixed $page, string $until): void
+{
+    $page->click('[data-testid="game-next"]');
+    waitForScript($page, $until, true, 10.0);
 }
 
 /**

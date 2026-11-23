@@ -69,7 +69,7 @@ it('opens over the feed and closes in both post detail modes on mobile', functio
     waitForScript($page, 'document.querySelector(\'[data-testid="post-detail-overlay"] [data-testid="post-drawer-title"]\') === null');
 
     expect($page->script(
-        'document.querySelector(\'[data-testid="post-detail-overlay"]\').classList.contains(\'translate-x-full\')'
+        'document.querySelector(\'[data-testid="post-detail-overlay"]\').classList.contains(\'ltr:translate-x-full\')'
     ))->toBeTrue();
 })->with([
     'split desktop mode' => false,

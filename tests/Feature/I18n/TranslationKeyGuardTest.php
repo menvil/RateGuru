@@ -19,6 +19,8 @@ use Symfony\Component\Finder\Finder;
  *  - a public page reading the admin catalog, which exists only in English.
  *
  * Only literal keys are checked; a key built at runtime is the caller's to prove.
+ * A line read through IsolatedTranslation::line() — a sentence with text people
+ * wrote put into it — is a key like any other.
  */
 
 /**
@@ -34,7 +36,7 @@ function literalTranslationKeys(string $path): array
         : phpSourceWithoutComments(str_replace(base_path().'/', '', $path));
 
     preg_match_all(
-        '/(?<![\w>:$])(?:__|trans|trans_choice|@lang)\(\s*(?:\'((?:[^\'\\\\]|\\\\.)*)\'|"((?:[^"\\\\]|\\\\.)*)")\s*[,)]/',
+        '/(?<![\w>:$])(?:__|trans|trans_choice|@lang|IsolatedTranslation::line)\(\s*(?:\'((?:[^\'\\\\]|\\\\.)*)\'|"((?:[^"\\\\]|\\\\.)*)")\s*[,)]/',
         $source,
         $matches,
         PREG_SET_ORDER,
@@ -120,6 +122,7 @@ it('recognises the key shapes it is guarding against', function () {
         {{ __("Update your account's profile") }}
         @lang('auth.fields.email')
         {{ trans_choice('ui.comments.count', 2, ['count' => 2]) }}
+        {{ \App\Support\Locale\IsolatedTranslation::line('games.play.by_site', ['site' => $site]) }}
         {{ __('sharing.'.$provider) }}
         {{ __("{$keys}.subject") }}
         {{-- __('Commented out') --}}
@@ -131,6 +134,7 @@ it('recognises the key shapes it is guarding against', function () {
             "Update your account's profile",
             'auth.fields.email',
             'ui.comments.count',
+            'games.play.by_site',
         ]);
     } finally {
         File::delete($fixture);

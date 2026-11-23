@@ -93,7 +93,7 @@ it('closes the overlay immediately and clears its selected post', function () {
         ->dispatch('clear-selected-post')
         ->assertSet('isOpen', false)
         ->assertSet('postId', null)
-        ->assertSee("classList.add('translate-x-full'", false);
+        ->assertSee("classList.add('ltr:translate-x-full', 'rtl:-translate-x-full'", false);
 });
 
 it('lets only the global overlay hear a selected post from the server', function () {

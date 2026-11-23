@@ -15,6 +15,7 @@ use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Exceptions\InvalidSignatureException;
+use Illuminate\Routing\Middleware\SubstituteBindings;
 use Sentry\Laravel\Integration;
 
 return Application::configure(basePath: dirname(__DIR__))
@@ -49,6 +50,10 @@ return Application::configure(basePath: dirname(__DIR__))
             // A new account coming back on another day is worth more for it.
             RecordAccountReturn::class,
         ]);
+        // Ahead of route model binding, which runs earlier in the group: a post
+        // that is not there is found missing while the bindings resolve, and its
+        // not-found page is drawn in whatever language is set by then.
+        $middleware->prependToPriorityList(before: SubstituteBindings::class, prepend: SetLocale::class);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         // The single Sentry capture path for the whole application. It hangs
