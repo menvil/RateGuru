@@ -339,7 +339,7 @@ it('opens the sign-up dialog right to left, its close button at the end of the t
         ->and($page->script("getComputedStyle(document.querySelector('[data-testid=\"auth-modal-register-panel\"] input[name=\"name\"]')).direction"))->toBe('rtl')
         ->and(pageDirection($page))->toBe(['dir' => 'rtl', 'direction' => 'rtl', 'overflow' => 0]);
 })->with(rightToLeftLocales())->with([
-    // A phone's header offers Log in only: sign-up is the sign-in dialog's switch.
+    // On a phone, sign-up is reached through the sign-in dialog's switch: a narrow phone's header may have room for Log in alone.
     'phone' => [390, ['[data-testid="header-login-link"]', '[data-testid="auth-modal"] [data-testid="auth-switch-to-register"]']],
     'desktop' => [1440, ['[data-testid="header-register-link"]']],
 ]);

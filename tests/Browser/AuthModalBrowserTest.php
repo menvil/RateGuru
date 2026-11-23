@@ -454,7 +454,7 @@ it('points the provider links and the form at the page the person is on now, not
 it('fits a phone screen in both modes, with every control reachable', function (array $opens, string $panel, string $switch, array $viewport) {
     $page = visit(route('feed'))->resize(...$viewport);
 
-    // A phone's header offers Log in only: sign-up is the dialog's switch.
+    // Sign-up is reached through the dialog's switch: a narrow phone's header may have room for Log in alone.
     foreach ($opens as $control) {
         $page->click($control);
     }

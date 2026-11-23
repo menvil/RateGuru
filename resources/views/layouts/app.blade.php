@@ -47,7 +47,9 @@
                 {{-- The optional controls (data-header-fit, the higher the more important)
                      are shown as far as the row has room, by resources/js/header-fit.js,
                      inlined below the header; their breakpoint classes lay the row out
-                     until it has run. --}}
+                     until it has run. The language and theme switchers are always shown
+                     from the desktop width (data-header-fit-always), where the menu that
+                     also holds them is gone. --}}
                 <div class="rg-app-header-layout mx-auto flex h-[60px] w-full max-w-[1440px] items-center gap-1.5 px-3 sm:gap-2 sm:px-4" data-header-fit-row>
                     <button
                         type="button"
@@ -73,7 +75,7 @@
                         clear-test-id="desktop-search-clear"
                         auto-submit
                         data-testid="app-header-search"
-                        data-header-fit-search
+                        data-header-fit-search="240"
                         x-data
                         class="relative hidden w-full max-w-[520px] justify-self-center lg:block"
                     />
@@ -107,13 +109,14 @@
                                 elevated
                             >
                                 <x-ui.icon name="upload" class="size-4" />
-                                <span class="hidden sm:inline" data-header-fit="3" data-header-fit-display="inline"><bdi>{{ $projectSettings->uploadCtaLabel() }}</bdi></span>
+                                <span class="hidden sm:inline" data-header-fit="4" data-header-fit-display="inline"><bdi>{{ $projectSettings->uploadCtaLabel() }}</bdi></span>
                             </x-ui.button>
                             @endif
 
                             <livewire:notifications.notification-bell />
 
-                            <div class="hidden lg:block" data-header-fit="2" data-header-fit-display="block">
+                            {{-- Below the desktop width the drawer also holds it; from there on only here. The theme is in the account menu. --}}
+                            <div class="hidden lg:block" data-header-fit="3" data-header-fit-display="block" data-header-fit-always="(min-width: 1024px)">
                                 <x-locale-switcher />
                             </div>
 
@@ -223,7 +226,7 @@
                                     aria-label="{{ $projectSettings->uploadCtaLabel() }}"
                                 >
                                     <x-ui.icon name="upload" class="size-4" />
-                                    <span class="hidden lg:inline" data-header-fit="3" data-header-fit-display="inline"><bdi>{{ $projectSettings->uploadCtaLabel() }}</bdi></span>
+                                    <span class="hidden lg:inline" data-header-fit="4" data-header-fit-display="inline"><bdi>{{ $projectSettings->uploadCtaLabel() }}</bdi></span>
                                 </x-ui.button>
                             @endif
 
@@ -233,13 +236,13 @@
                                      opens the dialog instead.
 
                                      Log in is always shown. Sign up is the most important of the rest,
-                                     shown wherever the row has room beside the brand's whole name — on
-                                     a narrow phone a language with long labels has room for one only.
-                                     The sign-in dialog and page both offer the way to sign up. --}}
+                                     shown wherever the row has room beside the brand's whole name — a
+                                     narrow phone may have room for Log in alone. The sign-in dialog and
+                                     page both offer the way to sign up. --}}
                                 <a
                                     href="{{ route('register') }}"
                                     data-testid="header-register-link"
-                                    data-header-fit="4"
+                                    data-header-fit="5"
                                     data-header-fit-display="inline-flex"
                                     x-on:click="rgOpenAuthModal($event, 'register')"
                                     class="hidden sm:inline-flex h-[38px] cursor-pointer items-center justify-center gap-2 rounded-rgControl bg-rg-accent px-4 text-[13px] font-semibold text-rg-onAccent transition-colors hover:bg-rg-accentHover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent focus-visible:ring-offset-2 focus-visible:ring-offset-rg-bg"
@@ -257,11 +260,12 @@
                                 {{ __('ui.nav.log_in') }}
                             </a>
 
-                            <div class="hidden lg:block" data-header-fit="2" data-header-fit-display="block">
+                            {{-- Below the desktop width the drawer also holds both; from there on only here. --}}
+                            <div class="hidden lg:block" data-header-fit="3" data-header-fit-display="block" data-header-fit-always="(min-width: 1024px)">
                                 <x-locale-switcher />
                             </div>
 
-                            <div class="hidden lg:block" data-testid="desktop-header-theme" data-header-fit="1" data-header-fit-display="block">
+                            <div class="hidden lg:block" data-testid="desktop-header-theme" data-header-fit="2" data-header-fit-display="block" data-header-fit-always="(min-width: 1024px)">
                                 <livewire:theme.theme-switcher />
                             </div>
                         </div>

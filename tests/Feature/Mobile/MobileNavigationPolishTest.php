@@ -59,7 +59,7 @@ it('keeps the authenticated upload action and mobile search beside the header ac
     expect($html)
         ->toContain('data-testid="header-auth-actions"')
         ->not->toMatch('/<div(?=[^>]*data-testid="header-auth-actions")(?=[^>]*class="[^"]*ms-auto[^"]*")[^>]*>/s')
-        // Its words are hidden on a phone; its name is not.
+        // Its words are put away where the header's row has no room for them; its name is not.
         ->toMatch('/<button(?=[^>]*data-testid="open-upload-button")(?=[^>]*aria-label="'.preg_quote(e(app(ProjectSettingsManager::class)->current()->uploadCtaLabel()), '/').'")[^>]*>/s');
 });
 
