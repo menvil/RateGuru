@@ -1,0 +1,35 @@
+resources/views/components/locale-switcher.blade.php
+  s_4b9dc6ab6b25d3::t_97d96465475528 42
+  s_4b9dc6ab6b25d3::t_10b6566abbde58 23-28
+tests/Browser/AuthModalBrowserTest.php
+  s_4b9dc6ab6b25d3::t_90452f51590172 457
+resources/views/layouts/app.blade.php
+  s_4b9dc6ab6b25d3::t_0dd01219f4d49e 239-241,245
+  s_4b9dc6ab6b25d3::t_a540d776140a79 78
+  s_4b9dc6ab6b25d3::t_cdf4b2b6c78062 112,118-119
+  s_4b9dc6ab6b25d3::t_d213dfbcc1cbc8 229
+  s_4b9dc6ab6b25d3::t_fc1c8d827f957f 50-52
+  s_4b9dc6ab6b25d3::t_32c6caa54ceff9 263-264,268
+tests/Browser/RightToLeftBrowserTest.php
+  s_4b9dc6ab6b25d3::t_7f6bb35fe3cdb2 342
+tests/Browser/AppHeaderRowBrowserTest.php
+  s_4b9dc6ab6b25d3::t_646c2bde52d77b 15-53,57-74,86-139
+tests/Feature/Mobile/MobileNavigationPolishTest.php
+  s_4b9dc6ab6b25d3::t_ff169a4b8f7b83 62
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "f7e5d28ed78da1ea64b0a200f7055ccdcb7d2ceb",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
