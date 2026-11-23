@@ -34,7 +34,7 @@
                 <div class="rg-admin-analytics__kpi" data-testid="analytics-retention-card">
                     <dt class="rg-admin-analytics__kpi-label">
                         {{ $kpi['label'] }}
-                        <span class="rg-admin-analytics__shield" title="Counted by RateGuru"><x-admin.ui.icon name="shield-check" :size="12" /></span>
+                        <span class="rg-admin-analytics__shield" title="Counted by {{ site_name() }}"><x-admin.ui.icon name="shield-check" :size="12" /></span>
                     </dt>
                     <dd class="rg-admin-analytics__kpi-value">{{ $kpi['value'] }}</dd>
                     <dd class="rg-admin-analytics__kpi-unit">{{ $kpi['note'] }}</dd>

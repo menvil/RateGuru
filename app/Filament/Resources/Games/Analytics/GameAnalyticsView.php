@@ -302,7 +302,7 @@ final class GameAnalyticsView
         return [
             'sources' => [['value' => '0', 'label' => 'All paid sources', 'trigger' => 'All paid'], ...$names->map(fn (string $name, int $id): array => ['value' => (string) $id, 'label' => $name])->values()->all()],
             'source' => (string) $sourceId,
-            'note' => 'New visitors from '.($sourceId === 0 ? 'ad networks and banners' : $names[$sourceId]).', '.$window.'. One campaign link for the game: RateGuru picks the version after the click, by the shares in Traffic.',
+            'note' => 'New visitors from '.($sourceId === 0 ? 'ad networks and banners' : $names[$sourceId]).', '.$window.'. One campaign link for the game: '.site_name().' picks the version after the click, by the shares in Traffic.',
             'reportUrl' => TrafficSourcesPage::getUrl(array_filter(['game' => $game->id, 'view' => 'versions', 'source' => $sourceId ?: null, ...$links])),
             'comparison' => $comparison,
             'rows' => $byVersion->map(function (ReportFigures $figures, int|string $id) use ($versions, $shares, $ahead): array {
@@ -354,7 +354,7 @@ final class GameAnalyticsView
         $sources = TrafficSource::query()->whereIn('id', $rows->pluck('source_id')->filter()->unique())->get()->keyBy('id');
         $types = ['network' => 'Ad networks', 'placement' => 'Banners & links', 'unpaid' => 'Unpaid'];
         $channels = [
-            'internal' => ['Inside RateGuru', 'The feed, a post page or another game'],
+            'internal' => ['Inside '.site_name(), 'The feed, a post page or another game'],
             'shared' => ['Shared results', 'Opened from a shared result'],
             'referral' => ['Other sites', 'A link on another site'],
             'search' => ['Search', 'A search engine'],

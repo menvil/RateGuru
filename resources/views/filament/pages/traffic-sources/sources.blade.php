@@ -21,7 +21,7 @@
     <header class="rg-admin-traffic__perf-head">
         <div>
             <h2 class="rg-admin-traffic__panel-title">Sources</h2>
-            <p class="rg-admin-traffic__note">Ad networks and banners you set up yourself, and unpaid traffic RateGuru recognises on its own. Every visit belongs to exactly one of them.</p>
+            <p class="rg-admin-traffic__note">Ad networks and banners you set up yourself, and unpaid traffic {{ site_name() }} recognises on its own. Every visit belongs to exactly one of them.</p>
         </div>
         <x-admin.ui.button size="sm" variant="primary" icon="plus" wire:click="startAdding">Add source</x-admin.ui.button>
     </header>
@@ -55,7 +55,7 @@
             @endforelse
         @endforeach
         <div class="rg-admin-traffic__source-section">
-            <span><x-admin.ui.icon name="sparkles" :size="12" /><strong>UNPAID</strong><span class="rg-admin-traffic__note">Found automatically: shared results, links on other sites, search, direct visits and RateGuru itself.</span></span>
+            <span><x-admin.ui.icon name="sparkles" :size="12" /><strong>UNPAID</strong><span class="rg-admin-traffic__note">Found automatically: shared results, links on other sites, search, direct visits and {{ site_name() }} itself.</span></span>
         </div>
         @foreach ($channels as $channel)
             <div class="rg-admin-traffic__source-line" wire:key="channel-{{ $channel['key'] }}">
@@ -80,7 +80,7 @@
         <ol class="rg-admin-traffic__steps">
             <li><span class="rg-admin-traffic__step-number">1</span><span><strong>Source key in the link</strong><span class="rg-admin-traffic__note">rg_src names an ad network or a banner. Ad networks add their click ID, campaign, site and zone.</span></span></li>
             <li><span class="rg-admin-traffic__step-number">2</span><span><strong>A shared result</strong><span class="rg-admin-traffic__note">Opened from a share page or a shared result link: Shared results.</span></span></li>
-            <li><span class="rg-admin-traffic__step-number">3</span><span><strong>The referrer</strong><span class="rg-admin-traffic__note">A search engine: Search. A RateGuru page: Inside RateGuru. Any other site: Other sites.</span></span></li>
+            <li><span class="rg-admin-traffic__step-number">3</span><span><strong>The referrer</strong><span class="rg-admin-traffic__note">A search engine: Search. A {{ site_name() }} page: Inside {{ site_name() }}. Any other site: Other sites.</span></span></li>
             <li><span class="rg-admin-traffic__step-number">4</span><span><strong>Nothing at all</strong><span class="rg-admin-traffic__note">No key and no referrer: Direct.</span></span></li>
         </ol>
     </section>
@@ -91,9 +91,9 @@
         </header>
         <ol class="rg-admin-traffic__steps">
             <li><span class="rg-admin-traffic__step-number">1</span><span><strong>Click</strong><span class="rg-admin-traffic__note">The network opens the game link with its click ID, campaign, site, zone and cost in the address.</span></span></li>
-            <li><span class="rg-admin-traffic__step-number">2</span><span><strong>Stored</strong><span class="rg-admin-traffic__note">RateGuru keeps the click with the visitor, their device and country, and later with their account.</span></span></li>
+            <li><span class="rg-admin-traffic__step-number">2</span><span><strong>Stored</strong><span class="rg-admin-traffic__note">{{ site_name() }} keeps the click with the visitor, their device and country, and later with their account.</span></span></li>
             <li><span class="rg-admin-traffic__step-number">3</span><span><strong>Milestone</strong><span class="rg-admin-traffic__note">The visitor starts, reaches a round, finishes or reaches the flow’s goal.</span></span></li>
-            <li><span class="rg-admin-traffic__step-number">4</span><span><strong>Postback</strong><span class="rg-admin-traffic__note">Once per click and milestone, RateGuru calls the network’s address with the click ID and the value.</span></span></li>
+            <li><span class="rg-admin-traffic__step-number">4</span><span><strong>Postback</strong><span class="rg-admin-traffic__note">Once per click and milestone, {{ site_name() }} calls the network’s address with the click ID and the value.</span></span></li>
         </ol>
     </section>
 </div>

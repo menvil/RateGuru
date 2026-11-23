@@ -12,7 +12,7 @@
 @php
     $segments = [
         'all' => ['All', 'var(--rg-admin-text-tertiary)', ''],
-        'block' => ['Worth blocking', 'var(--rg-admin-status-danger-fg)', 'Likely bots, losing, a weak start, or paid impressions that mostly never reach RateGuru: see the rule under Worth blocking'],
+        'block' => ['Worth blocking', 'var(--rg-admin-status-danger-fg)', 'Likely bots, losing, a weak start, or paid impressions that mostly never reach '.site_name().': see the rule under Worth blocking'],
         'profit' => ['Profitable', 'var(--rg-admin-status-success-fg)', 'Enough data and value above spend'],
         'watch' => ['Below the line', 'var(--rg-admin-status-warning-dot)', 'Enough data, losing a little, not yet bad enough to block — or losing, but still within the days the rule waits after a first click'],
         'early' => ['Too early', 'var(--rg-admin-border-strong)', 'Not enough spend or clicks to judge the money; bots and a weak start still show'],

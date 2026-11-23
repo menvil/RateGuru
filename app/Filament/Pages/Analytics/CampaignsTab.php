@@ -905,10 +905,10 @@ final class CampaignsTab implements AnalyticsTab
         $attention = $connections->filter(fn (TrafficConnectionStatus $status): bool => $status === TrafficConnectionStatus::NeedsAttention)->count();
 
         $band = match (true) {
-            $sources->isEmpty() => ['tone' => 'neutral', 'icon' => 'unplug', 'title' => 'No paid source yet.', 'text' => 'Unpaid visitors cost nothing, so there is no spend to count. Conversion numbers come from RateGuru either way.'],
-            $attention > 0 => ['tone' => 'warning', 'icon' => 'unplug', 'title' => $attention.' API '.str('connection')->plural($attention).' '.($attention === 1 ? 'needs' : 'need').' attention.', 'text' => 'Spend from '.($attention === 1 ? 'that network' : 'those networks').' stays estimated until it reports again. Conversion numbers still come from RateGuru.'],
-            $connected !== [] => ['tone' => 'info', 'icon' => 'plug', 'title' => 'Network API connected.', 'text' => implode(', ', $connected).' '.(count($connected) === 1 ? 'reports its' : 'report their').' spend; the other sources count it as above. Conversion numbers come from RateGuru.'],
-            default => ['tone' => 'neutral', 'icon' => 'unplug', 'title' => 'No network API connected.', 'text' => 'Spend comes from what RateGuru records: each click’s price, your rates, fixed prices and the figures you type in. Conversion numbers come from RateGuru too.'],
+            $sources->isEmpty() => ['tone' => 'neutral', 'icon' => 'unplug', 'title' => 'No paid source yet.', 'text' => 'Unpaid visitors cost nothing, so there is no spend to count. Conversion numbers come from '.site_name().' either way.'],
+            $attention > 0 => ['tone' => 'warning', 'icon' => 'unplug', 'title' => $attention.' API '.str('connection')->plural($attention).' '.($attention === 1 ? 'needs' : 'need').' attention.', 'text' => 'Spend from '.($attention === 1 ? 'that network' : 'those networks').' stays estimated until it reports again. Conversion numbers still come from '.site_name().'.'],
+            $connected !== [] => ['tone' => 'info', 'icon' => 'plug', 'title' => 'Network API connected.', 'text' => implode(', ', $connected).' '.(count($connected) === 1 ? 'reports its' : 'report their').' spend; the other sources count it as above. Conversion numbers come from '.site_name().'.'],
+            default => ['tone' => 'neutral', 'icon' => 'unplug', 'title' => 'No network API connected.', 'text' => 'Spend comes from what '.site_name().' records: each click’s price, your rates, fixed prices and the figures you type in. Conversion numbers come from '.site_name().' too.'],
         };
 
         return ['lines' => $lines, 'band' => $band, 'url' => TrafficSourcesPage::getUrl(['tab' => 'spend'])];
