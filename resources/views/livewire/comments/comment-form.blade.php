@@ -2,7 +2,7 @@
     <form
         data-testid="comment-form"
         wire:submit.prevent="submit"
-        class="flex min-h-[50px] items-center gap-2.5 rounded-[10px] border border-rg-border2 bg-rg-card2 py-2 pl-3.5 pr-2"
+        class="flex min-h-[50px] items-center gap-2.5 rounded-[10px] border border-rg-border2 bg-rg-card2 py-2 ps-3.5 pe-2"
     >
         <label for="comment-body" class="sr-only">{{ __('ui.comments.add_comment') }}</label>
 
@@ -12,6 +12,7 @@
                 data-testid="comment-body"
                 name="body"
                 type="text"
+                dir="auto"
                 wire:model="body"
                 maxlength="1000"
                 placeholder="{{ __('ui.comments.add_comment') }}"

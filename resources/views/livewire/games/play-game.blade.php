@@ -39,7 +39,7 @@
 
     <header class="rg-game__bar">
         <a href="{{ url('/') }}" class="rg-game__brand" data-testid="game-brand"><x-brand-wordmark /></a>
-        <button type="button" class="rg-game__link" wire:click="leave('feed')" data-testid="game-skip-to-feed">{{ __('games.play.skip_to_feed') }} →</button>
+        <button type="button" class="rg-game__link" wire:click="leave('feed')" data-testid="game-skip-to-feed">{{ __('games.play.skip_to_feed') }} <span class="rg-mirror-rtl" aria-hidden="true">→</span></button>
     </header>
 
     <div class="rg-game__frame">
@@ -62,7 +62,7 @@
                 </div>
             </section>
         @else
-            @include('livewire.games.steps.'.str_replace('_', '-', $play->data['type']), ['data' => $play->data, 'texts' => $play->data['texts'], 'game' => $game])
+            @include('livewire.games.steps.'.str_replace('_', '-', $play->data['type']), ['data' => $play->data, 'texts' => $play->data['texts'], 'shown' => $play->data['shown'], 'game' => $game])
         @endif
     </div>
 </div>

@@ -57,13 +57,13 @@
             @endif
             <div class="min-w-0 flex-1">
                 @if($post->user?->public_username)
-                    <a href="{{ route('profile.show', $post->user->public_username) }}" wire:navigate x-on:click.stop class="block w-fit max-w-full truncate text-[13px] font-semibold text-rg-text hover:underline focus-visible:outline-none">{{ $post->user->resolved_display_name }}</a>
+                    <a href="{{ route('profile.show', $post->user->public_username) }}" wire:navigate x-on:click.stop {{ \App\Support\Locale\WrittenText::dir($post->user->resolved_display_name) }} class="block w-fit max-w-full truncate text-[13px] font-semibold text-rg-text hover:underline focus-visible:outline-none">{{ $post->user->resolved_display_name }}</a>
                 @else
-                    <span class="block truncate text-[13px] font-semibold text-rg-text">{{ $post->user?->resolved_display_name ?? __('ui.user.unknown') }}</span>
+                    <span {{ \App\Support\Locale\WrittenText::dir($post->user?->resolved_display_name ?? __('ui.user.unknown')) }} class="block w-fit max-w-full truncate text-[13px] font-semibold text-rg-text">{{ $post->user?->resolved_display_name ?? __('ui.user.unknown') }}</span>
                 @endif
                 <span class="block truncate text-xs text-rg-muted">
                     @if($post->user?->public_username)
-                        {{ '@' . $post->user->public_username }}
+                        <bdi>{{ '@' . $post->user->public_username }}</bdi>
                     @endif
                     @if($post->published_at)
                         {{ $post->user?->public_username ? ' · ' : '' }}{{ $post->published_at->diffForHumans() }}
@@ -72,10 +72,10 @@
             </div>
         </div>
 
-        <h3 data-testid="post-card-title" class="mt-3 break-words text-base font-bold leading-snug text-rg-text">{{ $post->title }}</h3>
+        <h3 data-testid="post-card-title" {{ \App\Support\Locale\WrittenText::dir($post->title) }} class="mt-3 break-words text-base font-bold leading-snug text-rg-text">{{ $post->title }}</h3>
 
         @if($post->truncated_description)
-            <p class="mt-2 break-words text-[13px] leading-snug text-rg-muted">{{ $post->truncated_description }}</p>
+            <p {{ \App\Support\Locale\WrittenText::dir($post->truncated_description) }} class="mt-2 break-words text-[13px] leading-snug text-rg-muted">{{ $post->truncated_description }}</p>
         @endif
 
         @if($post->category)
@@ -167,7 +167,7 @@
             @if($post->exists && ($canReportPost || $canDeletePost || $canModeratePost))
                 {{-- The footer keeps its keys from the card, Escape included, so
                      the menu hears Escape here. --}}
-                <div class="relative ml-auto" x-on:keydown.escape="postMenuOpen = false">
+                <div class="relative ms-auto" x-on:keydown.escape="postMenuOpen = false">
                     <button
                         type="button"
                         x-on:click="postMenuOpen = ! postMenuOpen; if (postMenuOpen) $dispatch('dropdown-opened', menuId)"
@@ -182,7 +182,7 @@
                         x-cloak
                         x-show="postMenuOpen"
                         x-on:click.outside="postMenuOpen = false"
-                        class="absolute bottom-full right-0 z-20 mb-2 w-44 rounded-rgControl border border-rg-border bg-rg-card2 p-1 shadow-rgDropdown"
+                        class="absolute bottom-full inset-e-0 z-20 mb-2 w-44 rounded-rgControl border border-rg-border bg-rg-card2 p-1 shadow-rgDropdown"
                     >
                         @if($canReportPost)
                             <div data-testid="post-card-report">
@@ -200,7 +200,7 @@
                                 type="button"
                                 data-testid="post-card-delete"
                                 x-on:click="postMenuOpen = false; deleteOpen = true"
-                                class="flex w-full cursor-pointer items-center rounded-rgSm px-3 py-1.5 text-left text-sm font-semibold text-rg-dangerText transition hover:bg-rg-dangerSoft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-dangerText"
+                                class="flex w-full cursor-pointer items-center rounded-rgSm px-3 py-1.5 text-start text-sm font-semibold text-rg-dangerText transition hover:bg-rg-dangerSoft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-dangerText"
                             >
                                 {{ __('ui.post.delete') }}
                             </button>
@@ -244,7 +244,7 @@
                 @php
                     $fullscreenImage = $postImagePresenter->responsive($post, \App\Enums\PostImageContext::Fullscreen);
                 @endphp
-                <x-ui.modal title="{{ $post->title }}" state="imageOpen" size="fullscreen" below-header close-on-escape>
+                <x-ui.modal :title="$post->title" title-dir="auto" state="imageOpen" size="fullscreen" below-header close-on-escape>
                     <x-media.post-image
                         :post="$post"
                         :src="$fullscreenImage?->src"

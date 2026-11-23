@@ -12,6 +12,11 @@
     $stateClass = $error
         ? 'border-[rgba(239,68,68,0.65)] focus-visible:border-[rgba(239,68,68,0.85)]'
         : 'border-rg-border2 focus-visible:border-rg-accent';
+
+    // An address is written left to right in every language. In a field read
+    // right to left its "://" and a closing "/" would turn round — "https://"
+    // showing as "//:https" — so a URL field reads left to right everywhere.
+    $direction = $type === 'url' && ! $attributes->has('dir') ? 'ltr' : null;
 @endphp
 
 <input
@@ -21,5 +26,6 @@
     @if (! is_null($placeholder)) placeholder="{{ $placeholder }}" @endif
     @disabled($disabled)
     @if ($error) aria-invalid="true" @endif
+    @if (! is_null($direction)) dir="{{ $direction }}" @endif
     {{ $attributes->class([$baseClass, $stateClass]) }}
 >

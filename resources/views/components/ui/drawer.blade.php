@@ -15,12 +15,14 @@
         'xl' => 'md:max-w-2xl lg:max-w-3xl',
     ][$size] ?? 'md:max-w-lg';
 
+    // The side is where the panel sits on a page read left to right; a page
+    // read right to left puts it on the other side, and slides it in from there.
     $panelDesktopClass = $side === 'left'
-        ? 'md:left-0 md:right-auto md:border-r md:border-l-0'
-        : 'md:right-0 md:left-auto md:border-l md:border-r-0';
+        ? 'md:inset-s-0 md:inset-e-auto md:border-e md:border-s-0'
+        : 'md:inset-e-0 md:inset-s-auto md:border-s md:border-e-0';
 
-    $enterStartClass = $side === 'left' ? '-translate-x-full' : 'translate-x-full';
-    $leaveEndClass = $side === 'left' ? '-translate-x-full' : 'translate-x-full';
+    $enterStartClass = $side === 'left' ? 'ltr:-translate-x-full rtl:translate-x-full' : 'ltr:translate-x-full rtl:-translate-x-full';
+    $leaveEndClass = $enterStartClass;
 @endphp
 
 <div

@@ -49,6 +49,7 @@
             <x-ui.input
                 id="title"
                 name="title"
+                dir="auto"
                 wire:model.defer="title"
                 :placeholder="__('ui.upload.title_placeholder')"
                 class="mt-1"
@@ -64,6 +65,7 @@
             <x-ui.textarea
                 id="description"
                 name="description"
+                dir="auto"
                 wire:model.defer="description"
                 rows="3"
                 :placeholder="__('ui.upload.description_placeholder')"
@@ -295,7 +297,7 @@
                             class="inline-flex items-center gap-1 rounded-rgPill border border-rg-accentBorder bg-rg-accentSoft px-2 py-0.5 text-xs font-semibold text-rg-accent2"
                             data-testid="upload-selected-tag-{{ $tag['id'] }}"
                         >
-                            {{ $tag['name'] }}
+                            <bdi>{{ $tag['name'] }}</bdi>
                             <button
                                 type="button"
                                 wire:click.stop="toggleTag({{ $tag['id'] }})"
@@ -310,6 +312,7 @@
                     {{-- Search input --}}
                     <input
                         type="text"
+                        dir="auto"
                         x-ref="tagInput"
                         wire:model.live.debounce.200ms="tagSearch"
                         x-on:focus="tagOpen = true"
@@ -328,7 +331,7 @@
                 <div
                     x-cloak
                     x-show="tagOpen"
-                    class="absolute left-0 right-0 z-30 mt-1 max-h-52 overflow-y-auto rounded-rgControl border border-rg-border bg-rg-card2 p-1 shadow-rgDropdown"
+                    class="absolute inset-x-0 z-30 mt-1 max-h-52 overflow-y-auto rounded-rgControl border border-rg-border bg-rg-card2 p-1 shadow-rgDropdown"
                     data-testid="upload-tag-menu"
                     role="listbox"
                     id="upload-tag-listbox"
@@ -337,13 +340,13 @@
                         <button
                             type="button"
                             wire:click="toggleTag({{ $tag['id'] }})"
-                            class="flex w-full cursor-pointer items-center rounded-rgSm px-3 py-1.5 text-left text-[13px] text-rg-text2 transition hover:bg-rg-card hover:text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent"
+                            class="flex w-full cursor-pointer items-center rounded-rgSm px-3 py-1.5 text-start text-[13px] text-rg-text2 transition hover:bg-rg-card hover:text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent"
                             data-testid="upload-tag-{{ $tag['id'] }}"
                             role="option"
                             id="upload-tag-option-{{ $tag['id'] }}"
                             aria-selected="false"
                         >
-                            {{ $tag['name'] }}
+                            <bdi>{{ $tag['name'] }}</bdi>
                         </button>
                     @empty
                         <span class="block px-3 py-2 text-sm text-rg-muted">

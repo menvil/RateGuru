@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="{{ str_replace('_', '-', app()->getLocale()) }}" data-theme="{{ $appliedTheme }}" data-theme-preference="{{ $themePreference }}" data-theme-source="{{ $themeSource }}">
+<html lang="{{ str_replace('_', '-', app()->getLocale()) }}" dir="{{ app(\App\Support\Locale\LocaleManager::class)->direction() }}" data-theme="{{ $appliedTheme }}" data-theme-preference="{{ $themePreference }}" data-theme-source="{{ $themeSource }}">
     <head>
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1">

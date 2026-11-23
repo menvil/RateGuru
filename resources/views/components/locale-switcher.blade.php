@@ -20,8 +20,12 @@
                  the header around it changes width or height. --}}
             <span aria-hidden="true" class="inline-block scale-125 leading-none" data-testid="locale-flag">{{ $enabled[$current]['flag'] }}</span>
         @endisset
-        <span class="sm:hidden">{{ strtoupper($current) }}</span>
-        <span class="hidden sm:inline">{{ $enabled[$current]['native'] ?? strtoupper($current) }}</span>
+        {{-- In the header's row the full name is the least important of its
+             optional controls, and the code stands in for it while it is put
+             away (resources/js/header-fit.js); elsewhere, and until that has
+             run, the breakpoint decides. --}}
+        <span class="sm:hidden" data-header-fit-short="locale-name" data-header-fit-display="inline">{{ strtoupper($current) }}</span>
+        <span class="hidden sm:inline" data-header-fit="1" data-header-fit-long="locale-name" data-header-fit-display="inline">{{ $enabled[$current]['native'] ?? strtoupper($current) }}</span>
         <svg class="size-3 fill-current opacity-60" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd"/></svg>
     </button>
 
@@ -35,7 +39,7 @@
         x-transition:leave-start="opacity-100 scale-100"
         x-transition:leave-end="opacity-0 scale-95"
         data-testid="locale-switcher-menu"
-        class="absolute right-0 z-50 mt-1 w-max min-w-32 max-w-[calc(100vw-2rem)] origin-top-right rounded-rgCard border border-rg-border bg-rg-card p-1 shadow-rgPopover"
+        class="absolute inset-e-0 z-50 mt-1 max-h-[calc(100dvh-5rem)] w-max min-w-32 max-w-[calc(100vw-2rem)] overflow-y-auto ltr:origin-top-right rtl:origin-top-left rounded-rgCard border border-rg-border bg-rg-card p-1 shadow-rgPopover"
         style="display: none;"
     >
         @foreach($enabled as $code => $info)
@@ -45,12 +49,12 @@
                 <button
                     type="submit"
                     data-testid="locale-option-{{ $code }}"
-                    class="flex w-full cursor-pointer items-center gap-2 rounded-rgSm px-3 py-2 text-left text-sm transition hover:bg-rg-card2 {{ $code === $current ? 'font-semibold text-rg-text' : 'text-rg-text2' }}"
+                    class="flex w-full cursor-pointer items-center gap-2 rounded-rgSm px-3 py-2 text-start text-sm transition hover:bg-rg-card2 {{ $code === $current ? 'font-semibold text-rg-text' : 'text-rg-text2' }}"
                 >
                     <span aria-hidden="true" class="inline-block scale-125 leading-none" data-testid="locale-flag">{{ $info['flag'] }}</span>
                     {{ $info['native'] }}
                     @if($code === $current)
-                        <svg class="ml-auto size-3 text-rg-accent" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
+                        <svg class="ms-auto size-3 text-rg-accent" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
                     @endif
                 </button>
             </form>

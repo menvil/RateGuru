@@ -2,9 +2,9 @@
     <h1 class="mb-2 text-xl font-bold text-rg-text">{{ __('ui.recently_deleted.title') }}</h1>
     <p class="mb-6 text-sm text-rg-muted">{{ __('ui.recently_deleted.description', ['days' => $retentionDays]) }}</p>
 
-    @if($statusMessage)
+    @if($restoredTitle !== null || $statusMessage)
         <div data-testid="recently-deleted-status" role="status" aria-live="polite" class="mb-4 rounded-lg border border-rg-border bg-rg-surface px-4 py-3 text-sm text-rg-text">
-            {{ $statusMessage }}
+            {{ $restoredTitle !== null ? \App\Support\Locale\IsolatedTranslation::line('ui.recently_deleted.restored', ['title' => $restoredTitle]) : $statusMessage }}
         </div>
     @endif
 
@@ -29,7 +29,7 @@
                 >
                     <div class="min-w-0">
                         {{-- Plain text, never a public link: the post is publicly gone. --}}
-                        <p class="truncate text-sm font-semibold text-rg-text">{{ $post->title }}</p>
+                        <p {{ \App\Support\Locale\WrittenText::dir($post->title) }} class="truncate text-sm font-semibold text-rg-text">{{ $post->title }}</p>
                         <p class="mt-0.5 text-xs text-rg-muted">
                             {{ __('ui.recently_deleted.deleted_on', ['date' => $post->deleted_at?->translatedFormat('j M Y, H:i')]) }}
                         </p>
