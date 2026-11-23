@@ -8,6 +8,7 @@ use App\Enums\TrafficSpendOrigin;
 use App\Models\TrafficApiConnection;
 use App\Models\TrafficSource;
 use App\Models\TrafficSpendDay;
+use App\Models\TrafficSpendDayCountry;
 use App\Models\TrafficVisit;
 use App\Support\Traffic\Money\TrafficMoney;
 use App\Support\Traffic\Reports\ReachFigures;
@@ -40,17 +41,38 @@ final class TrafficReachQuery implements RawSqlPersistenceBoundary
 
     /**
      * The period's slices folded into what the report shows: of every
-     * source, or of one.
+     * source, or of one; of every country, or of one.
      */
-    public function tally(string $fromDay, string $toDay, ?int $sourceId = null, ?CarbonImmutable $now = null): ReachTally
+    public function tally(string $fromDay, string $toDay, ?int $sourceId = null, ?CarbonImmutable $now = null, ?string $country = null): ReachTally
     {
         $tally = new ReachTally;
 
-        foreach ($this->slices($fromDay, $toDay, $sourceId, null, $now) as $slice) {
+        foreach ($this->slices($fromDay, $toDay, $sourceId, null, $now, $country) as $slice) {
             $tally->add($slice);
         }
 
         return $tally;
+    }
+
+    /**
+     * The countries the API reported impressions in over the period, with
+     * how many, the most first: the same figures a country's report counts.
+     *
+     * @return array<string, int>
+     */
+    public function countries(string $fromDay, string $toDay, ?int $sourceId = null, ?int $campaignId = null): array
+    {
+        return $this->countryFigures($fromDay, $toDay, $sourceId)
+            ->when($campaignId !== null, fn (Builder $query) => $query->where('campaign_id', $campaignId))
+            ->groupBy('country')
+            ->select('country')
+            ->selectRaw('SUM(impressions) AS impressions', [])
+            ->orderByDesc('impressions')
+            ->orderBy('country')
+            ->toBase()
+            ->get()
+            ->mapWithKeys(fn (object $row): array => [(string) $row->country => (int) $row->impressions])
+            ->all();
     }
 
     /**
@@ -61,24 +83,26 @@ final class TrafficReachQuery implements RawSqlPersistenceBoundary
      * visits' spend was shared out from. Of one source and one campaign when
      * given; a day's origin is chosen, and its visits matched, over all its
      * campaigns, so a campaign's slices are the same ones the whole source
-     * counts.
+     * counts. Of one country when given: the API's figures for it, against
+     * the visits located there.
      *
      * @return Generator<int, array{source_id: int, day: string, campaign_id: int|null, site_ref: string, zone_ref: string, origin: string, closed: bool, counted: bool, figures: ReachFigures}>
      */
-    public function slices(string $fromDay, string $toDay, ?int $sourceId = null, ?int $campaignId = null, ?CarbonImmutable $now = null): Generator
+    public function slices(string $fromDay, string $toDay, ?int $sourceId = null, ?int $campaignId = null, ?CarbonImmutable $now = null, ?string $country = null): Generator
     {
-        $sourceIds = $this->figures($fromDay, $toDay, $sourceId)->distinct()->pluck('source_id')->map(fn (mixed $id): int => (int) $id)->values()->all();
+        $figures = $country === null ? $this->figures($fromDay, $toDay, $sourceId) : $this->countryFigures($fromDay, $toDay, $sourceId, $country);
+        $sourceIds = $figures->distinct()->pluck('source_id')->map(fn (mixed $id): int => (int) $id)->values()->all();
 
         if ($sourceIds === []) {
             return;
         }
 
         $closed = $this->closedBy($sourceIds, $now ?? CarbonImmutable::now());
-        $visits = $this->visits($fromDay, $toDay, $sourceIds);
+        $visits = $this->visits($fromDay, $toDay, $sourceIds, $country);
         $day = null;
         $rows = [];
 
-        foreach ($this->facts($fromDay, $toDay, $sourceId) as $row) {
+        foreach ($country === null ? $this->facts($fromDay, $toDay, $sourceId) : $this->countryFacts($fromDay, $toDay, $sourceId, $country) as $row) {
             $at = [(int) $row->source_id, (string) $row->network_day];
 
             if ($day !== null && $at !== $day) {
@@ -242,19 +266,70 @@ final class TrafficReachQuery implements RawSqlPersistenceBoundary
     }
 
     /**
+     * The figures by country of the period, of one country and one source
+     * when given. Only the API reports countries, so a day a file or a typed
+     * total counts from has none here.
+     *
+     * @return Builder<TrafficSpendDayCountry>
+     */
+    private function countryFigures(string $fromDay, string $toDay, ?int $sourceId, ?string $country = null): Builder
+    {
+        $table = (new TrafficSpendDayCountry)->getTable();
+        $figures = (new TrafficSpendDay)->getTable();
+
+        return TrafficSpendDayCountry::query()
+            ->whereBetween('network_day', [$fromDay, $toDay])
+            ->when($country !== null, fn (Builder $query) => $query->where('country', $country))
+            ->when($sourceId !== null, fn (Builder $query) => $query->where('source_id', $sourceId))
+            ->whereNotExists(fn ($before) => $before->from($figures)
+                ->whereColumn("{$figures}.source_id", "{$table}.source_id")
+                ->whereColumn("{$figures}.network_day", "{$table}.network_day")
+                ->whereIn("{$figures}.origin", [TrafficSpendOrigin::Manual->value, TrafficSpendOrigin::Csv->value])
+                ->whereNotNull("{$figures}.reported_impressions")
+                ->where(fn ($noClicks) => $noClicks->whereNull("{$figures}.reported_clicks")->orWhere("{$figures}.reported_clicks", 0)));
+    }
+
+    /**
+     * Those figures, shaped as facts() reads them, in order of source and
+     * day. Never a figure spend was shared out from: the hint that asks is
+     * judged over every country.
+     *
+     * @return Generator<int, object>
+     */
+    private function countryFacts(string $fromDay, string $toDay, ?int $sourceId, string $country): Generator
+    {
+        $rows = $this->countryFigures($fromDay, $toDay, $sourceId, $country)
+            ->select('source_id', 'network_day', 'campaign_id', 'site_ref', 'impressions', 'amount')
+            ->orderBy('source_id')
+            ->orderBy('network_day')
+            ->toBase()
+            ->cursor();
+
+        foreach ($rows as $row) {
+            $row->origin = TrafficSpendOrigin::Api->value;
+            $row->zone_ref = '';
+            $row->counted = false;
+
+            yield $row;
+        }
+    }
+
+    /**
      * The visits of the sources' days by campaign, site and zone, with how
-     * many opened the page and started the game, in order of source and day.
+     * many opened the page and started the game, in order of source and day:
+     * those located in one country when given.
      *
      * @param  list<int>  $sourceIds
      * @return Iterator<int, object>
      */
-    private function visits(string $fromDay, string $toDay, array $sourceIds): Iterator
+    private function visits(string $fromDay, string $toDay, array $sourceIds, ?string $country = null): Iterator
     {
         $window = new TrafficReportFilter($fromDay, $toDay);
 
         return TrafficVisit::query()
             ->tracked()
             ->whereIn('source_id', $sourceIds)
+            ->when($country !== null, fn (Builder $query) => $query->where('country', $country))
             ->whereBetween('network_day', [$fromDay, $toDay])
             ->where('arrived_at', '>=', $window->arrivedFrom())
             ->where('arrived_at', '<', $window->arrivedBefore())

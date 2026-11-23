@@ -23,8 +23,8 @@ final class SiteManifestController extends Controller
                 'short_name' => $name,
                 'start_url' => route('feed', absolute: false),
                 'display' => 'standalone',
-                'background_color' => '#000000',
-                'theme_color' => '#000000',
+                'background_color' => '#FFFFFF',
+                'theme_color' => '#FFFFFF',
                 'icons' => [
                     ['src' => asset('android-chrome-192x192.png'), 'sizes' => '192x192', 'type' => 'image/png'],
                     ['src' => asset('android-chrome-512x512.png'), 'sizes' => '512x512', 'type' => 'image/png'],

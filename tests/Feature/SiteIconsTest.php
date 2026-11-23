@@ -44,6 +44,8 @@ it('names the web manifest after the project in its settings', function () {
             'short_name' => 'Crown Club',
             'start_url' => '/',
             'display' => 'standalone',
+            'background_color' => '#FFFFFF',
+            'theme_color' => '#FFFFFF',
         ]);
 
     // Served by the application, never shadowed by a file of the same name.

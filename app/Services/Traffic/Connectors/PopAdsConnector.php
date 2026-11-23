@@ -25,7 +25,7 @@ use Illuminate\Support\Sleep;
  * unverified until a real answer has been read. The key opens the whole
  * account, money included — none of those calls is ever made.
  */
-final class PopAdsConnector implements EditsBlockLists, ReadsCampaigns, ReadsSpend, TrafficNetworkConnector
+final class PopAdsConnector implements EditsBlockLists, ReadsCampaigns, ReadsImpressionsByCountry, ReadsSpend, TrafficNetworkConnector
 {
     use CallsNetworkApi;
 
@@ -45,9 +45,7 @@ final class PopAdsConnector implements EditsBlockLists, ReadsCampaigns, ReadsSpe
             return new SpendDayReport([], true);
         }
 
-        $zone = TrafficConnector::PopAds->reportsIn();
-        $next = CarbonImmutable::parse($networkDay, $zone)->addDay()->toDateString();
-        $form = ['zone' => $zone, 'start' => $networkDay.' 00:00', 'end' => $next.' 00:00', 'campaigns' => implode(',', $campaignIds)];
+        $form = $this->reportForm($networkDay, $campaignIds);
         $rows = [];
 
         foreach ($this->reportRows($this->json($this->post($session, '/api/report_advertiser', [...$form, 'groups' => 'campaign,website,datetime:day']))) as $row) {
@@ -72,6 +70,96 @@ final class PopAdsConnector implements EditsBlockLists, ReadsCampaigns, ReadsSpe
         $sum = array_sum(array_map(fn (array $row): float => (float) $row['amount'], $rows));
 
         return new SpendDayReport($rows, abs($totals - $sum) < 0.01);
+    }
+
+    /**
+     * A day's impressions by campaign, website and country, the country as a
+     * two-letter code like a visit's. An answer that is no report, a count
+     * that is no count, or a report with rows and not one this can read is an
+     * answer it does not understand, never a day with no impressions, so the
+     * figures already kept stay.
+     */
+    public function impressionsByCountry(ConnectorSession $session, string $networkDay, array $campaignIds): array
+    {
+        if ($campaignIds === []) {
+            return [];
+        }
+
+        Sleep::for(1)->second();
+        $answer = $this->json($this->post($session, '/api/report_advertiser', [...$this->reportForm($networkDay, $campaignIds), 'groups' => 'country,campaign,website,datetime:day']));
+
+        if (! $this->isReport($answer)) {
+            throw new ConnectorException(TrafficConnectorFailure::UnexpectedResponse);
+        }
+
+        $ofDay = array_filter($this->reportRows($answer), fn (array $row): bool => substr((string) ($row['datetime'] ?? $row['date'] ?? $networkDay), 0, 10) === $networkDay);
+        $rows = [];
+
+        foreach ($ofDay as $row) {
+            $country = strtoupper((string) ($row['country'] ?? ''));
+
+            // A row of no country no visit could match. One of a country without its count would leave that country's figures out of the day.
+            if (preg_match('/\A[A-Z]{2}\z/', $country) !== 1) {
+                continue;
+            }
+
+            $rows[] = [
+                'campaign' => (string) ($row['campaign_id'] ?? $row['campaign'] ?? ''),
+                'site' => (string) ($row['website_id'] ?? $row['website'] ?? ''),
+                'country' => $country,
+                'impressions' => $this->impressionCount($row['impressions'] ?? null),
+                'amount' => TrafficMoney::stored($row['cost'] ?? $row['spent'] ?? $row['amount'] ?? 0),
+            ];
+        }
+
+        if ($rows === [] && $ofDay !== []) {
+            throw new ConnectorException(TrafficConnectorFailure::UnexpectedResponse);
+        }
+
+        return $rows;
+    }
+
+    /**
+     * Whether an answer is a report, if an empty one: its rows bare or under
+     * `rows` or `data`. A message in their place is not.
+     *
+     * @param  array<mixed>  $answer
+     */
+    private function isReport(array $answer): bool
+    {
+        $rows = match (true) {
+            array_key_exists('rows', $answer) => $answer['rows'],
+            array_key_exists('data', $answer) => $answer['data'],
+            default => $answer,
+        };
+
+        return $rows === null || (is_array($rows) && array_filter($rows, 'is_array') === $rows);
+    }
+
+    /** A whole number of impressions, zero included, as a number or in a string. */
+    private function impressionCount(mixed $value): int
+    {
+        $count = is_numeric($value) ? (float) $value : -1.0;
+
+        if ($count < 0 || is_infinite($count) || floor($count) !== $count) {
+            throw new ConnectorException(TrafficConnectorFailure::UnexpectedResponse);
+        }
+
+        return (int) $count;
+    }
+
+    /**
+     * What every report of one day is asked for, in the time zone PopAds reports in.
+     *
+     * @param  list<string>  $campaignIds
+     * @return array<string, string>
+     */
+    private function reportForm(string $networkDay, array $campaignIds): array
+    {
+        $zone = TrafficConnector::PopAds->reportsIn();
+        $next = CarbonImmutable::parse($networkDay, $zone)->addDay()->toDateString();
+
+        return ['zone' => $zone, 'start' => $networkDay.' 00:00', 'end' => $next.' 00:00', 'campaigns' => implode(',', $campaignIds)];
     }
 
     public function campaigns(ConnectorSession $session, array $campaignIds): array

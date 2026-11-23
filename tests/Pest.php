@@ -100,6 +100,7 @@ use App\Models\TrafficPriceSet;
 use App\Models\TrafficSetting;
 use App\Models\TrafficSource;
 use App\Models\TrafficSpendDay;
+use App\Models\TrafficSpendDayCountry;
 use App\Models\TrafficStepChance;
 use App\Models\TrafficVisit;
 use App\Models\TrafficVisitPost;
@@ -15747,6 +15748,19 @@ function paidImpressions(TrafficSource $source, string $day, int $impressions, s
         'origin' => TrafficSpendOrigin::Api,
         'amount' => $amount,
         'reported_impressions' => $impressions,
+        ...$attributes,
+    ]);
+}
+
+/** What a network's API reported of a source's day for one country, of the campaign and site the attributes give. */
+function paidImpressionsIn(string $country, TrafficSource $source, string $day, int $impressions, string $amount, array $attributes = []): TrafficSpendDayCountry
+{
+    return TrafficSpendDayCountry::factory()->create([
+        'source_id' => $source->id,
+        'network_day' => $day,
+        'country' => $country,
+        'impressions' => $impressions,
+        'amount' => $amount,
         ...$attributes,
     ]);
 }

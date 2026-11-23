@@ -26,6 +26,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property CarbonImmutable|null $campaigns_synced_at
  * @property string|null $spend_closed_through
  * @property string|null $backfill_cursor
+ * @property string|null $country_cursor
  * @property string|null $last_error
  * @property int $failures
  * @property int $connected_by_user_id

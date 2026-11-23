@@ -29,6 +29,7 @@
             <x-admin.ui.filter-dropdown label="Campaign" id="rg-admin-traffic-campaign" :options="$campaignOptions" :value="$campaignId" wire:model.live="campaignId" />
             <x-admin.ui.filter-dropdown label="Game" id="rg-admin-traffic-game" :options="$gameOptions" :value="$game" wire:model.live="game" />
             <x-admin.ui.filter-dropdown label="Device" id="rg-admin-traffic-device" :options="$deviceOptions" :value="$device" wire:model.live="device" />
+            <x-admin.ui.filter-dropdown label="Country" id="rg-admin-traffic-country" :options="$countryOptions" :value="$country" wire:model.live="country" />
         </div>
 
         <x-admin.ui.tabs label="Traffic sources" class="rg-admin-traffic__tabs" :active="$tab" :items="$tabs" />

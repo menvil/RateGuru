@@ -15,6 +15,7 @@ use App\Models\TrafficBlockEvent;
 use App\Models\TrafficChanceRun;
 use App\Models\TrafficPostback;
 use App\Models\TrafficSpendDay;
+use App\Models\TrafficSpendDayCountry;
 use App\Models\TrafficVisit;
 use App\Models\TrafficVisitDetail;
 use App\Models\TrafficVisitPost;
@@ -115,6 +116,7 @@ final class TrafficPurgeExpiredCommand extends Command
                 ->where('pid', '<', (int) AnalyticsPid::query()->max('pid'))
                 ->whereNotExists(fn ($visit) => $visit->from((new AnalyticsVisit)->getTable())->whereColumn('analytics_visits.visitor_key', 'analytics_pids.visitor_key')), $chunk, 'visitor_key'),
             'spend figures' => $this->purge(TrafficSpendDay::query()->where('network_day', '<', $now->subDays($days['spend_days'])->format('Y-m-d')), $chunk),
+            'spend figures by country' => $this->purge(TrafficSpendDayCountry::query()->where('network_day', '<', $now->subDays($days['spend_days'])->format('Y-m-d')), $chunk),
             'block log lines' => $this->purge(TrafficBlockEvent::query()->where('occurred_at', '<', $now->subDays($days['block_events'])), $chunk),
             'activity days' => $this->purge(UserActivityDay::query()->where('day', '<', $now->subDays($activityDays)->format('Y-m-d')), $chunk),
         ];

@@ -447,7 +447,7 @@ it('keeps on the way here to the source, the campaign, the type of traffic and t
     // Narrowed to a device, only the networks' visits on the filters show: the network's impressions aren't split by device.
     $page(['device' => 'desktop'])
         ->assertSee('On the way here')
-        ->assertSee('The network’s impressions aren’t split by device, country or game, so they’re left out on these filters.')
+        ->assertSee('The network’s impressions aren’t split by device, city or game, so they’re left out on these filters.')
         ->assertSeeInOrder(['Visits from ad networks', '12', 'Opened the page', '6', '50%', 'Started the game', '2', '33%'])
         ->assertDontSee('Paid impressions (network)')
         ->assertDontSee('Paid, never reached');
@@ -515,7 +515,7 @@ it('shows in Sites & zones each site’s paid impressions and the share that rea
         ->and($mobile['70001']['state'])->toBe('early');
 
     $onMobile->assertSeeHtml('data-testid="traffic-sites-reach-note"')
-        ->assertSeeText('Paid impressions are counted by day, campaign and site, not by device, country or game. On these filters Paid impr. and Reached show “—” and no site is marked Low reach.');
+        ->assertSeeText('Paid impressions are counted by day, campaign, site and country, not by device, city or game. On these filters Paid impr. and Reached show “—” and no site is marked Low reach.');
 });
 
 it('says nothing of impressions left out of Sites & zones where the period has none', function () {

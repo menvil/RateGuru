@@ -72,7 +72,7 @@
                                 <span role="gridcell"></span>
                                 <span role="gridcell" class="rg-admin-traffic__fig">{{ number_format($campaign['figures']->visits) }}</span>
                                 <span role="gridcell" class="rg-admin-traffic__fig"><strong>{{ $money($campaign['figures']->spend) }}</strong>@if (\App\Support\Traffic\Money\TrafficMoney::of($campaign['figures']->spendEstimated)->isPositive())<small>incl. {{ $money($campaign['figures']->spendEstimated) }} est.</small>@endif</span>
-                                <span role="gridcell" class="rg-admin-traffic__fig">{{ $campaign['network'] ?? '—' }}</span>
+                                <span role="gridcell" class="rg-admin-traffic__fig">{{ $campaign['network'] ?? '—' }}@if ($row['narrowed'] && $campaign['network'] !== null)<small>For the whole campaign</small>@endif</span>
                                 <span role="gridcell"></span>
                                 <span role="gridcell"></span>
                             </div>

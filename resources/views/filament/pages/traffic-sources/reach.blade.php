@@ -4,15 +4,16 @@
     opened the page and started the game — each step's share of the one
     before, on a bar — then the impressions paid for that never arrived with
     what they cost by estimate, and the days whose figures can still change.
-    Narrowed to a device, a country or a game, only the networks' visits
-    show: their impressions aren't split that way.
+    Narrowed to a country, the network's figures for it. Narrowed to a device,
+    a city or a game, or to a country it reported nothing for, only the
+    networks' visits show, and the card says why.
 --}}
 <section class="rg-admin-traffic__panel" data-testid="traffic-reach">
     <header class="rg-admin-traffic__panel-head">
         <h2 class="rg-admin-traffic__panel-title">On the way here</h2>
         <p class="rg-admin-traffic__note">
             @if ($reach['split'])
-                The network’s impressions aren’t split by device, country or game, so they’re left out on these filters.
+                {{ $reach['leftOut'] }}
             @else
                 What ad networks billing by the impression charged for on these filters, against the visits of the same days, campaigns and sites. Some paid impressions never arrive: the window closed before the page loaded, the browser blocked it, the connection broke, or a bot never loaded it.
             @endif
