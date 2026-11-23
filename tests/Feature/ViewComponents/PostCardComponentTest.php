@@ -259,7 +259,7 @@ it('places post card actions menu in the footer row', function () {
 
     expect($html)
         ->toContain('justify-between')
-        ->toContain('bottom-full right-0')
+        ->toContain('bottom-full inset-e-0')
         ->toContain('aria-label="Post actions"');
 });
 

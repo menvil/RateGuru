@@ -54,6 +54,22 @@ it('renders the post hero image uncropped, with a contained fullscreen view', fu
         ->toContain('max-h-[min(80vh,calc(var(--rg-modal-height,100dvh)-3rem-var(--rg-modal-chrome,5.75rem)))]');
 });
 
+it('names the page and heads the full-size picture with the post\'s title escaped once', function () {
+    $post = Post::factory()->published()->withImage(path: 'posts/1/dish.jpg')->create([
+        'title' => 'Tom & Jerry',
+    ]);
+
+    $html = $this->get(route('posts.show', $post))->assertOk()->getContent();
+
+    expect($html)
+        ->toContain('<title>Tom &amp; Jerry · ')
+        ->toContain('Tom &amp; Jerry')
+        ->not->toContain('Tom &amp;amp; Jerry')
+        // A title that holds an escape of its own still shows it as written.
+        ->and($this->get(route('posts.show', Post::factory()->published()->create(['title' => 'Use &lt;b&gt;'])))->getContent())
+        ->toContain('<title>Use &amp;lt;b&amp;gt; · ');
+});
+
 it('renders post show content in feed card order', function () {
     $user = User::factory()->create([
         'name' => 'Demo Chef',
