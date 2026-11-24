@@ -1,0 +1,39 @@
+tests/Unit/Support/Analytics/ChartScaleTest.php
+  s_4b9dc6ab6b25d3::t_922a3d62784d94 26
+  s_4b9dc6ab6b25d3::t_fb80b580d2600f 1-25,27-44
+resources/css/filament/admin/components.css
+  s_4b9dc6ab6b25d3::t_7f56d0cb72da39 18308-18370,18372,18376,18389,18396-18410,18412
+tests/Browser/AdminAnalyticsBrowserTest.php
+  s_4b9dc6ab6b25d3::t_036c55f0a36817 81-83,85-103,105-112
+  s_4b9dc6ab6b25d3::t_e4760160251b4d 84,104
+app/Filament/Pages/Analytics/OverviewTab.php
+  s_4b9dc6ab6b25d3::t_dafb7834a45bbd 91-93,167-172,194-196,207,209-210,212,214-215,434-436
+  s_4b9dc6ab6b25d3::t_498ca0ea0a7969 21
+docs/admin/analytics.md
+  s_4b9dc6ab6b25d3::t_f8771f2e020c4d 116-122,128-129
+docs/design/admin/design-contract.md
+  s_4b9dc6ab6b25d3::t_f8771f2e020c4d 1472-1473
+app/Support/Analytics/ChartScale.php
+  s_4b9dc6ab6b25d3::t_b755ccefc22bc1 1-41
+tests/Feature/Analytics/GrowthAnalyticsPageTest.php
+  s_4b9dc6ab6b25d3::t_57d8f21b726716 171-173,506-509,641-645
+resources/views/filament/pages/analytics/overview.blade.php
+  s_4b9dc6ab6b25d3::t_7f56d0cb72da39 96
+  s_4b9dc6ab6b25d3::t_8ae818b9544237 69-95,97-135,147
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "702ccf1f906cddd1b75b709fe035fa4ee172c6bf",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
