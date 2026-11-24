@@ -1,0 +1,71 @@
+app/Services/Traffic/Connectors/ExoClickConnector.php
+  s_4b9dc6ab6b25d3::t_34c3462c6c93a2 136,143,154-163,167
+app/Actions/Traffic/ReadTrafficBlockListsAction.php
+  s_4b9dc6ab6b25d3::t_6b50e6ad467410 55-57,68-69,71-72,75,85-88
+  s_4b9dc6ab6b25d3::t_8d9d5f87c8918b 45-47
+docs/admin/traffic-sources.md
+  s_4b9dc6ab6b25d3::t_18b9d0fc0da1f6 80-83
+app/Services/Traffic/Connectors/ReadsBlockLists.php
+  s_4b9dc6ab6b25d3::t_e2ad2fd62c003b 21-25,31
+tests/Feature/Traffic/TrafficConnectorsTest.php
+  s_4b9dc6ab6b25d3::t_30e2befc9225bc 427-453
+  s_4b9dc6ab6b25d3::t_92d6d46763ccbf 482-509
+  s_4b9dc6ab6b25d3::t_636865d02bd439 345-348,351,353-359,361-364,367-409
+  s_4b9dc6ab6b25d3::t_f117841f7b9961 1020-1041
+  s_4b9dc6ab6b25d3::t_6f8cc23f13e347 1419,1422,1429-1451
+  s_4b9dc6ab6b25d3::t_c2277d396de00f 349-350,352,360,365-366
+  s_4b9dc6ab6b25d3::t_74b04b009a7a32 1272,1286-1335
+  s_4b9dc6ab6b25d3::t_f13123f0dc7574 1259
+app/Enums/TrafficConnectorFailure.php
+  s_4b9dc6ab6b25d3::t_8b3a39a326bd7b 39-47
+app/Services/Traffic/Connectors/PopAdsConnector.php
+  s_4b9dc6ab6b25d3::t_67f332c3c90505 223-229
+  s_4b9dc6ab6b25d3::t_a6071b6b44c959 125,132,147-158,165
+  s_4b9dc6ab6b25d3::t_7b5e62a901c09e 213-214
+docs/architecture/traffic.md
+  s_4b9dc6ab6b25d3::t_c7aacd61a668fc 512-513
+  s_4b9dc6ab6b25d3::t_4140a3c7503f18 321-323
+  s_4b9dc6ab6b25d3::t_765cffe50df2a5 452-458
+  s_4b9dc6ab6b25d3::t_8881a91ec45a59 324-328
+  s_4b9dc6ab6b25d3::t_bf587636168b21 431-436
+app/Actions/Traffic/ApplyTrafficBlocksAction.php
+  s_4b9dc6ab6b25d3::t_9056e41cc4ea51 109-111,114
+  s_4b9dc6ab6b25d3::t_2949ee4e1dc5ca 170
+  s_4b9dc6ab6b25d3::t_111379d28f3b08 214-215
+  s_4b9dc6ab6b25d3::t_92d6850548d928 41-44
+app/Models/TrafficBlockListing.php
+  s_4b9dc6ab6b25d3::t_adc6f2297f2d42 5
+  s_4b9dc6ab6b25d3::t_dbd76ec5c250b5 61-72
+app/Actions/Traffic/RecordBlockedHitAction.php
+  s_4b9dc6ab6b25d3::t_179c6ec47f8208 16-17
+  s_4b9dc6ab6b25d3::t_d6806304ff89ed 42,47
+app/Queries/Traffic/TrafficBlocksQuery.php
+  s_4b9dc6ab6b25d3::t_04a8ed8e21f57b 161
+  s_4b9dc6ab6b25d3::t_c2833ae8cbb6f2 179
+  s_4b9dc6ab6b25d3::t_1a778eb31bccce 147-149
+  s_4b9dc6ab6b25d3::t_1fc35565d80af9 162
+app/Actions/Traffic/BlockTrafficRefsAction.php
+  s_4b9dc6ab6b25d3::t_d8fd9387366f3c 17
+  s_4b9dc6ab6b25d3::t_5f4c076b4f6d67 220-235
+  s_4b9dc6ab6b25d3::t_b0f233417ded07 195-197
+  s_4b9dc6ab6b25d3::t_7f877b790e49b6 85
+  s_4b9dc6ab6b25d3::t_fab33e03299ae5 161
+app/Services/Traffic/Connectors/BlockListsRead.php
+  s_4b9dc6ab6b25d3::t_9b7269756b5b64 1-15
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "b5dd44773e018541d98d2a34924b72c2762f7feb",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
