@@ -509,6 +509,17 @@ it('narrows the registration funnel to the people who landed where chosen, kept 
         ->and($page->set('landing', 'nowhere')->get('landing'))->toBe('');
 });
 
+it('names each figure of the registration funnel for a screen reader, the legend drawn for the eye only', function () {
+    $post = Post::factory()->published()->create();
+    registrationVisitors($post->id);
+
+    $html = Livewire::withQueryParams(['tab' => 'engagement', 'period' => '7d'])->test(GrowthAnalyticsPage::class)->call('load')->html();
+    $card = substr($html, (int) strpos($html, 'data-testid="analytics-registration-funnel"'));
+
+    expect(substr_count($card, '<span class="rg-admin-sr-only">Of the step before: </span>'))->toBe(12)
+        ->and(substr_count($card, '<span class="rg-admin-sr-only">Of landed: </span>'))->toBe(12);
+});
+
 it('says the registration funnel waits for Analytics’ own rows', function () {
     analyticsVisit('ann', ['landing_key' => 'feed']);
     config(['analytics.rollup.read' => false]);

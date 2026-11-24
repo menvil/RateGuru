@@ -2,7 +2,6 @@
 
 namespace App\Actions\Traffic;
 
-use App\Actions\Analytics\MarkAnalyticsDayAction;
 use App\Enums\AuthTrigger;
 use App\Enums\SignupRefusal;
 use App\Models\TrafficSetting;
@@ -10,7 +9,6 @@ use App\Models\TrafficVisit;
 use App\Queries\Traffic\VisitorVisitQuery;
 use App\Support\Traffic\Capture\BotSignals;
 use Carbon\CarbonImmutable;
-use Illuminate\Support\Facades\DB;
 
 /**
  * The registration steps between the sign-in dialog and an account, each put
@@ -23,13 +21,14 @@ use Illuminate\Support\Facades\DB;
  * Counted only: no conversion, no postback, no change of worth, and the
  * visit is never seen again for it, so a paid click settles as it would.
  * The visit's day is marked for Analytics with the write, a click days old
- * included (docs/architecture/traffic.md, "Registration steps").
+ * included — all of it by MarkTrafficVisitAction, the one writer of a
+ * visit's marks (docs/architecture/traffic.md, "Registration steps").
  */
 final class RecordRegistrationStepAction
 {
     public function __construct(
         private readonly VisitorVisitQuery $visits,
-        private readonly MarkAnalyticsDayAction $analytics,
+        private readonly MarkTrafficVisitAction $marks,
     ) {}
 
     /** The sign-in dialog shown — opened by the trigger on its first showing of the visit — and, in its sign-up state, the registration form. */
@@ -86,37 +85,15 @@ final class RecordRegistrationStepAction
     }
 
     /**
-     * Each moment set where the visit has none yet, with what goes with it;
-     * the reasons added to those kept.
+     * Each moment set where the visit has none yet, with what goes with it,
+     * the reasons added to those kept — by the one writer of a visit's marks.
      *
      * @param  array<string, array<string, string>>  $moments  the moment's column, and the columns written with it
      */
     private function mark(?TrafficVisit $visit, array $moments, CarbonImmutable $now, int $refusals = 0): void
     {
-        if ($visit === null) {
-            return;
+        if ($visit !== null) {
+            $this->marks->registrationSteps((int) $visit->id, $moments, $refusals, $now);
         }
-
-        DB::transaction(function () use ($visit, $moments, $now, $refusals): void {
-            $changed = false;
-
-            foreach ($moments as $column => $with) {
-                $changed = TrafficVisit::query()->whereKey($visit->id)->whereNull($column)->update([$column => $now, ...$with]) > 0 || $changed;
-            }
-
-            if ($refusals !== 0) {
-                $kept = (int) TrafficVisit::query()->whereKey($visit->id)->lockForUpdate()->value('signup_refusals');
-
-                if (($kept | $refusals) !== $kept) {
-                    TrafficVisit::query()->whereKey($visit->id)->update(['signup_refusals' => $kept | $refusals]);
-                    $changed = true;
-                }
-            }
-
-            // A click days old is read again for its own day, marked with the write.
-            if ($changed) {
-                $this->analytics->handle($visit->network_day, $now);
-            }
-        });
     }
 }

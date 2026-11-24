@@ -199,14 +199,15 @@
         @if ($registration['ready'])
             <ol class="rg-admin-analytics__funnel">
                 @foreach ($registration['steps'] as $step)
+                    {{-- The legend below is drawn for the eye only: each figure names itself for a screen reader. --}}
                     <li @class(['rg-admin-analytics__step', 'rg-admin-analytics__step--sub' => $step['sub']])>
                         <span class="rg-admin-analytics__step-name">
                             <span class="rg-admin-analytics__step-label">{{ $step['name'] }}</span>
                             <span class="rg-admin-analytics__track" aria-hidden="true"><span @class(['rg-admin-analytics__fill', 'rg-admin-analytics__fill--strong' => $step['strong']]) style="width: {{ $step['bar'] }}%"></span></span>
                         </span>
-                        <span class="rg-admin-analytics__step-count">{{ $step['count'] }}</span>
-                        <span class="rg-admin-analytics__step-rate">{{ $step['previous'] }}</span>
-                        <span class="rg-admin-analytics__step-first">{{ $step['first'] }}</span>
+                        <span class="rg-admin-analytics__step-count"><span class="rg-admin-sr-only">New visitors: </span>{{ $step['count'] }}</span>
+                        <span class="rg-admin-analytics__step-rate"><span class="rg-admin-sr-only">Of the step before: </span>{{ $step['previous'] }}</span>
+                        <span class="rg-admin-analytics__step-first"><span class="rg-admin-sr-only">Of landed: </span>{{ $step['first'] }}</span>
                     </li>
                 @endforeach
             </ol>

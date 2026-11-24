@@ -1,5 +1,6 @@
 <?php
 
+use App\Actions\Traffic\MarkTrafficVisitAction;
 use App\Actions\Traffic\RecordRegistrationStepAction;
 use App\Enums\AuthTrigger;
 use App\Enums\SignupRefusal;
@@ -59,6 +60,34 @@ it('puts each step on the unpaid visit the browser was seen on last within the s
     expect($recent->fresh()->signup_submitted_at)->toEqual(now())
         ->and($recent->fresh()->last_seen_at)->toEqual(CarbonImmutable::parse('2026-11-17 11:50:00'))
         ->and($gone->fresh()->signup_submitted_at)->toBeNull();
+});
+
+it('puts a step on the paid click holding the browser over a newer unpaid visit, and on the latest of two unpaid visits of the session', function () {
+    $hash = hash('sha256', 'busy');
+    $click = TrafficVisit::factory()->create(['visitor_hash' => $hash, 'holds_until' => now()->addDay(), 'last_seen_at' => now()->subMinutes(20)]);
+    $unpaid = analyticsVisit('busy', ['network_day' => '2026-11-17', 'arrived_at' => '2026-11-17 11:50:00', 'last_seen_at' => '2026-11-17 11:58:00']);
+
+    registrationSteps()->submitted($hash, CarbonImmutable::now());
+
+    expect($click->fresh()->signup_submitted_at)->not->toBeNull()
+        ->and($unpaid->fresh()->signup_submitted_at)->toBeNull();
+
+    $other = hash('sha256', 'reader');
+    $earlier = analyticsVisit('reader', ['network_day' => '2026-11-17', 'arrived_at' => '2026-11-17 11:40:00', 'last_seen_at' => '2026-11-17 11:45:00']);
+    $latest = analyticsVisit('reader', ['network_day' => '2026-11-17', 'arrived_at' => '2026-11-17 11:50:00', 'last_seen_at' => '2026-11-17 11:55:00']);
+
+    registrationSteps()->submitted($other, CarbonImmutable::now());
+
+    expect($latest->fresh()->signup_submitted_at)->not->toBeNull()
+        ->and($earlier->fresh()->signup_submitted_at)->toBeNull();
+});
+
+it('writes the steps through the one writer of a visit’s marks, under its lock', function () {
+    $visit = analyticsVisit('reader', ['network_day' => '2026-11-17', 'arrived_at' => '2026-11-17 11:55:00', 'last_seen_at' => '2026-11-17 11:55:00']);
+
+    expect(app(MarkTrafficVisitAction::class)->registrationSteps($visit->id, ['signup_submitted_at' => []], SignupRefusal::Invalid->bit(), CarbonImmutable::now()))->toBeTrue()
+        ->and(app(MarkTrafficVisitAction::class)->registrationSteps($visit->id, ['signup_submitted_at' => []], SignupRefusal::Invalid->bit(), CarbonImmutable::now()))->toBeFalse()
+        ->and($visit->fresh())->signup_submitted_at->not->toBeNull()->signup_refusals->toBe(SignupRefusal::Invalid->bit());
 });
 
 it('records nothing while visits aren’t recorded, on a crawler’s visit, or for a browser without a visit', function () {

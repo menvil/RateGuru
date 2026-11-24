@@ -61,10 +61,17 @@ it('takes the people who landed where asked, and what they did on any visit of t
     'another post' => [fn () => FunnelLanding::post(43), ['landed' => 0, 'opened' => 0]],
 ]);
 
-it('narrows by the page’s filters as any figure does', function () {
+it('narrows the people by the page’s filters, and counts what they did on a later visit from anywhere', function () {
+    // Came from Reddit, signed up the next day on a visit of no source; someone else came from Google.
+    analyticsVisit('gus', ['source_key' => 'reddit:organic', 'landing_key' => 'feed']);
+    analyticsVisit('gus', ['network_day' => '2026-11-16', 'arrived_at' => '2026-11-16 10:00:00', 'landing_key' => 'feed', 'auth_opened_at' => '2026-11-16 10:01:00', 'auth_trigger' => 'header_signup', 'register_form_at' => '2026-11-16 10:01:00', 'signup_submitted_at' => '2026-11-16 10:02:00', 'signup_at' => '2026-11-16 10:02:00']);
+    analyticsVisit('hal', ['source_key' => 'google:organic', 'landing_key' => 'feed', 'auth_opened_at' => '2026-11-15 10:01:00', 'auth_trigger' => 'vote']);
+    fillAnalyticsRollup();
+
     $funnel = app(RegistrationFunnelQuery::class)->read(analyticsFilter('7d', source: 'reddit:organic'), FunnelLanding::any());
 
-    expect($funnel->people()['landed'])->toBe(0);
+    expect(array_intersect_key($funnel->people(), array_flip(['landed', 'opened', 'signed_up'])))->toBe(['landed' => 1, 'opened' => 1, 'signed_up' => 1])
+        ->and($funnel->triggers)->toBe(['header_signup' => 1]);
 });
 
 it('reads the funnel only from Analytics’ own rows, and says so while they aren’t ready', function () {
