@@ -25,6 +25,7 @@ use App\Services\Traffic\TrafficVisitWorth;
 use Brick\Math\BigDecimal;
 use Carbon\CarbonImmutable;
 use Illuminate\Console\Scheduling\Schedule;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 beforeEach(function () {
@@ -66,6 +67,24 @@ it('samples only matured visits of new visitors whose page ran', function () {
         ->and($rows->sum('started_x'))->toBe(1)
         ->and($rows->sum('curve_1'))->toBe(1)
         ->and($rows->sum('curve_0'))->toBe(0);
+});
+
+it('gives the sample in one order, whichever way the database groups the visits', function () {
+    $game = Game::factory()->create();
+    $source = TrafficSource::factory()->create();
+    $countries = ['AT', 'BE', 'BR', 'CA', 'DE', 'ES', 'FR', 'GB', 'IE', 'IT', 'JP', 'MX', 'NL', 'PL', 'SE', 'US'];
+
+    // Arriving last to first, and enough of them that a grouping by hash scatters them.
+    foreach (array_reverse($countries) as $country) {
+        maturedVisit(['game_id' => $game->id, 'source_id' => $source->id, 'country' => $country]);
+    }
+
+    // PostgreSQL groups a table this small by sorting it, which hands the groups back in order anyway. Barred from sorting, it groups by hash, as its plan may at any time once the table's statistics move.
+    if (DB::getDriverName() === 'pgsql') {
+        DB::statement('SET LOCAL enable_sort = off');
+    }
+
+    expect(array_column(app(TrafficChanceSampleQuery::class)->rows($this->now), 'country'))->toBe($countries);
 });
 
 it('keeps a run of the chances it works out, with the curve of confirmations', function () {

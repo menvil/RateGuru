@@ -50,7 +50,8 @@ final class TrafficChanceSampleQuery implements RawSqlPersistenceBoundary
             $bindings[] = $seconds;
         }
 
-        return TrafficVisit::query()
+        $keys = ['game_id', 'source_id', 'channel', 'device', 'country', 'rounds_answered'];
+        $query = TrafficVisit::query()
             ->tracked()
             ->where('arrived_at', '>=', $now->subDays(self::DAYS))
             ->whereNotNull('opened_at')
@@ -58,9 +59,16 @@ final class TrafficChanceSampleQuery implements RawSqlPersistenceBoundary
             ->where(fn ($matured) => $matured
                 ->where(fn ($paid) => $paid->whereNotNull('holds_until')->where('holds_until', '<=', $paidMatured))
                 ->orWhere(fn ($unpaid) => $unpaid->whereNull('holds_until')->where('arrived_at', '<=', $unpaidMatured)))
-            ->groupBy('game_id', 'source_id', 'channel', 'device', 'country', 'rounds_answered')
-            ->select('game_id', 'source_id', 'channel', 'device', 'country', 'rounds_answered')
-            ->selectRaw(implode(', ', $selects), $bindings)
+            ->groupBy(...$keys)
+            ->select($keys)
+            ->selectRaw(implode(', ', $selects), $bindings);
+
+        // In one order whatever plan the database picks: the same visits give the same cells.
+        foreach ($keys as $key) {
+            $query->orderBy($key);
+        }
+
+        return $query
             ->toBase()
             ->get()
             ->map(fn (object $row): array => (array) $row)
