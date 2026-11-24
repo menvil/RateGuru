@@ -1,0 +1,673 @@
+app/Enums/ModerationActionType.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 21
+lang/is/auth.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 34-35,57,59-62
+tests/Feature/Auth/RegistrationTest.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 4,10,12,184-222
+database/factories/TrafficSpendDayCountryFactory.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 1-27
+lang/ro/auth.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 34-35,57,59-62
+tests/Feature/Auth/RegistrationScreeningTest.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 1-337
+resources/views/games/result.blade.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 39,44,54-56,62
+docs/admin/traffic-sources.md
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 261-275,280-286
+config/observability.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 38
+resources/views/layouts/app.blade.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 2,11-12,47-55,66-74,84,91,106,110-111,113,120,126-131,168,210,219-223,228,232-236,238,240-241,247,254-259,263-264,266,281-286,288,324,355,359,363,366,369,375,436,450
+lang/hi/passwords.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 1-9
+resources/views/livewire/feed/feed-page.blade.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 80,87-88,122-123,148
+lang/id/passwords.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 1-9
+config/services.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 50-56
+lang/it/auth.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 34-35,57,59-62
+resources/views/livewire/profile/edit-profile-form.blade.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 20,30,44
+lang/bn/saved_posts.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 1-15
+tests/Feature/Auth/PasswordNullCharacterTest.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 1-118
+lang/fr/auth.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 34-35,57,59-62
+app/Actions/Auth/AuthenticateUserAction.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 11,18,31-33
+lang/sr/auth.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 34-35,57,59-62
+tests/Feature/Localization/MailContentLocaleTest.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 3,5-6,101,103,107-130
+resources/views/filament/pages/traffic-sources.blade.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 32
+lang/ka/auth.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 34-35,57,59-62
+resources/views/components/ui/error-message.blade.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 9
+tests/Feature/Auth/SocialAccountSecurityEmailTest.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 135-146
+app/Actions/Auth/ScreenRegistrationAction.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 1-260
+resources/views/livewire/games/steps/game.blade.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 35,68-70,99,104
+resources/views/layouts/partials/app-sidebar.blade.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 1
+lang/he/games.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 1-72
+lang/ur/passwords.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 1-9
+resources/views/components/auth/registration-guard.blade.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 1-33
+routes/auth.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 73,76-77
+docs/mobile/mobile-ux-guidelines.md
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 66-67
+lang/lt/auth.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 34-35,57,59-62
+app/Filament/Resources/Users/Concerns/ModeratesUsers.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 6,42,53-55,76,100-105,115-120,149,173-179,189,206
+tests/Feature/Mobile/MobilePostDetailOverlayTest.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 96
+app/Http/Requests/Auth/ConfirmPasswordRequest.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 5,13
+lang/vi/auth.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 34-35,57,59-62
+resources/views/profile/edit.blade.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 41-45,47
+app/Support/Auth/RegistrationFormStamp.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 1-52
+config/auth.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 106-117
+lang/id/mail.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 1-50
+resources/views/components/share/copy-link-button.blade.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 35-36,42,54
+resources/views/mail/contact-message.blade.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 2,4-7,9-11,13-18
+lang/he/follows.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 1-19
+database/migrations/2026_11_22_150000_add_email_canonical_to_users_table.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 1-55
+lang/sl/auth.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 34-35,57,59-62
+lang/ru/auth.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 34-35,57,59-62
+lang/he/profile.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 1-81
+tests/Feature/I18n/MultilingualDocsTest.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 17-27
+lang/mk/auth.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 34-35,57,59-62
+lang/id/games.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 1-72
+resources/views/livewire/comments/comments-section.blade.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 36,45,90,96,133
+resources/views/components/brand-wordmark.blade.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 7-11,14
+resources/views/components/posts/tag-links.blade.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 21
+lang/ar/saved_posts.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 1-15
+resources/views/filament/pages/traffic-sources/spend.blade.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 75
+resources/views/layouts/guest.blade.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 2
+tests/Feature/I18n/TranslationKeyGuardTest.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 22-23,39,125,137
+config/locales.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 67-72
+app/Enums/TurnstileOutcome.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 1-14
+resources/views/components/locale-switcher.blade.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 1-9,13-14,18-36,39,44-48,56-66,70,73-76,84-88,98,103,110
+app/Livewire/Admin/UserEditor.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 340
+lang/he/auth.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 1-82
+app/Actions/Auth/ScreenEmailChangeAction.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 1-57
+lang/sk/auth.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 34-35,57,59-62
+resources/js/app.js
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 3
+lang/el/auth.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 34-35,57,59-62
+lang/de/auth.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 34-35,57,59-62
+app/Support/Auth/EmailQualityCheck.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 1-54
+resources/views/livewire/games/play-game.blade.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 2-4,42-49,72
+docs/architecture/traffic.md
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 340-346,612-616
+tests/Feature/Architecture/SupportedLocaleListTest.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 17-19,21-26,71-72,95,117,121-124,127-129,131,136-137,204-205,207,231
+resources/views/components/ui/search-form.blade.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 22,26,37,46
+lang/ar/validation.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 1-57
+resources/views/livewire/feed/post-drawer-close.blade.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 11
+tests/Browser/AppHeaderRowBrowserTest.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 1-232
+tests/Feature/Auth/RegistrationEmailQualityTest.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 1-307
+lang/bn/ui.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 1-324
+lang/hi/mail.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 1-50
+resources/views/pages/contact.blade.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 12,15,20,59,95,112
+lang/pt/auth.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 34-35,57,59-62
+tests/Feature/SiteIconsTest.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 47-48
+resources/views/profile/partials/update-profile-information-form.blade.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 22,48-50
+app/Http/Controllers/Auth/RegisteredUserController.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 6,13,32,39-53
+tests/Feature/Games/PlayGamePageTest.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 307-318
+app/Support/Notifications/MailAddressee.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 30-46
+tests/Feature/ViewComponents/CopyLinkButtonComponentTest.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 3,53,79-89
+app/Support/Locale/WrittenText.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 1-28
+lang/bn/games.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 1-72
+lang/ur/profile.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 1-79
+public/favicon.svg
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 1-5
+resources/views/components/auth/register-form.blade.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 40,92-93
+resources/views/filament/pages/users/sanction.blade.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 8-9,20,25-29,79
+resources/views/livewire/games/steps/share.blade.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 3-4,9-12,14
+tests/Feature/ViewComponents/CommentItemComponentTest.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 70
+lang/ar/profile.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 1-81
+lang/uk/auth.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 34-35,57,59-62
+lang/ur/sharing.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 1-22
+resources/views/filament/pages/game-preview.blade.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 67-68
+tests/Browser/GamePlayBrowserTest.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 15,22-23
+lang/hi/profile.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 1-79
+tests/Feature/Auth/EmailConfirmationPathTest.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 1-368
+app/Support/Locale/IsolatedTranslation.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 1-38
+app/Filament/Pages/TrafficSources/TrafficSourcesView.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 136,207,240-241,362-367,375-376,378,382-391,393,397-402,417,420,465-467,476-480,482-510,531-532,560-561,567,1652-1654,1677,1697,1701,1735-1738
+infrastructure/config/environment-contract.json
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 53-55,433-438,519-528
+tests/Feature/Traffic/TrafficReachByCountryTest.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 1-334
+tests/Feature/ViewComponents/PostCardComponentTest.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 262
+lang/he/saved_posts.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 1-15
+lang/ur/mail.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 1-50
+resources/views/components/ui/icon.blade.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 47-51,55
+app/View/Components/AccountConfirmationNotice.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 30-34,36
+infrastructure/templates/environment/tits-guru.env.example
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 152,182-188
+resources/views/livewire/moderation/inline-post-moderation.blade.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 26,64,116
+app/Providers/MailLocalizationServiceProvider.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 41,58
+lang/id/follows.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 1-19
+app/Http/Requests/Auth/LoginRequest.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 8,34
+tests/Feature/Settings/ProjectSiteNameTest.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 102-103
+app/Http/Controllers/ProfileController.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 5,46,54
+tests/Feature/Games/PlayGameSignupTest.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 199-201
+docs/architecture/user-lifecycle.md
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 110-117,125-134
+resources/views/livewire/games/steps/full-result.blade.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 38,40,44,66-67,71-74,76
+tests/Feature/Filament/LanguagesPageTest.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 200-201
+app/Models/User.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 9,39,43,67-71
+resources/views/livewire/feed/post-drawer-content.blade.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 24,35,37,42,51,57-58,61,146,163,190
+lang/pl/auth.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 34-35,57,59-62
+lang/da/auth.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 34-35,57,59-62
+resources/views/livewire/games/steps/registration.blade.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 8,10,22
+lang/es/auth.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 34-35,57,59-62
+resources/views/pages/static.blade.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 12,15,20
+resources/views/livewire/games/steps/landing.blade.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 10,12,14,16
+app/Support/Notifications/NotificationMessage.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 5,7,31-39,61-81
+app/Queries/Traffic/TrafficReachQuery.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 11,44,46,50,57-77,86-87,91,93-94,101,105,268-316,319-320,325,332
+lang/ar/games.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 1-72
+resources/views/livewire/games/steps/intro.blade.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 3,5,7
+resources/views/livewire/games/steps/next-game.blade.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 4,8
+config/registration.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 1-11
+app/Actions/Traffic/ReplaceSpendCountriesAction.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 1-70
+resources/views/livewire/reports/report-modal.blade.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 23
+lang/id/ui.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 1-324
+lang/hu/auth.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 34-35,57,59-62
+app/Notifications/SocialAccountSecurityMail.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 25,28-30
+app/Actions/Users/UpdateUserAccountAction.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 5,13,16,40-43,48,55,64-68,74,76,78,107-109,114,120-121
+lang/hi/follows.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 1-19
+phpunit.xml
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 65-69
+resources/views/components/profile/header.blade.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 15-16,19,27
+resources/views/components/ui/drawer.blade.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 18-19,21-22,24-25
+resources/views/filament/pages/traffic-sources/reach.blade.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 7-9,16
+resources/js/turnstile.js
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 1-119
+lang/id/auth.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 1-82
+docs/dev/auth-modal.md
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 118-187
+app/Support/Auth/DisposableDomainList.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 1-72
+tests/Feature/I18n/PhysicalDirectionGuardTest.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 1-594
+lang/he/ui.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 1-331
+resources/views/components/voting/rating-options.blade.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 18,45,69,74,82,104
+lang/nb/auth.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 34-35,57,59-62
+app/Actions/Auth/ConfirmPasswordAction.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 8,12
+lang/en/auth.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 34-35,57,59-62
+lang/hi/import.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 1-26
+lang/id/import.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 1-26
+resources/css/app.css
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 51-164,185-192,194-197,200,335-341,399,402,409,446-450,589-590,617-619,719,721,727-728,903,956,1025-1029,1031-1032,1202,1256,1479,1502-1503
+lang/bn/sharing.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 1-22
+resources/views/auth/verify-email.blade.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 6-17
+tests/Feature/Views/BrandWordmarkTest.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 23-28
+app/Policies/UserPolicy.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 55-63
+lang/zh/auth.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 34-35,57,59-62
+tests/Feature/Auth/NameLinkValidationTest.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 1-94
+lang/bg/auth.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 34-35,57,59-62
+lang/th/auth.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 34-35,57,59-62
+app/Support/Games/Play/StepText.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 1-97
+app/Support/Auth/TurnstileVerifier.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 1-101
+resources/views/profile/partials/connected-accounts.blade.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 18,127
+lang/id/sharing.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 1-22
+lang/cnr/auth.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 34-35,57,59-62
+resources/views/livewire/feed/post-feed.blade.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 16
+lang/ur/follows.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 1-19
+tests/Unit/WaitForScriptTest.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 1-72
+app/Support/Observability/SecurityLog.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 1-87
+lang/bn/import.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 1-26
+lang/nl/auth.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 34-35,57,59-62
+lang/ur/validation.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 1-57
+tests/Feature/I18n/TextDirectionTest.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 1-224
+lang/hr/auth.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 34-35,57,59-62
+lang/bn/mail.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 1-50
+resources/views/components/sharing/share-buttons.blade.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 67
+tests/Feature/I18n/UserTextDirectionTest.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 1-409
+app/Support/Locale/LanguageRules.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 51-53,57-58
+app/Console/Commands/TrafficPurgeExpiredCommand.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 18,119
+resources/views/livewire/games/steps/email-capture.blade.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 7,9,13,22,25,30,33
+lang/hi/ui.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 1-324
+resources/views/livewire/admin/user-editor.blade.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 155-157
+app/Actions/Auth/RegisterUserAction.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 12,16,27-34,36-38
+lang/ar/import.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 1-26
+resources/views/livewire/feed/upload-post-form.blade.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 52,68,300,315,334,343,349
+app/Models/TrafficApiConnection.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 32
+infrastructure/templates/environment/staging.env.example
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 152,182-188
+lang/et/auth.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 34-35,57,59-62
+resources/views/layouts/partials/app-sidebar-content.blade.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 34,49-50
+lang/ar/follows.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 1-21
+tests/Feature/Mobile/MobileSwitchersTest.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 17-27
+lang/bn/follows.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 1-19
+resources/views/components/ui/dropdown.blade.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 2,20
+lang/ms/auth.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 34-35,57,59-62
+app/Actions/Auth/ResetPasswordAction.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 9,14,24,28-30,32,39,47
+lang/lv/auth.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 34-35,57,59-62
+lang/bn/passwords.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 1-9
+lang/id/saved_posts.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 1-15
+resources/views/livewire/posts/recently-deleted-posts-page.blade.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 5,7,32
+tests/Feature/Auth/PasswordCallArgumentsTest.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 1-88
+lang/hi/sharing.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 1-22
+.env.example
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 83-86,123-125
+resources/views/components/comments/comment-item.blade.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 37,41,71,90,102,112
+app/Http/Controllers/Auth/EmailVerificationNotificationController.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 6,23-30
+lang/id/validation.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 1-57
+tests/Browser/RightToLeftBrowserTest.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 1-674
+tests/Feature/Games/PreviewGameTest.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 29-36,131
+lang/fil/auth.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 34-35,57,59-62
+tests/Feature/Livewire/RecentlyDeletedPostsPageTest.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 53-55,116
+lang/bs/auth.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 34-35,57,59-62
+app/Http/Controllers/Auth/VerifyEmailController.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 30-31
+config/nightwatch.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 116
+lang/ar/sharing.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 1-22
+lang/he/import.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 1-26
+lang/ar/ui.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 1-334
+lang/sv/auth.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 34-35,57,59-62
+resources/views/components/account-confirmation-notice.blade.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 6-9
+app/Enums/RegistrationScreeningMode.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 1-21
+resources/views/livewire/feed/post-drawer.blade.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 39,81,144,147-153
+resources/views/components/share/post-share-panel.blade.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 24-25,31,41
+resources/views/components/ui/modal.blade.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 13-17,88
+resources/views/components/ui/input.blade.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 15-19,29
+lang/ar/auth.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 1-84
+lang/fi/auth.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 34-35,57,59-62
+resources/views/components/feed/post-card.blade.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 60,62,66,75,78,170,185,203,247
+app/Actions/Auth/ClaimAccountWithVerifiedEmailAction.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 113-114,116-119
+resources/views/livewire/games/steps/instructions.blade.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 3,5,7
+app/Support/Locale/LocaleManager.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 37,96,109,132-137,192-208
+lang/ur/import.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 1-26
+resources/views/livewire/games/steps/signup.blade.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 43,55,57,81,94,108,111-115
+tests/Feature/Traffic/TrafficConnectorsTest.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 15,155-223
+app/Http/Requests/Auth/RegisterUserRequest.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 5,9-11,22,25-29
+bootstrap/app.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 11,16-18,53-56,68-70,74-79
+lang/ur/ui.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 1-332
+lang/he/mail.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 1-50
+routes/web.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 90-92
+tests/Feature/Games/PlayGameOnwardTest.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 242-243
+tests/Feature/I18n/LanguageSwitcherTest.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 77-97
+app/Support/Profile/ProfileValidationRules.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 6,17-21,24
+lang/bn/profile.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 1-79
+app/Support/Seo/PostOpenGraph.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 83-88
+app/Http/Requests/Auth/UpdatePasswordRequest.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 5,16
+lang/ur/games.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 1-72
+resources/views/livewire/games/steps/result-preview.blade.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 9,11,14,24
+resources/views/livewire/reports/_report-modal-content.blade.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 58
+tests/Browser/MobilePostDrawerBrowserTest.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 25,33-40,77-88,90-94,98-100
+composer.json
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 22
+app/Filament/Pages/TrafficSourcesPage.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 116-119,281,285,1216,1236
+tests/Feature/Auth/RegistrationTurnstileTest.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 1-290
+app/Actions/Profile/UpdateUserIdentityAction.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 5,15-18,28,40-44,47-51,56,65-67,74-75
+resources/views/components/ui/image-placeholder.blade.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 20
+tests/Browser/AuthModalBrowserTest.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 454-465,468-469,502-504
+tests/Feature/I18n/LocaleManagerTest.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 67-102,259-271
+app/Livewire/Posts/RecentlyDeletedPostsPage.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 30-35,38-39,55-56
+tests/Feature/Domain/TerminalUserWriteBarrierTest.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 85,88
+lang/he/passwords.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 1-9
+resources/js/auth-modal.js
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 19,30-37
+resources/views/components/games/headline.blade.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 7-16,26-29,31
+app/Actions/Traffic/SyncTrafficNetworkAction.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 17,26,69,195-244
+lang/ur/saved_posts.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 1-15
+config/disposable-email.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 1-20
+resources/views/livewire/comments/comment-form.blade.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 5,15
+app/Http/Controllers/SiteManifestController.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 26-27
+docs/dev/social-login.md
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 109
+app/Support/Games/Play/GamePlayView.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 28,36,92,97-99,104,121-122,124-125,142,153,155,233,237,242-244,251
+app/Support/Auth/AuthSurfaceContext.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 10,66,69
+tests/Feature/ViewComponents/ModalComponentTest.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 119,121
+lang/ur/auth.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 1-82
+app/Actions/Auth/UpdatePasswordAction.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 8,12,25,39
+lang/ar/mail.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 1-50
+app/Http/Requests/DeleteUserRequest.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 6,43
+resources/views/livewire/games/steps/onward.blade.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 12,15-16,27,31,52,55
+app/Livewire/Profile/EditProfileForm.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 57-59,61
+docs/i18n/multilingual-ui.md
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 47,68,145-209
+lang/he/sharing.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 1-22
+lang/tr/auth.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 34-35,57,59-62
+resources/views/livewire/profile/profile-page.blade.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 21-22,25,33,184,187-188
+lang/hi/saved_posts.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 1-15
+lang/ar/passwords.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 1-9
+app/Exceptions/Auth/TurnstileMisconfiguredException.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 1-14
+app/Actions/Moderation/ConfirmUserEmailAction.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 1-59
+app/Providers/AppServiceProvider.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 23,32,34,69,78,85-94,176-177
+resources/views/livewire/notifications/notification-bell.blade.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 24,36,50
+resources/views/livewire/posts/post-show.blade.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 67,69,74,93,96,190,207,252
+app/Models/TrafficSpendDayCountry.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 1-45
+resources/views/components/posts/category-link.blade.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 16,20
+lang/sq/auth.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 34-35,57,59-62
+lang/bn/auth.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 1-82
+app/Support/Observability/GuestVoteAttemptLog.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 6-9,19,27-30
+app/Support/AbuseGuards/RateLimitKey.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 24-49
+lang/id/profile.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 1-79
+tests/Feature/Routes/PostShowRouteTest.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 57-75
+resources/js/header-fit.js
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 1-154
+app/Rules/ContainsNoNullCharacter.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 1-22
+app/Support/Auth/SendConfirmationMailOnSignUp.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 1-27
+config/rate_limits.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 16-24,34-39
+routes/console.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 141-144
+resources/views/components/responsive-nav-link.blade.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 5-6
+tests/Feature/Traffic/TrafficReportPageTest.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 583,621,643-645,649-662
+database/migrations/2026_11_23_100000_create_traffic_spend_day_countries_table.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 1-47
+tests/Feature/ViewComponents/DrawerComponentTest.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 37,74-75,77-81,84-88
+lang/hi/auth.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 1-82
+app/Http/Requests/ProfileUpdateRequest.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 6-7,22,44
+lang/he/validation.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 1-57
+resources/views/filament/pages/traffic-sources/sites.blade.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 61-65
+lang/cs/auth.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 34-35,57,59-62
+lang/ja/auth.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 34-35,57,59-62
+tests/Feature/Auth/SocialAccountClaimTest.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 128-167
+app/Actions/Auth/SendEmailVerificationNotificationAction.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 5,7-10,14-24,33-49,54-68
+tests/Feature/Mobile/MobileNavigationPolishTest.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 61-62
+app/Services/Traffic/Connectors/ReadsImpressionsByCountry.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 1-15
+tests/Feature/ViewComponents/InputComponentTest.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 34-42
+tests/Pest.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 5,103,121,172,182,184,1563,1586-1602,8309-8312,8314,8317-8318,8321-8327,8329-8332,8341-8344,8778-8793,14858-14934,15001-15046,15755-15763
+lang/hi/games.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 1-72
+lang/bn/validation.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 1-57
+lang/hi/validation.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 1-57
+app/Rules/ContainsNoLink.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 1-38
+app/Support/Auth/EmailCanonicalizer.php
+  s_4b9dc6ab6b25d3::t_4cb77eea195387 1-30
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "cd01dc3d60457d085a3191355fcb3cf3d67d6514",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
