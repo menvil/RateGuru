@@ -1,0 +1,38 @@
+tests/Feature/Analytics/AnalyticsEngagementTabTest.php
+  s_4b9dc6ab6b25d3::t_3e9d8f1e02b70d 462-517
+app/Filament/Pages/Analytics/EngagementTab.php
+  s_4b9dc6ab6b25d3::t_bf1bee6f55369e 6,8,15,22,53-55,62,89,104,210-281
+tools/phpstan/architecture.neon
+  s_4b9dc6ab6b25d3::t_4deed5f337dda3 179
+app/Filament/Pages/GrowthAnalyticsPage.php
+  s_4b9dc6ab6b25d3::t_8bccadd187b660 197-200,845
+  s_4b9dc6ab6b25d3::t_bf1bee6f55369e 34
+resources/views/filament/pages/analytics/engagement.blade.php
+  s_4b9dc6ab6b25d3::t_c5580d51917648 192-221
+docs/design/admin/design-contract.md
+  s_4b9dc6ab6b25d3::t_68b5a4c8b61ed9 1480-1484,1550
+app/Queries/Analytics/RegistrationFunnelQuery.php
+  s_4b9dc6ab6b25d3::t_8bccadd187b660 81-107
+resources/css/filament/admin/components.css
+  s_4b9dc6ab6b25d3::t_ee898d367f9e06 18749-18764
+docs/admin/analytics.md
+  s_4b9dc6ab6b25d3::t_68b5a4c8b61ed9 159-176
+tests/Browser/AdminAnalyticsEngagementBrowserTest.php
+  s_4b9dc6ab6b25d3::t_a4877a8eff917f 109-132
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "962bfe11ca8724a6660ed571d0a86cfdcb8666e6",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
