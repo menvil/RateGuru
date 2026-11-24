@@ -728,7 +728,9 @@ threshold, since impressions, not clicks, judge it.
 
 `traffic:purge-expired`, daily: visits, conversions, spend figures, the block
 log and members' activity days after 400 days, click details, the posts of a
-visit and postbacks after 90, all but the last 30 runs of chances. Sources, campaigns, prices and
+visit, the post a session landed on (`landing_post_id`, emptied on the visit
+kept, its day read again) and postbacks after 90, all but the last 30 runs of
+chances. Sources, campaigns, prices and
 attributions stay — an attribution whose credited visit is purged keeps the
 source key and device copied from it, so Retention keeps the account's
 source and device. A purged unconfirmed account takes its attribution, browsers
