@@ -129,7 +129,7 @@ final class TrafficReportQuery implements RawSqlPersistenceBoundary
     public function signups(TrafficReportFilter $filter, TrafficDimension $dimension, ?CarbonInterface $unconfirmedBefore = null): array
     {
         [$signups, $bindings] = self::signupMetrics($unconfirmedBefore ?? UnconfirmedAccountsQuery::cutoff());
-        $columns = $dimension->columns();
+        $columns = $dimension->signupColumns();
 
         return $this->visits($filter)
             ->groupBy(...$columns)

@@ -10,7 +10,11 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 /**
- * One block or unblock, with the network's answer.
+ * One block or unblock, with the network's answer: done all the way (ok),
+ * part of the way (partial) or not at all; or what a read of the network's
+ * lists found blocked in its panel (`found`), or taken off there (`gone`) —
+ * off every list it was on, or, partial, off some only. A line the read
+ * wrote names every site or zone it is about in `refs`.
  *
  * @property int $id
  * @property int $source_id
@@ -24,6 +28,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property TrafficActor $actor
  * @property int|null $actor_user_id
  * @property bool $ok
+ * @property bool $partial
  * @property int|null $http_status
  * @property string|null $note
  * @property CarbonImmutable $occurred_at
@@ -50,6 +55,7 @@ class TrafficBlockEvent extends Model
             'actor' => TrafficActor::class,
             'actor_user_id' => 'integer',
             'ok' => 'boolean',
+            'partial' => 'boolean',
             'http_status' => 'integer',
             'occurred_at' => 'immutable_datetime',
         ];

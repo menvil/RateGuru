@@ -286,7 +286,9 @@ visits came through it.
 
 `App\Services\Traffic\Connectors`: PopAds and ExoClick, each checking its key
 and reading spend and campaigns and editing block lists through the interfaces
-it implements. Keys are kept in `traffic_api_connections.credentials`
+it implements — `EditsBlockLists` extends `ReadsBlockLists`, whose
+`blockLevels()` and `blockLists()` read campaigns' lists and never write one;
+the sync's read of the lists is given a `ReadsBlockLists` alone. Keys are kept in `traffic_api_connections.credentials`
 (`encrypted:array`, hidden, redacted from logs); a backup restored without the
 same `APP_KEY` makes them unreadable, and the connection asks for the key
 again. Neither connector ever changes a bid or a budget or touches money, and
@@ -297,11 +299,20 @@ PopAds replaces a campaign's website list whole and refuses one to exclude
 without a site (a validation error, which PopAds sends with HTTP 500): the last
 site taken off turns the campaign's targeting off (`mode=none`) instead, and a
 list shared through `global` targeting that would be left empty is left alone
-(`TrafficConnectorFailure::SharedList`). An error PopAds explains in an
+(`TrafficConnectorFailure::SharedList`). A campaign with its targeting off
+excludes nothing, whatever sites PopAds still keeps saved for it: a block
+added there is the only site the list then excludes — the saved ones are
+never excluded again — and taking one off writes nothing. An error PopAds explains in an
 `errors` list is a refusal (`Rejected`), whatever its status — never an API
-that is down. A block whose taking off the network refused stays `applied`
-with its `network_error`; Sites & zones shows that, and where every block on
-its way to or off a network stands.
+that is down. A list read without its sites, or with an entry that is no
+site ID (`UnexpectedResponse`: never a blank read as every site taken off),
+or a campaign listing what to allow rather than what to block
+(`Unsupported`), is never rewritten; the answer to a change is judged by the
+site IDs it holds, any other entry left out, so a change that went is never
+taken for one that didn't; reading
+the lists alone leaves such a campaign out, as it does one the network
+doesn't know. A change is judged site by site, or zone by zone, from the
+list the campaign reads back ("Blocking").
 
 ## Sync
 
@@ -310,7 +321,25 @@ blocks first, then each connection due — every five minutes — today and
 yesterday's spend in the network's day, a day closed once its figures came
 whole, up to 30 days back after connecting, and the campaigns' own details,
 only for campaigns RateGuru saw a click of, so a new campaign is named within
-minutes of its first click. The same figures again change nothing: a day is
+minutes of its first click; and every six hours (`block_lists_read_at`) each
+running campaign's block list, read and never written
+(`ReadTrafficBlockListsAction`, "Blocking"). A list that can't be read — an
+answer of a shape RateGuru doesn't know, the API down for that call — changes
+nothing and fails nothing but itself: the other campaigns' lists are read and
+recorded all the same (`BlockListsRead`), but for those after an API that is
+down, slow or busy, which wait for the next read rather than cost a call each
+that would fail the same way. The first such failure is reported and kept on
+the connection — why (`block_lists_error`, a `TrafficConnectorFailure`) and
+whose list, by the network's campaign ID (`block_lists_error_campaign`, which
+the connector names on the `ConnectorException`) — until the next read reads
+the list again and clears it once it goes through; the source's Blocking pane says "Couldn't
+read EU popunder's block list at 17 Nov 12:00: …" until then, while the API
+stays connected — disconnected, nothing reads it again. A key refused
+there fails the connection as anywhere else. Each turn then queues
+RateGuru's own blocks for the running campaigns they are missing from
+(`QueueMissingTrafficBlocksAction`, "Blocking"), so a campaign that has just
+had its first click is sent them within minutes. The same figures again
+change nothing: a day is
 shared out over its visits again only when the network's figures for it
 changed. Failures wait longer each time; a refused
 key, an account not in dollars or five failures running need the administrator.
@@ -384,19 +413,175 @@ badge's tip names the values that applied, the source's average among them.
 every five minutes for an active source set to, with a verified API that
 blocks its level: only those with a click in the last 3 days, the most spent
 first, within the source's daily cap (a UTC day), never one blocked or queued
-already, nor one an administrator unblocked in the last 30 days.
+already, nor one an administrator unblocked in the last 30 days — in RateGuru,
+or by taking it off every campaign's list in the network's own panel, as a
+read of the lists saw it (below). An administrator can still block it again.
 `traffic:sync-networks` applies them within a minute. A run with no such
 source reads no figures. `TrafficBlocksQuery` reads what the rule and a
 source's Blocking pane share: the source's blocks counted by level, maker and
-network state in one query, the rule's blocks today and the accounts the worth
-stands on. The rule's blocks today are summed from its own `queued` entries in
+network state in one query, the rule's blocks today, the sites and zones
+unblocked lately (`unblockedLately()`: an administrator's `unblock` entries in
+`traffic_block_events`, and the `gone` entries of `network_panel` a read wrote
+for what was taken off every list) and the accounts the worth stands on; and
+the running campaigns RateGuru's own blocks are still to be sent to
+(`missingFromCampaigns()`, below). The rule's blocks today are summed from its own `queued` entries in
 `traffic_block_events`, which an unblock leaves in place, so a block taken off
 again never frees room under the cap the same day. Sites & zones lists a block
 in force that sent no click in the period too, with no figures, while the
 filters go no narrower than the source, so its Blocked segment matches the
-pane. When the rule last ran is kept in the cache
-(`TrafficSetting::blockRuleRanAt()`), not on the settings row, whose saves are
+pane. Its Select all ticks every row that matches, however many; Block and
+Push again split the ticks by source and level, and each group into batches
+of `BlockTrafficRefsAction::MOST_REFS` (200), the most the action takes at a
+time, each batch its own transaction and line of the log. When the rule last
+ran is kept in the cache (`TrafficSetting::blockRuleRanAt()`), not on the settings row, whose saves are
 held to their `lock_version`.
+
+### Where a block stands on the network
+
+A block sent through the API is for every running campaign of its source, or
+the one it names. `ApplyTrafficBlocksAction` sends a campaign one change with
+all its sites or zones and judges each of them on its own by the list the
+campaign reads back; where each stands on each campaign's list is kept in
+`traffic_block_listings` (`TrafficBlockListing`: `listed`, and `error` — the
+`TrafficConnectorFailure` a campaign refused it with, `taken_off` once taken
+off in the network's panel, or, on a list still holding it, why taking it off
+failed). A call the network refused changed nothing: a list that held a site
+holds it still. One that failed only because the network was slow, down or
+busy (`TrafficConnectorFailure::passes()`: `timeout`, `unavailable`,
+`rate_limited`) may have landed all the same — the write gone through, its
+answer or the read back lost — so the listing it leaves may be on the list
+(`TrafficBlockListing::mayBeListed()`). `BlockStanding::of()` turns the listings into the block's
+`network_state`, so applying and reading judge alike:
+
+- `applied` — on every campaign's list it is for;
+- `partial` — on some, not all: "Partly blocked · N of M campaigns", its tip
+  naming each campaign it isn't on and why. It is neither applied nor failed
+  in the Blocking pane, which counts it on its own (`partial`);
+- `failed` — on none, with the reason (`no_campaign` when the source had none
+  to send it to);
+- `taken_off` — on none, a list having held it before: taken off in the
+  network's panel.
+
+A block found in the network's panel (below) is `applied` while any list
+holds it, never `partial`: RateGuru never sent it to the others.
+`network_error` keeps the reason to show: why taking it off failed where a
+list still holds it, else why a campaign refused it. Unblocking takes a block
+off the campaigns whose lists hold it, or may — an add that failed only
+because the network was slow, down or busy; while none of its listings is
+known, as for a block from before listings were kept, every running campaign
+it is for, or the one it names, ended or not — and deletes it once no list
+holds it; where one refused, it stays, `partial` or `applied`, its badge
+saying the unblock failed. A block whose listings show no list that holds it
+or may — every campaign refused it — goes at once.
+The batch's outcome — listings, states and its line of the log — is written
+in one transaction on the source locked, then its blocks, the order every
+writer of blocks takes them in (`LocksTrafficRecords`), so an unblock, a push
+or a read of the lists waits for it, or it for them. The network is called
+before that transaction, so a block may be unblocked, blocked again or pushed
+again meanwhile. Every write that queues a block — blocking again, Push
+again, an unblock, a mark for the campaigns missing it — counts one more
+request (`traffic_blocks.request_version`), and the batch settles a block
+only while it is still the request the batch read. One unblocked and blocked
+again while the network was being called is `pending` as the batch read it,
+yet a request of its own: it stays `pending` for the next batch, which sends
+it everywhere it is for, the campaign that refused it included. Only a block
+off every list is deleted whichever unblock asked for it — nothing was sent
+for it in between. **Push again** (`BlockTrafficRefsAction::push()`)
+sends ticked blocks back to `pending`, to every campaign they are for, and
+an administrator blocking again through the API does the same for a
+`failed`, `partial` or `taken_off` block, whoever made it — the rule never
+sends a block again; a block marked by
+hand, or found in the panel, pushed again becomes RateGuru's own (`api`).
+
+RateGuru's own blocks sent through the API (`api` and `auto`; never one marked
+by hand or found in the panel) are meant for every running campaign they are
+for, so a campaign that comes later doesn't leave them partly blocked. Each
+sync turn, after the campaigns and their lists are read,
+`QueueMissingTrafficBlocksAction` asks `TrafficBlocksQuery::missingFromCampaigns()`
+— one query — which running campaigns each `applied`, `partial` or `failed`
+block lacks: no listing there (a campaign that came after it, its first click
+or one back from the archive), or one not on the list with nothing said
+against it (a list read without it). A listing that failed only because the
+network was slow, down or busy (`timeout`, `unavailable`, `rate_limited`) is
+one of those once a read of that campaign's own list finds the block isn't
+there: the read clears the failure, the add didn't land. So a passing failure
+is tried again once a read of the lists, never in a loop — and never while
+that campaign's list can't be read, when the add may have landed and an
+unblock still takes the block off there (`mayBeListed()`). Never one whose listing
+records a refusal or any other failure, nor one taken off there in the panel (`taken_off`,
+the owner's doing); never a block `taken_off` every list, one whose unblock
+failed on a list still holding it — an administrator wants it off — nor one
+whose listings aren't known yet, which waits for the read to know them, but
+for one sent while the source had no campaign (`no_campaign`). On the source
+locked, then the blocks, it marks each such listing `pending`
+(`TrafficBlockListing::PENDING`), sets the block `pending` and logs one
+`queued` line of `system` a level, which the rule's cap doesn't count.
+`ApplyTrafficBlocksAction` then sends a block with marked listings to those
+running campaigns alone — a call a campaign, with only what it lacks — keeps
+where it stands on the others, a refusal and the `partial` that goes with it
+included, and judges the batch's line by the campaigns it sent to. No mark
+outlives the batch: one for a campaign that ended meanwhile, or on a block
+unblocked since, goes with it, and `BlockStanding` never takes one for a
+refusal. A batch whose blocks were marked only for campaigns archived before
+it went sends nothing and logs nothing: they are back where they stood. A
+batch that went part of the way is logged with `partial` beside `ok`, its note
+counting the campaigns that took all of it. A click through a campaign whose
+listing says it doesn't hold the block is no blocked click
+(`RecordBlockedHitAction`).
+
+### What the network's panel blocked
+
+Every six hours the sync reads each running campaign's block list at every
+level its API blocks (`ReadsBlockLists::blockLists()`, a second between
+PopAds campaigns) and records it in one transaction on the source locked,
+writing nothing to the network. A block that changed while its lists were
+read — sent, sent again or unblocked meanwhile, by another sync whose lock
+ran out or by an administrator, or deleted and blocked again: its id, state
+and `request_version` are no longer those the read began with — stands newer
+than the lists read and is
+left to the next read, and a site of a block deleted meanwhile is never
+taken for one blocked in the panel:
+
+- a site or zone on a list that RateGuru has no block for was blocked in the
+  network's own panel: it becomes a block of method `panel`, `applied`, with
+  a listing for each list holding it — none for a campaign that never did,
+  so a click through one, or one naming no campaign, isn't counted as still
+  sent. It counts as blocked
+  everywhere a block does — the Blocked segment, Worth blocking, the rule,
+  which leaves it alone — and its badge says "Blocked on PopAds", "Blocked in
+  the PopAds panel, not by RateGuru", with how many campaigns' lists hold it
+  (counted with the blocks on each render, never loaded). Once no list holds
+  it, it was taken off there, and goes, whatever an unblock that failed left
+  it as;
+- RateGuru's own block keeps where it stands on each list it is for: a list
+  holding it has it (a campaign that came after the block and doesn't is sent
+  it, above), one that held it and holds it no longer had it taken off in the
+  panel — marked `taken_off`, never put back, which would undo what an
+  administrator did there. A campaign that ended without taking
+  it is no longer one it is for: its listing goes, so a refusal there never
+  keeps a block `partial` — but not one taken off there in the panel, the
+  owner's doing, kept so that neither that campaign, back from the archive,
+  nor another one for its going, is sent the block; nor one the network may
+  hold it on all the same (`mayBeListed()`), kept so an unblock takes it
+  off there. A block from before listings were kept starts from
+  what it said — an unblock that failed, on the lists holding it, a refusal
+  on those that don't;
+- a block only marked here, or on its way to or off the lists, is left to its
+  own way.
+
+RateGuru takes nothing off a list that it did not put there, but for a block
+an administrator unblocks: a `panel` block unblocked comes off the lists that
+hold it, as any other. A PopAds list shared through `global` targeting is
+read for each campaign that shares it, and left alone when it would be left
+empty, as before. The log says what a read found (`found`) and what it saw
+taken off (`gone`), lines of `network_panel` (`TrafficActor::NetworkPanel`)
+naming every site or zone each is about in `refs`, 200 a line: taken off
+every list it was on — a block found in the panel gone, or RateGuru's own now
+`taken_off` — which the block rule leaves to the owner for 30 days, as it
+does a site an administrator unblocked, "Taken off in the panel" in Logs →
+Blocks; or taken off some lists only (`partial`), "Taken off some lists in
+the panel", still blocked on the others. ExoClick reads its campaigns'
+blocked zones the same way, unverified like the rest of its connector.
 
 ## Reports
 

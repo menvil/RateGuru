@@ -807,6 +807,10 @@ it('shows on Blocking what a source blocked, where its blocks stand with the net
     $block('z1', TrafficBlockLevel::Zone, TrafficBlockMethod::Manual, TrafficBlockNetworkState::ByHand);
     // On its way off the network's list: no longer in force.
     $block('s5', TrafficBlockLevel::Site, TrafficBlockMethod::Api, TrafficBlockNetworkState::Removing);
+    // On some campaigns' lists, taken off them all in the panel, and one blocked in the panel, not by RateGuru.
+    $block('s6', TrafficBlockLevel::Site, TrafficBlockMethod::Api, TrafficBlockNetworkState::Partial);
+    $block('s7', TrafficBlockLevel::Site, TrafficBlockMethod::Api, TrafficBlockNetworkState::TakenOff);
+    $block('s8', TrafficBlockLevel::Site, TrafficBlockMethod::Panel, TrafficBlockNetworkState::Applied);
     TrafficBlock::factory()->create(['level' => TrafficBlockLevel::Site, 'ref' => 'other']);
     // The rule's own entries in the blocks log: today's count against the cap, yesterday's not.
     $queued = fn (string $ref, CarbonInterface $at) => TrafficBlockEvent::query()->create(['source_id' => $source->id, 'kind' => 'queued', 'level' => TrafficBlockLevel::Site, 'ref' => $ref, 'ref_count' => 1, 'method' => TrafficBlockMethod::Auto, 'actor' => TrafficActor::BlockRule, 'ok' => true, 'occurred_at' => $at]);
@@ -815,12 +819,13 @@ it('shows on Blocking what a source blocked, where its blocks stand with the net
     TrafficSetting::recordBlockRuleRun(now()->subMinutes(3));
 
     Livewire::withQueryParams(['tab' => 'sources', 'edit' => (string) $source->id])->test(TrafficSourcesPage::class)
-        ->assertViewHas('editor', fn (array $editor): bool => $editor['blocking']['counts'] === ['sites' => 4, 'zones' => 1, 'by_hand' => 3, 'by_rule' => 2, 'marked' => 2, 'pending' => 1, 'applied' => 1, 'failed' => 1, 'removing' => 1, 'rule_today' => 1])
+        ->assertViewHas('editor', fn (array $editor): bool => $editor['blocking']['counts'] === ['sites' => 7, 'zones' => 1, 'by_hand' => 5, 'by_rule' => 2, 'in_panel' => 1, 'marked' => 2, 'pending' => 1, 'applied' => 1, 'partial' => 1, 'failed' => 1, 'taken_off' => 1, 'removing' => 1, 'rule_today' => 1])
         ->assertSee('Every 5 minutes, through the network’s API, within the day’s cap.')
         ->assertSeeHtmlInOrder([
             'data-testid="traffic-source-blocking-status"',
-            'In force', '<strong>5</strong>', '4 sites · 1 zone', '3 by hand · 2 by the rule',
-            'Sent through the API', '<strong>1</strong>', 'on the network’s list · 1 waiting · 1 failed', '2 marked here only, not sent · 1 coming off',
+            'In force', '<strong>8</strong>', '7 sites · 1 zone', '5 by hand · 2 by the rule · 1 in the PopAds panel',
+            // Partly blocked counts as neither on the list nor failed.
+            'Sent through the API', '<strong>1</strong>', 'on the network’s list · 1 on some campaigns’ lists only · 1 waiting · 1 failed', '2 marked here only, not sent · 1 taken off in the PopAds panel · 1 coming off',
             'By the rule today', '1 of 5', 'On for this source', 'Last ran 17 Nov 11:57',
             // A zone among its blocks: the list by zone, which lists zone and site blocks alike.
             'href="'.e(TrafficSourcesPage::getUrl(['view' => 'sites', 'source' => $source->id, 'seg' => 'blocked']).'#traffic-performance').'"', 'See blocked in Sites &amp; zones',

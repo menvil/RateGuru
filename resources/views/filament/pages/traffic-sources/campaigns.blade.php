@@ -16,10 +16,14 @@
     <div class="rg-admin-traffic__new-campaign" data-testid="traffic-new-campaign">
         <span class="rg-admin-traffic__new-campaign-sign" aria-hidden="true"><x-admin.ui.icon name="sparkles" :size="16" /></span>
         <span class="rg-admin-traffic__new-campaign-text">
-            <span class="rg-admin-traffic__new-campaign-title">{{ $newCampaign['source'] }} campaign {{ $newCampaign['external'] }} is new</span>
-            <span class="rg-admin-traffic__new-campaign-note">{{ number_format($newCampaign['visits']) }} {{ \Illuminate\Support\Str::plural('visit', $newCampaign['visits']) }} since {{ $newCampaign['since']->format('j M H:i') }}{{ $newCampaign['game'] !== null ? ', from the '.$newCampaign['source'].' link of '.$newCampaign['game'] : '' }}. Its clicks and postbacks already work; give it a name, its targeting, bid and stage so reports can tell it apart.</span>
+            <span class="rg-admin-traffic__new-campaign-title">{{ $newCampaign['source'] }} campaign {{ $newCampaign['name'] !== null ? '“'.$newCampaign['name'].'”' : $newCampaign['external'] }} is new</span>
+            @if ($newCampaign['synced'])
+                <span class="rg-admin-traffic__new-campaign-note">{{ number_format($newCampaign['visits']) }} {{ \Illuminate\Support\Str::plural('visit', $newCampaign['visits']) }} since {{ $newCampaign['since']->format('j M H:i') }}{{ $newCampaign['game'] !== null ? ', from the '.$newCampaign['source'].' link of '.$newCampaign['game'] : '' }}. Its clicks and postbacks already work, and its name, targeting, bid and budget come from the {{ $newCampaign['source'] }} API. Choose its stage — Testing, Optimising or Scaling — to take it out of New; a game and a target price of an account are optional.</span>
+            @else
+                <span class="rg-admin-traffic__new-campaign-note">{{ number_format($newCampaign['visits']) }} {{ \Illuminate\Support\Str::plural('visit', $newCampaign['visits']) }} since {{ $newCampaign['since']->format('j M H:i') }}{{ $newCampaign['game'] !== null ? ', from the '.$newCampaign['source'].' link of '.$newCampaign['game'] : '' }}. Its clicks and postbacks already work; give it a name, its targeting, bid and stage so reports can tell it apart.</span>
+            @endif
         </span>
-        <x-admin.ui.button size="sm" variant="primary" wire:click="openCampaign({{ $newCampaign['id'] }})">Set it up</x-admin.ui.button>
+        <x-admin.ui.button size="sm" variant="primary" wire:click="openCampaign({{ $newCampaign['id'] }})">{{ $newCampaign['synced'] ? 'Choose its stage' : 'Set it up' }}</x-admin.ui.button>
     </div>
 @endif
 
@@ -160,8 +164,8 @@
                                 <span class="rg-admin-traffic__note">{{ $row['sub'] }}</span>
                             </span>
                             <span role="cell" class="rg-admin-traffic__perf-label">
-                                <span>{{ $row['countries'] ?? ($row['new'] ? 'Not set yet' : 'Every country') }}</span>
-                                <span class="rg-admin-traffic__note">{{ $row['new'] ? 'First seen '.$row['since']->format('j M H:i') : implode(' · ', array_filter([$row['devices'], $row['format']])) }}</span>
+                                <span>{{ $row['countries'] ?? ($row['new'] && ! $row['synced'] ? 'Not set yet' : 'Every country') }}</span>
+                                <span class="rg-admin-traffic__note">{{ $row['new'] && ! $row['synced'] ? 'First seen '.$row['since']->format('j M H:i') : implode(' · ', array_filter([$row['devices'], $row['format']])) }}</span>
                             </span>
                             <span role="cell" class="rg-admin-traffic__perf-label">
                                 <x-admin.ui.badge :tone="$stageTone[$row['stage']] ?? 'outline'">{{ $stages[$row['stage']] ?? ucfirst($row['stage']) }}</x-admin.ui.badge>

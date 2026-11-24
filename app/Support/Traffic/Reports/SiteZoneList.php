@@ -8,7 +8,8 @@ use App\Support\Traffic\Money\TrafficMoney;
  * The networks' sites or zones as one flat list, as Sites & zones draws it:
  * each in a segment by its block rule state — worth blocking (bots, losing,
  * a weak start, paid impressions that mostly never reach RateGuru),
- * profitable, below the line, too early, blocked — counted per segment;
+ * profitable, below the line, too early, blocked — counted per segment, and
+ * every one not blocked counted as active;
  * searched by its ID, its network or its campaign; those under so many
  * clicks left out, but for Low reach, which the paid impressions judge
  * (clears()); sorted by a column, its key last so two equal rows never
@@ -23,6 +24,8 @@ final class SiteZoneList
     /** @var array<string, string> segment => label */
     public const array SEGMENTS = [
         'all' => 'All',
+        // Every one not blocked: All without the Blocked segment.
+        'active' => 'Active',
         'block' => 'Worth blocking',
         'profit' => 'Profitable',
         'watch' => 'Below the line',
@@ -52,10 +55,15 @@ final class SiteZoneList
 
         foreach ($visible as $row) {
             $counts['all']++;
+            $counts['active'] += $row['blocked'] ? 0 : 1;
             $counts[self::segmentOf($row)]++;
         }
 
-        $matched = array_values(array_filter($visible, fn (array $row): bool => $segment === 'all' || self::segmentOf($row) === $segment));
+        $matched = array_values(array_filter($visible, fn (array $row): bool => match ($segment) {
+            'all' => true,
+            'active' => ! $row['blocked'],
+            default => self::segmentOf($row) === $segment,
+        }));
         $sign = $direction === 'asc' ? 1 : -1;
         $order = array_map(function (array $row) use ($sort, $sign): array {
             $value = self::value($row, $sort);

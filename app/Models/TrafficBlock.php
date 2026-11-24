@@ -11,10 +11,12 @@ use Database\Factories\TrafficBlockFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 /**
- * A blocked site or zone of a network, and how many clicks still came from it
- * afterwards.
+ * A blocked site or zone of a network — by RateGuru, or found blocked in the
+ * network's own panel — where it stands on each campaign's list, and how many
+ * clicks still came from it afterwards.
  *
  * @property int $id
  * @property int $source_id
@@ -27,6 +29,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property string|null $batch
  * @property TrafficBlockNetworkState $network_state
  * @property string|null $network_error
+ * @property int $request_version how many times it has been queued for the network: a sync batch settles only the request it read
  * @property int $clicks_after
  * @property CarbonImmutable|null $last_click_after_at
  * @property int|null $blocked_by_user_id
@@ -54,6 +57,7 @@ class TrafficBlock extends Model
             'method' => TrafficBlockMethod::class,
             'verdict' => TrafficBlockVerdict::class,
             'network_state' => TrafficBlockNetworkState::class,
+            'request_version' => 'integer',
             'clicks_after' => 'integer',
             'last_click_after_at' => 'immutable_datetime',
             'blocked_by_user_id' => 'integer',
@@ -73,5 +77,15 @@ class TrafficBlock extends Model
     public function campaign(): BelongsTo
     {
         return $this->belongsTo(TrafficCampaign::class, 'campaign_id');
+    }
+
+    /**
+     * Where it stands on each campaign's list, as last written or read, in the order the campaigns came.
+     *
+     * @return HasMany<TrafficBlockListing, $this>
+     */
+    public function listings(): HasMany
+    {
+        return $this->hasMany(TrafficBlockListing::class, 'block_id')->orderBy('campaign_id');
     }
 }

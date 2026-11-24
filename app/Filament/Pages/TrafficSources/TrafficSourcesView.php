@@ -26,6 +26,7 @@ use App\Models\Game;
 use App\Models\GameVersion;
 use App\Models\TrafficApiConnection;
 use App\Models\TrafficBlock;
+use App\Models\TrafficBlockListing;
 use App\Models\TrafficCampaign;
 use App\Models\TrafficCampaignEvent;
 use App\Models\TrafficCampaignStagePeriod;
@@ -79,6 +80,7 @@ use Brick\Math\BigDecimal;
 use Brick\Math\RoundingMode;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
+use Illuminate\Database\Eloquent\Collection as EloquentCollection;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Str;
@@ -141,6 +143,9 @@ final class TrafficSourcesView
 
     /** @var array<string, ReachTally> the network's impressions and the visits that reached RateGuru, by period and the source read ('*' for all), for this render */
     private array $reachRead = [];
+
+    /** @var array<int, string>|null each source's network, by the source, for this render */
+    private ?array $networks = null;
 
     public function __construct(
         private readonly TrafficReportQuery $reports,
@@ -311,20 +316,26 @@ final class TrafficSourcesView
                 $keys = $group['keys'];
                 $source = isset($keys['source_id']) ? $sources->firstWhere('id', (int) $keys['source_id']) : null;
                 $ref = $keys[$dimension->columns()[0]] ?? null;
+                // A network with no zones (PopAds) splits by site, as Sites & zones lists it.
+                $bySite = $dimension === TrafficDimension::Zone && ($ref === null || $ref === '') && (string) ($keys['site_ref'] ?? '') !== '';
+                $level = $bySite ? TrafficDimension::Site : $dimension;
+                $ref = $bySite ? $keys['site_ref'] : $ref;
+                $name = $source->name ?? 'Source #'.($keys['source_id'] ?? '');
 
                 return [
                     'key' => md5((string) json_encode($keys)),
                     // A campaign, site or zone is the ad networks' own: unpaid traffic has none, and is one row.
-                    'label' => $byRef && ($keys['source_id'] ?? null) === null ? 'Unpaid traffic' : $this->nodeLabel($dimension, $keys, $labels),
+                    'label' => $byRef && ($keys['source_id'] ?? null) === null ? 'Unpaid traffic' : $this->nodeLabel($level, $keys, $labels),
                     'sub' => match (true) {
                         $dimension === TrafficDimension::Source => ($keys['source_id'] ?? null) === null ? 'Unpaid' : TrafficChannel::tryFrom((string) ($keys['channel'] ?? ''))?->label(),
-                        $byRef && ($keys['source_id'] ?? null) !== null => $source->name ?? 'Source #'.$keys['source_id'],
+                        $bySite => $name.' · no zones, by site',
+                        $byRef && ($keys['source_id'] ?? null) !== null => $name,
                         default => null,
                     },
                     'mono' => $dimension === TrafficDimension::Site || $dimension === TrafficDimension::Zone,
                     // A network's site or zone opens in Sites & zones, where it is blocked.
-                    'find' => in_array($dimension, [TrafficDimension::Site, TrafficDimension::Zone], true) && $source?->type === TrafficSourceType::Network && $ref !== null && $ref !== ''
-                        ? ['source' => (int) $source->id, 'level' => $dimension->value, 'ref' => (string) $ref]
+                    'find' => in_array($level, [TrafficDimension::Site, TrafficDimension::Zone], true) && $source?->type === TrafficSourceType::Network && $ref !== null && $ref !== ''
+                        ? ['source' => (int) $source->id, 'level' => $level->value, 'ref' => (string) $ref]
                         : null,
                     'figures' => $group['figures'],
                 ];
@@ -759,7 +770,7 @@ final class TrafficSourcesView
             'campaignTargets' => TrafficCampaign::query()->whereNotNull('target_cpa')->pluck('target_cpa', 'id')->map(fn (mixed $target): string => (string) $target)->all(),
             'sourceTargets' => $sources->mapWithKeys(fn (TrafficSource $source): array => [(int) $source->id => $source->target_cpa])->all(),
             'worthKnown' => $run !== null && (int) TrafficStepChance::query()->where('run_id', $run->id)->where('slice_key', '*')->where('step', 'opened')->value('slice_accounts') >= 30,
-            'blocks' => TrafficBlock::query()->get()->keyBy(fn (TrafficBlock $block): string => $block->source_id.':'.$block->level->value.':'.$block->ref),
+            'blocks' => $this->blocksWithListings()->keyBy(fn (TrafficBlock $block): string => $block->source_id.':'.$block->level->value.':'.$block->ref),
             'firstClicks' => $this->firstClicks($month, isset($filter->where['source_id']) ? (int) $filter->where['source_id'] : null),
             'windowFrom' => CarbonImmutable::parse($month->fromDay, 'UTC'),
             'now' => $now,
@@ -872,22 +883,7 @@ final class TrafficSourcesView
     private function flag(array $judged, ?TrafficBlock $block): ?array
     {
         if ($block !== null) {
-            $still = $block->clicks_after > 0;
-            $tip = 'Blocked '.$block->blocked_at->format('j M').match ($block->method) {
-                TrafficBlockMethod::Api => ' through the network',
-                TrafficBlockMethod::Auto => ' by the block rule',
-                default => ' by hand',
-            }.($still ? ' · '.$block->clicks_after.' clicks since' : '');
-            $why = $block->network_error === null ? null : (TrafficConnectorFailure::tryFrom($block->network_error)?->message() ?? 'No campaign of the source to apply it to.');
-
-            // Where the network's list stands: on its way there or off it, refused there, or a taking off it that failed — the block stays until it is unblocked again.
-            return match (true) {
-                $block->network_state === TrafficBlockNetworkState::Pending => ['label' => 'Blocking…', 'tone' => 'warning', 'tip' => $tip.' · waiting to be added to the network’s list'],
-                $block->network_state === TrafficBlockNetworkState::Removing => ['label' => 'Unblocking…', 'tone' => 'warning', 'tip' => 'Waiting to be taken off the network’s list'],
-                $block->network_state === TrafficBlockNetworkState::Failed => ['label' => 'Not blocked on the network', 'tone' => 'danger', 'tip' => $tip.' · the network didn’t take it: '.$why],
-                $block->network_state === TrafficBlockNetworkState::Applied && $why !== null => ['label' => 'Blocked · unblock failed', 'tone' => 'danger', 'tip' => 'Still on the network’s list: '.$why.' Unblock it again to try again.'],
-                default => ['label' => $still ? 'Blocked · still sending' : 'Blocked', 'tone' => $still ? 'danger' : 'neutral', 'tip' => $tip],
-            };
+            return $this->blockFlag($block);
         }
 
         return match ($judged['state']) {
@@ -899,6 +895,102 @@ final class TrafficSourcesView
             'profit' => ['label' => 'Profitable', 'tone' => 'success', 'tip' => (string) $judged['tip']],
             default => null,
         };
+    }
+
+    /**
+     * A blocked site's or zone's badge: where it stands with the network —
+     * on its way to the lists or off them; on some campaigns' lists only,
+     * naming those it isn't on and why; refused by every one; taken off them
+     * in the network's panel; a taking off that failed, which leaves it
+     * blocked until it is unblocked again; blocked in the network's own
+     * panel, not by RateGuru, on how many campaigns' lists, or still there
+     * where an unblock failed — or blocked, still sending clicks or not.
+     *
+     * @return array{label: string, tone: string, tip: string}
+     */
+    private function blockFlag(TrafficBlock $block): array
+    {
+        $still = $block->clicks_after > 0;
+        $since = $still ? ' · '.$block->clicks_after.' clicks since' : '';
+        $tip = 'Blocked '.$block->blocked_at->format('j M').match ($block->method) {
+            TrafficBlockMethod::Api => ' through the network',
+            TrafficBlockMethod::Auto => ' by the block rule',
+            default => ' by hand',
+        }.$since;
+        $why = fn (?string $error): ?string => $error === null ? null : (TrafficConnectorFailure::tryFrom($error)?->message() ?? 'No campaign of the source to apply it to.');
+        $network = $this->networkName((int) $block->source_id);
+        $listings = $block->listings;
+        $on = $listings->where('listed', true)->values();
+        $off = $listings->where('listed', false)->values();
+        $stuck = $on->first(fn (TrafficBlockListing $listing): bool => $listing->error !== null);
+        $name = fn (TrafficBlockListing $listing): string => $listing->campaign->name ?? 'Campaign '.$listing->campaign->external_id;
+        $lists = fn (Collection $some): string => ($some->count() === 1 ? 'the list of ' : 'the lists of ').$some->map($name)->implode(', ');
+        // How many campaigns' lists hold a block found in the panel, counted with the blocks; their names aren't read for it.
+        $count = (int) ($block->getAttribute('lists_holding') ?? $on->count());
+        $holding = $count === 0 ? '' : ' · on '.$count.' '.($count === 1 ? 'campaign’s list' : 'campaigns’ lists');
+        $notOn = fn (TrafficBlockListing $listing): string => 'not on '.$name($listing).'’s: '.match ($listing->error) {
+            // RateGuru's own block goes by itself to a campaign it is missing from, within minutes.
+            null, TrafficBlockListing::PENDING => 'not sent there yet — it goes there within minutes.',
+            TrafficBlockListing::TAKEN_OFF => 'taken off its list in the '.$network.' panel, not by '.site_name().'.',
+            default => (string) $why($listing->error),
+        };
+
+        return match (true) {
+            $block->network_state === TrafficBlockNetworkState::Pending => ['label' => 'Blocking…', 'tone' => 'warning', 'tip' => $tip.' · waiting to be added to the network’s list'],
+            $block->network_state === TrafficBlockNetworkState::Removing => ['label' => 'Unblocking…', 'tone' => 'warning', 'tip' => 'Waiting to be taken off the network’s list'],
+            $block->method === TrafficBlockMethod::Panel && $block->network_error !== null => ['label' => 'Blocked on '.$network.' · unblock failed', 'tone' => 'danger',
+                'tip' => 'Blocked in the '.$network.' panel, not by '.site_name().' · still on '.($on->isNotEmpty() ? $lists($on) : 'the network’s list').': '.$why($block->network_error).' Unblock it again to try again.'],
+            $block->method === TrafficBlockMethod::Panel => ['label' => 'Blocked on '.$network, 'tone' => $still ? 'danger' : 'neutral',
+                'tip' => 'Blocked in the '.$network.' panel, not by '.site_name().' · found '.$block->blocked_at->format('j M').$holding.$since],
+            $block->network_state === TrafficBlockNetworkState::Partial && $stuck !== null => ['label' => 'Partly blocked · unblock failed', 'tone' => 'danger',
+                // Off the lists with nothing said against them: one that refused to take the block never held it, so it was never taken off.
+                'tip' => 'Still on '.$lists($on).': '.$why($stuck->error).($off->whereNull('error')->isNotEmpty() ? ' Off '.$lists($off->whereNull('error')->values()).'.' : '').' Unblock it again to try again.'],
+            $block->network_state === TrafficBlockNetworkState::Partial => ['label' => 'Partly blocked · '.$on->count().' of '.$listings->count().' campaigns', 'tone' => 'warning',
+                'tip' => $tip.' · on '.$lists($on).' · '.$off->map($notOn)->implode(' · ')],
+            $block->network_state === TrafficBlockNetworkState::TakenOff => ['label' => 'Taken off on the network', 'tone' => 'warning',
+                'tip' => $tip.' · taken off '.$lists($off->where('error', TrafficBlockListing::TAKEN_OFF)->values()).' in the '.$network.' panel, not by '.site_name().'. Push again to put it back, or Unblock to let it go.'],
+            $block->network_state === TrafficBlockNetworkState::Failed => ['label' => 'Not blocked on the network', 'tone' => 'danger',
+                'tip' => $tip.' · the network didn’t take it'.($off->isEmpty() ? ': '.$why($block->network_error) : ' · '.$off->map($notOn)->implode(' · '))],
+            $block->network_state === TrafficBlockNetworkState::Applied && $block->network_error !== null => ['label' => 'Blocked · unblock failed', 'tone' => 'danger',
+                'tip' => 'Still on the network’s list: '.$why($block->network_error).' Unblock it again to try again.'],
+            default => ['label' => $still ? 'Blocked · still sending' : 'Blocked', 'tone' => $still ? 'danger' : 'neutral', 'tip' => $tip],
+        };
+    }
+
+    /**
+     * Every block, with how many campaigns' lists hold it; those whose badge
+     * names campaigns — on some lists only, on none, taken off them, or
+     * found in the network's panel and still there after an unblock failed
+     * — with where they stand on each campaign's list and the campaigns'
+     * names; the rest with none read. A block found in the panel is often
+     * on every list: its listings, as many as its campaigns, are counted,
+     * never loaded, on every render.
+     *
+     * @return EloquentCollection<int, TrafficBlock>
+     */
+    private function blocksWithListings(): EloquentCollection
+    {
+        $blocks = TrafficBlock::query()->withCount(['listings as lists_holding' => fn ($listings) => $listings->where('listed', true)])->get();
+        $named = $blocks->filter(fn (TrafficBlock $block): bool => ($block->method === TrafficBlockMethod::Panel && $block->network_error !== null)
+            || in_array($block->network_state, [TrafficBlockNetworkState::Partial, TrafficBlockNetworkState::Failed, TrafficBlockNetworkState::TakenOff], true));
+        (new EloquentCollection($named->all()))->load('listings.campaign:id,name,external_id');
+
+        foreach ($blocks as $block) {
+            if (! $block->relationLoaded('listings')) {
+                $block->setRelation('listings', new EloquentCollection);
+            }
+        }
+
+        return $blocks;
+    }
+
+    /** A source's network as its own panel is named — "the PopAds panel" — read once a render. */
+    private function networkName(int $sourceId): string
+    {
+        $this->networks ??= TrafficSource::query()->whereNotNull('connector')->get(['id', 'connector'])
+            ->mapWithKeys(fn (TrafficSource $source): array => [(int) $source->id => (string) $source->connector?->label()])->all();
+
+        return $this->networks[$sourceId] ?? 'network’s';
     }
 
     /**
@@ -934,6 +1026,9 @@ final class TrafficSourcesView
         $rule = $one !== null ? ($judge['rules'][$one] ?? $judge['general']) : $judge['general'];
         $targets = $one !== null ? (BlockRule::target(null, $judge['sourceTargets'][$one] ?? null) !== null || $judge['campaignTargets'] !== []) : ($judge['campaignTargets'] !== [] || array_filter($judge['sourceTargets']) !== []);
         $own = $one === null && collect($judge['rules'])->contains(fn (array $sourceRule): bool => $sourceRule !== $judge['general']);
+        // Looked up by key, not searched for: Select all may have ticked every one of tens of thousands of rows.
+        $picked = array_flip($page->selected);
+        $ticked = collect($rows)->filter(fn (array $row): bool => isset($picked[$row['key']]));
 
         return [
             ...$list,
@@ -945,8 +1040,8 @@ final class TrafficSourcesView
                     .($own ? ' Sources with thresholds of their own are judged by them.' : '') : ''),
             'selectable' => collect($list['rows'])->filter(fn (array $row): bool => $page->segment === 'blocked' ? $row['blocked'] : ! $row['blocked'])->pluck('key')->values()->all(),
             'selected' => count($page->selected),
-            'selectedBlocked' => collect($rows)->whereIn('key', $page->selected)->where('blocked', true)->count(),
-            'copyIds' => collect($rows)->whereIn('key', $page->selected)->pluck('ref')->implode("\n"),
+            'selectedBlocked' => $ticked->where('blocked', true)->count(),
+            'copyIds' => $ticked->pluck('ref')->implode("\n"),
             'from' => count($list['matching']) === 0 ? 0 : ($list['page'] - 1) * SiteZoneList::PER_PAGE + 1,
             'to' => min(count($list['matching']), $list['page'] * SiteZoneList::PER_PAGE),
         ];
@@ -1211,6 +1306,9 @@ final class TrafficSourcesView
                 'id' => $new->id,
                 'source' => $sources->firstWhere('id', $new->source_id)->name ?? 'A network',
                 'external' => $new->external_id,
+                'name' => $new->name,
+                // Its name, targeting, bid and budget already read from the network's API: only its stage is left to choose.
+                'synced' => $new->synced_at !== null,
                 'visits' => ($figures[$new->id] ?? new ReportFigures)->visits,
                 'since' => $new->first_click_at,
                 'game' => $games->firstWhere('id', $new->game_id)->title ?? null,
@@ -1239,8 +1337,10 @@ final class TrafficSourcesView
                     : 'No API connection for '.$source->name.': targeting, bid and budget typed in here',
                 'rows' => $shown->where('source_id', $source->id)->map(fn (TrafficCampaign $campaign): array => [
                     'id' => $campaign->id,
-                    'name' => $campaign->status === TrafficCampaignStatus::New ? 'New campaign '.$campaign->external_id : ($campaign->name ?? 'Campaign '.$campaign->external_id),
+                    // Its name in the network once the API read it, whatever its stage.
+                    'name' => $campaign->name ?? ($campaign->status === TrafficCampaignStatus::New ? 'New campaign ' : 'Campaign ').$campaign->external_id,
                     'new' => $campaign->status === TrafficCampaignStatus::New,
+                    'synced' => $campaign->synced_at !== null,
                     'sub' => implode(' · ', array_filter([$source->name, $campaign->external_id, $games->firstWhere('id', $campaign->game_id)?->title])),
                     'countries' => $campaign->countries === null ? null : collect($campaign->countries)->map(fn (string $code): string => $countries[$code] ?? $code)->take(3)->implode(', ').(count($campaign->countries) > 3 ? ' +'.(count($campaign->countries) - 3) : ''),
                     'devices' => match (true) {
@@ -1954,6 +2054,8 @@ final class TrafficSourcesView
 
         return [
             'counts' => $counts,
+            // The network as its own panel is named: "in the PopAds panel".
+            'network' => $source->connector?->label() ?? 'network’s',
             'cap' => (int) $source->block_daily_cap,
             'auto' => (bool) $source->block_auto,
             'ranAt' => TrafficSetting::blockRuleRanAt(),
@@ -1980,6 +2082,7 @@ final class TrafficSourcesView
             'campaignTargets' => TrafficCampaign::query()->where('source_id', $source->id)->where('target_cpa', '>', 0)->count(),
             'worth' => ['accounts' => $accounts, 'needed' => TrafficBlocksQuery::WORTH_KNOWN_AT, 'known' => $accounts >= TrafficBlocksQuery::WORTH_KNOWN_AT],
             'connected' => $connection?->status === TrafficConnectionStatus::Connected,
+            'listsError' => $connection === null || $connection->status === TrafficConnectionStatus::Disconnected ? null : $this->blockListsError($connection),
             // What keeps the rule from blocking for this source by itself, in the order it asks.
             'why' => array_values(array_filter([
                 $source->status !== TrafficSourceStatus::Active
@@ -2003,6 +2106,26 @@ final class TrafficSourcesView
             ])).'#traffic-performance',
             'logUrl' => TrafficSourcesPage::getUrl(['tab' => 'logs', 'log' => 'blocks', 'source' => $source->id]),
         ];
+    }
+
+    /**
+     * Why the last read of a source's campaigns' block lists failed, naming
+     * the campaign whose list it couldn't read — by its name, else its ID
+     * with the network — and when; nothing once a read went through, nor
+     * while the API is disconnected, with nothing to read it again.
+     */
+    private function blockListsError(TrafficApiConnection $connection): ?string
+    {
+        if ($connection->block_lists_error === null) {
+            return null;
+        }
+
+        $external = $connection->block_lists_error_campaign;
+        $name = $external === null ? null : TrafficCampaign::query()->where('source_id', $connection->source_id)->where('external_id', $external)->value('name');
+        $whose = $external === null ? 'the campaigns’ block lists' : ($name ?? 'Campaign '.$external).'’s block list';
+
+        return 'Couldn’t read '.$whose.($connection->block_lists_read_at !== null ? ' at '.$connection->block_lists_read_at->format('j M H:i') : '').': '
+            .(TrafficConnectorFailure::tryFrom($connection->block_lists_error)?->message() ?? 'The network answered in a way '.site_name().' doesn’t understand.');
     }
 
     /** A postback rule's event, as the editor names it. */

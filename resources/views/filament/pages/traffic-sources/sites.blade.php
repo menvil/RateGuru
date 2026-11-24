@@ -12,6 +12,7 @@
 @php
     $segments = [
         'all' => ['All', 'var(--rg-admin-text-tertiary)', ''],
+        'active' => ['Active', 'var(--rg-admin-status-success-dot)', 'Every one not blocked yet'],
         'block' => ['Worth blocking', 'var(--rg-admin-status-danger-fg)', 'Likely bots, losing, a weak start, or paid impressions that mostly never reach '.site_name().': see the rule under Worth blocking'],
         'profit' => ['Profitable', 'var(--rg-admin-status-success-fg)', 'Enough data and value above spend'],
         'watch' => ['Below the line', 'var(--rg-admin-status-warning-dot)', 'Enough data, losing a little, not yet bad enough to block — or losing, but still within the days the rule waits after a first click'],
@@ -24,6 +25,8 @@
         'value' => 'Value', 'profit' => 'Profit', 'roi' => 'ROI', 'cpv' => 'Cost / visit', 'vpv' => 'Value / visit', 'cpa' => 'Cost / account',
     ];
     $pageTicked = $list['selectable'] !== [] && array_diff($list['selectable'], $selected) === [];
+    // Looked up by key on every row: Select all may have ticked tens of thousands.
+    $tickedKeys = array_flip($selected);
     $noun = $list['noun'];
 @endphp
 
@@ -77,6 +80,8 @@
         <span class="rg-admin-traffic__selection-actions">
             @if ($segment === 'blocked')
                 <x-admin.ui.button size="sm" wire:click="unblockSelected">Unblock</x-admin.ui.button>
+                {{-- To every campaign each is for, through the network's API: one on some lists only, refused, taken off in the panel, or still sending. --}}
+                <x-admin.ui.button size="sm" variant="ghost" icon="refresh-cw" wire:click="pushSelected" title="Send them to the network’s lists again, to every campaign">Push again</x-admin.ui.button>
             @else
                 <x-admin.ui.button size="sm" variant="danger" icon="ban" wire:click="blockSelected">Block {{ number_format($list['selected']) }}</x-admin.ui.button>
             @endif
@@ -107,9 +112,9 @@
             </div>
             @foreach ($list['rows'] as $row)
                 @php($tickable = $segment === 'blocked' ? $row['blocked'] : ! $row['blocked'])
-                <div @class(['rg-admin-traffic__perf-row', 'rg-admin-traffic__perf-row--blocked' => $row['blocked'], 'rg-admin-traffic__perf-row--ticked' => in_array($row['key'], $selected, true)]) role="row" wire:key="site-{{ md5($row['key']) }}" data-testid="traffic-site-row">
+                <div @class(['rg-admin-traffic__perf-row', 'rg-admin-traffic__perf-row--blocked' => $row['blocked'], 'rg-admin-traffic__perf-row--ticked' => isset($tickedKeys[$row['key']])]) role="row" wire:key="site-{{ md5($row['key']) }}" data-testid="traffic-site-row">
                     <span class="rg-admin-traffic__perf-name" role="gridcell">
-                        <input type="checkbox" class="rg-admin-traffic__tick" aria-label="Tick {{ $row['level'] }} {{ $row['ref'] }}" @checked(in_array($row['key'], $selected, true)) @disabled(! $tickable) wire:click="toggleSelected(@js($row['key']))" />
+                        <input type="checkbox" class="rg-admin-traffic__tick" aria-label="Tick {{ $row['level'] }} {{ $row['ref'] }}" @checked(isset($tickedKeys[$row['key']])) @disabled(! $tickable) wire:click="toggleSelected(@js($row['key']))" />
                         <span class="rg-admin-traffic__perf-label">
                             <span class="rg-admin-traffic__perf-title rg-admin-traffic__mono">{{ $row['level'] }} {{ $row['ref'] }}</span>
                             <span class="rg-admin-traffic__note">{{ implode(' · ', array_filter([$row['site'] !== null ? 'site '.$row['site'] : null, $row['source'], $row['campaign'], $row['early']])) }}</span>
