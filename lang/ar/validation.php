@@ -1,0 +1,57 @@
+<?php
+
+return [
+    'accepted' => 'يجب قبول حقل :attribute.',
+    'required' => 'حقل :attribute مطلوب.',
+    'string' => 'يجب أن يكون حقل :attribute نصًا.',
+    'max' => [
+        'array' => 'يجب ألا يتجاوز عدد عناصر حقل :attribute :max.',
+        'file' => 'يجب ألا يتجاوز حجم حقل :attribute :max كيلوبايت.',
+        'string' => 'يجب ألا يتجاوز عدد أحرف حقل :attribute :max.',
+    ],
+    'min' => [
+        'string' => 'يجب ألا يقل عدد أحرف حقل :attribute عن :min.',
+    ],
+    'in' => 'قيمة :attribute المحددة غير صالحة.',
+    'unique' => 'قيمة حقل :attribute مستخدمة بالفعل.',
+    'email' => 'يجب أن يكون حقل :attribute عنوان بريد إلكتروني صالحًا.',
+    'confirmed' => 'تأكيد حقل :attribute غير مطابق.',
+    'array' => 'يجب أن يكون حقل :attribute مصفوفة.',
+    'boolean' => 'يجب أن تكون قيمة حقل :attribute صحيحة أو خاطئة.',
+    'current_password' => 'كلمة المرور غير صحيحة.',
+    'dimensions' => 'أبعاد الصورة في حقل :attribute غير صالحة.',
+    'enum' => 'قيمة :attribute المحددة غير صالحة.',
+    'exists' => 'قيمة :attribute المحددة غير صالحة.',
+    'image' => 'يجب أن يكون حقل :attribute صورة.',
+    'integer' => 'يجب أن يكون حقل :attribute عددًا صحيحًا.',
+    'lowercase' => 'يجب أن يكون حقل :attribute بأحرف صغيرة.',
+    'mimes' => 'يجب أن يكون حقل :attribute ملفًا من نوع: :values.',
+    'not_regex' => 'صيغة حقل :attribute غير صالحة.',
+    'regex' => 'صيغة حقل :attribute غير صالحة.',
+    'uploaded' => 'تعذّر رفع :attribute.',
+    'url' => 'يجب أن يكون حقل :attribute رابطًا صالحًا.',
+
+    // The field names public forms submit, so a message reads as a sentence
+    // in the reader's language instead of carrying an English identifier.
+    'attributes' => [
+        'bio' => 'النبذة',
+        'categoryId' => 'الفئة',
+        'current_password' => 'كلمة المرور الحالية',
+        'description' => 'الوصف',
+        'display_name' => 'الاسم المعروض',
+        'email' => 'البريد الإلكتروني',
+        'image' => 'الصورة',
+        'locale' => 'اللغة',
+        'message' => 'الرسالة',
+        'name' => 'الاسم',
+        'password' => 'كلمة المرور',
+        'profile_website_url' => 'الموقع الإلكتروني',
+        'reason' => 'السبب',
+        'sourceUrl' => 'رابط المصدر',
+        'subject' => 'الموضوع',
+        'tagIds' => 'الوسوم',
+        'title' => 'العنوان',
+        'url' => 'الرابط',
+        'username' => 'اسم المستخدم',
+    ],
+];

@@ -28,9 +28,10 @@ use function Pest\Laravel\actingAs;
  * between the general block rule and its own thresholds; a click's
  * visitor in Logs, a link that opens its journey, the page no wider for it;
  * a new visitor's worth under a cent whole in its columns on Value;
- * and on the way here under the tiles, with the impressions a network billed
+ * on the way here under the tiles, with the impressions a network billed
  * in Sites & zones beside each site's visits, at a phone's width as at a
- * desktop's.
+ * desktop's; and every filter's menu whole on the screen, a long campaign
+ * name and all, wherever its trigger wraps to.
  */
 beforeEach(function () {
     ProjectSettings::factory()->create();
@@ -507,3 +508,37 @@ it('shows on the way here under the tiles and each site’s paid impressions in 
 
     $page->assertNoJavaScriptErrors();
 })->with([1440, 390]);
+
+it('keeps every filter’s menu whole on the screen, a long campaign name and all, moved left from its trigger only as far as the window’s edge needs', function (int $width) {
+    $source = TrafficSource::factory()->create(['name' => 'PopAds main']);
+    TrafficCampaign::factory()->create(['source_id' => $source->id, 'name' => 'PopAds - Tabup/Mobile/All countries but the ones never bought - #9612052']);
+    $page = visitAdminEditor('/admin/traffic-sources', $width);
+
+    // The filters wrap onto lines of their own on a narrow screen: a menu opened from a trigger towards the right is wider than the room to its right.
+    foreach (['type', 'source', 'campaign', 'game', 'device'] as $filter) {
+        $trigger = '#rg-admin-traffic-'.$filter;
+        $page->click($trigger);
+        waitForScript($page, "getComputedStyle(document.querySelector('{$trigger}-menu')).display !== 'none'");
+
+        expect($page->script(<<<JS
+            (() => {
+                const menu = document.querySelector('{$trigger}-menu')
+                const box = menu.getBoundingClientRect()
+                const from = document.querySelector('{$trigger}').getBoundingClientRect().left
+                const edge = document.documentElement.clientWidth - 16
+
+                return {
+                    whole: box.left >= 0 && box.right <= document.documentElement.clientWidth,
+                    onTop: [[box.left + 4, box.top + 20], [box.right - 4, box.top + 20]].every(([x, y]) => menu.contains(document.elementFromPoint(x, y))),
+                    left: Math.abs(box.left - Math.min(from, edge - box.width)) < 1,
+                }
+            })()
+        JS))->toBe(['whole' => true, 'onTop' => true, 'left' => true], $filter);
+
+        $page->click($trigger);
+        waitForScript($page, "getComputedStyle(document.querySelector('{$trigger}-menu')).display === 'none'");
+    }
+
+    expect($page->script('document.documentElement.scrollWidth > window.innerWidth'))->toBeFalse();
+    $page->assertNoJavaScriptErrors();
+})->with([1280, 800, 390]);

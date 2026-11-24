@@ -26,6 +26,7 @@ use App\Models\Game;
 use App\Models\GameVersion;
 use App\Models\TrafficApiConnection;
 use App\Models\TrafficBlock;
+use App\Models\TrafficBlockListing;
 use App\Models\TrafficCampaign;
 use App\Models\TrafficCampaignEvent;
 use App\Models\TrafficCampaignStagePeriod;
@@ -79,6 +80,7 @@ use Brick\Math\BigDecimal;
 use Brick\Math\RoundingMode;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
+use Illuminate\Database\Eloquent\Collection as EloquentCollection;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Str;
@@ -131,7 +133,7 @@ final class TrafficSourcesView
     private const int CAMPAIGN_CAP = 300;
 
     /** The visit columns a network's impressions are never split by: filtered by one, a report has no impressions to set beside its visits. */
-    private const array UNSPLIT = ['device', 'country', 'city', 'game_id', 'version_id'];
+    private const array UNSPLIT = ['device', 'city', 'game_id', 'version_id'];
 
     /** @var array<string, array{general: array<string, int|string>, rules: array<int, array<string, int|string>>, startRates: array<int, float|null>, openRates: array<int, float|null>, campaignTargets: array<int, string>, sourceTargets: array<int, string|null>, worthKnown: bool, blocks: Collection<string, TrafficBlock>, firstClicks: array<string, CarbonImmutable>, windowFrom: CarbonImmutable, now: CarbonImmutable, reachHints: array<string, array{tip: string, replacesProfit: bool}>}> what the block rule needs, by filter, for this render */
     private array $judged = [];
@@ -141,6 +143,9 @@ final class TrafficSourcesView
 
     /** @var array<string, ReachTally> the network's impressions and the visits that reached RateGuru, by period and the source read ('*' for all), for this render */
     private array $reachRead = [];
+
+    /** @var array<int, string>|null each source's network, by the source, for this render */
+    private ?array $networks = null;
 
     public function __construct(
         private readonly TrafficReportQuery $reports,
@@ -199,6 +204,7 @@ final class TrafficSourcesView
             'sourceOptions' => [['value' => '', 'label' => 'All sources'], ...$sources->map(fn (TrafficSource $source): array => ['value' => (string) $source->id, 'label' => $source->name])->values()->all()],
             'typeOptions' => [['value' => '', 'label' => 'All traffic'], ['value' => 'network', 'label' => 'Ad networks'], ['value' => 'placement', 'label' => 'Banners & links'], ['value' => 'unpaid', 'label' => 'Unpaid']],
             'deviceOptions' => [['value' => '', 'label' => 'All devices'], ['value' => 'mobile', 'label' => 'Mobile'], ['value' => 'desktop', 'label' => 'Desktop']],
+            'countryOptions' => $this->countryOptions($filter),
             'gameOptions' => [['value' => '', 'label' => 'All games', 'trigger' => 'All games'], ...Game::query()->orderBy('title')->get(['id', 'title'])->map(fn (Game $game): array => ['value' => (string) $game->id, 'label' => $game->title])->all()],
             'campaignOptions' => [['value' => '', 'label' => 'All campaigns', 'trigger' => 'All'], ...TrafficCampaign::query()->when(is_numeric($page->source), fn ($query) => $query->where('source_id', (int) $page->source))->orderByDesc('first_click_at')->limit(100)->get(['id', 'name', 'external_id'])->map(fn (TrafficCampaign $campaign): array => ['value' => (string) $campaign->id, 'label' => $campaign->name ?? 'Campaign '.$campaign->external_id])->all()],
             'periodDays' => ReportPeriod::span(CarbonImmutable::parse($filter->fromDay, 'UTC'), CarbonImmutable::parse($filter->toDay, 'UTC')),
@@ -231,8 +237,8 @@ final class TrafficSourcesView
         $cutoff = UnconfirmedAccountsQuery::cutoff();
         $summary = $this->reports->summary($filter, $cutoff);
         $sum = fn (iterable $rows): ReportFigures => collect($rows)->reduce(fn (ReportFigures $total, array $row): ReportFigures => $total->plus($row['figures']), new ReportFigures);
-        // Spend no visit took counts in the totals, but only where nothing narrows the visits to a game, a device, a campaign or unpaid traffic.
-        $unallocated = array_intersect_key($filter->where, array_flip(['game_id', 'device', 'campaign_id'])) === [] && ! (array_key_exists('source_id', $filter->where) && $filter->where['source_id'] === null) && ($filter->where['channel'] ?? 'network') === 'network'
+        // Spend no visit took counts in the totals, but only where nothing narrows the visits to a game, a device, a country, a campaign or unpaid traffic.
+        $unallocated = ! $this->narrowsVisits($filter) && ! (array_key_exists('source_id', $filter->where) && $filter->where['source_id'] === null) && ($filter->where['channel'] ?? 'network') === 'network'
             ? $this->spend->unallocated($filter->fromDay, $filter->toDay, isset($filter->where['source_id']) ? (int) $filter->where['source_id'] : null)
             : [];
         $extra = array_reduce($unallocated, fn (string $total, array $row): string => TrafficMoney::stored(TrafficMoney::of($total)->plus(TrafficMoney::of($row['amount']))), '0');
@@ -310,20 +316,26 @@ final class TrafficSourcesView
                 $keys = $group['keys'];
                 $source = isset($keys['source_id']) ? $sources->firstWhere('id', (int) $keys['source_id']) : null;
                 $ref = $keys[$dimension->columns()[0]] ?? null;
+                // A network with no zones (PopAds) splits by site, as Sites & zones lists it.
+                $bySite = $dimension === TrafficDimension::Zone && ($ref === null || $ref === '') && (string) ($keys['site_ref'] ?? '') !== '';
+                $level = $bySite ? TrafficDimension::Site : $dimension;
+                $ref = $bySite ? $keys['site_ref'] : $ref;
+                $name = $source->name ?? 'Source #'.($keys['source_id'] ?? '');
 
                 return [
                     'key' => md5((string) json_encode($keys)),
                     // A campaign, site or zone is the ad networks' own: unpaid traffic has none, and is one row.
-                    'label' => $byRef && ($keys['source_id'] ?? null) === null ? 'Unpaid traffic' : $this->nodeLabel($dimension, $keys, $labels),
+                    'label' => $byRef && ($keys['source_id'] ?? null) === null ? 'Unpaid traffic' : $this->nodeLabel($level, $keys, $labels),
                     'sub' => match (true) {
                         $dimension === TrafficDimension::Source => ($keys['source_id'] ?? null) === null ? 'Unpaid' : TrafficChannel::tryFrom((string) ($keys['channel'] ?? ''))?->label(),
-                        $byRef && ($keys['source_id'] ?? null) !== null => $source->name ?? 'Source #'.$keys['source_id'],
+                        $bySite => $name.' · no zones, by site',
+                        $byRef && ($keys['source_id'] ?? null) !== null => $name,
                         default => null,
                     },
                     'mono' => $dimension === TrafficDimension::Site || $dimension === TrafficDimension::Zone,
                     // A network's site or zone opens in Sites & zones, where it is blocked.
-                    'find' => in_array($dimension, [TrafficDimension::Site, TrafficDimension::Zone], true) && $source?->type === TrafficSourceType::Network && $ref !== null && $ref !== ''
-                        ? ['source' => (int) $source->id, 'level' => $dimension->value, 'ref' => (string) $ref]
+                    'find' => in_array($level, [TrafficDimension::Site, TrafficDimension::Zone], true) && $source?->type === TrafficSourceType::Network && $ref !== null && $ref !== ''
+                        ? ['source' => (int) $source->id, 'level' => $level->value, 'ref' => (string) $ref]
                         : null,
                     'figures' => $group['figures'],
                 ];
@@ -347,28 +359,47 @@ final class TrafficSourcesView
      * filters' period, source and campaign against what reached RateGuru of
      * the same slices, opened the page and started the game — and the
      * impressions paid for that never arrived, with an estimate of what
-     * they cost; the days not closed yet named. Narrowed to a device, a
-     * country or a game, the network has no impressions of its own to set
-     * beside the visits: only the networks' visits on the filters show.
-     * None where the period has no impressions.
+     * they cost; the days not closed yet named. Narrowed to a country, the
+     * network's own figures for it. Narrowed to a device, a city or a game,
+     * or to a country it reported nothing for, there are no impressions to
+     * set beside the visits: only the networks' visits on the filters show.
+     * None where the period has no impressions. Says too what the reach
+     * columns of Sites & zones mean on these filters, where that needs saying.
      *
      * @param  list<array{device: string, channel: string, figures: ReportFigures}>  $summary
      * @return array<string, mixed>|null
      */
     private function reachCard(TrafficReportFilter $filter, array $summary, $sources): ?array
     {
-        $tally = $this->reachTally($filter);
         [$sourceId, $campaignId] = self::reachScope($filter);
+        // Whether there is anything to leave out is the period's, whichever country is on screen.
+        $period = $this->reachTally(new TrafficReportFilter($filter->fromDay, $filter->toDay, array_diff_key($filter->where, ['country' => true])));
 
-        if ($tally === null || ($total = $tally->total($sourceId, $campaignId))->impressions === 0) {
+        if ($period === null) {
             return null;
         }
 
-        if ($this->reachSplit($filter)) {
+        $tally = $this->reachTally($filter) ?? $period;
+        $total = $tally->total($sourceId, $campaignId);
+        $country = self::reachCountry($filter);
+
+        // A country's own figures can outlive the day's: they are something to show even with none for the whole period.
+        if ($period->total($sourceId, $campaignId)->impressions === 0 && $total->impressions === 0) {
+            return null;
+        }
+
+        if ($this->reachSplit($filter) || $total->impressions === 0) {
             $network = array_reduce(array_filter($summary, fn (array $row): bool => $row['channel'] === TrafficChannel::Network->value), fn (ReportFigures $sum, array $row): ReportFigures => $sum->plus($row['figures']), new ReportFigures);
+            $unsplit = array_intersect_key($filter->where, array_flip(self::UNSPLIT)) !== [];
 
             return [
                 'split' => true,
+                'leftOut' => $unsplit
+                    ? 'The network’s impressions aren’t split by device, city or game, so they’re left out on these filters.'
+                    : 'The network reported no impressions for this country, so they’re left out on these filters.',
+                'listNote' => ($unsplit
+                    ? 'Paid impressions are counted by day, campaign, site and country, not by device, city or game.'
+                    : 'The network reported no impressions for this country.').' On these filters Paid impr. and Reached show “—” and no site is marked Low reach.',
                 'steps' => [
                     ['name' => 'Visits from ad networks', 'count' => $network->visits, 'of' => null, 'note' => 'On these filters'],
                     ['name' => 'Opened the page', 'count' => $network->opened, 'of' => $network->visits, 'note' => 'Of those visits'],
@@ -383,10 +414,11 @@ final class TrafficSourcesView
 
         return [
             'split' => false,
+            'listNote' => $country === null ? null : 'Paid impr. and Reached are this country’s. Low reach is judged across all countries, so no site is marked on this filter.',
             'steps' => [
                 ['name' => 'Paid impressions (network)', 'count' => $total->impressions, 'of' => null, 'note' => $one ? 'What the network billed for, by its own count' : 'What the networks billed for, by their own count'],
-                ['name' => 'Reached RateGuru', 'count' => $total->reached, 'of' => $total->impressions, 'note' => 'Visits of the same days, campaigns and sites'],
-                ['name' => 'Opened the page', 'count' => $total->opened, 'of' => $total->reached, 'note' => 'Of those that reached RateGuru'],
+                ['name' => 'Reached '.site_name(), 'count' => $total->reached, 'of' => $total->impressions, 'note' => $country === null ? 'Visits of the same days, campaigns and sites' : 'Visits of the same days, campaigns, sites and country'],
+                ['name' => 'Opened the page', 'count' => $total->opened, 'of' => $total->reached, 'note' => 'Of those that reached '.site_name()],
                 ['name' => 'Started the game', 'count' => $total->started, 'of' => $total->opened, 'note' => 'Of those that opened the page'],
             ],
             'lost' => 'Paid, never reached: '.number_format($total->neverReached()).' ('.self::share($total->neverReachedRate() ?? 0.0).') · ≈ '.TrafficMoney::format($total->lostAmount()).' of the '.($one ? 'network’s ' : 'networks’ ').TrafficMoney::format($total->amount),
@@ -430,9 +462,9 @@ final class TrafficSourcesView
     /**
      * The networks' impressions on the filters' period and source, folded
      * as they were read (ReachTally), every campaign's: read once a render
-     * for each source, the read of every source serving any. None where the
-     * filters go to traffic no network bills by the impression — unpaid,
-     * banners and links.
+     * for each source and country, the read of every source serving any. None
+     * where the filters go to traffic no network bills by the impression —
+     * unpaid, banners and links.
      */
     private function reachTally(TrafficReportFilter $filter): ?ReachTally
     {
@@ -441,9 +473,41 @@ final class TrafficSourcesView
         }
 
         $sourceId = self::reachScope($filter)[0];
-        $period = $filter->fromDay.'|'.$filter->toDay.'|';
+        $country = self::reachCountry($filter);
+        $period = $filter->fromDay.'|'.$filter->toDay.'|'.($country ?? '').'|';
 
-        return $this->reachRead[$period.'*'] ?? ($this->reachRead[$period.($sourceId ?? '*')] ??= $this->reach->tally($filter->fromDay, $filter->toDay, $sourceId));
+        return $this->reachRead[$period.'*'] ?? ($this->reachRead[$period.($sourceId ?? '*')] ??= $this->reach->tally($filter->fromDay, $filter->toDay, $sourceId, country: $country));
+    }
+
+    /** The country the filters name, if any: a visit with none located has no impressions to set beside it. */
+    private static function reachCountry(TrafficReportFilter $filter): ?string
+    {
+        return isset($filter->where['country']) ? (string) $filter->where['country'] : null;
+    }
+
+    /**
+     * The Country filter: the countries the networks billed on the period,
+     * source and campaign, the most impressions first — and the one chosen,
+     * whatever it had, so the filter always reads what is on screen.
+     *
+     * @return list<array{value: string, label: string, count?: string}>
+     */
+    private function countryOptions(TrafficReportFilter $filter): array
+    {
+        $impressions = $this->reach->countries($filter->fromDay, $filter->toDay, ...self::reachScope($filter));
+        $chosen = self::reachCountry($filter);
+
+        if ($chosen !== null) {
+            $impressions[$chosen] ??= 0;
+        }
+
+        $options = [['value' => '', 'label' => 'All countries']];
+
+        foreach ($impressions as $code => $count) {
+            $options[] = ['value' => (string) $code, 'label' => Countries::name((string) $code), 'count' => number_format($count)];
+        }
+
+        return $options;
     }
 
     /**
@@ -464,7 +528,8 @@ final class TrafficSourcesView
     /** Whether the filters narrow the visits by what a network's impressions are never split by. */
     private function reachSplit(TrafficReportFilter $filter): bool
     {
-        return array_intersect_key($filter->where, array_flip(self::UNSPLIT)) !== [];
+        return array_intersect_key($filter->where, array_flip(self::UNSPLIT)) !== []
+            || (array_key_exists('country', $filter->where) && $filter->where['country'] === null);
     }
 
     /**
@@ -492,13 +557,14 @@ final class TrafficSourcesView
      * one its visits' spend was shared out from: its spend then counts the
      * visits that came, never what the network billed for those that did
      * not — and, judgeRow() adds, wherever no visit came at all. A hint,
-     * never blocked by itself.
+     * never blocked by itself. Judged over every country: a block takes the
+     * whole site, so one country's figures do not mark it.
      *
      * @return array<string, array{tip: string, replacesProfit: bool}>
      */
     private function reachHints(TrafficReportFilter $filter): array
     {
-        $tally = $this->reachSplit($filter) ? null : $this->reachTally($filter);
+        $tally = $this->reachSplit($filter) || self::reachCountry($filter) !== null ? null : $this->reachTally($filter);
 
         if ($tally === null) {
             return [];
@@ -516,7 +582,7 @@ final class TrafficSourcesView
 
             if ($source !== null && $place->fallsShortOf($source, $least, $below)) {
                 $hints[$key] = [
-                    'tip' => 'Paid impressions mostly never reach RateGuru: '.number_format(($place->reachRate() ?? 0) * 100, 0).'% reached against '.number_format(($source->reachRate() ?? 0) * 100, 0).'% for the source, over '.number_format($place->impressions).' paid impressions of closed days',
+                    'tip' => 'Paid impressions mostly never reach '.site_name().': '.number_format(($place->reachRate() ?? 0) * 100, 0).'% reached against '.number_format(($source->reachRate() ?? 0) * 100, 0).'% for the source, over '.number_format($place->impressions).' paid impressions of closed days',
                     'replacesProfit' => ! isset($inSpend[$key]),
                 ];
             }
@@ -704,7 +770,7 @@ final class TrafficSourcesView
             'campaignTargets' => TrafficCampaign::query()->whereNotNull('target_cpa')->pluck('target_cpa', 'id')->map(fn (mixed $target): string => (string) $target)->all(),
             'sourceTargets' => $sources->mapWithKeys(fn (TrafficSource $source): array => [(int) $source->id => $source->target_cpa])->all(),
             'worthKnown' => $run !== null && (int) TrafficStepChance::query()->where('run_id', $run->id)->where('slice_key', '*')->where('step', 'opened')->value('slice_accounts') >= 30,
-            'blocks' => TrafficBlock::query()->get()->keyBy(fn (TrafficBlock $block): string => $block->source_id.':'.$block->level->value.':'.$block->ref),
+            'blocks' => $this->blocksWithListings()->keyBy(fn (TrafficBlock $block): string => $block->source_id.':'.$block->level->value.':'.$block->ref),
             'firstClicks' => $this->firstClicks($month, isset($filter->where['source_id']) ? (int) $filter->where['source_id'] : null),
             'windowFrom' => CarbonImmutable::parse($month->fromDay, 'UTC'),
             'now' => $now,
@@ -817,22 +883,7 @@ final class TrafficSourcesView
     private function flag(array $judged, ?TrafficBlock $block): ?array
     {
         if ($block !== null) {
-            $still = $block->clicks_after > 0;
-            $tip = 'Blocked '.$block->blocked_at->format('j M').match ($block->method) {
-                TrafficBlockMethod::Api => ' through the network',
-                TrafficBlockMethod::Auto => ' by the block rule',
-                default => ' by hand',
-            }.($still ? ' · '.$block->clicks_after.' clicks since' : '');
-            $why = $block->network_error === null ? null : (TrafficConnectorFailure::tryFrom($block->network_error)?->message() ?? 'No campaign of the source to apply it to.');
-
-            // Where the network's list stands: on its way there or off it, refused there, or a taking off it that failed — the block stays until it is unblocked again.
-            return match (true) {
-                $block->network_state === TrafficBlockNetworkState::Pending => ['label' => 'Blocking…', 'tone' => 'warning', 'tip' => $tip.' · waiting to be added to the network’s list'],
-                $block->network_state === TrafficBlockNetworkState::Removing => ['label' => 'Unblocking…', 'tone' => 'warning', 'tip' => 'Waiting to be taken off the network’s list'],
-                $block->network_state === TrafficBlockNetworkState::Failed => ['label' => 'Not blocked on the network', 'tone' => 'danger', 'tip' => $tip.' · the network didn’t take it: '.$why],
-                $block->network_state === TrafficBlockNetworkState::Applied && $why !== null => ['label' => 'Blocked · unblock failed', 'tone' => 'danger', 'tip' => 'Still on the network’s list: '.$why.' Unblock it again to try again.'],
-                default => ['label' => $still ? 'Blocked · still sending' : 'Blocked', 'tone' => $still ? 'danger' : 'neutral', 'tip' => $tip],
-            };
+            return $this->blockFlag($block);
         }
 
         return match ($judged['state']) {
@@ -844,6 +895,102 @@ final class TrafficSourcesView
             'profit' => ['label' => 'Profitable', 'tone' => 'success', 'tip' => (string) $judged['tip']],
             default => null,
         };
+    }
+
+    /**
+     * A blocked site's or zone's badge: where it stands with the network —
+     * on its way to the lists or off them; on some campaigns' lists only,
+     * naming those it isn't on and why; refused by every one; taken off them
+     * in the network's panel; a taking off that failed, which leaves it
+     * blocked until it is unblocked again; blocked in the network's own
+     * panel, not by RateGuru, on how many campaigns' lists, or still there
+     * where an unblock failed — or blocked, still sending clicks or not.
+     *
+     * @return array{label: string, tone: string, tip: string}
+     */
+    private function blockFlag(TrafficBlock $block): array
+    {
+        $still = $block->clicks_after > 0;
+        $since = $still ? ' · '.$block->clicks_after.' clicks since' : '';
+        $tip = 'Blocked '.$block->blocked_at->format('j M').match ($block->method) {
+            TrafficBlockMethod::Api => ' through the network',
+            TrafficBlockMethod::Auto => ' by the block rule',
+            default => ' by hand',
+        }.$since;
+        $why = fn (?string $error): ?string => $error === null ? null : (TrafficConnectorFailure::tryFrom($error)?->message() ?? 'No campaign of the source to apply it to.');
+        $network = $this->networkName((int) $block->source_id);
+        $listings = $block->listings;
+        $on = $listings->where('listed', true)->values();
+        $off = $listings->where('listed', false)->values();
+        $stuck = $on->first(fn (TrafficBlockListing $listing): bool => $listing->error !== null);
+        $name = fn (TrafficBlockListing $listing): string => $listing->campaign->name ?? 'Campaign '.$listing->campaign->external_id;
+        $lists = fn (Collection $some): string => ($some->count() === 1 ? 'the list of ' : 'the lists of ').$some->map($name)->implode(', ');
+        // How many campaigns' lists hold a block found in the panel, counted with the blocks; their names aren't read for it.
+        $count = (int) ($block->getAttribute('lists_holding') ?? $on->count());
+        $holding = $count === 0 ? '' : ' · on '.$count.' '.($count === 1 ? 'campaign’s list' : 'campaigns’ lists');
+        $notOn = fn (TrafficBlockListing $listing): string => 'not on '.$name($listing).'’s: '.match ($listing->error) {
+            // RateGuru's own block goes by itself to a campaign it is missing from, within minutes.
+            null, TrafficBlockListing::PENDING => 'not sent there yet — it goes there within minutes.',
+            TrafficBlockListing::TAKEN_OFF => 'taken off its list in the '.$network.' panel, not by '.site_name().'.',
+            default => (string) $why($listing->error),
+        };
+
+        return match (true) {
+            $block->network_state === TrafficBlockNetworkState::Pending => ['label' => 'Blocking…', 'tone' => 'warning', 'tip' => $tip.' · waiting to be added to the network’s list'],
+            $block->network_state === TrafficBlockNetworkState::Removing => ['label' => 'Unblocking…', 'tone' => 'warning', 'tip' => 'Waiting to be taken off the network’s list'],
+            $block->method === TrafficBlockMethod::Panel && $block->network_error !== null => ['label' => 'Blocked on '.$network.' · unblock failed', 'tone' => 'danger',
+                'tip' => 'Blocked in the '.$network.' panel, not by '.site_name().' · still on '.($on->isNotEmpty() ? $lists($on) : 'the network’s list').': '.$why($block->network_error).' Unblock it again to try again.'],
+            $block->method === TrafficBlockMethod::Panel => ['label' => 'Blocked on '.$network, 'tone' => $still ? 'danger' : 'neutral',
+                'tip' => 'Blocked in the '.$network.' panel, not by '.site_name().' · found '.$block->blocked_at->format('j M').$holding.$since],
+            $block->network_state === TrafficBlockNetworkState::Partial && $stuck !== null => ['label' => 'Partly blocked · unblock failed', 'tone' => 'danger',
+                // Off the lists with nothing said against them: one that refused to take the block never held it, so it was never taken off.
+                'tip' => 'Still on '.$lists($on).': '.$why($stuck->error).($off->whereNull('error')->isNotEmpty() ? ' Off '.$lists($off->whereNull('error')->values()).'.' : '').' Unblock it again to try again.'],
+            $block->network_state === TrafficBlockNetworkState::Partial => ['label' => 'Partly blocked · '.$on->count().' of '.$listings->count().' campaigns', 'tone' => 'warning',
+                'tip' => $tip.' · on '.$lists($on).' · '.$off->map($notOn)->implode(' · ')],
+            $block->network_state === TrafficBlockNetworkState::TakenOff => ['label' => 'Taken off on the network', 'tone' => 'warning',
+                'tip' => $tip.' · taken off '.$lists($off->where('error', TrafficBlockListing::TAKEN_OFF)->values()).' in the '.$network.' panel, not by '.site_name().'. Push again to put it back, or Unblock to let it go.'],
+            $block->network_state === TrafficBlockNetworkState::Failed => ['label' => 'Not blocked on the network', 'tone' => 'danger',
+                'tip' => $tip.' · the network didn’t take it'.($off->isEmpty() ? ': '.$why($block->network_error) : ' · '.$off->map($notOn)->implode(' · '))],
+            $block->network_state === TrafficBlockNetworkState::Applied && $block->network_error !== null => ['label' => 'Blocked · unblock failed', 'tone' => 'danger',
+                'tip' => 'Still on the network’s list: '.$why($block->network_error).' Unblock it again to try again.'],
+            default => ['label' => $still ? 'Blocked · still sending' : 'Blocked', 'tone' => $still ? 'danger' : 'neutral', 'tip' => $tip],
+        };
+    }
+
+    /**
+     * Every block, with how many campaigns' lists hold it; those whose badge
+     * names campaigns — on some lists only, on none, taken off them, or
+     * found in the network's panel and still there after an unblock failed
+     * — with where they stand on each campaign's list and the campaigns'
+     * names; the rest with none read. A block found in the panel is often
+     * on every list: its listings, as many as its campaigns, are counted,
+     * never loaded, on every render.
+     *
+     * @return EloquentCollection<int, TrafficBlock>
+     */
+    private function blocksWithListings(): EloquentCollection
+    {
+        $blocks = TrafficBlock::query()->withCount(['listings as lists_holding' => fn ($listings) => $listings->where('listed', true)])->get();
+        $named = $blocks->filter(fn (TrafficBlock $block): bool => ($block->method === TrafficBlockMethod::Panel && $block->network_error !== null)
+            || in_array($block->network_state, [TrafficBlockNetworkState::Partial, TrafficBlockNetworkState::Failed, TrafficBlockNetworkState::TakenOff], true));
+        (new EloquentCollection($named->all()))->load('listings.campaign:id,name,external_id');
+
+        foreach ($blocks as $block) {
+            if (! $block->relationLoaded('listings')) {
+                $block->setRelation('listings', new EloquentCollection);
+            }
+        }
+
+        return $blocks;
+    }
+
+    /** A source's network as its own panel is named — "the PopAds panel" — read once a render. */
+    private function networkName(int $sourceId): string
+    {
+        $this->networks ??= TrafficSource::query()->whereNotNull('connector')->get(['id', 'connector'])
+            ->mapWithKeys(fn (TrafficSource $source): array => [(int) $source->id => (string) $source->connector?->label()])->all();
+
+        return $this->networks[$sourceId] ?? 'network’s';
     }
 
     /**
@@ -879,6 +1026,9 @@ final class TrafficSourcesView
         $rule = $one !== null ? ($judge['rules'][$one] ?? $judge['general']) : $judge['general'];
         $targets = $one !== null ? (BlockRule::target(null, $judge['sourceTargets'][$one] ?? null) !== null || $judge['campaignTargets'] !== []) : ($judge['campaignTargets'] !== [] || array_filter($judge['sourceTargets']) !== []);
         $own = $one === null && collect($judge['rules'])->contains(fn (array $sourceRule): bool => $sourceRule !== $judge['general']);
+        // Looked up by key, not searched for: Select all may have ticked every one of tens of thousands of rows.
+        $picked = array_flip($page->selected);
+        $ticked = collect($rows)->filter(fn (array $row): bool => isset($picked[$row['key']]));
 
         return [
             ...$list,
@@ -890,8 +1040,8 @@ final class TrafficSourcesView
                     .($own ? ' Sources with thresholds of their own are judged by them.' : '') : ''),
             'selectable' => collect($list['rows'])->filter(fn (array $row): bool => $page->segment === 'blocked' ? $row['blocked'] : ! $row['blocked'])->pluck('key')->values()->all(),
             'selected' => count($page->selected),
-            'selectedBlocked' => collect($rows)->whereIn('key', $page->selected)->where('blocked', true)->count(),
-            'copyIds' => collect($rows)->whereIn('key', $page->selected)->pluck('ref')->implode("\n"),
+            'selectedBlocked' => $ticked->where('blocked', true)->count(),
+            'copyIds' => $ticked->pluck('ref')->implode("\n"),
             'from' => count($list['matching']) === 0 ? 0 : ($list['page'] - 1) * SiteZoneList::PER_PAGE + 1,
             'to' => min(count($list['matching']), $list['page'] * SiteZoneList::PER_PAGE),
         ];
@@ -1156,6 +1306,9 @@ final class TrafficSourcesView
                 'id' => $new->id,
                 'source' => $sources->firstWhere('id', $new->source_id)->name ?? 'A network',
                 'external' => $new->external_id,
+                'name' => $new->name,
+                // Its name, targeting, bid and budget already read from the network's API: only its stage is left to choose.
+                'synced' => $new->synced_at !== null,
                 'visits' => ($figures[$new->id] ?? new ReportFigures)->visits,
                 'since' => $new->first_click_at,
                 'game' => $games->firstWhere('id', $new->game_id)->title ?? null,
@@ -1184,8 +1337,10 @@ final class TrafficSourcesView
                     : 'No API connection for '.$source->name.': targeting, bid and budget typed in here',
                 'rows' => $shown->where('source_id', $source->id)->map(fn (TrafficCampaign $campaign): array => [
                     'id' => $campaign->id,
-                    'name' => $campaign->status === TrafficCampaignStatus::New ? 'New campaign '.$campaign->external_id : ($campaign->name ?? 'Campaign '.$campaign->external_id),
+                    // Its name in the network once the API read it, whatever its stage.
+                    'name' => $campaign->name ?? ($campaign->status === TrafficCampaignStatus::New ? 'New campaign ' : 'Campaign ').$campaign->external_id,
                     'new' => $campaign->status === TrafficCampaignStatus::New,
+                    'synced' => $campaign->synced_at !== null,
                     'sub' => implode(' · ', array_filter([$source->name, $campaign->external_id, $games->firstWhere('id', $campaign->game_id)?->title])),
                     'countries' => $campaign->countries === null ? null : collect($campaign->countries)->map(fn (string $code): string => $countries[$code] ?? $code)->take(3)->implode(', ').(count($campaign->countries) > 3 ? ' +'.(count($campaign->countries) - 3) : ''),
                     'devices' => match (true) {
@@ -1498,7 +1653,9 @@ final class TrafficSourcesView
     private function spendTab(TrafficSourcesPage $page, TrafficReportFilter $filter, $sources): array
     {
         $paid = $sources->whereIn('type', [TrafficSourceType::Network, TrafficSourceType::Placement])->values()->loadCount('campaigns');
-        $unallocated = collect($this->spend->unallocated($filter->fromDay, $filter->toDay));
+        // On a game, device, country or campaign the visits are that part of the source, and the network's bill and the spend no visit took are the whole of it.
+        $narrowed = $this->narrowsVisits($filter);
+        $unallocated = $narrowed ? collect() : collect($this->spend->unallocated($filter->fromDay, $filter->toDay));
         $bySource = collect($this->reports->level($filter, TrafficDimension::Source))->keyBy(fn (array $group): string => (string) ($group['keys']['source_id'] ?? ''));
         // What the network itself says, one origin a source's day as the day is counted: its file where one was taken, else its API.
         $network = TrafficSpendDay::query()->whereBetween('network_day', [$filter->fromDay, $filter->toDay])->whereIn('origin', [TrafficSpendOrigin::Api, TrafficSpendOrigin::Csv])->get(['source_id', 'campaign_id', 'origin', 'network_day', 'amount'])
@@ -1515,13 +1672,13 @@ final class TrafficSourcesView
 
         return [
             'methods' => [
-                ['icon' => 'refresh-cw', 'name' => 'Network API', 'text' => 'RateGuru asks the network for its spend per campaign, site, zone and day, every five minutes. Exactly what the network bills, as soon as the network has it.', 'users' => $users([TrafficSpendMode::Api])],
+                ['icon' => 'refresh-cw', 'name' => 'Network API', 'text' => site_name().' asks the network for its spend per campaign, site, zone and day, every five minutes. Exactly what the network bills, as soon as the network has it.', 'users' => $users([TrafficSpendMode::Api])],
                 ['icon' => 'link', 'name' => 'Price in each click', 'text' => 'The network puts the price of every click into the link. Exact per click, available at once, no typing.', 'users' => $users([TrafficSpendMode::ClickCost])],
                 ['icon' => 'smartphone', 'name' => 'Rate you set', 'text' => 'You type the price you bid, per device. Clicks × rate. An estimate: good enough to compare zones, not to match the invoice.', 'users' => $users([TrafficSpendMode::Rate])],
                 ['icon' => 'calendar', 'name' => 'Fixed price', 'text' => 'A set amount for a day, a month or once, spread evenly over the days and split across visits.', 'users' => $users([TrafficSpendMode::Fixed])],
                 ['icon' => 'file', 'name' => 'Typed in or imported', 'text' => 'Type the spend per campaign and day, or import the network’s CSV export. It replaces any estimate for those days.', 'users' => $users([TrafficSpendMode::Manual])],
             ],
-            'spendRows' => $paid->map(function (TrafficSource $source) use ($bySource, $unallocated, $network, $campaignFigures, $connections, $page): array {
+            'spendRows' => $paid->map(function (TrafficSource $source) use ($bySource, $unallocated, $narrowed, $network, $campaignFigures, $connections, $page): array {
                 $figures = $bySource->get((string) $source->id)['figures'] ?? new ReportFigures;
                 $without = $unallocated->where('source_id', $source->id)->sum(fn (array $row): float => (float) $row['amount']);
                 $reported = TrafficMoney::of($figures->spend)->plus(TrafficMoney::of($without));
@@ -1541,9 +1698,11 @@ final class TrafficSourcesView
                     'reported' => (string) $reported,
                     'estimated' => $figures->spendEstimated,
                     'without' => (string) $without,
+                    'narrowed' => $narrowed,
                     'network' => match (true) {
                         $source->spend_mode === TrafficSpendMode::Fixed => ['Agreed price', null],
                         $networkFacts->isEmpty() => ['Not checked', $source->spend_mode === TrafficSpendMode::Api ? 'Waiting for the first sync' : 'Import the network’s CSV to compare'],
+                        $narrowed => [TrafficMoney::format($networkSum), 'For the whole source'],
                         default => [TrafficMoney::format($networkSum), $networkSum > 0 ? 'Differs by '.number_format(((float) (string) $reported - $networkSum) / $networkSum * 100, 1).'%' : null],
                     },
                     'status' => $this->spendStatus($source, $connection),
@@ -1575,6 +1734,12 @@ final class TrafficSourcesView
             // The days a correction is offered for, the last fourteen in the network's own time zone.
             'correctDay' => ['min' => CarbonImmutable::parse($today)->subDays(13)->toDateString(), 'max' => $today, 'timezone' => $chosen->reporting_timezone ?? 'UTC'],
         ];
+    }
+
+    /** Whether a filter keeps only a game's, a device's, a country's or a campaign's visits of a source. */
+    private function narrowsVisits(TrafficReportFilter $filter): bool
+    {
+        return array_intersect_key($filter->where, array_flip(['game_id', 'device', 'country', 'campaign_id'])) !== [];
     }
 
     /** @return array{icon: string, text: string} how a source's spend is worked out, as Spend says it */
@@ -1666,7 +1831,7 @@ final class TrafficSourcesView
                 'referral' => ['Other sites', 'globe', 'A link on another site, without a source key. Grouped by the referring site.'],
                 'search' => ['Search', 'search', 'Referred by a search engine.'],
                 'direct' => ['Direct', 'arrow-right', 'No referrer and no source key: typed in, bookmarks, apps that hide the referrer.'],
-                'internal' => ['Inside RateGuru', 'home', 'From the feed, a post page, another game or a notification on this site.'],
+                'internal' => ['Inside '.site_name(), 'home', 'From the feed, a post page, another game or a notification on this site.'],
             ])->map(fn (array $channel, string $key): array => ['key' => $key, 'name' => $channel[0], 'icon' => $channel[1], 'how' => $channel[2], 'visits' => ($byGroup->get('c:'.$key)['figures'] ?? new ReportFigures)->visits])->values()->all(),
         ];
     }
@@ -1808,7 +1973,11 @@ final class TrafficSourcesView
                 'url' => TrafficSourcesPage::getUrl(['tab' => 'value', ...self::periodQuery($page)]).'#traffic-value-sources',
             ],
             'preset' => $preset,
-            'connector' => $connector === null ? null : [...($this->presets->connector($connector->value) ?? []), 'verified' => $this->connectors->verified($connector)],
+            'connector' => $connector === null ? null : [
+                ...($connectorPreset = $this->presets->connector($connector->value) ?? []),
+                'promise' => str_replace(':site', site_name(), (string) ($connectorPreset['promise'] ?? '')),
+                'verified' => $this->connectors->verified($connector),
+            ],
             'connection' => $source?->apiConnection?->only(['status', 'account_label', 'last_synced_at', 'next_sync_at', 'last_error', 'spend_closed_through']),
             'events' => array_map(fn (TrafficEvent $event): string => $event->value, TrafficEvent::postbackEvents()),
             'floors' => collect(TrafficEvent::settledFloors())->mapWithKeys(fn (TrafficEvent $event): array => [$event->value => self::ruleEvent($event->value)])->all(),
@@ -1885,6 +2054,8 @@ final class TrafficSourcesView
 
         return [
             'counts' => $counts,
+            // The network as its own panel is named: "in the PopAds panel".
+            'network' => $source->connector?->label() ?? 'network’s',
             'cap' => (int) $source->block_daily_cap,
             'auto' => (bool) $source->block_auto,
             'ranAt' => TrafficSetting::blockRuleRanAt(),
@@ -1911,12 +2082,13 @@ final class TrafficSourcesView
             'campaignTargets' => TrafficCampaign::query()->where('source_id', $source->id)->where('target_cpa', '>', 0)->count(),
             'worth' => ['accounts' => $accounts, 'needed' => TrafficBlocksQuery::WORTH_KNOWN_AT, 'known' => $accounts >= TrafficBlocksQuery::WORTH_KNOWN_AT],
             'connected' => $connection?->status === TrafficConnectionStatus::Connected,
+            'listsError' => $connection === null || $connection->status === TrafficConnectionStatus::Disconnected ? null : $this->blockListsError($connection),
             // What keeps the rule from blocking for this source by itself, in the order it asks.
             'why' => array_values(array_filter([
                 $source->status !== TrafficSourceStatus::Active
                     ? ($source->status === TrafficSourceStatus::Ended ? 'The source has ended' : 'The source is paused').': the rule blocks only for an active source.'
                     : null,
-                $source->connector === null ? 'RateGuru has no API for this network: block by hand and copy the IDs into its blacklist.' : null,
+                $source->connector === null ? site_name().' has no API for this network: block by hand and copy the IDs into its blacklist.' : null,
                 $source->connector !== null && $connection?->status !== TrafficConnectionStatus::Connected
                     ? ($connection === null || $connection->status === TrafficConnectionStatus::Disconnected ? 'No API connected: connect it below.' : 'The API connection needs attention: reconnect it below.')
                     : null,
@@ -1934,6 +2106,26 @@ final class TrafficSourcesView
             ])).'#traffic-performance',
             'logUrl' => TrafficSourcesPage::getUrl(['tab' => 'logs', 'log' => 'blocks', 'source' => $source->id]),
         ];
+    }
+
+    /**
+     * Why the last read of a source's campaigns' block lists failed, naming
+     * the campaign whose list it couldn't read — by its name, else its ID
+     * with the network — and when; nothing once a read went through, nor
+     * while the API is disconnected, with nothing to read it again.
+     */
+    private function blockListsError(TrafficApiConnection $connection): ?string
+    {
+        if ($connection->block_lists_error === null) {
+            return null;
+        }
+
+        $external = $connection->block_lists_error_campaign;
+        $name = $external === null ? null : TrafficCampaign::query()->where('source_id', $connection->source_id)->where('external_id', $external)->value('name');
+        $whose = $external === null ? 'the campaigns’ block lists' : ($name ?? 'Campaign '.$external).'’s block list';
+
+        return 'Couldn’t read '.$whose.($connection->block_lists_read_at !== null ? ' at '.$connection->block_lists_read_at->format('j M H:i') : '').': '
+            .(TrafficConnectorFailure::tryFrom($connection->block_lists_error)?->message() ?? 'The network answered in a way '.site_name().' doesn’t understand.');
     }
 
     /** A postback rule's event, as the editor names it. */
@@ -1992,8 +2184,8 @@ final class TrafficSourcesView
                 ],
                 'note' => match (true) {
                     (bool) ($preset['custom'] ?? false) => 'Any network without a preset. Link, postbacks and reports work the same: you type in its tokens and postback address and check them with Check a link.',
-                    $preset['connector'] !== null => 'Read through the RateGuru connector: spend, campaigns and blocking.',
-                    ($preset['network_api'] ?? '') !== '' => 'Its API offers '.$preset['network_api'].' · no RateGuru connector yet',
+                    $preset['connector'] !== null => 'Read through the built-in connector: spend, campaigns and blocking.',
+                    ($preset['network_api'] ?? '') !== '' => 'Its API offers '.$preset['network_api'].' · no built-in connector yet',
                     default => '',
                 },
             ])->values()->all(),

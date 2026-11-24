@@ -14,12 +14,16 @@ use App\Models\TrafficApiConnection;
 use App\Models\TrafficCampaign;
 use App\Models\TrafficCampaignPrice;
 use App\Models\TrafficSource;
+use App\Models\TrafficSpendDay;
 use App\Models\TrafficVisit;
 use App\Services\Traffic\Connectors\ConnectorException;
 use App\Services\Traffic\Connectors\ConnectorRegistry;
 use App\Services\Traffic\Connectors\ConnectorSession;
+use App\Services\Traffic\Connectors\EditsBlockLists;
 use App\Services\Traffic\Connectors\NetworkCampaign;
+use App\Services\Traffic\Connectors\ReadsBlockLists;
 use App\Services\Traffic\Connectors\ReadsCampaigns;
+use App\Services\Traffic\Connectors\ReadsImpressionsByCountry;
 use App\Services\Traffic\Connectors\ReadsSpend;
 use Carbon\CarbonImmutable;
 use Illuminate\Contracts\Encryption\DecryptException;
@@ -32,13 +36,20 @@ use Throwable;
  * yesterday closed once its figures came complete and six hours of the next
  * day have passed, then a few older days back to 30 before it was connected;
  * the campaigns' own details each turn, so a campaign that has just had its
- * first click is named within minutes. A turn comes every five minutes.
- * Only campaigns RateGuru saw a
- * click of are read and kept: a network account can hold campaigns sent
- * elsewhere. A failure waits longer each time; a refused key, an account not
- * in dollars or five failures running need the administrator. A connection
- * reconnected or disconnected during a turn keeps its new state: how the
- * turn went is the old connection's.
+ * first click is named within minutes; and every six hours each campaign's
+ * block list, read and never written (ReadTrafficBlockListsAction), so what
+ * was blocked or unblocked in the network's own panel shows — a list that
+ * can't be read failing nothing but itself, short of a refused key, and
+ * kept on the connection, with the campaign whose list it was, until a read
+ * goes through; then RateGuru's own blocks queued for the running campaigns
+ * they are missing from (QueueMissingTrafficBlocksAction), a campaign that
+ * came since among them, for the next apply to send. A turn comes every
+ * five minutes. Only campaigns RateGuru saw a click of are read and kept: a
+ * network account can hold campaigns sent elsewhere. A failure waits longer
+ * each time; a refused key, an account not in dollars or five failures
+ * running need the administrator. A connection reconnected or disconnected
+ * during a turn keeps its new state: how the turn went is the old
+ * connection's.
  */
 final class SyncTrafficNetworkAction
 {
@@ -50,10 +61,15 @@ final class SyncTrafficNetworkAction
 
     private const int FAILURES = 5;
 
+    private const int READ_LISTS_EVERY_HOURS = 6;
+
     public function __construct(
         private readonly ConnectorRegistry $registry,
         private readonly ReplaceSpendSliceAction $slices,
+        private readonly ReplaceSpendCountriesAction $countryFigures,
         private readonly RecordTrafficCampaignEventAction $history,
+        private readonly ReadTrafficBlockListsAction $lists,
+        private readonly QueueMissingTrafficBlocksAction $missing,
     ) {}
 
     public function handle(TrafficApiConnection $connection, CarbonImmutable $now): void
@@ -88,6 +104,24 @@ final class SyncTrafficNetworkAction
                 $running = TrafficCampaign::query()->where('source_id', $source->id)->where('status', '!=', TrafficCampaignStatus::Archived)->pluck('external_id')->map(fn ($id): string => (string) $id)->all();
                 $this->campaigns($connector->campaigns($session, $running), $source, $now);
                 $connection->campaigns_synced_at = $now;
+            }
+
+            // The campaigns' block lists, read and never written, every few hours: a call a campaign, and what they hold changes by hand.
+            if ($connector instanceof ReadsBlockLists && ($connection->block_lists_read_at === null || $connection->block_lists_read_at->addHours(self::READ_LISTS_EVERY_HOURS)->lessThanOrEqualTo($now))) {
+                $failure = $this->readLists((int) $source->id, $connector, $session);
+                // Whose list couldn't be read, and why, for the source's Blocking pane — until a read goes through.
+                $connection->forceFill([
+                    'block_lists_read_at' => $now,
+                    'block_lists_error' => $failure?->failure->value,
+                    'block_lists_error_campaign' => $failure?->campaignId,
+                ]);
+            }
+
+            // RateGuru's own blocks are for every running campaign: one that came since — its first click — or whose list was just read
+            // without one, nothing refused there, is sent it.
+            if ($connector instanceof EditsBlockLists) {
+                // A campaign that missed one only because the network was slow or down is sent it again once a read of its list finds it isn't there.
+                $this->missing->handle((int) $source->id, $connector->blockLevels());
             }
 
             $this->settle($connection, $fence, fn (): array => [
@@ -158,6 +192,56 @@ final class SyncTrafficNetworkAction
         }
 
         $connection->backfill_cursor = $cursor !== null && $cursor >= $yesterday->toDateString() ? null : $cursor;
+
+        if ($connector instanceof ReadsImpressionsByCountry) {
+            $this->countries($connector, $session, $connection, $source, array_values(array_unique($days)), $networkIds, $campaigns, $yesterday->toDateString());
+        }
+    }
+
+    /**
+     * The same days' impressions by country, and a few older days each turn
+     * from the first the API reported, so a connection made before this was
+     * read catches up. Spend for the turn is already stored: a failure here
+     * costs only these figures, and the older days are asked for again.
+     *
+     * @param  list<string>  $days
+     * @param  list<string>  $networkIds
+     * @param  array<string, int>  $campaigns  by the network's ID
+     */
+    private function countries(ReadsImpressionsByCountry $connector, ConnectorSession $session, TrafficApiConnection $connection, TrafficSource $source, array $days, array $networkIds, array $campaigns, string $yesterday): void
+    {
+        $cursor = $connection->country_cursor ?? TrafficSpendDay::query()
+            ->where('source_id', $source->id)
+            ->where('origin', TrafficSpendOrigin::Api)
+            ->whereNotNull('reported_impressions')
+            ->min('network_day');
+
+        for ($n = 0; $cursor !== null && $n < self::BACKFILL_PER_RUN && $cursor < $yesterday; $n++) {
+            $days[] = (string) $cursor;
+            $cursor = CarbonImmutable::parse((string) $cursor)->addDay()->toDateString();
+        }
+
+        try {
+            foreach (array_unique($days) as $day) {
+                $rows = [];
+
+                foreach ($connector->impressionsByCountry($session, $day, $networkIds) as $row) {
+                    if (isset($campaigns[$row['campaign']])) {
+                        $rows[] = ['campaign_id' => $campaigns[$row['campaign']], 'site_ref' => $row['site'], 'country' => $row['country'], 'impressions' => $row['impressions'], 'amount' => $row['amount']];
+                    }
+                }
+
+                $this->countryFigures->handle((int) $source->id, $day, $rows);
+            }
+        } catch (ConnectorException) {
+            return;
+        } catch (Throwable $exception) {
+            report($exception);
+
+            return;
+        }
+
+        $connection->country_cursor = $cursor === null ? null : (string) $cursor;
     }
 
     /** @param  list<NetworkCampaign>  $networkCampaigns */
@@ -200,6 +284,36 @@ final class SyncTrafficNetworkAction
                 }
             });
         }
+    }
+
+    /**
+     * The campaigns' block lists, read beside the spend the turn is for: a
+     * list that can't be read — an answer of a shape RateGuru doesn't know,
+     * the API down for it — changes nothing and fails nothing, and is read
+     * again at the next read; only a key the network refused is the
+     * connection's to answer for. Reported, never with the key, and given
+     * back, naming the campaign whose list it was, for the source's
+     * Blocking pane to say.
+     *
+     * @return ConnectorException|null why the read failed, or nothing once it went through
+     *
+     * @throws ConnectorException
+     */
+    private function readLists(int $sourceId, ReadsBlockLists $connector, ConnectorSession $session): ?ConnectorException
+    {
+        try {
+            $this->lists->handle($sourceId, $connector, $session);
+        } catch (ConnectorException $exception) {
+            if ($exception->failure->needsAttention()) {
+                throw $exception;
+            }
+
+            report($exception);
+
+            return $exception;
+        }
+
+        return null;
     }
 
     private function failed(TrafficApiConnection $connection, mixed $fence, ConnectorException $exception, CarbonImmutable $now): void

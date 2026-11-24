@@ -8,8 +8,11 @@ use App\Support\Notifications\MailAddressee;
 use App\Support\Settings\ProjectSettingsManager;
 use Illuminate\Auth\Notifications\ResetPassword;
 use Illuminate\Auth\Notifications\VerifyEmail;
+use Illuminate\Mail\Events\MessageSending;
 use Illuminate\Notifications\Messages\MailMessage;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\ServiceProvider;
+use Symfony\Component\Mime\Address;
 
 /**
  * The two emails Laravel sends on our behalf, written in our words.
@@ -35,10 +38,24 @@ final class MailLocalizationServiceProvider extends ServiceProvider
 {
     public function boot(): void
     {
+        // The default sender goes out under the project's name: APP_NAME is the deployment's, set once on the server. A message naming its own sender keeps it.
+        Event::listen(MessageSending::class, function (MessageSending $event): void {
+            $senders = $event->message->getFrom();
+
+            if ($senders !== []) {
+                $event->message->from(...array_map(
+                    fn (Address $sender): Address => $sender->getAddress() === config('mail.from.address') && $sender->getName() === config('mail.from.name')
+                        ? new Address($sender->getAddress(), site_name())
+                        : $sender,
+                    $senders,
+                ));
+            }
+        });
+
         VerifyEmail::toMailUsing(function (object $notifiable, string $url): MailMessage {
             $mail = (new MailMessage)
                 ->subject(__('mail.verify.subject'))
-                ->greeting(__('mail.greeting', ['name' => MailAddressee::nameOf($notifiable)]))
+                ->greeting(MailAddressee::greetingFor($notifiable))
                 ->line(__('mail.verify.line'))
                 ->action(__('mail.verify.action'), $url);
 
@@ -55,7 +72,7 @@ final class MailLocalizationServiceProvider extends ServiceProvider
 
         ResetPassword::toMailUsing(fn (object $notifiable, string $token): MailMessage => (new MailMessage)
             ->subject(__('mail.reset.subject'))
-            ->greeting(__('mail.greeting', ['name' => MailAddressee::nameOf($notifiable)]))
+            ->greeting(MailAddressee::greetingFor($notifiable))
             ->line(__('mail.reset.line'))
             ->action(__('mail.reset.action'), self::resetUrl($token, $notifiable))
             ->line(__('mail.reset.expire', [

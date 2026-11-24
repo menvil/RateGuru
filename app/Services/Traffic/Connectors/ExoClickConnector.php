@@ -15,8 +15,9 @@ use Illuminate\Http\Client\Response;
  * signed in again once on a 401. Spend from `statistics/a/global` by day,
  * campaign and zone, checked against its own total; campaigns from
  * `campaigns`; zones blocked by rewriting a campaign's blocked zones — the
- * API cannot block a site. A dollar account only. Unverified until checked
- * on the owner's token.
+ * API cannot block a site — and read from the campaign alone, nothing
+ * written, so the sync sees what was blocked in ExoClick's own panel. A
+ * dollar account only. Unverified until checked on the owner's token.
  */
 final class ExoClickConnector implements EditsBlockLists, ReadsCampaigns, ReadsSpend, TrafficNetworkConnector
 {
@@ -130,6 +131,40 @@ final class ExoClickConnector implements EditsBlockLists, ReadsCampaigns, ReadsS
     public function blockLevels(): array
     {
         return [TrafficBlockLevel::Zone];
+    }
+
+    public function blockLists(ConnectorSession $session, array $campaignIds, TrafficBlockLevel $level): BlockListsRead
+    {
+        if ($level !== TrafficBlockLevel::Zone) {
+            throw new ConnectorException(TrafficConnectorFailure::Unsupported);
+        }
+
+        $lists = [];
+        $failure = null;
+
+        foreach ($campaignIds as $id) {
+            // A campaign ExoClick doesn't know, or one listing zones to allow, has no list of zones to block.
+            try {
+                $lists[$id] = array_values(array_unique($this->blockedZones($session, $id)));
+            } catch (ConnectorException $exception) {
+                if ($exception->failure === TrafficConnectorFailure::Unsupported || $exception->httpStatus === 404) {
+                    continue;
+                }
+
+                if ($exception->failure->needsAttention()) {
+                    throw $exception->forCampaign($id);
+                }
+
+                // The sync says whose list it couldn't read; the other campaigns' are read all the same, unless ExoClick is down, slow or busy.
+                $failure ??= $exception->forCampaign($id);
+
+                if ($exception->failure->passes()) {
+                    break;
+                }
+            }
+        }
+
+        return new BlockListsRead($lists, $failure);
     }
 
     public function applyBlockDelta(ConnectorSession $session, string $campaignId, TrafficBlockLevel $level, array $add, array $remove): BlockDeltaResult

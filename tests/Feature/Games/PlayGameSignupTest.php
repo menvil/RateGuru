@@ -15,7 +15,6 @@ use App\Models\User;
 use App\Support\Games\Flow\GameFlowTemplate;
 use App\Support\Games\Play\GameSessionAttempts;
 use App\Support\Urls\DisplayHost;
-use Livewire\Features\SupportTesting\Testable;
 use Livewire\Livewire;
 
 /*
@@ -28,14 +27,6 @@ beforeEach(function () {
     ProjectSettings::factory()->create();
     $this->draft = publishableGameDraft(1);
 });
-
-function playToResult(string $slug): Testable
-{
-    return Livewire::withCookie((string) config('games.visitor_cookie.name'), str_repeat('s', 40))
-        ->test(PlayGame::class, ['slug' => $slug])
-        ->call('init')->call('continue')->call('choose', 0)->call('next')
-        ->assertSee('data-testid="game-step-full_result"', false);
-}
 
 it('asks an anonymous visitor for the email first, then a name and one password, for the site\'s registration', function () {
     config()->set('services.google.client_id', null);
@@ -205,7 +196,9 @@ it('tells a guest who signed up from the result that their name is on the card n
 
     Livewire::test(PlayGame::class, ['slug' => $slug])
         ->assertSeeHtml('data-testid="game-byline">@newbie<')
-        ->assertSee('Your name is on the card now: @newbie')
+        // The @name reads its own way in the sentence, its @ in front on a page read right to left; the
+        // sentence is one item of the row beside the tick, so the space before the @name stays a space.
+        ->assertSeeHtml('<span>Your name is on the card now: <bdi>@newbie</bdi></span>')
         ->assertDontSeeHtml('data-testid="game-signup"');
 });
 

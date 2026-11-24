@@ -19,7 +19,7 @@
 
         <div>
             <x-input-label for="name" :value="__('auth.fields.name')" />
-            <x-ui.input id="name" name="name" type="text" class="mt-1" :value="old('name', $user->name)" required autofocus autocomplete="name" />
+            <x-ui.input id="name" name="name" type="text" dir="auto" class="mt-1" :value="old('name', $user->name)" required autofocus autocomplete="name" />
             <x-input-error class="mt-2" :messages="$errors->get('name')" />
         </div>
 
@@ -44,6 +44,10 @@
                             {{ __('profile.information.resend_verification') }}
                         </button>
                     </p>
+
+                    @if (filled(session('verification_wait')))
+                        <p class="mt-2 text-sm text-rg-muted" data-testid="profile-verification-wait">{{ session('verification_wait') }}</p>
+                    @endif
 
                     @if (session('status') === 'verification-link-sent')
                         <p class="mt-2 text-sm font-medium text-rg-accent2">

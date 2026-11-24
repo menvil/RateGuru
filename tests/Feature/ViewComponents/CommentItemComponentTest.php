@@ -67,7 +67,7 @@ it('renders comment actions menu in the comment header', function () {
     expect($html)
         ->toContain('items-start justify-between')
         ->toContain('aria-label="Comment actions"')
-        ->toContain('absolute right-0 top-full')
+        ->toContain('absolute inset-e-0 top-full')
         ->toContain('py-1.5');
 });
 

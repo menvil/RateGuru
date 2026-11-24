@@ -2,6 +2,7 @@
 
 use App\Actions\Analytics\RefreshAnalyticsDayAction;
 use App\Actions\Analytics\RefreshAnalyticsGameCellsAction;
+use App\Actions\Auth\ScreenRegistrationAction;
 use App\Actions\Games\ApplyGameTrafficAction;
 use App\Actions\Games\ChangeGameStatusAction;
 use App\Actions\Games\PublishGameVersionAction;
@@ -99,6 +100,7 @@ use App\Models\TrafficPriceSet;
 use App\Models\TrafficSetting;
 use App\Models\TrafficSource;
 use App\Models\TrafficSpendDay;
+use App\Models\TrafficSpendDayCountry;
 use App\Models\TrafficStepChance;
 use App\Models\TrafficVisit;
 use App\Models\TrafficVisitPost;
@@ -116,6 +118,7 @@ use App\Support\Analytics\AnalyticsFilter;
 use App\Support\Analytics\AnalyticsPeriod;
 use App\Support\Analytics\AnalyticsSource;
 use App\Support\Analytics\CampaignKey;
+use App\Support\Auth\RegistrationFormStamp;
 use App\Support\Games\Flow\FlowStepDraft;
 use App\Support\Games\Flow\GameFlowValidator;
 use App\Support\Games\Results\ResultProfileCoverage;
@@ -166,6 +169,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -175,7 +179,9 @@ use Laravel\Nightwatch\Events\IngestingEvents as NightwatchIngestingEvents;
 use Laravel\Socialite\Two\User as SocialiteUser;
 use Livewire\Features\SupportTesting\Testable;
 use Livewire\Livewire;
+use Monolog\Handler\TestHandler;
 use PHPUnit\Framework\AssertionFailedError;
+use PHPUnit\Framework\ExpectationFailedException;
 use Sentry\ClientBuilder as SentryClientBuilder;
 use Sentry\Event as SentryEvent;
 use Sentry\EventType as SentryEventType;
@@ -1554,7 +1560,7 @@ function waitForPostDetailOverlayClosed(mixed $page): void
             const panel = document.querySelector('[data-testid="post-detail-overlay"]');
 
             return ! panel
-                || (panel.classList.contains('translate-x-full')
+                || (panel.classList.contains('ltr:translate-x-full')
                     && panel.getAnimations().every((animation) => animation.playState === 'finished'));
         })()
     JS);
@@ -1573,6 +1579,23 @@ function waitForPostDetailOverlayOpen(mixed $page): void
             return Boolean(panel)
                 && panel.classList.contains('translate-x-0')
                 && panel.getAnimations().every((animation) => animation.playState === 'finished');
+        })()
+    JS);
+}
+
+/**
+ * Opens the menu drawer with the header's menu button and waits until it has
+ * stopped sliding in — the state its geometry is measured in.
+ */
+function openMobileNav(mixed $page): void
+{
+    $page->click('[data-testid="mobile-nav-trigger"]');
+
+    waitForScript($page, <<<'JS'
+        (() => {
+            const panel = document.querySelector('[data-testid="mobile-nav-panel"]');
+
+            return panel.checkVisibility() && panel.getAnimations().every((animation) => animation.playState === 'finished');
         })()
     JS);
 }
@@ -8283,15 +8306,30 @@ function expectLivewireModelNotFound(string $component, array $parameters): void
  * on a CI runner that is busy with the rest of the suite. This polls the
  * expression until it evaluates to the expected value, and fails with the
  * last value it saw when the time runs out.
+ *
+ * A script that throws because what it reads is not there yet, Alpine before
+ * it has loaded say, is not ready rather than failed: the browser plugin gives
+ * up on one after its own five seconds, which a busy runner can outlast.
  */
-function waitForScript(mixed $page, string $expression, mixed $expected = true, float $timeoutSeconds = 5.0): void
+function waitForScript(mixed $page, string $expression, mixed $expected = true, float $timeoutSeconds = 10.0): void
 {
     $deadline = microtime(true) + $timeoutSeconds;
+    $actual = null;
+    $scriptError = null;
 
     do {
-        $actual = $page->script($expression);
+        try {
+            $actual = $page->script($expression);
+            $scriptError = null;
+        } catch (ExpectationFailedException $failure) {
+            if (preg_match('/^(?:Reference|Type)Error: /', $failure->getMessage()) !== 1) {
+                throw $failure;
+            }
 
-        if ($actual === $expected) {
+            $scriptError = strtok($failure->getMessage(), "\n");
+        }
+
+        if ($scriptError === null && $actual === $expected) {
             break;
         }
 
@@ -8300,7 +8338,10 @@ function waitForScript(mixed $page, string $expression, mixed $expected = true, 
         browserTestPause(0.025);
     } while (microtime(true) < $deadline);
 
-    expect($actual)->toBe($expected, "[{$expression}] did not become ".var_export($expected, true)." within {$timeoutSeconds}s");
+    $outcome = "[{$expression}] did not become ".var_export($expected, true)." within {$timeoutSeconds}s";
+
+    expect($scriptError)->toBeNull("{$outcome}: {$scriptError}");
+    expect($actual)->toBe($expected, $outcome);
 }
 
 /**
@@ -8732,6 +8773,22 @@ function localesConfig(): array
 function translatedLocales(): array
 {
     return array_values(array_diff(supportedLocales(), ['en']));
+}
+
+/**
+ * The installed languages read right to left — the ones config/locales.php
+ * declares `'direction' => 'rtl'` — in config order. Read from the file for
+ * the same reason supportedLocales() is, so a test about a right-to-left page
+ * takes its language from here rather than naming one.
+ *
+ * @return list<string>
+ */
+function rightToLeftLocales(): array
+{
+    return array_keys(array_filter(
+        localesConfig()['supported'],
+        fn (array $info): bool => ($info['direction'] ?? null) === 'rtl',
+    ));
 }
 
 /**
@@ -14798,6 +14855,83 @@ function demoGameWithMembers(int $members = 200): User
     return $admin;
 }
 
+/** A sign-up as a person sends it: the stamp the page drew, some seconds ago. */
+function screenedSignUp(array $overrides = [], string $page = '/register'): array
+{
+    $html = test()->get($page)->assertOk()->getContent();
+
+    preg_match('/name="'.RegistrationFormStamp::FIELD.'"\s+value="([^"]+)"/', $html, $stamp);
+    test()->travel(10)->seconds();
+
+    return array_merge([
+        'name' => 'New Member',
+        'email' => 'new@example.com',
+        'password' => 'password',
+        'password_confirmation' => 'password',
+        RegistrationFormStamp::FIELD => $stamp[1] ?? null,
+        ScreenRegistrationAction::HONEYPOT_FIELD => '',
+    ], $overrides);
+}
+
+/** The security channel, swapped for a handler the test can read. */
+function fakeSecurityLog(): TestHandler
+{
+    config(['logging.channels.security' => ['driver' => 'monolog', 'handler' => TestHandler::class]]);
+
+    return Log::channel('security')->getLogger()->getHandlers()[0];
+}
+
+/**
+ * Every value in the call arguments a failure carries, through its previous
+ * exceptions, as the error tracker is sent them. The test client's own calls
+ * are left out: they hold the form it was asked to send.
+ *
+ * @return list<mixed>
+ */
+function reportedCallArguments(Closure $failing): array
+{
+    $ignored = ini_set('zend.exception_ignore_args', '0');
+    $failure = null;
+
+    try {
+        $failing();
+    } catch (Throwable $caught) {
+        $failure = $caught;
+    } finally {
+        ini_set('zend.exception_ignore_args', (string) $ignored);
+    }
+
+    if ($failure === null) {
+        test()->fail('The call was expected to fail.');
+    }
+
+    $arguments = [];
+
+    for ($current = $failure; $current !== null; $current = $current->getPrevious()) {
+        $application = array_filter(
+            $current->getTrace(),
+            fn (array $frame): bool => ($frame['class'] ?? null) !== Illuminate\Foundation\Testing\TestCase::class,
+        );
+        $arguments[] = array_column($application, 'args');
+    }
+
+    $values = [];
+    array_walk_recursive($arguments, function (mixed $value) use (&$values): void {
+        $values[] = $value;
+    });
+
+    return $values;
+}
+
+/** An anonymous visitor's one-question game, played as far as its Full Result step. */
+function playToResult(string $slug): Testable
+{
+    return Livewire::withCookie((string) config('games.visitor_cookie.name'), str_repeat('s', 40))
+        ->test(PlayGame::class, ['slug' => $slug])
+        ->call('init')->call('continue')->call('choose', 0)->call('next')
+        ->assertSee('data-testid="game-step-full_result"', false);
+}
+
 /**
  * A Draft game whose content set and flow can be published as they are:
  * `$rounds` crowd rounds of published posts the crowd plainly decided (90 %
@@ -14862,6 +14996,52 @@ function liveGame(array $draft): GameVersion
     allowGames();
 
     return $version;
+}
+
+/**
+ * Makes each round of the draft's flow wait for its Next button, so a browser
+ * test's click never races the round's timer.
+ *
+ * @param  array{admin: User, game: Game, set: GameContentSet, flow: GameFlow}  $draft
+ */
+function buttonPacedGame(array $draft): void
+{
+    GameFlowStep::query()->where('flow_id', $draft['flow']->id)->where('type', GameFlowStepType::Game->value)->get()
+        ->each(fn (GameFlowStep $step) => $step->forceFill(['settings' => [...$step->settings, 'advance' => 'button']])->save());
+}
+
+/**
+ * A game's page open in the browser at this width, once Livewire has it —
+ * asked for in this language by the browser (Accept-Language) when one is
+ * given.
+ */
+function visitGame(string $slug, int $width = 1440, ?string $locale = null): mixed
+{
+    $pending = visit('/games/'.$slug);
+
+    if ($locale !== null) {
+        $pending = $pending->withLocale($locale);
+    }
+
+    $page = $pending->resize($width, 900);
+
+    waitForScript($page, "!! window.Livewire && window.Livewire.all().length > 0 && !! document.querySelector('[data-testid=\"game-page\"]')", true, 10.0);
+
+    return $page;
+}
+
+/** Picks an option and waits for the reveal's Next button. */
+function pickInGame(mixed $page, int $position): void
+{
+    $page->click('[data-testid="game-option-'.$position.'"]');
+    waitForScript($page, "!! document.querySelector('[data-testid=\"game-next\"]')", true, 10.0);
+}
+
+/** Presses the reveal's Next button and waits until the expression holds. */
+function nextInGame(mixed $page, string $until): void
+{
+    $page->click('[data-testid="game-next"]');
+    waitForScript($page, $until, true, 10.0);
 }
 
 /**
@@ -15568,6 +15748,19 @@ function paidImpressions(TrafficSource $source, string $day, int $impressions, s
         'origin' => TrafficSpendOrigin::Api,
         'amount' => $amount,
         'reported_impressions' => $impressions,
+        ...$attributes,
+    ]);
+}
+
+/** What a network's API reported of a source's day for one country, of the campaign and site the attributes give. */
+function paidImpressionsIn(string $country, TrafficSource $source, string $day, int $impressions, string $amount, array $attributes = []): TrafficSpendDayCountry
+{
+    return TrafficSpendDayCountry::factory()->create([
+        'source_id' => $source->id,
+        'network_day' => $day,
+        'country' => $country,
+        'impressions' => $impressions,
+        'amount' => $amount,
         ...$attributes,
     ]);
 }

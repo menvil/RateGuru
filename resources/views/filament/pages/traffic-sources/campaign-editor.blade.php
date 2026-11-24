@@ -154,7 +154,7 @@
                 @foreach (['bid_mobile', 'bid_desktop', 'daily_budget', 'target_cpa'] as $field)
                     @error($field)<p class="rg-admin-games__note rg-admin-games__note--danger">{{ $message }}</p>@enderror
                 @endforeach
-                <span class="rg-admin-traffic__note">{{ $campaign['reported'] ? 'Change targeting, price and budget in '.$campaign['source'].'; RateGuru reads them at each sync and notes every change in History.' : 'Typed in here for the record; RateGuru never changes them in the network.' }} Target is yours, not the network’s: what you are ready to pay for a confirmed account.</span>
+                <span class="rg-admin-traffic__note">{{ $campaign['reported'] ? 'Change targeting, price and budget in '.$campaign['source'].'; '.site_name().' reads them at each sync and notes every change in History.' : 'Typed in here for the record; '.site_name().' never changes them in the network.' }} Target is yours, not the network’s: what you are ready to pay for a confirmed account.</span>
             </div>
 
             <fieldset class="rg-admin-field rg-admin-games__radio-rows">

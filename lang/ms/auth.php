@@ -31,6 +31,8 @@ return [
     'register' => [
         'title' => 'Daftar',
         'action' => 'Daftar',
+        'refused' => 'Kami tidak dapat melengkapkan pendaftaran anda. Sila cuba lagi kemudian.',
+        'javascript_required' => 'Semakan keselamatan tidak dimuatkan. Hidupkan JavaScript atau muat semula halaman untuk melengkapkan pendaftaran.',
     ],
 
     'divider' => 'atau',
@@ -52,8 +54,12 @@ return [
 
     'verify_email' => [
         'intro' => 'Terima kasih kerana mendaftar! Sebelum bermula, bolehkah anda mengesahkan alamat e-mel anda dengan mengklik pautan yang baru kami hantar kepada anda? Jika anda tidak menerima e-mel itu, kami dengan senang hati akan menghantar yang lain.',
-        'link_sent' => 'Pautan pengesahan baharu telah dihantar ke alamat e-mel yang anda berikan semasa pendaftaran.',
+        'link_sent' => 'Pautan pengesahan baharu telah dihantar ke alamat e-mel semasa anda.',
         'resend' => 'Hantar semula e-mel pengesahan',
+        'confirmed' => 'Alamat e-mel anda telah disahkan.',
+        'link_expired' => 'Pautan pengesahan ini telah tamat tempoh. Minta pautan baharu di bawah.',
+        'throttled' => 'Anda boleh meminta pautan baharu dalam :minutes min.',
+        'notice_changed_address' => 'Sahkan alamat e-mel baharu anda, :email, untuk menyiarkan, mengulas, mengundi dan mengikuti orang lain. Jika anda tiada pautan, minta pautan baharu.',
     ],
 
     'social' => [

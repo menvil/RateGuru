@@ -33,7 +33,7 @@
                     id="comments-sort-menu"
                     x-cloak
                     x-show="open"
-                    class="absolute right-0 z-20 mt-2 w-32 rounded-rgControl border border-rg-border bg-rg-card2 p-1 shadow-rgDropdown"
+                    class="absolute inset-e-0 z-20 mt-2 w-32 rounded-rgControl border border-rg-border bg-rg-card2 p-1 shadow-rgDropdown"
                     data-testid="comments-sort-menu"
                 >
                     @foreach($sortLabels as $value => $label)
@@ -42,7 +42,7 @@
                             wire:click="setCommentSort('{{ $value }}')"
                             x-on:click="open = false"
                             aria-pressed="{{ $commentSort === $value ? 'true' : 'false' }}"
-                            class="block w-full cursor-pointer rounded-rgSm px-3 py-1.5 text-left text-[12.5px] transition {{ $commentSort === $value ? 'bg-rg-accentSoft text-rg-accent2' : 'text-rg-text2 hover:bg-rg-card' }}"
+                            class="block w-full cursor-pointer rounded-rgSm px-3 py-1.5 text-start text-[12.5px] transition {{ $commentSort === $value ? 'bg-rg-accentSoft text-rg-accent2' : 'text-rg-text2 hover:bg-rg-card' }}"
                         >
                             {{ $label }}
                         </button>
@@ -87,12 +87,13 @@
                 @if($replyingTo === $comment->id && ! $comment->isStructuralTombstone())
                     <form
                         wire:submit.prevent="submitReply"
-                        class="ml-4 flex min-h-[50px] items-center gap-2.5 rounded-[10px] border border-rg-border2 bg-rg-card2 py-2 pl-3.5 pr-2"
+                        class="ms-4 flex min-h-[50px] items-center gap-2.5 rounded-[10px] border border-rg-border2 bg-rg-card2 py-2 ps-3.5 pe-2"
                         data-testid="reply-form"
                     >
                         <input
                             name="replyBody"
                             type="text"
+                            dir="auto"
                             wire:model="replyBody"
                             aria-label="{{ __('ui.comments.write_reply') }}"
                             maxlength="1000"
@@ -129,7 +130,7 @@
                 @endif
 
                 @if($comment->replies->isNotEmpty())
-                    <div class="ml-4 space-y-4 border-l border-rg-border pl-4" data-testid="comment-replies">
+                    <div class="ms-4 space-y-4 border-s border-rg-border ps-4" data-testid="comment-replies">
                         @foreach($comment->replies as $reply)
                             <x-comments.comment-item
                                 :comment="$reply"

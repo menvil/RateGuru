@@ -27,8 +27,16 @@ final class RecentlyDeletedPostsPage extends Component
 
     public ?string $statusMessage = null;
 
+    /**
+     * The title of the post just restored: the page says so in a sentence of
+     * its own, with the title read its own way in it.
+     */
+    public ?string $restoredTitle = null;
+
     public function restore(int $postId, RestoreDeletedPostAction $restoreAction): void
     {
+        $this->restoredTitle = null;
+
         $post = Post::onlyTrashed()
             ->where('user_id', auth()->id())
             ->find($postId);
@@ -44,7 +52,8 @@ final class RecentlyDeletedPostsPage extends Component
             // Restoring may empty the current page; land back on a page
             // that still exists.
             $this->resetPage();
-            $this->statusMessage = __('ui.recently_deleted.restored', ['title' => $post->title]);
+            $this->statusMessage = null;
+            $this->restoredTitle = $post->title;
         } catch (CannotRestoreDeletedPostException $e) {
             $this->statusMessage = $e->getMessage();
         }

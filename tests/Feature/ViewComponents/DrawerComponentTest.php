@@ -34,7 +34,7 @@ it('supports right side desktop behavior and mobile safe layout', function () {
         ->toContain('text-rg-text')
         ->toContain('bottom-0')
         ->toContain('md:inset-y-0')
-        ->toContain('md:right-0')
+        ->toContain('md:inset-e-0')
         ->toContain('w-full')
         ->toContain('md:max-w-xl')
         ->toContain('lg:max-w-2xl');
@@ -71,17 +71,21 @@ it('honors side prop for desktop placement', function () {
     $right = Blade::render('<x-ui.drawer title="R" side="right">content</x-ui.drawer>');
     $left = Blade::render('<x-ui.drawer title="L" side="left">content</x-ui.drawer>');
 
+    // The side as a page read left to right has it: the end of the line, or its
+    // start — the other side, and the slide from it, on a page read right to left.
     expect($right)
-        ->toContain('md:right-0')
-        ->toContain('md:left-auto')
-        ->toContain('md:border-l')
-        ->not->toContain('md:left-0');
+        ->toContain('md:inset-e-0')
+        ->toContain('md:inset-s-auto')
+        ->toContain('md:border-s')
+        ->toContain('ltr:translate-x-full rtl:-translate-x-full')
+        ->not->toContain('md:inset-s-0');
 
     expect($left)
-        ->toContain('md:left-0')
-        ->toContain('md:right-auto')
-        ->toContain('md:border-r')
-        ->not->toContain('md:right-0');
+        ->toContain('md:inset-s-0')
+        ->toContain('md:inset-e-auto')
+        ->toContain('md:border-e')
+        ->toContain('ltr:-translate-x-full rtl:translate-x-full')
+        ->not->toContain('md:inset-e-0');
 });
 
 it('dispatches drawer-closed on all close paths', function () {

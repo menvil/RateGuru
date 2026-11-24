@@ -22,7 +22,7 @@ it('renders the feed empty state square on mobile and rounded at the responsive 
     JS))->not->toBe('0px');
 });
 
-it('opens over the feed and closes in both post detail modes on mobile', function (bool $overlayMode) {
+it('opens over the feed and closes in both post detail modes on mobile', function (bool $overlayMode, ?string $locale) {
     ProjectSettings::factory()->create([
         'feature_flags' => ['post_detail_overlay_mode' => $overlayMode],
     ]);
@@ -30,7 +30,14 @@ it('opens over the feed and closes in both post detail modes on mobile', functio
         'title' => 'Mobile overlay browser post',
     ]);
 
-    $page = visit(route('feed'))->resize(...MobileViewports::MOBILE);
+    $page = visit(route('feed'));
+
+    if ($locale !== null) {
+        offerLocales([$locale]);
+        $page = $page->withLocale($locale);
+    }
+
+    $page = $page->resize(...MobileViewports::MOBILE);
 
     waitForPostDetailOverlay($page);
 
@@ -67,11 +74,28 @@ it('opens over the feed and closes in both post detail modes on mobile', functio
     // The panel moves out the moment it is told to; the server's answer —
     // the panel rendered without the post — is what may not move it back.
     waitForScript($page, 'document.querySelector(\'[data-testid="post-detail-overlay"] [data-testid="post-drawer-title"]\') === null');
+    waitForPostDetailOverlayClosed($page);
 
-    expect($page->script(
-        'document.querySelector(\'[data-testid="post-detail-overlay"]\').classList.contains(\'translate-x-full\')'
-    ))->toBeTrue();
+    // Off the screen past the end of the line it came in from: the right
+    // edge on a page read left to right, the left one on a page read right
+    // to left.
+    $closed = $page->script(<<<'JS'
+        (() => {
+            const rect = document.querySelector('[data-testid="post-detail-overlay"]').getBoundingClientRect();
+
+            return { left: Math.round(rect.left), right: Math.round(rect.right), viewport: window.innerWidth };
+        })()
+    JS);
+
+    if ($locale === null) {
+        expect($closed['left'])->toBeGreaterThanOrEqual($closed['viewport']);
+    } else {
+        expect($closed['right'])->toBeLessThanOrEqual(0);
+    }
 })->with([
     'split desktop mode' => false,
     'global overlay mode' => true,
+])->with([
+    'left to right' => null,
+    'right to left' => 'ar',
 ]);

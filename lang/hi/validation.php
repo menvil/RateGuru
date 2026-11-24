@@ -1,0 +1,57 @@
+<?php
+
+return [
+    'accepted' => ':attribute फ़ील्ड स्वीकार करना ज़रूरी है।',
+    'required' => ':attribute फ़ील्ड ज़रूरी है।',
+    'string' => ':attribute फ़ील्ड टेक्स्ट होना चाहिए।',
+    'max' => [
+        'array' => ':attribute फ़ील्ड में :max से ज़्यादा आइटम नहीं होने चाहिए।',
+        'file' => ':attribute फ़ील्ड का साइज़ :max किलोबाइट से ज़्यादा नहीं होना चाहिए।',
+        'string' => ':attribute फ़ील्ड में :max से ज़्यादा अक्षर नहीं होने चाहिए।',
+    ],
+    'min' => [
+        'string' => ':attribute फ़ील्ड में कम से कम :min अक्षर होने चाहिए।',
+    ],
+    'in' => ':attribute के लिए चुना गया विकल्प अमान्य है।',
+    'unique' => ':attribute पहले से इस्तेमाल में है।',
+    'email' => ':attribute फ़ील्ड में सही ईमेल पता होना चाहिए।',
+    'confirmed' => ':attribute की पुष्टि मेल नहीं खाती।',
+    'array' => ':attribute फ़ील्ड में एक सूची होनी चाहिए।',
+    'boolean' => ':attribute फ़ील्ड का मान हाँ या नहीं होना चाहिए।',
+    'current_password' => 'पासवर्ड गलत है।',
+    'dimensions' => ':attribute फ़ील्ड में तस्वीर की लंबाई-चौड़ाई अमान्य है।',
+    'enum' => ':attribute के लिए चुना गया विकल्प अमान्य है।',
+    'exists' => ':attribute के लिए चुना गया विकल्प अमान्य है।',
+    'image' => ':attribute फ़ील्ड में तस्वीर होनी चाहिए।',
+    'integer' => ':attribute फ़ील्ड में पूरी संख्या होनी चाहिए।',
+    'lowercase' => ':attribute फ़ील्ड छोटे अक्षरों में होना चाहिए।',
+    'mimes' => ':attribute फ़ील्ड में इस प्रकार की फ़ाइल होनी चाहिए: :values।',
+    'not_regex' => ':attribute फ़ील्ड का फ़ॉर्मेट अमान्य है।',
+    'regex' => ':attribute फ़ील्ड का फ़ॉर्मेट अमान्य है।',
+    'uploaded' => ':attribute को अपलोड नहीं किया जा सका।',
+    'url' => ':attribute फ़ील्ड में सही URL होना चाहिए।',
+
+    // The field names public forms submit, so a message reads as a sentence
+    // in the reader's language instead of carrying an English identifier.
+    'attributes' => [
+        'bio' => 'बायो',
+        'categoryId' => 'श्रेणी',
+        'current_password' => 'मौजूदा पासवर्ड',
+        'description' => 'विवरण',
+        'display_name' => 'डिस्प्ले नाम',
+        'email' => 'ईमेल',
+        'image' => 'तस्वीर',
+        'locale' => 'भाषा',
+        'message' => 'संदेश',
+        'name' => 'नाम',
+        'password' => 'पासवर्ड',
+        'profile_website_url' => 'वेबसाइट',
+        'reason' => 'कारण',
+        'sourceUrl' => 'सोर्स URL',
+        'subject' => 'विषय',
+        'tagIds' => 'टैग',
+        'title' => 'शीर्षक',
+        'url' => 'URL',
+        'username' => 'यूज़रनेम',
+    ],
+];

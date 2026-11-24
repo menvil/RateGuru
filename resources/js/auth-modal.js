@@ -16,6 +16,7 @@ window.rgAuthModal = function ({ open = false, mode = 'login' } = {}) {
                 this.syncReturnPath();
                 this.focusFirstField();
                 this.tellTraffic();
+                this.showChallenge();
             }
         },
 
@@ -26,6 +27,14 @@ window.rgAuthModal = function ({ open = false, mode = 'login' } = {}) {
             this.open = true;
             this.focusFirstField();
             this.tellTraffic();
+            this.showChallenge();
+        },
+
+        // Only a sign-up has one, drawn once its form is on screen.
+        showChallenge() {
+            if (this.mode === 'register') {
+                this.$nextTick(() => window.rgMountTurnstile?.(this.$root.querySelector('[data-auth-panel="register"]')));
+            }
         },
 
         // A sign-in or sign-up form shown: the traffic tracker counts the

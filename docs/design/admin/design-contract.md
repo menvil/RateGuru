@@ -436,7 +436,9 @@ behaviour its ARIA role promises and its value exposed to `x-model` (`x-modelabl
 - **`x-admin.ui.filter-dropdown` (FRM-10):** a menu button (“Section: All”, `aria-haspopup="menu"`) over a 240 wide
   menu of `menuitemradio` items with a check and an optional count, which may be an Alpine expression kept live
   by the screen. Enter, Space or Down open it on the checked item; Up, Down, Home and End move; Escape returns to
-  the button; a choice, Tab or a click outside closes it. It opens the way the combobox's list does.
+  the button; a choice, Tab or a click outside closes it. It opens the way the combobox's list does, and stays
+  inside the window's sides: a menu wider than the room beside its trigger moves along until it is whole on the
+  screen, 16 from the edge.
 - **`x-admin.ui.combobox` (FRM-11):** an option leads with a flag, or, for a list of things rather than languages,
   with an icon in a sunken square (28; 32 in the trigger), and an identifier such as a model name is set in mono.
   The trigger (`aria-haspopup="listbox"`) opens the list with focus in its

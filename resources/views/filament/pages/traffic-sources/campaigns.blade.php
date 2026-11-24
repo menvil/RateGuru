@@ -16,10 +16,14 @@
     <div class="rg-admin-traffic__new-campaign" data-testid="traffic-new-campaign">
         <span class="rg-admin-traffic__new-campaign-sign" aria-hidden="true"><x-admin.ui.icon name="sparkles" :size="16" /></span>
         <span class="rg-admin-traffic__new-campaign-text">
-            <span class="rg-admin-traffic__new-campaign-title">{{ $newCampaign['source'] }} campaign {{ $newCampaign['external'] }} is new</span>
-            <span class="rg-admin-traffic__new-campaign-note">{{ number_format($newCampaign['visits']) }} {{ \Illuminate\Support\Str::plural('visit', $newCampaign['visits']) }} since {{ $newCampaign['since']->format('j M H:i') }}{{ $newCampaign['game'] !== null ? ', from the '.$newCampaign['source'].' link of '.$newCampaign['game'] : '' }}. Its clicks and postbacks already work; give it a name, its targeting, bid and stage so reports can tell it apart.</span>
+            <span class="rg-admin-traffic__new-campaign-title">{{ $newCampaign['source'] }} campaign {{ $newCampaign['name'] !== null ? '“'.$newCampaign['name'].'”' : $newCampaign['external'] }} is new</span>
+            @if ($newCampaign['synced'])
+                <span class="rg-admin-traffic__new-campaign-note">{{ number_format($newCampaign['visits']) }} {{ \Illuminate\Support\Str::plural('visit', $newCampaign['visits']) }} since {{ $newCampaign['since']->format('j M H:i') }}{{ $newCampaign['game'] !== null ? ', from the '.$newCampaign['source'].' link of '.$newCampaign['game'] : '' }}. Its clicks and postbacks already work, and its name, targeting, bid and budget come from the {{ $newCampaign['source'] }} API. Choose its stage — Testing, Optimising or Scaling — to take it out of New; a game and a target price of an account are optional.</span>
+            @else
+                <span class="rg-admin-traffic__new-campaign-note">{{ number_format($newCampaign['visits']) }} {{ \Illuminate\Support\Str::plural('visit', $newCampaign['visits']) }} since {{ $newCampaign['since']->format('j M H:i') }}{{ $newCampaign['game'] !== null ? ', from the '.$newCampaign['source'].' link of '.$newCampaign['game'] : '' }}. Its clicks and postbacks already work; give it a name, its targeting, bid and stage so reports can tell it apart.</span>
+            @endif
         </span>
-        <x-admin.ui.button size="sm" variant="primary" wire:click="openCampaign({{ $newCampaign['id'] }})">Set it up</x-admin.ui.button>
+        <x-admin.ui.button size="sm" variant="primary" wire:click="openCampaign({{ $newCampaign['id'] }})">{{ $newCampaign['synced'] ? 'Choose its stage' : 'Set it up' }}</x-admin.ui.button>
     </div>
 @endif
 
@@ -75,7 +79,7 @@
     <section class="rg-admin-traffic__panel" data-testid="traffic-check-link">
         <header class="rg-admin-traffic__panel-head">
             <h2 class="rg-admin-traffic__panel-title">Check a link</h2>
-            <p class="rg-admin-traffic__note">Paste the link from a campaign, or a click as it arrived, and see how RateGuru reads it: which network, which game, which campaign.</p>
+            <p class="rg-admin-traffic__note">Paste the link from a campaign, or a click as it arrived, and see how {{ site_name() }} reads it: which network, which game, which campaign.</p>
         </header>
         <input type="text" class="rg-admin-input rg-admin-traffic__mono" placeholder="https://…/games/…?rg_src=…" aria-label="A link to check" wire:model.live.debounce.500ms="checkLink" />
         @if ($samples !== [])
@@ -160,8 +164,8 @@
                                 <span class="rg-admin-traffic__note">{{ $row['sub'] }}</span>
                             </span>
                             <span role="cell" class="rg-admin-traffic__perf-label">
-                                <span>{{ $row['countries'] ?? ($row['new'] ? 'Not set yet' : 'Every country') }}</span>
-                                <span class="rg-admin-traffic__note">{{ $row['new'] ? 'First seen '.$row['since']->format('j M H:i') : implode(' · ', array_filter([$row['devices'], $row['format']])) }}</span>
+                                <span>{{ $row['countries'] ?? ($row['new'] && ! $row['synced'] ? 'Not set yet' : 'Every country') }}</span>
+                                <span class="rg-admin-traffic__note">{{ $row['new'] && ! $row['synced'] ? 'First seen '.$row['since']->format('j M H:i') : implode(' · ', array_filter([$row['devices'], $row['format']])) }}</span>
                             </span>
                             <span role="cell" class="rg-admin-traffic__perf-label">
                                 <x-admin.ui.badge :tone="$stageTone[$row['stage']] ?? 'outline'">{{ $stages[$row['stage']] ?? ucfirst($row['stage']) }}</x-admin.ui.badge>

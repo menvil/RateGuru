@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\Users\Concerns;
 
 use App\Actions\Moderation\BanUserAction;
+use App\Actions\Moderation\ConfirmUserEmailAction;
 use App\Actions\Moderation\LimitUserAction;
 use App\Actions\Moderation\MarkUserTrustedAction;
 use App\Actions\Moderation\RestoreUserAccessAction;
@@ -38,7 +39,7 @@ trait ModeratesUsers
     /**
      * The confirmation on screen: what it does and to whom.
      *
-     * @var array{kind: 'ban'|'limit'|'shadowban'|'trust', id: int}|null
+     * @var array{kind: 'ban'|'limit'|'shadowban'|'trust'|'confirm_email', id: int, email?: string}|null
      */
     #[Locked]
     public ?array $sanction = null;
@@ -49,8 +50,9 @@ trait ModeratesUsers
     {
         $person = User::query()->find($id);
 
-        if ($person !== null && in_array($kind, ['ban', 'limit', 'shadowban', 'trust'], true) && $this->moderationOptions($person)[$kind]['available']) {
-            $this->sanction = ['kind' => $kind, 'id' => $id];
+        if ($person !== null && in_array($kind, ['ban', 'limit', 'shadowban', 'trust', 'confirm_email'], true) && $this->moderationOptions($person)[$kind]['available']) {
+            // Confirming an address is about the one on screen now.
+            $this->sanction = ['kind' => $kind, 'id' => $id, ...($kind === 'confirm_email' ? ['email' => (string) $person->email] : [])];
             $this->reason = '';
             $this->resetErrorBag();
         }
@@ -71,6 +73,7 @@ trait ModeratesUsers
         }
 
         ['kind' => $kind, 'id' => $id] = $this->sanction;
+        $email = $this->sanction['email'] ?? '';
 
         // Held to its limits as it is stored: without the spaces at its ends.
         // As it is stored (ModerationReason): what renders as nothing at either end, not only ASCII blanks.
@@ -94,12 +97,23 @@ trait ModeratesUsers
 
         $wasActive = $person->status === UserStatus::Active;
 
-        if (! $this->attemptModeration(fn () => $this->sanctionAction($kind)->handle($this->moderatingAdmin(), $person, $reason))) {
+        $admin = $this->moderatingAdmin();
+        $moderate = $kind === 'confirm_email'
+            ? fn () => app(ConfirmUserEmailAction::class)->handle($admin, $person, $email, $reason)
+            : fn () => $this->sanctionAction($kind)->handle($admin, $person, $reason);
+
+        if (! $this->attemptModeration($moderate)) {
             return;
         }
 
         if ($kind === 'trust') {
             $this->moderationToast($person->username.' is now trusted');
+
+            return;
+        }
+
+        if ($kind === 'confirm_email') {
+            $this->moderationToast($person->username.'’s email is confirmed');
 
             return;
         }
@@ -132,7 +146,7 @@ trait ModeratesUsers
      * What this moderator may do to this person now, each with why not when
      * it is not on offer.
      *
-     * @return array{restore: bool, trust: array{available: bool, hint: string}, limit: array{available: bool, hint: string, shown: bool}, shadowban: array{available: bool, hint: string, shown: bool}, ban: array{available: bool, hint: string, shown: bool}}
+     * @return array{restore: bool, trust: array{available: bool, hint: string}, confirm_email: array{available: bool, hint: string}, limit: array{available: bool, hint: string, shown: bool}, shadowban: array{available: bool, hint: string, shown: bool}, ban: array{available: bool, hint: string, shown: bool}}
      */
     protected function moderationOptions(User $person): array
     {
@@ -156,6 +170,13 @@ trait ModeratesUsers
                 ! $admin->can('markTrusted', $person) => ['available' => false, 'hint' => $blocked ?? 'Administrators only'],
                 default => ['available' => true, 'hint' => 'Posts skip the queue'],
             },
+            'confirm_email' => match (true) {
+                $person->hasVerifiedEmail() => ['available' => false, 'hint' => 'Already confirmed'],
+                $person->role !== UserRole::User => ['available' => false, 'hint' => 'Only members are confirmed here'],
+                $status !== UserStatus::Active => ['available' => false, 'hint' => 'Restore access first'],
+                ! $admin->can('confirmEmail', $person) => ['available' => false, 'hint' => $blocked ?? 'Administrators only'],
+                default => ['available' => true, 'hint' => 'When the mail cannot reach them'],
+            },
             'limit' => ['available' => $blocked === null && $status === UserStatus::Active, 'hint' => $blocked ?? 'No posts, comments or votes', 'shown' => $status === UserStatus::Active],
             'shadowban' => ['available' => $blocked === null && in_array($status, [UserStatus::Active, UserStatus::Limited], true), 'hint' => $blocked ?? 'Listed among suspicious users', 'shown' => in_array($status, [UserStatus::Active, UserStatus::Limited], true)],
             'ban' => ['available' => $blocked === null && ! in_array($status, [UserStatus::Banned, UserStatus::Deleted], true), 'hint' => $blocked ?? 'Stops all participation', 'shown' => ! in_array($status, [UserStatus::Banned, UserStatus::Deleted], true)],
@@ -165,7 +186,7 @@ trait ModeratesUsers
     /**
      * The confirmation on screen, with the person it is about as they are now.
      *
-     * @return array{kind: string, username: string, name: string, meta: string, posts: int, reports: int}|null
+     * @return array{kind: string, username: string, name: string, email: string|null, meta: string, posts: int, reports: int}|null
      */
     protected function sanctionDialog(): ?array
     {
@@ -182,6 +203,7 @@ trait ModeratesUsers
             'kind' => $this->sanction['kind'],
             'username' => (string) $person->username,
             'name' => (string) $person->name,
+            'email' => $this->sanction['email'] ?? null,
             'meta' => ModerationListFormat::personStatus($person)['label'].' · '.ModerationListFormat::trust($person).' · '.number_format($posts).' '.($posts === 1 ? 'post' : 'posts').' · '.number_format($reports).' '.($reports === 1 ? 'report' : 'reports'),
             'posts' => $posts,
             'reports' => $reports,

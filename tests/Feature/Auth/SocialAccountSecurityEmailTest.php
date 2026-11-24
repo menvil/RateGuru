@@ -132,6 +132,18 @@ it('names the provider, the provider account and where to review it', function (
     'disconnected' => [SocialAccountDisconnectedNotification::class, 'mail.social.disconnected'],
 ]);
 
+it('does not show a provider address to a mailbox the account has not confirmed', function (string $class) {
+    $user = User::factory()->unverified()->create();
+
+    $mail = (new $class(SocialProvider::Google, 'attacker.text@example.com'))->toMail($user);
+
+    expect(implode(' ', $mail->introLines))->not->toContain('attacker.text@example.com')
+        ->and($mail->greeting)->toBe(__('mail.fallback_greeting'));
+})->with([
+    'connected' => SocialAccountConnectedNotification::class,
+    'disconnected' => SocialAccountDisconnectedNotification::class,
+]);
+
 it('leaves the provider account line out when the provider shared no email', function () {
     $mail = (new SocialAccountConnectedNotification(SocialProvider::Facebook, null))->toMail(User::factory()->create());
 

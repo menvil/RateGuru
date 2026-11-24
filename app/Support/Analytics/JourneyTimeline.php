@@ -722,7 +722,7 @@ final class JourneyTimeline
                 $latest === null || $latest['id'] === ($this->first['id'] ?? null) ? null : ['label' => 'Latest touch', 'value' => $this->source($latest), 'note' => $latest['at']->format('d M').' · '.$this->basis($latest)],
                 match (true) {
                     $other => ['label' => 'Conversion touch', 'value' => 'In another browser', 'note' => self::userId((int) $this->journey['user']).' signed up elsewhere: its journey has the sign-up'],
-                    $this->journey['user'] !== null => ['label' => 'Conversion touch', 'value' => 'Not recorded', 'note' => 'The account signed up before RateGuru recorded what accounts are credited to'],
+                    $this->journey['user'] !== null => ['label' => 'Conversion touch', 'value' => 'Not recorded', 'note' => 'The account signed up before the site recorded what accounts are credited to'],
                     default => ['label' => 'Conversion touch', 'value' => 'None yet', 'note' => 'No account created'],
                 },
             ]));

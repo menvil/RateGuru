@@ -23,7 +23,6 @@ use Illuminate\Http\Request;
 use Illuminate\Log\Events\MessageLogged;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Exceptions;
-use Illuminate\Support\Facades\Log;
 use Livewire\Livewire;
 use Monolog\Handler\TestHandler;
 use Monolog\LogRecord;
@@ -33,14 +32,6 @@ use Monolog\LogRecord;
  * to the security log with the visitor's IP address, browser and page, for
  * tracing spam and abuse by visitors who never sign in.
  */
-
-/** The security channel, swapped for a handler the test can read. */
-function fakeSecurityLog(): TestHandler
-{
-    config(['logging.channels.security' => ['driver' => 'monolog', 'handler' => TestHandler::class]]);
-
-    return Log::channel('security')->getLogger()->getHandlers()[0];
-}
 
 /** @return list<array<string, mixed>> */
 function guestVoteAttempts(TestHandler $log): array

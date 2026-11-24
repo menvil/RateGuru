@@ -87,6 +87,9 @@ Route::post('/contact', SubmitContactMessageController::class)
     ->name('pages.contact.submit');
 
 Route::get('/dashboard', function () {
+    // Only a hop: what the last request left for the next page is for the feed.
+    session()->reflash();
+
     return redirect()->route('feed');
 })->name('dashboard');
 

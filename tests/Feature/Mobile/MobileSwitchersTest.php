@@ -14,3 +14,14 @@ it('renders the language switcher with a 40px tap target on its trigger', functi
     $snippet = substr($html, max(0, $triggerPos - 300), 500);
     expect($snippet)->toContain('h-10');
 });
+
+it('draws the side panel’s language switcher the height of its close button, still 40px to the finger', function () {
+    $trigger = livewireDom($this->get(route('feed'))->assertOk()->getContent())
+        ->query("//*[@data-testid='mobile-nav-close']/parent::*//*[@data-testid='locale-switcher-trigger']")
+        ->item(0);
+
+    expect($trigger)->not->toBeNull()
+        ->and($trigger->getAttribute('class'))->toContain('h-8')
+        ->toContain('before:-inset-1')
+        ->not->toContain('h-10');
+});

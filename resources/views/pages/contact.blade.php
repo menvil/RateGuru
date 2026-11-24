@@ -9,15 +9,15 @@
         data-page="{{ $pageKey }}"
     >
         <p class="text-sm font-medium uppercase tracking-normal text-rg-accent2">
-            {{ $siteName }}
+            <bdi>{{ $siteName }}</bdi>
         </p>
 
-        <h1 class="mt-3 text-3xl font-semibold text-rg-text sm:text-4xl">
+        <h1 {{ \App\Support\Locale\WrittenText::dir($title) }} class="mt-3 text-3xl font-semibold text-rg-text sm:text-4xl">
             {{ $title }}
         </h1>
 
         <x-ui.card variant="panel" class="mt-6">
-            <p class="whitespace-pre-line text-sm leading-7 text-rg-text2 sm:text-base">
+            <p {{ \App\Support\Locale\WrittenText::dir($content) }} class="whitespace-pre-line text-sm leading-7 text-rg-text2 sm:text-base">
                 {{ $content }}
             </p>
 
@@ -56,6 +56,7 @@
                     <x-ui.input
                         id="contact-name"
                         name="name"
+                        dir="auto"
                         :value="old('name')"
                         :error="$errors->has('name')"
                         autocomplete="name"
@@ -91,6 +92,7 @@
                     <x-ui.input
                         id="contact-subject"
                         name="subject"
+                        dir="auto"
                         :value="old('subject')"
                         :error="$errors->has('subject')"
                         required
@@ -107,6 +109,7 @@
                     <x-ui.textarea
                         id="contact-message"
                         name="message"
+                        dir="auto"
                         rows="7"
                         :error="$errors->has('message')"
                         required

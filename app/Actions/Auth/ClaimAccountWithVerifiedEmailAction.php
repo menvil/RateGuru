@@ -110,7 +110,13 @@ final class ClaimAccountWithVerifiedEmailAction
             if ($secured) {
                 $email = (string) $locked->email;
 
+                // What its creator wrote about itself is not the owner's, and
+                // the mail about this claim would greet the owner with it.
                 $locked->forceFill([
+                    'name' => $identity->displayName(),
+                    'display_name' => null,
+                    'bio' => null,
+                    'profile_website_url' => null,
                     'email_verified_at' => now(),
                     'password' => null,
                     'remember_token' => Str::random(60),

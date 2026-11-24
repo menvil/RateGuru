@@ -114,7 +114,7 @@
                 </div>
             </div>
             <div class="rg-admin-traffic__detected">
-                <strong>Detected by RateGuru</strong>
+                <strong>Detected by {{ site_name() }}</strong>
                 <span class="rg-admin-traffic__note">Device (mobile or desktop), operating system, browser, country, city and language come from the visit itself, so the link needs no parameters for them.</span>
             </div>
         </div>
@@ -122,7 +122,7 @@
         <div class="rg-admin-traffic__pane" x-show="pane === 'spend'" x-cloak>
             @php
                 $modes = $network
-                    ? ['click_cost' => ['The price in each click', 'The network puts the price of every click into the link. Exact per click, at once.'], 'rate' => ['A rate you set', 'You type the price you bid, per device. Clicks × rate, an estimate.'], 'api' => ['The network’s API', 'RateGuru asks the network for its spend every five minutes; until the network has a click’s cost, the click’s own price stands in.'], 'manual' => ['Typed in or a file', 'Type a day’s spend, or import the network’s CSV.'], 'none' => ['Not counted', 'Visits from this source cost nothing in reports.']]
+                    ? ['click_cost' => ['The price in each click', 'The network puts the price of every click into the link. Exact per click, at once.'], 'rate' => ['A rate you set', 'You type the price you bid, per device. Clicks × rate, an estimate.'], 'api' => ['The network’s API', site_name().' asks the network for its spend every five minutes; until the network has a click’s cost, the click’s own price stands in.'], 'manual' => ['Typed in or a file', 'Type a day’s spend, or import the network’s CSV.'], 'none' => ['Not counted', 'Visits from this source cost nothing in reports.']]
                     : ['fixed' => ['A fixed price', 'A set amount once, a day, a week or a month, spread over the days.'], 'manual' => ['Typed in or a file', 'Type a day’s spend, or import a CSV.'], 'none' => ['Not counted', 'Visits from this source cost nothing in reports.']];
             @endphp
             <fieldset class="rg-admin-field rg-admin-games__radio-rows">
@@ -314,23 +314,23 @@
                                 <span class="rg-admin-traffic__tile-label">In force</span>
                                 <strong>{{ number_format($c['sites'] + $c['zones']) }}</strong>
                                 <span class="rg-admin-traffic__note">{{ $c['sites'] + $c['zones'] === 0 ? 'Nothing blocked yet' : implode(' · ', array_filter([$c['sites'] > 0 ? number_format($c['sites']).' '.\Illuminate\Support\Str::plural('site', $c['sites']) : null, $c['zones'] > 0 ? number_format($c['zones']).' '.\Illuminate\Support\Str::plural('zone', $c['zones']) : null])) }}</span>
-                                <span class="rg-admin-traffic__note">{{ number_format($c['by_hand']) }} by hand · {{ number_format($c['by_rule']) }} by the rule</span>
+                                <span class="rg-admin-traffic__note">{{ number_format($c['by_hand']) }} by hand · {{ number_format($c['by_rule']) }} by the rule{{ $c['in_panel'] > 0 ? ' · '.number_format($c['in_panel']).' in the '.$b['network'].' panel' : '' }}</span>
                             </div>
-                            {{-- What the API sent, where an API sends blocks; else only what is marked here, since RateGuru can't see the network's blacklist. --}}
-                            @if ($b['connected'] || $c['pending'] + $c['applied'] + $c['failed'] + $c['removing'] > 0)
+                            {{-- What the API sent, where an API sends blocks; else only what is marked here, since RateGuru can't see the network's blacklist. Partly blocked is neither on the list nor failed. --}}
+                            @if ($b['connected'] || $c['pending'] + $c['applied'] + $c['partial'] + $c['failed'] + $c['taken_off'] + $c['removing'] > 0)
                                 <div>
                                     <span class="rg-admin-traffic__tile-label">Sent through the API</span>
                                     <strong>{{ number_format($c['applied']) }}</strong>
-                                    <span class="rg-admin-traffic__note">on the network’s list · {{ number_format($c['pending']) }} waiting · {{ number_format($c['failed']) }} failed</span>
-                                    @if ($c['marked'] > 0 || $c['removing'] > 0)
-                                        <span class="rg-admin-traffic__note">{{ implode(' · ', array_filter([$c['marked'] > 0 ? number_format($c['marked']).' marked here only, not sent' : null, $c['removing'] > 0 ? number_format($c['removing']).' coming off' : null])) }}</span>
+                                    <span class="rg-admin-traffic__note">on the network’s list{{ $c['partial'] > 0 ? ' · '.number_format($c['partial']).' on some campaigns’ lists only' : '' }} · {{ number_format($c['pending']) }} waiting · {{ number_format($c['failed']) }} failed</span>
+                                    @if ($c['marked'] > 0 || $c['taken_off'] > 0 || $c['removing'] > 0)
+                                        <span class="rg-admin-traffic__note">{{ implode(' · ', array_filter([$c['marked'] > 0 ? number_format($c['marked']).' marked here only, not sent' : null, $c['taken_off'] > 0 ? number_format($c['taken_off']).' taken off in the '.$b['network'].' panel' : null, $c['removing'] > 0 ? number_format($c['removing']).' coming off' : null])) }}</span>
                                     @endif
                                 </div>
                             @else
                                 <div>
                                     <span class="rg-admin-traffic__tile-label">Marked here</span>
                                     <strong>{{ number_format($c['marked']) }}</strong>
-                                    <span class="rg-admin-traffic__note">No API sends these: copy their IDs into the network’s blacklist. RateGuru can’t see that list.</span>
+                                    <span class="rg-admin-traffic__note">No API sends these: copy their IDs into the network’s blacklist. {{ site_name() }} can’t see that list.</span>
                                 </div>
                             @endif
                             <div>
@@ -340,6 +340,10 @@
                                 <span class="rg-admin-traffic__note">{{ $b['ranAt'] !== null ? 'Last ran '.$b['ranAt']->format('j M H:i') : 'Hasn’t run yet' }}</span>
                             </div>
                         </div>
+                        {{-- A read of the campaigns' block lists that failed, whose list and why, until a read goes through. --}}
+                        @if ($b['listsError'] !== null)
+                            <x-admin.ui.inline-notice tone="warning" data-testid="traffic-source-block-lists-error">{{ $b['listsError'] }}</x-admin.ui.inline-notice>
+                        @endif
                         @if ($b['why'] !== [])
                             <x-admin.ui.inline-notice :tone="$b['auto'] ? 'warning' : 'info'" data-testid="traffic-source-blocking-why">
                                 {{ $b['auto'] ? 'The rule can’t block for this source by itself:' : 'The rule couldn’t block for this source by itself:' }}

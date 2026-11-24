@@ -76,6 +76,9 @@ final class TrafficSourcesPage extends Page
     /** Every report page's presets: all time is every network day since the first visit, as far back as visits are kept. */
     public const array PERIODS = ReportPeriod::PRESETS;
 
+    /** A ticked site or zone: its source, its level and its ID, up to 120 characters, as many as a ref holds in any script. */
+    private const string SELECTION_KEY = '/^\d+:(site|zone):.{1,120}$/u';
+
     protected string $view = 'filament.pages.traffic-sources';
 
     protected Width|string|null $maxContentWidth = 'rg-admin-main';
@@ -112,6 +115,10 @@ final class TrafficSourcesPage extends Page
 
     #[Url(except: '')]
     public mixed $device = '';
+
+    /** A country's two-letter code, or every country. */
+    #[Url(except: '')]
+    public mixed $country = '';
 
     /** The report's view: a tree — by source, device, country, game or version — or the flat list of sites and zones. */
     #[Url(as: 'view', except: 'sources')]
@@ -274,11 +281,11 @@ final class TrafficSourcesPage extends Page
 
     public function updated(string $property): void
     {
-        if (in_array($property, ['tab', 'period', 'from', 'to', 'source', 'type', 'campaignId', 'game', 'device', 'log', 'logFilter', 'reportView', 'listBy', 'q', 'minClicks', 'segment'], true)) {
+        if (in_array($property, ['tab', 'period', 'from', 'to', 'source', 'type', 'campaignId', 'game', 'device', 'country', 'log', 'logFilter', 'reportView', 'listBy', 'q', 'minClicks', 'segment'], true)) {
             $this->pageNumber = 1;
         }
 
-        if (in_array($property, ['period', 'from', 'to', 'source', 'type', 'campaignId', 'game', 'device', 'reportView', 'listBy'], true)) {
+        if (in_array($property, ['period', 'from', 'to', 'source', 'type', 'campaignId', 'game', 'device', 'country', 'reportView', 'listBy'], true)) {
             $this->selected = [];
         }
 
@@ -390,7 +397,7 @@ final class TrafficSourcesPage extends Page
     /** Ticks a site or zone, or unticks it. */
     public function toggleSelected(mixed $key): void
     {
-        if (! is_string($key) || preg_match('/^\d+:(site|zone):.{1,120}$/', $key) !== 1) {
+        if (! is_string($key) || preg_match(self::SELECTION_KEY, $key) !== 1) {
             return;
         }
 
@@ -429,18 +436,20 @@ final class TrafficSourcesPage extends Page
             $viaApi = app(BlockTrafficRefsAction::class)->canBlockViaApi($source, $level);
 
             try {
-                app(BlockTrafficRefsAction::class)->block($this->admin(), $source, $level, $refs, null, $viaApi);
+                // Those blocked already, and left as they are, aren't counted.
+                $changed = app(BlockTrafficRefsAction::class)->block($this->admin(), $source, $level, $refs, null, $viaApi);
             } catch (CannotManageTrafficException|RateLimitExceededException $exception) {
-                $this->toast($exception->getMessage(), 'error');
+                $this->stopPartWay($queued + $byHand, $exception);
 
                 return;
             }
 
-            $viaApi ? $queued += count($refs) : $byHand += count($refs);
+            $viaApi ? $queued += $changed : $byHand += $changed;
+            $this->untick($source, $level, $refs);
         }
 
         $this->selected = [];
-        $this->toast(trim(($queued > 0 ? $queued.' queued for the network. ' : '').($byHand > 0 ? $byHand.' marked as blocked: add them to the network’s list — Copy IDs gives them to you.' : '')));
+        $this->toast(trim(($queued > 0 ? $queued.' queued for the network. ' : '').($byHand > 0 ? $byHand.' marked as blocked: add them to the network’s list — Copy IDs gives them to you.' : '')) ?: 'Nothing to block: those are blocked already.');
     }
 
     /** Unblocks the sites and zones ticked. */
@@ -449,21 +458,74 @@ final class TrafficSourcesPage extends Page
         $count = 0;
 
         foreach ($this->selectedRefs() as ['source' => $source, 'level' => $level, 'refs' => $refs]) {
+            $done = [];
+
             foreach (TrafficBlock::query()->where('source_id', $source->id)->where('level', $level)->whereIn('ref', $refs)->get() as $block) {
                 try {
                     app(BlockTrafficRefsAction::class)->unblock($this->admin(), $block);
                 } catch (CannotManageTrafficException|RateLimitExceededException $exception) {
-                    $this->toast($exception->getMessage(), 'error');
+                    $this->untick($source, $level, $done);
+                    $this->stopPartWay($count, $exception);
 
                     return;
                 }
 
                 $count++;
+                $done[] = (string) $block->ref;
             }
+
+            // The batch's every ref is done: unblocked, or with no block to unblock.
+            $this->untick($source, $level, $refs);
         }
 
         $this->selected = [];
         $this->toast($count.' unblocked');
+    }
+
+    /** Sends the blocks ticked to the network again, to every campaign each is for: those whose network's API can't block them are left as they are. */
+    public function pushSelected(): void
+    {
+        $count = 0;
+        $skipped = 0;
+
+        foreach ($this->selectedRefs() as ['source' => $source, 'level' => $level, 'refs' => $refs]) {
+            if (! app(BlockTrafficRefsAction::class)->canBlockViaApi($source, $level)) {
+                $skipped += count($refs);
+
+                continue;
+            }
+
+            try {
+                $count += app(BlockTrafficRefsAction::class)->push($this->admin(), $source, $level, $refs);
+            } catch (CannotManageTrafficException|RateLimitExceededException $exception) {
+                $this->stopPartWay($count, $exception);
+
+                return;
+            }
+
+            $this->untick($source, $level, $refs);
+        }
+
+        // Those whose network's API can't send them stay ticked, for Copy IDs.
+        $this->toast(trim(($count > 0 ? $count.' queued for the network again. ' : '').($skipped > 0 ? $skipped.' can’t go through their network’s API: add them to its list by hand — they are still ticked for Copy IDs.' : '')) ?: 'Nothing to send: those are on their way already.', $count === 0 && $skipped > 0 ? 'error' : 'success');
+    }
+
+    /**
+     * Unticks the sites or zones of a batch that went through, so a batch
+     * that fails after it leaves ticked only what is still to do.
+     *
+     * @param  list<string>  $refs
+     */
+    private function untick(TrafficSource $source, TrafficBlockLevel $level, array $refs): void
+    {
+        $done = array_flip(array_map(fn (string $ref): string => $source->id.':'.$level->value.':'.$ref, $refs));
+        $this->selected = array_values(array_filter($this->selected, fn (string $key): bool => ! isset($done[$key])));
+    }
+
+    /** Says why a batch was refused, after how many went through, leaving the rest ticked to try again. */
+    private function stopPartWay(int $done, CannotManageTrafficException|RateLimitExceededException $exception): void
+    {
+        $this->toast(($done > 0 ? $done.' went through; the rest are still ticked. ' : '').$exception->getMessage(), 'error');
     }
 
     public function toggleBlockRule(): void
@@ -485,7 +547,9 @@ final class TrafficSourcesPage extends Page
 
     /**
      * The sites and zones ticked, grouped by source and level, each source
-     * read once.
+     * read once, each group split into batches of as many as the actions take
+     * at a time (MOST_REFS): Select all ticks every row that matches, however
+     * many.
      *
      * @return list<array{source: TrafficSource, level: TrafficBlockLevel, refs: list<string>}>
      */
@@ -507,8 +571,12 @@ final class TrafficSourcesPage extends Page
             $source = $sources->get($group['source']);
             $level = TrafficBlockLevel::tryFrom($group['level']);
 
-            if ($source !== null && $level !== null) {
-                $out[] = ['source' => $source, 'level' => $level, 'refs' => array_values(array_unique($group['refs']))];
+            if ($source === null || $level === null) {
+                continue;
+            }
+
+            foreach (array_chunk(array_values(array_unique($group['refs'])), BlockTrafficRefsAction::MOST_REFS) as $refs) {
+                $out[] = ['source' => $source, 'level' => $level, 'refs' => $refs];
             }
         }
 
@@ -1177,6 +1245,7 @@ final class TrafficSourcesPage extends Page
             'campaign_id' => is_numeric($this->campaignId) ? (int) $this->campaignId : null,
             'game_id' => is_numeric($this->game) ? (int) $this->game : null,
             'device' => in_array($this->device, ['mobile', 'desktop'], true) ? $this->device : null,
+            'country' => is_string($this->country) && Countries::has($this->country) ? $this->country : null,
         ], fn (mixed $value): bool => $value !== null);
 
         // Unpaid traffic is the traffic of no source.
@@ -1196,6 +1265,7 @@ final class TrafficSourcesPage extends Page
         $this->campaignId = is_numeric($this->campaignId) ? (string) (int) $this->campaignId : '';
         $this->game = is_numeric($this->game) ? (string) (int) $this->game : '';
         $this->device = in_array($this->device, ['mobile', 'desktop'], true) ? $this->device : '';
+        $this->country = is_string($this->country) && Countries::has(strtoupper($this->country)) ? strtoupper($this->country) : '';
         $this->reportView = is_string($this->reportView) && array_key_exists($this->reportView, TrafficSourcesView::VIEWS) ? $this->reportView : 'sources';
         $this->signupsBy = is_string($this->signupsBy) && array_key_exists($this->signupsBy, TrafficSourcesView::SIGNUP_DIMENSIONS) ? $this->signupsBy : 'source';
         $this->listBy = $this->listBy === 'site' ? 'site' : 'zone';
@@ -1209,7 +1279,8 @@ final class TrafficSourcesPage extends Page
         $this->dir = $this->dir === 'asc' ? 'asc' : 'desc';
         $this->open = array_values(array_filter($this->open, 'is_string'));
         $this->more = array_values(array_filter($this->more, 'is_string'));
-        $this->selected = array_slice(array_values(array_filter($this->selected, 'is_string')), 0, 2000);
+        // Every tick kept, however many Select all made: the actions send them a batch at a time (selectedRefs).
+        $this->selected = array_values(array_unique(array_filter(array_filter($this->selected, 'is_string'), fn (string $key): bool => preg_match(self::SELECTION_KEY, $key) === 1)));
         $this->log = is_string($this->log) && in_array($this->log, ['clicks', 'milestones', 'postbacks', 'blocks'], true) ? $this->log : 'postbacks';
         $this->logFilter = $this->logFilter === 'failed' ? 'failed' : 'all';
         $this->pageNumber = is_numeric($this->pageNumber) ? max(1, (int) $this->pageNumber) : 1;

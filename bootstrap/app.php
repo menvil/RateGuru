@@ -8,10 +8,14 @@ use App\Http\Middleware\EnsureAccountIsNotTombstoned;
 use App\Http\Middleware\EnsureSessionGenerationIsCurrent;
 use App\Http\Middleware\RecordAccountReturn;
 use App\Http\Middleware\SetLocale;
+use App\Support\Auth\TurnstileVerifier;
 use App\Support\Observability\ExceptionContextBuilder;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
+use Illuminate\Http\Request;
+use Illuminate\Routing\Exceptions\InvalidSignatureException;
+use Illuminate\Routing\Middleware\SubstituteBindings;
 use Sentry\Laravel\Integration;
 
 return Application::configure(basePath: dirname(__DIR__))
@@ -46,6 +50,10 @@ return Application::configure(basePath: dirname(__DIR__))
             // A new account coming back on another day is worth more for it.
             RecordAccountReturn::class,
         ]);
+        // Ahead of route model binding, which runs earlier in the group: a post
+        // that is not there is found missing while the bindings resolve, and its
+        // not-found page is drawn in whatever language is set by then.
+        $middleware->prependToPriorityList(before: SubstituteBindings::class, prepend: SetLocale::class);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         // The single Sentry capture path for the whole application. It hangs
@@ -57,7 +65,16 @@ return Application::configure(basePath: dirname(__DIR__))
         // exactly once. Nothing else in the application calls captureException.
         Integration::handles($exceptions);
 
+        // Single-use, and of no use to the form drawn after a failure.
+        $exceptions->dontFlash([TurnstileVerifier::FIELD]);
+
         $exceptions->context(function (Throwable $e) {
             return app(ExceptionContextBuilder::class)->build($e);
         });
+
+        // An old confirmation link is an everyday thing, not an error page: it
+        // lands where a new one can be asked for.
+        $exceptions->render(fn (InvalidSignatureException $e, Request $request) => $request->routeIs('verification.verify')
+            ? redirect()->route('verification.notice')->with('status', 'verification-link-expired')
+            : null);
     })->create();

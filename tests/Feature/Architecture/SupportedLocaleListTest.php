@@ -14,11 +14,16 @@ use Symfony\Component\Finder\Finder;
  * supportedLocales(), translatedLocales() or config('locales.supported').
  *
  * A copy takes three shapes, all refused when two or more supported languages
- * sit in the same array: the codes as a list; rows of the registry keyed by
+ * sit in the same array and are no fewer than its other plain strings — a
+ * list of shell commands that happens to hold `tr` and `id` is not a list of
+ * languages: the codes as a list; rows of the registry keyed by
  * code — entries carrying the `label` / `native` / `flag` /
- * `enabled_by_default` a language is declared with, or its name or flag alone, which is what a test overriding config('locales.supported')
- * with its own set writes; and codes keyed to a bare `true` or `false`, which
- * is a list wearing keys (a hand-written "enabled languages" map).
+ * `enabled_by_default` / `direction` a language is declared with, or its name,
+ * flag or direction alone, which is what a test overriding
+ * config('locales.supported') with its own set writes, and what a
+ * hand-written "right-to-left languages" map is; and codes keyed to a bare
+ * `true` or `false`, which is a list wearing keys (a hand-written "enabled
+ * languages" map).
  *
  * What stays allowed is a single language — a test about Russian plurals is
  * about Russian — and content keyed by language: an expected Russian sentence
@@ -63,6 +68,8 @@ function handWrittenLocaleSets(string $source, array $registry): array
             $stack[] = [
                 'array' => true,
                 'codes' => [],
+                // The plain strings of a list that are no language's code.
+                'others' => 0,
                 'row' => false,
                 // A nested array that is the value of a language key may turn
                 // out to be that language's registry row.
@@ -85,7 +92,7 @@ function handWrittenLocaleSets(string $source, array $registry): array
             if ($frame['array']) {
                 $codes = array_values(array_unique($frame['codes']));
 
-                if (count($codes) >= 2) {
+                if (count($codes) >= 2 && count($codes) >= $frame['others']) {
                     $sets[] = $codes;
                 }
 
@@ -107,20 +114,27 @@ function handWrittenLocaleSets(string $source, array $registry): array
         if ($text($i + 1) === '=>') {
             $stack[$top]['key'] = isset($registry[$string]) ? $string : null;
 
-            if (in_array($string, ['label', 'native', 'flag', 'enabled_by_default'], true)) {
+            if (in_array($string, ['label', 'native', 'flag', 'enabled_by_default', 'direction'], true)) {
                 $stack[$top]['row'] = true;
             }
 
-            // `'ru' => 'Русский'` is the row reduced to the language's name or flag;
-            // `'ru' => true` is the code with nothing about the language at all.
+            // `'ru' => 'Русский'` is the row reduced to the language's name or flag,
+            // and `'ar' => 'rtl'` to its direction — `ltr` for a language that
+            // declares none; `'ru' => true` is the code with nothing about the
+            // language at all.
             $value = $literal($i + 2);
             $flag = in_array(strtolower((string) $text($i + 2)), ['true', 'false'], true);
+            $described = isset($registry[$string])
+                ? [$registry[$string]['label'], $registry[$string]['native'], $registry[$string]['flag'], 'ltr', 'rtl']
+                : [];
 
-            if (isset($registry[$string]) && $endsElement($i + 3) && ($flag || ($value !== null && in_array($value, [$registry[$string]['label'], $registry[$string]['native'], $registry[$string]['flag']], true)))) {
+            if (isset($registry[$string]) && $endsElement($i + 3) && ($flag || ($value !== null && in_array($value, $described, true)))) {
                 $stack[$top]['codes'][] = $string;
             }
         } elseif (isset($registry[$string]) && $endsElement($i + 1)) {
             $stack[$top]['codes'][] = $string;
+        } elseif ($endsElement($i + 1)) {
+            $stack[$top]['others']++;
         }
     }
 
@@ -187,7 +201,10 @@ it('recognises every shape a copied set of languages takes', function () {
         'flags by code' => "<?php \$x = ['{$first}' => '{$registry[$first]['flag']}', '{$second}' => '{$registry[$second]['flag']}'];",
         'list of codes' => "<?php foreach (['{$first}', '{$second}'] as \$locale) {}",
         'codes keyed to a flag' => "<?php \$enabled = ['{$first}' => true, '{$second}' => false];",
+        'directions by code' => "<?php \$direction = ['{$first}' => 'ltr', '{$second}' => 'rtl'];",
+        'rows declaring a direction alone' => "<?php \$rtl = ['{$first}' => ['direction' => 'rtl'], '{$second}' => ['direction' => 'rtl']];",
         'dataset' => "<?php it('x', fn () => null)->with(['{$first}', \"{$second}\"]);",
+        'list with a made-up code' => "<?php \$x = ['{$first}', '{$second}', 'xx'];",
     ];
 
     foreach ($copies as $shape => $source) {
@@ -211,6 +228,7 @@ it('leaves a single language and language-specific content alone', function () {
         'codes as call arguments' => "<?php translate('{$first}', '{$second}');",
         'codes in a comment' => "<?php // ['{$first}', '{$second}']",
         'codes in one string' => "<?php \$pattern = \"['{$first}', '{$second}']\";",
+        'a list of other words holding two codes' => "<?php \$commands = ['readlink', 'sort', '{$first}', 'head', '{$second}', 'rm'];",
     ];
 
     foreach ($allowed as $shape => $source) {

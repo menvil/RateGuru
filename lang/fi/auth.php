@@ -31,6 +31,8 @@ return [
     'register' => [
         'title' => 'Rekisteröidy',
         'action' => 'Rekisteröidy',
+        'refused' => 'Rekisteröitymistäsi ei voitu viimeistellä. Yritä myöhemmin uudelleen.',
+        'javascript_required' => 'Turvatarkistus ei latautunut. Ota JavaScript käyttöön tai lataa sivu uudelleen, niin voit viimeistellä rekisteröitymisen.',
     ],
 
     'divider' => 'tai',
@@ -52,8 +54,12 @@ return [
 
     'verify_email' => [
         'intro' => 'Kiitos rekisteröitymisestä! Ennen kuin aloitat, vahvistaisitko sähköpostiosoitteesi napsauttamalla linkkiä, jonka juuri lähetimme sinulle? Jos et saanut viestiä, lähetämme mielellämme uuden.',
-        'link_sent' => 'Uusi vahvistuslinkki on lähetetty sähköpostiosoitteeseen, jonka annoit rekisteröityessäsi.',
+        'link_sent' => 'Uusi vahvistuslinkki on lähetetty nykyiseen sähköpostiosoitteeseesi.',
         'resend' => 'Lähetä vahvistusviesti uudelleen',
+        'confirmed' => 'Sähköpostiosoitteesi on vahvistettu.',
+        'link_expired' => 'Tämä vahvistuslinkki on vanhentunut. Pyydä uusi alta.',
+        'throttled' => 'Voit pyytää uuden linkin :minutes min kuluttua.',
+        'notice_changed_address' => 'Vahvista uusi sähköpostiosoitteesi :email, niin voit julkaista, kommentoida, äänestää ja seurata muita. Jos sinulla ei ole linkkiä, pyydä uusi.',
     ],
 
     'social' => [

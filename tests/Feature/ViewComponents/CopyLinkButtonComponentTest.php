@@ -1,5 +1,6 @@
 <?php
 
+use App\Models\Post;
 use Illuminate\Support\Facades\Blade;
 use Illuminate\Support\Js;
 
@@ -49,7 +50,7 @@ it('renders copy icon button inside the input field', function () {
     $html = Blade::render('<x-share.copy-link-button url="https://rateguru.test/posts/1" />');
 
     expect($html)
-        ->toContain('absolute right-1 top-1')
+        ->toContain('absolute inset-e-1 top-1')
         ->toContain('data-testid="share-copy-link"');
 });
 
@@ -75,3 +76,14 @@ it('hands its labels to Alpine as JavaScript strings, so an apostrophe in a tran
         // the entity back to an apostrophe that ends the string early.
         ->not->toContain("'Copier l&#039;URL'");
 });
+
+it('keeps a shared URL reading left to right, its copy button at the URL\'s end, on a page of either direction', function (string $component, string $field) {
+    $html = Blade::render($component, ['post' => Post::factory()->published()->create()]);
+    $box = livewireDom($html)->query("//*[@data-testid='{$field}']/parent::div")->item(0);
+
+    expect($box)->toBeInstanceOf(DOMElement::class)
+        ->and($box->getAttribute('dir'))->toBe('ltr');
+})->with([
+    'the copy-link button' => ['<x-share.copy-link-button url="https://rateguru.test/posts/1/" />', 'copy-link-fallback-input'],
+    'the post share panel' => ['<x-share.post-share-panel :post="$post" />', 'post-share-url'],
+]);

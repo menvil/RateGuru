@@ -15,7 +15,7 @@
 @php($isBinary = count($options) === 2)
 
 <div class="flex flex-col gap-3" data-testid="{{ $testIdPrefix }}-list">
-    <h3 class="text-base font-semibold text-rg-text">{{ $group->translatedLabel() }}</h3>
+    <h3 {{ \App\Support\Locale\WrittenText::dir($group->translatedLabel()) }} class="text-base font-semibold text-rg-text">{{ $group->translatedLabel() }}</h3>
 
     @if(! $voted)
         {{--
@@ -42,7 +42,7 @@
                     :wire:loading.class="$disabled ? false : 'opacity-60 cursor-not-allowed'"
                     :title="$option->translatedLabel()"
                 >
-                    <span class="truncate">{{ $option->translatedLabel() }}</span>
+                    <span {{ \App\Support\Locale\WrittenText::dir($option->translatedLabel()) }} class="truncate">{{ $option->translatedLabel() }}</span>
                 </x-ui.button>
             @endforeach
         </div>
@@ -66,12 +66,12 @@
         <div data-testid="{{ $testIdPrefix }}-results">
             <div class="mb-1 flex justify-between">
                 <span class="inline-flex items-center gap-1 text-sm font-semibold text-rg-good" @if($chosenA) aria-current="true" @endif>
-                    {{ $optionA->translatedLabel() }}
+                    <bdi>{{ $optionA->translatedLabel() }}</bdi>
                     @if($chosenA)<x-ui.icon name="check" class="size-3.5 shrink-0" />@endif
                 </span>
                 <span class="inline-flex items-center gap-1 text-sm font-semibold text-rg-text2" @if($chosenB) aria-current="true" @endif>
                     @if($chosenB)<x-ui.icon name="check" class="size-3.5 shrink-0" />@endif
-                    {{ $optionB->translatedLabel() }}
+                    <bdi>{{ $optionB->translatedLabel() }}</bdi>
                 </span>
             </div>
             <div class="mb-1.5 flex justify-between">
@@ -79,7 +79,7 @@
                 <span class="whitespace-nowrap text-[18px] font-bold text-rg-text2">{{ $pctB }}% ({{ $cntB }})</span>
             </div>
             <div class="relative h-1.5 overflow-hidden rounded-rgPill bg-rg-card2">
-                <div class="absolute bottom-0 left-0 top-0 rounded-rgPill bg-rg-good" style="width: {{ $pctA }}%"></div>
+                <div class="absolute bottom-0 inset-s-0 top-0 rounded-rgPill bg-rg-good" style="width: {{ $pctA }}%"></div>
             </div>
         </div>
     @else
@@ -101,7 +101,7 @@
                             'text-rg-accent' => $active,
                             'text-rg-text2'  => ! $active,
                         ]) @if($active) aria-current="true" @endif>
-                            <span class="truncate">{{ $option->translatedLabel() }}</span>
+                            <span {{ \App\Support\Locale\WrittenText::dir($option->translatedLabel()) }} class="truncate">{{ $option->translatedLabel() }}</span>
                             @if($active)<x-ui.icon name="check" class="size-3.5 shrink-0" />@endif
                         </span>
                         <span class="shrink-0 text-xs text-rg-muted">{{ $pct }}% &middot; {{ trans_choice('ui.voting.votes_count', $cnt) }}</span>

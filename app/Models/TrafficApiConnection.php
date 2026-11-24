@@ -24,8 +24,12 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property CarbonImmutable|null $last_synced_at
  * @property CarbonImmutable|null $next_sync_at
  * @property CarbonImmutable|null $campaigns_synced_at
+ * @property CarbonImmutable|null $block_lists_read_at
+ * @property string|null $block_lists_error why the last read of the campaigns' block lists failed, a TrafficConnectorFailure
+ * @property string|null $block_lists_error_campaign the campaign, by the network's ID, whose list that read couldn't read
  * @property string|null $spend_closed_through
  * @property string|null $backfill_cursor
+ * @property string|null $country_cursor
  * @property string|null $last_error
  * @property int $failures
  * @property int $connected_by_user_id
@@ -56,6 +60,7 @@ class TrafficApiConnection extends Model
             'last_synced_at' => 'immutable_datetime',
             'next_sync_at' => 'immutable_datetime',
             'campaigns_synced_at' => 'immutable_datetime',
+            'block_lists_read_at' => 'immutable_datetime',
             'failures' => 'integer',
             'connected_by_user_id' => 'integer',
             'created_at' => 'immutable_datetime',

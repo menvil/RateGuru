@@ -38,11 +38,13 @@
                 </div>
             @endif
 
-            <div class="rounded-rgCard border border-rg-border bg-rg-card p-5 sm:p-6">
-                <div class="max-w-xl">
-                    <livewire:settings.user-locale-settings />
+            @if (app(\App\Support\Locale\LocaleManager::class)->offersChoice())
+                <div class="rounded-rgCard border border-rg-border bg-rg-card p-5 sm:p-6">
+                    <div class="max-w-xl">
+                        <livewire:settings.user-locale-settings />
+                    </div>
                 </div>
-            </div>
+            @endif
 
             <div class="rounded-rgCard border border-rg-border bg-rg-card p-5 sm:p-6">
                 <div class="max-w-xl">

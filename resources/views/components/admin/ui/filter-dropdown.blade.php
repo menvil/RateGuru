@@ -25,7 +25,9 @@
      * over it when the room under it is too short and the room over it
      * longer — measured between the bars kept at the window's top and foot
      * (`data-admin-ceiling`, `data-admin-floor`) — and is never taller than
-     * the room it opens into, scrolling inside instead.
+     * the room it opens into, scrolling inside instead. It stays inside the
+     * window's sides: a menu wider than the room beside its trigger moves
+     * along until it is whole on the screen, 16 from the edge.
      */
     $values = array_map(fn (array $option): string => (string) $option['value'], $options);
     $value = in_array((string) $value, $values, true) ? (string) $value : ($values[0] ?? '');
@@ -50,7 +52,11 @@
                 requestAnimationFrame(() => (this.items().find((item) => item.getAttribute('aria-checked') === 'true') ?? this.items()[0])?.focus())
             })
         },
-        {{-- Under the trigger, or over it when the room under it is too short and the room over it longer; never taller than the room it opens into, scrolling inside instead, whatever it comes to hold while open. --}}
+        {{--
+            Under the trigger, or over it when the room under it is too short and the room over it longer; never taller than the room it opens into,
+            scrolling inside instead, whatever it comes to hold while open. Inside the window's sides too, 16 from each: moved left by as far as it
+            passes the right one, never past the left one, and moved right as far as a menu opening leftwards passes the left one.
+        --}}
         place(trigger, panel) {
             const box = trigger.getBoundingClientRect()
             const ceiling = Math.max(0, ...[...document.querySelectorAll('[data-admin-ceiling]')].map((bar) => bar.getBoundingClientRect().bottom))
@@ -63,6 +69,11 @@
             const most = parseFloat(getComputedStyle(panel).maxHeight) || Infinity
             this.upward = panel.offsetHeight > below && above > below
             panel.style.maxHeight = `${Math.max(0, Math.min(most, this.upward ? above : below))}px`
+
+            panel.style.translate = ''
+            const sides = panel.getBoundingClientRect()
+            const shift = Math.max(16 - sides.left, Math.min(0, document.documentElement.clientWidth - 16 - sides.right))
+            panel.style.translate = shift === 0 ? '' : `${shift}px 0`
         },
         close(returnFocus) {
             if (! this.expanded) {

@@ -25,6 +25,7 @@ use App\Support\Games\Scoring\GameScorer;
 use App\Support\Games\Snapshot\GameVersionSnapshot;
 use App\Support\Games\Snapshot\SnapshotRound;
 use App\Support\Games\Snapshot\SnapshotStep;
+use App\Support\Locale\IsolatedTranslation;
 use App\Support\Media\ImageOrientationClassifier;
 use App\Support\Media\PostImagePresenter;
 use App\Support\Media\ResponsiveImage;
@@ -32,6 +33,7 @@ use App\Support\Settings\ProjectSettingsManager;
 use App\Support\Sharing\ShareMetadata;
 use App\Support\Sharing\ShareUrlBuilder;
 use App\Support\Urls\DisplayHost;
+use Illuminate\Support\HtmlString;
 
 /**
  * Everything the game page draws for the step on screen, in the visitor's
@@ -87,17 +89,19 @@ final readonly class GamePlayView
         }
 
         $result = $attempt !== null && $attempt->status === GameAttemptStatus::Completed ? self::result($game, $versionId, $snapshot, $attempt, $visitor, $locale, $preview) : null;
-        $texts = self::texts($step, $locale, $result, $title);
+        $shown = self::texts($step, $locale, $result, $title);
 
         return new self('step', $title, [
             'game' => $gameData,
             'type' => $step->type->value,
-            'texts' => $texts,
+            // Plain, as they are shared and checked; drawn as shown.
+            'texts' => array_map(fn (StepText $text): string => $text->text, $shown),
+            'shown' => $shown,
             'settings' => $step->settings,
             'round' => $step->type === GameFlowStepType::Game ? self::round($snapshot, $attempt, $reveal, $locale, $shape, $pictures) : null,
             'result' => $result,
             'signup' => self::signup($game, $step, $visitor),
-            'onward' => self::onward($game, $step, $texts, $snapshot, $attempt, $visitor, $preview),
+            'onward' => self::onward($game, $step, $shown, $snapshot, $attempt, $visitor, $preview),
             'preview' => $preview,
             'authenticated' => ! $visitor->isAnonymous(),
             'nextGame' => $nextGame === null ? null : ['title' => $nextGame->title, 'slug' => $nextGame->slug],
@@ -114,10 +118,11 @@ final readonly class GamePlayView
      * step's (the site's own when the flow left them empty, as a version
      * published before they existed did), the post it leads to, whether it
      * opens by itself, and another site's address when it opens in a tab of
-     * its own.
+     * its own. The site's own texts keep the page's direction, the site's
+     * name in them read its own way.
      *
-     * @param  array<string, string>  $texts  the step's texts in the visitor's language, the player's numbers put in
-     * @return array{kind: string, title: string, text: string, button: string, post: array{title: string, image: ResponsiveImage|null, author: string|null, votes: int|null, likes: int|null, comments: int|null}|null, autoOpen: bool, newTab: bool, href: string|null}|null
+     * @param  array<string, StepText>  $texts  the step's texts in the visitor's language, the player's numbers put in
+     * @return array{kind: string, title: StepText, text: StepText, button: StepText, post: array{title: string, image: ResponsiveImage|null, author: string|null, votes: int|null, likes: int|null, comments: int|null}|null, autoOpen: bool, newTab: bool, href: string|null}|null
      */
     private static function onward(Game $game, SnapshotStep $step, array $texts, GameVersionSnapshot $snapshot, ?GameAttempt $attempt, GameVisitor $visitor, bool $preview): ?array
     {
@@ -134,7 +139,7 @@ final readonly class GamePlayView
         }
 
         $result = $step->type === GameFlowStepType::FullResult;
-        $text = fn (string $column, string $fallback): string => ($value = trim($texts[$column] ?? '')) !== '' ? $value : $fallback;
+        $text = fn (string $column, string|HtmlString $fallback): StepText => isset($texts[$column]) && ! $texts[$column]->isEmpty() ? $texts[$column] : StepText::own($fallback);
         $site = app(ProjectSettingsManager::class)->current()->siteName();
         [$title, $body, $button] = match ($kind) {
             'post' => [
@@ -145,9 +150,9 @@ final readonly class GamePlayView
             'feed' => [
                 $text($result ? 'secondary_label' : 'title', __('games.play.onward_feed_title')),
                 $text($result ? 'notice' : 'body', __('games.play.onward_feed_text')),
-                $text('button_label', __('games.play.onward_feed_button', ['site' => $site])),
+                $text('button_label', IsolatedTranslation::line('games.play.onward_feed_button', ['site' => $site])),
             ],
-            default => [$text($result ? 'secondary_label' : 'title', ''), $result ? $text('notice', '') : '', $text('button_label', __('games.play.continue'))],
+            default => [$text($result ? 'secondary_label' : 'title', ''), $result ? $text('notice', '') : StepText::own(''), $text('button_label', __('games.play.continue'))],
         };
 
         $post = null;
@@ -225,22 +230,25 @@ final readonly class GamePlayView
 
     /**
      * @param  array<string, mixed>|null  $result
-     * @return array<string, string>
+     * @return array<string, StepText>
      */
     private static function texts(SnapshotStep $step, string $locale, ?array $result, string $gameTitle): array
     {
-        $values = [
+        $numbers = [
             '{matches}' => (string) ($result['matches'] ?? 0),
             '{total}' => (string) ($result['scored'] ?? 0),
             '{score}' => (string) ($result['score'] ?? 0),
             '{max}' => (string) ($result['max'] ?? 0),
+        ];
+        // Written in the admin too: each reads its own way in the step's text.
+        $names = [
             '{profile}' => (string) ($result['profile']['name'] ?? ''),
             '{game}' => $gameTitle,
         ];
         $texts = [];
 
         foreach (array_keys($step->type->texts()) as $column) {
-            $texts[$column] = strtr($step->text($column, $locale), $values);
+            $texts[$column] = StepText::written($step->text($column, $locale), $names, $numbers);
         }
 
         return $texts;

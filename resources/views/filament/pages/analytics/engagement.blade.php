@@ -31,7 +31,7 @@
                 <div class="rg-admin-analytics__kpi" data-testid="analytics-engagement-card">
                     <dt class="rg-admin-analytics__kpi-label">
                         {{ $card['label'] }}
-                        <span class="rg-admin-analytics__shield" title="Counted by RateGuru"><x-admin.ui.icon name="shield-check" :size="12" /></span>
+                        <span class="rg-admin-analytics__shield" title="Counted by {{ site_name() }}"><x-admin.ui.icon name="shield-check" :size="12" /></span>
                     </dt>
                     <dd class="rg-admin-analytics__kpi-value">{{ $card['value'] }}</dd>
                     <dd class="rg-admin-analytics__kpi-pill"><span @class(['rg-admin-analytics__unit', 'rg-admin-analytics__unit--actions' => $card['tone'] === 'actions'])>{{ $card['unit'] }}</span></dd>

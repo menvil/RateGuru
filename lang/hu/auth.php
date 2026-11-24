@@ -31,6 +31,8 @@ return [
     'register' => [
         'title' => 'Regisztráció',
         'action' => 'Regisztráció',
+        'refused' => 'Nem sikerült befejezni a regisztrációdat. Próbáld újra később.',
+        'javascript_required' => 'A biztonsági ellenőrzés nem töltődött be. Kapcsold be a JavaScriptet, vagy töltsd újra az oldalt a regisztráció befejezéséhez.',
     ],
 
     'divider' => 'vagy',
@@ -52,8 +54,12 @@ return [
 
     'verify_email' => [
         'intro' => 'Köszönjük, hogy regisztráltál! Mielőtt belekezdenél, megerősítenéd az e-mail-címed az imént elküldött levélben található linkre kattintva? Ha nem kaptad meg a levelet, szívesen küldünk egy újat.',
-        'link_sent' => 'Új megerősítő linket küldtünk a regisztrációkor megadott e-mail-címre.',
+        'link_sent' => 'Új megerősítő linket küldtünk a jelenlegi e-mail-címedre.',
         'resend' => 'Megerősítő e-mail újraküldése',
+        'confirmed' => 'Az e-mail-címed megerősítve.',
+        'link_expired' => 'Ez a megerősítő link lejárt. Alább kérhetsz újat.',
+        'throttled' => 'Új linket :minutes perc múlva kérhetsz.',
+        'notice_changed_address' => 'Erősítsd meg az új e-mail-címed (:email), hogy posztolhass, hozzászólhass, szavazhass és követhess másokat. Ha nincs linked, kérj újat.',
     ],
 
     'social' => [

@@ -20,6 +20,7 @@ use App\Policies\StudioPlanPolicy;
 use App\Policies\TrafficSourcePolicy;
 use App\Queries\Analytics\AnalyticsRollupGate;
 use App\Queries\SocialProvidersInUseQuery;
+use App\Rules\ContainsNoNullCharacter;
 use App\Services\Media\FilesystemMediaStorage;
 use App\Services\Media\FilesystemMediaUrlResolver;
 use App\Services\Media\GdImageIngestor;
@@ -28,7 +29,9 @@ use App\Services\Media\ImageIngestor;
 use App\Services\Media\ImageVariantProcessor;
 use App\Services\Media\MediaStorage;
 use App\Services\Media\MediaUrlResolver;
+use App\Support\Auth\DisposableDomainList;
 use App\Support\Auth\RememberSessionGenerationOnLogin;
+use App\Support\Auth\SendConfirmationMailOnSignUp;
 use App\Support\Auth\SocialProviderAvailability;
 use App\Support\Feed\FeedAddress;
 use App\Support\Games\Play\ClaimGameAttemptsOnSignIn;
@@ -63,6 +66,7 @@ use App\Support\VisualRegression\VisualScreenshotRunner;
 use Illuminate\Auth\Events\Login;
 use Illuminate\Auth\Events\Registered;
 use Illuminate\Auth\Events\Verified;
+use Illuminate\Auth\Listeners\SendEmailVerificationNotification;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
@@ -71,12 +75,23 @@ use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\View;
 use Illuminate\Support\ServiceProvider;
+use Illuminate\Validation\Rules\Password;
 use Livewire\Livewire;
 
 class AppServiceProvider extends ServiceProvider
 {
     public function register(): void
     {
+        $this->app->bind(SendEmailVerificationNotification::class, SendConfirmationMailOnSignUp::class);
+
+        // The package's own binding, with a list that cannot stop sign-ups.
+        // Its cache stays off (config/disposable-email.php).
+        $this->app->singleton('disposable_email.domains', fn () => (new DisposableDomainList)
+            ->setIncludeSubdomains((bool) config('disposable-email.include_subdomains'))
+            ->setStoragePath((string) config('disposable-email.storage'))
+            ->setWhitelist((array) config('disposable-email.whitelist'))
+            ->bootstrap());
+
         // Scoped, not singleton: the settings are cached for one request or
         // one queued job, never for the life of a queue worker, which would
         // otherwise keep serving the languages and defaults it started with.
@@ -157,6 +172,9 @@ class AppServiceProvider extends ServiceProvider
         // A component drawn on the feed, a post or a profile keeps that
         // page's guest check on every later request it makes.
         Livewire::addPersistentMiddleware([RequireSignInWhileGuestViewingIsOff::class, EnsureGamesAreEnabled::class]);
+
+        // Here so that every form setting a password refuses it.
+        Password::defaults(fn (): Password => Password::min(8)->rules([new ContainsNoNullCharacter]));
 
         Gate::define('moderate-content', [ModerationPolicy::class, 'moderateContent']);
         Gate::define('ban-user', [ModerationPolicy::class, 'banUser']);

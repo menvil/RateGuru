@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Actions\Auth\ScreenEmailChangeAction;
 use App\Actions\Profile\DeleteUserAccountAction;
 use App\Actions\Profile\UpdateUserIdentityAction;
 use App\Exceptions\Profile\CannotUpdateProfileException;
@@ -42,12 +43,15 @@ class ProfileController extends Controller
     public function update(
         ProfileUpdateRequest $request,
         UpdateUserIdentityAction $updateIdentity,
+        ScreenEmailChangeAction $screenEmailChange,
     ): RedirectResponse {
         /** @var array{name: string, username: string, email: string} $validated */
         $validated = $request->validated();
         $user = $request->user();
 
         assert($user instanceof User);
+
+        $screenEmailChange->execute($user, $validated['email']);
 
         try {
             $updateIdentity->execute($user, $validated);

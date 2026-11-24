@@ -5,10 +5,11 @@ namespace App\Actions\Auth;
 use App\Models\Concerns\LocksActorForWrite;
 use App\Models\User;
 use App\Support\Auth\SessionGeneration;
+use Illuminate\Contracts\Hashing\Hasher;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
+use SensitiveParameter;
 
 /**
  * Password changes are private/security state: living accounts (Active,
@@ -21,7 +22,7 @@ final class UpdatePasswordAction
 {
     use LocksActorForWrite;
 
-    public function execute(User $user, string $password): void
+    public function execute(User $user, #[SensitiveParameter] string $password): void
     {
         DB::transaction(function () use ($user, $password): void {
             $locked = $this->lockActor($user);
@@ -35,7 +36,7 @@ final class UpdatePasswordAction
             }
 
             $locked->forceFill([
-                'password' => Hash::make($password),
+                'password' => app(Hasher::class)->make($password),
                 // Every other session and remember-me cookie of the account
                 // ends with the old password: a stolen session must not
                 // outlive its owner changing it. The caller keeps its own

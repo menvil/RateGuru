@@ -2,6 +2,7 @@
 
 namespace App\Actions\Users;
 
+use App\Actions\Auth\SendEmailVerificationNotificationAction;
 use App\Actions\Moderation\Concerns\LocksAndAuthorizesModerationPair;
 use App\Actions\Moderation\MarkUserTrustedAction;
 use App\Enums\UserRole;
@@ -9,9 +10,10 @@ use App\Exceptions\Moderation\CannotModerateUserException;
 use App\Exceptions\Users\CannotUpdateUserAccountException;
 use App\Models\User;
 use App\Support\Database\UniqueColumnViolation;
+use Illuminate\Contracts\Hashing\Hasher;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Hash;
+use SensitiveParameter;
 
 /**
  * An administrator's edit of someone's account: their name, username and
@@ -35,18 +37,22 @@ final class UpdateUserAccountAction
 {
     use LocksAndAuthorizesModerationPair;
 
+    public function __construct(
+        private readonly SendEmailVerificationNotificationAction $sendConfirmation,
+    ) {}
+
     /**
      * @param  array{name: string, username: string, email: string, role: UserRole, trusted: bool|null, password?: string|null}  $changes  `trusted` null leaves trust as it is
      * @param  array{name: string, username: string, email: string, role: string}  $drawnFrom  the account as the editor read it
      */
-    public function handle(User $admin, User $target, array $changes, array $drawnFrom): void
+    public function handle(User $admin, User $target, #[SensitiveParameter] array $changes, array $drawnFrom): void
     {
         if (! $admin->can('manage', $target)) {
             throw CannotUpdateUserAccountException::becauseUserIsNotAllowed();
         }
 
         try {
-            $this->write($admin, $target, $changes, $drawnFrom);
+            $emailChanged = $this->write($admin, $target, $changes, $drawnFrom);
         } catch (QueryException $exception) {
             // The editor checked both before the save, but only a write can
             // claim them: one that lost the race to another account is a
@@ -55,15 +61,21 @@ final class UpdateUserAccountAction
 
             throw $taken !== null ? CannotUpdateUserAccountException::becauseValueIsTaken($taken) : $exception;
         }
+
+        // After the commit: the link is for the address now on the account.
+        if ($emailChanged) {
+            $this->sendConfirmation->attempt($target);
+        }
     }
 
     /**
      * @param  array{name: string, username: string, email: string, role: UserRole, trusted: bool|null, password?: string|null}  $changes
      * @param  array{name: string, username: string, email: string, role: string}  $drawnFrom
+     * @return bool whether the address changed
      */
-    private function write(User $admin, User $target, array $changes, array $drawnFrom): void
+    private function write(User $admin, User $target, #[SensitiveParameter] array $changes, array $drawnFrom): bool
     {
-        DB::transaction(function () use ($admin, $target, $changes, $drawnFrom): void {
+        return DB::transaction(function () use ($admin, $target, $changes, $drawnFrom): bool {
             try {
                 [, $locked] = $this->lockAndAuthorizePair($admin, $target, 'manage');
             } catch (CannotModerateUserException) {
@@ -92,17 +104,21 @@ final class UpdateUserAccountAction
                 'trust_level' => self::trustLevel((int) $locked->trust_level, $changes['trusted']),
             ]);
 
-            if ($locked->isDirty('email')) {
+            $emailChanged = $locked->isDirty('email');
+
+            if ($emailChanged) {
                 $locked->email_verified_at = null;
             }
 
             if (filled($changes['password'] ?? null)) {
-                $locked->password = Hash::make((string) $changes['password']);
+                $locked->password = app(Hasher::class)->make((string) $changes['password']);
             }
 
             $locked->save();
 
             $target->setRawAttributes($locked->getAttributes(), true);
+
+            return $emailChanged;
         });
     }
 

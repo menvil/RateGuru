@@ -31,6 +31,8 @@ return [
     'register' => [
         'title' => 'Mag-sign up',
         'action' => 'Mag-sign up',
+        'refused' => 'Hindi namin natapos ang iyong pagpaparehistro. Subukang muli mamaya.',
+        'javascript_required' => 'Hindi na-load ang security check. I-on ang JavaScript o i-reload ang page para matapos ang pagpaparehistro.',
     ],
 
     'divider' => 'o',
@@ -52,8 +54,12 @@ return [
 
     'verify_email' => [
         'intro' => 'Salamat sa pag-sign up! Bago magsimula, maaari mo bang i-verify ang iyong email address sa pamamagitan ng pag-click sa link na kaka-email lang namin sa iyo? Kung hindi mo natanggap ang email, malugod ka naming padadalhan ng isa pa.',
-        'link_sent' => 'Isang bagong verification link ang naipadala sa email address na ibinigay mo noong nagparehistro ka.',
+        'link_sent' => 'Isang bagong confirmation link ang naipadala sa kasalukuyan mong email address.',
         'resend' => 'Ipadalang Muli ang Verification Email',
+        'confirmed' => 'Nakumpirma na ang iyong email address.',
+        'link_expired' => 'Nag-expire na ang confirmation link na ito. Humiling ng bago sa ibaba.',
+        'throttled' => 'Maaari kang humiling ng bagong link pagkalipas ng :minutes min.',
+        'notice_changed_address' => 'Kumpirmahin ang bago mong email address, :email, para makapag-post, makapag-comment, makaboto, at makasunod sa iba. Kung wala kang link, humiling ng bago.',
     ],
 
     'social' => [

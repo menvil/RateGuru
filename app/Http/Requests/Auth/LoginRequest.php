@@ -5,6 +5,7 @@ namespace App\Http\Requests\Auth;
 use App\Enums\AuthModalMode;
 use App\Http\Requests\Auth\Concerns\CarriesAuthSurface;
 use App\Http\Requests\Auth\Concerns\NormalizesEmail;
+use App\Rules\ContainsNoNullCharacter;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
 
@@ -30,7 +31,7 @@ class LoginRequest extends FormRequest
     {
         return [
             'email' => ['required', 'string', 'email'],
-            'password' => ['required', 'string'],
+            'password' => ['required', 'string', new ContainsNoNullCharacter],
             'remember' => ['sometimes', 'accepted'],
             ...$this->authSurfaceRules(),
         ];
