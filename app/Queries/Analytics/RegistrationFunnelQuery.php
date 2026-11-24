@@ -2,6 +2,7 @@
 
 namespace App\Queries\Analytics;
 
+use App\Contracts\Persistence\RawSqlPersistenceBoundary;
 use App\Enums\SignupRefusal;
 use App\Models\AnalyticsVisit;
 use App\Support\Analytics\AnalyticsFilter;
@@ -23,7 +24,7 @@ use Illuminate\Database\Eloquent\Builder;
  * (analytics_visits): null until they are ready. One pass a figure, each
  * person summed up first; every value bound.
  */
-final class RegistrationFunnelQuery
+final class RegistrationFunnelQuery implements RawSqlPersistenceBoundary
 {
     public function __construct(private readonly AnalyticsRollupGate $gate) {}
 
