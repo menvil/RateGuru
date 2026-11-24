@@ -11,6 +11,7 @@ use App\Actions\Games\RecordGameInteractionAction;
 use App\Actions\Games\StartGameAttemptAction;
 use App\Actions\Traffic\OpenTrafficVisitAction;
 use App\Enums\AuthModalMode;
+use App\Enums\AuthTrigger;
 use App\Enums\GameAttemptStatus;
 use App\Enums\GameEventType;
 use App\Enums\GameFlowStepType;
@@ -312,7 +313,7 @@ final class PlayGame extends Component
             app(RecordGameInteractionAction::class)->handle(GameEventType::RegistrationCtaClicked, $game, $this->visitor(), $this->attempt(), $this->versionId, $mode === AuthModalMode::Login ? 'login' : 'register');
         }
 
-        $this->openAuthModal($mode);
+        $this->openAuthModal($mode, AuthTrigger::Game);
     }
 
     /** Signing up begun on the result itself — on with an email, or off to a provider — counted, by which. */

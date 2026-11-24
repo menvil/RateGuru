@@ -101,6 +101,8 @@ final class TrafficPurgeExpiredCommand extends Command
         $deleted = [
             'click details' => $this->purge(TrafficVisitDetail::query()->where('created_at', '<', $now->subDays($days['visit_details'])), $chunk, 'visit_id'),
             'posts of visits' => $this->purge(TrafficVisitPost::query()->where('first_at', '<', $now->subDays($days['visit_details'])), $chunk, 'visit_id', self::postDays(...), $now),
+            // The post a session landed on goes as the posts it opened do; the visit stays, its day read again.
+            'landing posts of visits' => $this->forgetLandingPosts($now->subDays($days['visit_details']), $chunk, $now),
             'postbacks' => $this->purge(TrafficPostback::query()->where('created_at', '<', $now->subDays($days['postbacks'])), $chunk),
             'visits' => $this->purge(TrafficVisit::query()->where('arrived_at', '<', $now->subDays($days['visits'])), $chunk),
             // Analytics' own row of a visit goes with it; a browser's first day moves on once visits that old are gone.
@@ -183,6 +185,37 @@ final class TrafficPurgeExpiredCommand extends Command
             ->pluck('network_day');
 
         return $visits->merge($credited)->map(fn (mixed $day): string => substr((string) $day, 0, 10))->values()->all();
+    }
+
+    /**
+     * The post a session landed on, let go on the visits that arrived before
+     * the cutoff — as the posts a visit opened are — a batch at a time, each
+     * visit's day marked for Analytics in the same transaction.
+     */
+    private function forgetLandingPosts(CarbonImmutable $before, int $chunk, CarbonImmutable $now): int
+    {
+        $forgotten = 0;
+
+        do {
+            $ids = TrafficVisit::query()->whereNotNull('landing_post_id')->where('arrived_at', '<', $before)->orderBy('id')->limit($chunk)->pluck('id');
+
+            if ($ids->isEmpty()) {
+                break;
+            }
+
+            $forgotten += DB::transaction(function () use ($ids, $now): int {
+                $days = TrafficVisit::query()->whereKey($ids)->distinct()->pluck('network_day')->map(fn (mixed $day): string => substr((string) $day, 0, 10))->sort()->values()->all();
+                $count = TrafficVisit::query()->whereKey($ids)->whereNotNull('landing_post_id')->update(['landing_post_id' => null]);
+
+                foreach ($days as $day) {
+                    app(MarkAnalyticsDayAction::class)->handle($day, $now);
+                }
+
+                return $count;
+            });
+        } while (true);
+
+        return $forgotten;
     }
 
     /**

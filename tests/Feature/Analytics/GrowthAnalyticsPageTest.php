@@ -168,6 +168,9 @@ it('offers Today first among the presets: today’s visits alone, hour by hour, 
             '18 Nov 2026 · 13:00–14:00 UTC · still to come',
             '18 Nov 2026 · 23:00–24:00 UTC · still to come',
         ])
+        // An hour still to come is drawn apart from an hour of nobody.
+        ->and(array_column($data['chart']['bars'], 'toCome'))->toBe([...array_fill(0, 13, false), ...array_fill(0, 11, true)])
+        ->and($data['chart']['peak'])->toBe('Busiest: 18 Nov 2026 · 09:00–10:00 UTC · 1 visitor')
         ->and(GrowthAnalyticsPage::topbar(Request::create('/admin/analytics', 'GET', ['period' => 'today'])))->toContain('18 Nov 2026');
 });
 
@@ -500,7 +503,10 @@ it('draws the sources table, Referral performance and Data notes for the period 
         // Everything else follows the source and campaign chosen.
         ->and($narrowed['kpis'][0]['value'])->toBe('5')
         ->and(collect($narrowed['sources']['rows'])->firstWhere('selected', true)['name'])->toBe('Reddit')
-        ->and($narrowed['funnel']['note'])->toStartWith('Reddit · spring · Last 30 days.');
+        ->and($narrowed['funnel']['note'])->toStartWith('Reddit · spring · Last 30 days.')
+        // And the card says so, while a source or a campaign is chosen.
+        ->and($all['sourcesNote'])->toBe('Click a source to filter the whole page. Start rate uses visitors; registration and activation use new visitors.')
+        ->and($narrowed['sourcesNote'])->toBe('Every source, for the period and the device, whatever source or campaign is chosen. Click a source to filter the whole page. Start rate uses visitors; registration and activation use new visitors.');
 
     // The device narrows them all.
     $desktop = analyticsOverview(['device' => 'desktop']);
@@ -632,7 +638,11 @@ it('marks the chart’s buckets on which a version was published, a paid campaig
         ->and(collect($chart['bars'])->pluck('height')->all())->toBe([50.0, 0.0, 100.0, 0.0, 0.0, 0.0, 0.0])
         ->and(collect($chart['bars'])->pluck('marked')->all())->toBe([false, false, true, false, false, false, false])
         ->and($chart['bars'][2]['title'])->toEndWith('· 2 visitors · V4 of '.GameVersion::query()->sole()->game->title.' published')
-        ->and($chart['markers'])->toBe(['14 Nov · V4 of '.GameVersion::query()->sole()->game->title.' published']);
+        ->and($chart['markers'])->toBe(['14 Nov · V4 of '.GameVersion::query()->sole()->game->title.' published'])
+        // A scale says how many the bars stand for, and the busiest bucket is named.
+        ->and($chart['scale'])->toBe([['value' => '1', 'at' => 50.0], ['value' => '2', 'at' => 100.0]])
+        ->and($chart['peak'])->toBe('Busiest: Sat 14 Nov 2026 · 2 visitors')
+        ->and($chart['note'])->toEndWith('Point at or tap a bar, or arrow through them, for its exact count.');
 });
 
 it('reads a tab in a bounded number of queries, however many sources, campaigns and visitors there are', function () {

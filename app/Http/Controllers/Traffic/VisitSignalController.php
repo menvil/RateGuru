@@ -31,6 +31,8 @@ final class VisitSignalController extends Controller
                 $signals->read(),
                 CarbonImmutable::now('UTC'),
                 isset($validated['post']) ? (int) $validated['post'] : null,
+                isset($validated['mode']) ? (string) $validated['mode'] : null,
+                isset($validated['trigger']) ? (string) $validated['trigger'] : null,
             );
         }
 

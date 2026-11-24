@@ -5,6 +5,7 @@ namespace App\Actions\Traffic;
 use App\Actions\Analytics\MarkAnalyticsDayAction;
 use App\Actions\Analytics\RecordVisitPostAction;
 use App\Actions\Games\CreditGameSiteActivityAction;
+use App\Enums\AuthTrigger;
 use App\Models\TrafficSetting;
 use App\Models\TrafficVisit;
 use App\Queries\Traffic\VisitorVisitQuery;
@@ -26,7 +27,10 @@ use Throwable;
  * which is reported and never spoils the signal — or that the visitor
  * shared a post by email, by copying its link or through the system's share
  * sheet, which goes on the visit the browser is on now
- * (RecordVisitPostAction). A crawler shares nothing.
+ * (RecordVisitPostAction). A crawler shares nothing. A sign-up form shown by
+ * the sign-in dialog, naming what opened it, also records the dialog's steps
+ * on the visit the browser is on now (RecordRegistrationStepAction): opened,
+ * and in its sign-up state the registration form.
  */
 final class RecordVisitSignalAction
 {
@@ -36,10 +40,15 @@ final class RecordVisitSignalAction
         private readonly RecordVisitPostAction $posts,
         private readonly CreditGameSiteActivityAction $games,
         private readonly MarkAnalyticsDayAction $analytics,
+        private readonly RecordRegistrationStepAction $steps,
     ) {}
 
-    /** @param  int|null  $postId  the published post a `post_shared` signal names, or the post whose page showed a `signup_form` */
-    public function handle(string $signal, ?string $token, string $browserHash, ?int $userId, VisitorSignals $signals, CarbonImmutable $now, ?int $postId = null): void
+    /**
+     * @param  int|null  $postId  the published post a `post_shared` signal names, or the post whose page showed a `signup_form`
+     * @param  string|null  $mode  the state of the sign-in dialog a `signup_form` signal comes from: login or register
+     * @param  string|null  $trigger  what opened that dialog (AuthTrigger)
+     */
+    public function handle(string $signal, ?string $token, string $browserHash, ?int $userId, VisitorSignals $signals, CarbonImmutable $now, ?int $postId = null, ?string $mode = null, ?string $trigger = null): void
     {
         if ($signal === 'opened') {
             $this->open->handle($token, $browserHash, $userId, null, null, $signals, $now);
@@ -63,6 +72,15 @@ final class RecordVisitSignalAction
             $this->games->signInFormShown($browserHash, $postId);
         } catch (Throwable $exception) {
             report($exception);
+        }
+
+        // The dialog's steps go on the visit the browser is on now, apart from the sign-up form's mark below.
+        if ($trigger !== null) {
+            try {
+                $this->steps->dialogShown($browserHash, $mode === 'register', AuthTrigger::fromSignal($trigger), $now);
+            } catch (Throwable $exception) {
+                report($exception);
+            }
         }
 
         if (! TrafficSetting::captureFlags()['capture']) {

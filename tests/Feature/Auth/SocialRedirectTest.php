@@ -124,3 +124,25 @@ it('shows the same provider buttons on the login and registration pages', functi
         ->assertSee(route('auth.social.redirect', ['provider' => 'google']))
         ->assertSee(route('auth.social.redirect', ['provider' => 'facebook']));
 })->with(['/login', '/register']);
+
+it('records going on to Google or Facebook once a visit, the first provider kept', function () {
+    recordTraffic();
+    $token = 'socialTokensocialTokensocialTokensocialT';
+    $visit = analyticsVisit('social', ['visitor_hash' => browserHashOf($token), 'network_day' => now()->toDateString(), 'arrived_at' => now()->subMinutes(5), 'last_seen_at' => now()->subMinutes(5)]);
+
+    $this->withCookie((string) config('games.visitor_cookie.name'), $token)->get('/auth/google')->assertRedirect();
+    $this->withCookie((string) config('games.visitor_cookie.name'), $token)->get('/auth/facebook')->assertRedirect();
+
+    expect($visit->fresh())->social_started_at->not->toBeNull()->social_provider->toBe('google');
+});
+
+it('records no start for a provider that is switched off', function () {
+    recordTraffic();
+    config()->set('services.google.client_id', null);
+    $token = 'socialTokensocialTokensocialTokensocialT';
+    $visit = analyticsVisit('social', ['visitor_hash' => browserHashOf($token), 'network_day' => now()->toDateString(), 'arrived_at' => now()->subMinutes(5), 'last_seen_at' => now()->subMinutes(5)]);
+
+    $this->withCookie((string) config('games.visitor_cookie.name'), $token)->get('/auth/google');
+
+    expect($visit->fresh()->social_started_at)->toBeNull();
+});

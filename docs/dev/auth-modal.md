@@ -29,7 +29,12 @@ it; later guest actions (comments, follows) can do the same.
 A Livewire component whose server refuses a guest opens it from that
 answer instead, with `App\Livewire\Concerns\OpensAuthModal`:
 `$this->openAuthModal()` sends the same event, in login mode unless it
-names another. Post, comment and rating votes do: the refusal is still
+names another. A guest's vote, rating or comment vote asks through
+`askGuestToAuthenticate()`: sign-in, as always, unless Project settings
+offers sign-up instead (**Offer new guests sign-up when they vote**,
+`guest_actions_open_sign_up`, off by default) to a browser no account has
+signed up or signed in with — for the owner to try which brings more
+accounts. Post, comment and rating votes do: the refusal is still
 shown next to the buttons, and the dialog opens over the page, so the
 attempt reaches the server and is still recorded in the security log.
 
@@ -41,6 +46,23 @@ vote gets the answer a member would get instead, with no dialog, when:
 - the rating option is switched off or archived (rating votes);
 - the comment is hidden or deleted, or its post no longer takes votes
   (comment votes).
+
+### What opened it
+
+The registration funnel counts what opened the dialog (`App\Enums\AuthTrigger`,
+`docs/architecture/traffic.md`, "Registration steps"). The event's detail
+names it beside the mode: `{ mode, trigger }`. `rgOpenAuthModal` reads it from
+the element clicked (`data-auth-trigger`: `header_signup`, `header_login` and
+`upload` in the header); `openAuthModal($mode, $trigger)` sends it from a
+component (`vote`, `rating`, `comment_vote`, `game`). The dialog keeps the
+opener while it stays open — a switch between its states names none — and
+tells the tracker the state it shows and the opener each time it shows a form
+(`rgTrafficSignal('signup_form', { mode, trigger })`). The standalone pages
+name themselves (`data-rg-traffic-mode`, `data-rg-traffic-trigger="page"`).
+An opener the server doesn't know counts as `other`. The tracker's signals of a
+page go one after another (`resources/js/traffic.js`), each once the one
+before has its answer, so the first opener of a visit is the first the person
+used, whatever order the network would deliver them in.
 
 The security log (`App\Support\Observability\GuestVoteAttemptLog`) is
 best-effort and normally limited: one visitor address writes at most 30
@@ -145,7 +167,13 @@ checks, in this order:
 | `report` | written to the security log, and the sign-up goes through |
 | `enforce` | written to the security log, and refused with one generic message |
 
-A blank or unknown value reads as `report`. The log line carries the reasons
+A blank or unknown value reads as `report`. A sign-up form sent, and one
+refused — by its rules (an address already taken apart from any other
+mistake, recorded before the form goes back), by these checks in `enforce`
+(`RegistrationRefusedException` carries why), or for an address another
+sign-up took first — are registration steps of the browser's visit
+(`docs/architecture/traffic.md`, "Registration steps"); `report` refuses
+nothing, so it records no refusal. Never a value the form held. The log line carries the reasons
 and the browser's bot flags, never the name or the address. A refusal only
 about the address is shown on the email field, in the words a mistyped or
 taken address gets; any other is the one generic message. A new address on

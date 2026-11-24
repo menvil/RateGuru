@@ -43,6 +43,9 @@ class ProjectSettingsManager
             'allow_user_uploads' => true,
             'allow_guest_viewing' => true,
             'allow_url_imports' => true,
+            // A guest's vote, rating or comment vote opens sign-up instead of sign-in for a browser no account has used,
+            // for the owner to try which brings more accounts (OpensAuthModal::askGuestToAuthenticate).
+            'guest_actions_open_sign_up' => false,
             // Content Studio's executor: off on every installation until it
             // is switched on deliberately, by an administrator, from the
             // Action queue (SwitchStudioExecutionAction).

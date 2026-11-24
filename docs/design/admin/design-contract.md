@@ -1469,14 +1469,19 @@ start. The architecture is `docs/architecture/analytics.md`; the operator guide 
 - **Overview:** eight figures (Visitors, New visitors, Game starters, Game completers, Accounts created, Activated
   users — a Too early badge while accounts can still activate — Visitor → registration, Visitor → activation), the
   first six with “+18% vs the previous 30 days”; the acquisition funnel of eight steps with Of previous and Of
-  visitors and See an example journey; Visitors per hour, day or week as bars with their markers; Traffic sources
+  visitors and See an example journey; Visitors per hour, day or week as bars with their markers, on a scale of round
+  values, with a readout line of the busiest bar or the one pointed at, tapped or arrowed to; Traffic sources
   (Source · medium, group badge, Attribution basis, Visitors, Started, Completed, Registered, Activated; Sort; a row
   filters the page, the chosen one sunken; Other referrals; All sources); Referral performance; Data notes; Tracking
   with Tracking settings.
 - **Site engagement:** the scope line; nine cards, each with its unit as a pill (Visitors, Actions, Accounts) and the
   change against the window before but Unique post viewers; Website funnel; Compare sources (sides A and B, each a
   choice of the six biggest sources); Content engagement (Post as `#id`, views, viewers, votes, comments, engagement,
-  registrations), its footnote naming the accounts not attributed.
+  registrations), its footnote naming the accounts not attributed; Registration funnel (Landing — all, Home feed, Any post,
+  the posts landed on most as `#id title`, Other pages — in the address; Landed, Opened sign-in or sign-up with what
+  opened it under it, Saw the registration form, Started signing up with Sent the email form and Went on to Google or
+  Facebook under it, Signed up, Confirmed the account, Activated; Count, Of the step before, Of landed; its foot
+  Signed up by any way and the reasons refused).
 - **Campaigns:** the tracking link banner when opened from one, with Back to tracking links; Where spend comes from;
   Paid sources with Settings and Segments; a chosen paid source's Segments (Add segment, Source settings; the
   segments' rows with their Rule chips, verdict badges and pencil; Not in any segment); Campaign performance, a tree
@@ -1542,7 +1547,7 @@ Deviations from the fifth delivery for Experiments and Analytics, each for the r
 | A tab ignores a filter without saying so; Landings ignore the source and campaign, Geography the campaign | Games and Retention say so; Landings and Geography read every filter | honest filters; one population, by the session's entry |
 | Registration and activation of every visitor; “Rates use unique visitors”, “{x}% of visitors” | of new visitors; “Start rate uses visitors; registration and activation use new visitors”, “{x}% of new visitors”, “Registered · of new visitors” | a known visitor can't make a new account |
 | A registration rate marked below 4.5 % | below two thirds of the table's rate, from 30 new visitors | an absolute line depends on the site |
-| Funnel: Result viewers, Registration CTA clicks, Registration starts | Reached the goal, Saw the sign-up form, Signed up | the milestones a visit records |
+| Funnel: Result viewers, Registration CTA clicks, Registration starts | Reached the goal, Saw the sign-up form, Signed up; Site engagement's Registration funnel adds what opened the sign-in dialog, the registration form seen and the sign-up started (the email form sent, or Google or Facebook) | the milestones a visit records — a few named steps of registration, never a record of every click |
 | Source rows add up to the total | a person in every source they came from; the total counts each person once | people, not visits |
 | Referral: share links generated, valid codes | Share clicks, Results shared, Visits from shared results and how far they went | shared links carry no code |
 | Data notes: consent, blocked events, duplicates, “Ad spend isn't connected” | Unattributed, Crawlers and previews, Pages that never ran, Spend — the spend no visit took included, as Traffic sources counts it | what the application records |

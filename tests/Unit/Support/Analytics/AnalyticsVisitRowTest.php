@@ -57,6 +57,25 @@ it('makes each step a flag, keeps the sign-up’s moment and how long after the 
         ->and($confirmed['visitor_hash'])->toBeNull();
 });
 
+it('makes each registration step a flag, and keeps what opened the dialog, every reason a sign-up was refused and the post the session landed on', function () {
+    $row = AnalyticsVisitRow::fromVisit(rollupSourceVisit([
+        'auth_opened_at' => '2026-11-15 10:02:00', 'auth_trigger' => 'vote', 'register_form_at' => '2026-11-15 10:02:00',
+        'social_started_at' => null, 'signup_submitted_at' => '2026-11-15 10:03:00', 'signup_refused_at' => '2026-11-15 10:03:00',
+        'signup_refusals' => 5, 'landing_post_id' => 42,
+    ]));
+
+    expect($row)->toMatchArray([
+        'auth_opened' => '1', 'auth_trigger' => 'vote', 'register_form' => '1', 'social_started' => '0', 'signup_submitted' => '1',
+        'signup_refused' => '1', 'signup_refusals' => '5', 'landing_post_id' => '42',
+    ]);
+
+    // A visit from before the steps were recorded makes the row a stored one of then is, defaults and all.
+    expect(AnalyticsVisitRow::fromVisit(rollupSourceVisit()))->toMatchArray([
+        'auth_opened' => '0', 'auth_trigger' => null, 'register_form' => '0', 'social_started' => '0', 'signup_submitted' => '0',
+        'signup_refused' => '0', 'signup_refusals' => '0', 'landing_post_id' => null,
+    ]);
+});
+
 it('reads a stored row the way each engine hands it back as the same row the visit makes', function () {
     $made = AnalyticsVisitRow::fromVisit(rollupSourceVisit(['votes' => 2, 'spend' => '1.5']));
     $stored = [...$made, 'opened' => true, 'known' => 'f', 'votes' => 2, 'id' => 7, 'visitor_key' => '5301121648421453870', 'spend' => '1.50000000', 'arrived_at' => '2026-11-15T10:00:00.000000Z'];

@@ -3,7 +3,9 @@
 namespace App\Actions\Auth;
 
 use App\Enums\RegistrationScreeningMode;
+use App\Enums\SignupRefusal;
 use App\Enums\TurnstileOutcome;
+use App\Exceptions\Auth\RegistrationRefusedException;
 use App\Services\Traffic\RequestSignals;
 use App\Support\AbuseGuards\RateLimitKey;
 use App\Support\Auth\EmailQualityCheck;
@@ -113,7 +115,8 @@ final class ScreenRegistrationAction
         if ($refused) {
             $this->release($counted);
 
-            throw ValidationException::withMessages(
+            throw RegistrationRefusedException::because(
+                SignupRefusal::fromScreening($reasons),
                 array_diff($reasons, [EmailQualityCheck::DISPOSABLE, EmailQualityCheck::GMAIL_ALIAS]) === []
                     ? $this->emails->refusal($reasons)
                     : [self::ERROR_FIELD => __('auth.register.refused')],

@@ -667,3 +667,30 @@ it('takes a network’s unfilled placeholders for no tags at all', function () {
 
     expect(TrafficVisit::query()->sole()->last_seen_at->toDateTimeString())->toBe('2026-11-17 12:05:00');
 });
+
+it('keeps the post a session landed on, and carries it to the session’s later visits', function () {
+    recordTraffic(site: true);
+    $post = Post::factory()->published()->create();
+
+    pageRuns('/posts/'.$post->id, ['Referer' => 'https://www.google.com/']);
+    // On to a game, a visit of its own in the same session.
+    CarbonImmutable::setTestNow('2026-11-17 12:05:00');
+    pageRuns('/games/'.$this->game->slug);
+    CarbonImmutable::setTestNow('2026-11-17 13:00:00');
+    pageRuns('/', ['Referer' => 'https://www.google.com/']);
+
+    [$landed, $continued, $later] = TrafficVisit::query()->orderBy('id')->get()->all();
+
+    expect([$landed->landing_post_id, $continued->landing_post_id, $later->landing_post_id])->toBe([$post->id, $post->id, null])
+        ->and($continued->entry_visit_id)->toBe($landed->id);
+});
+
+it('keeps the post a paid click landed on', function () {
+    $source = TrafficSource::factory()->create(['link_key' => 'landing']);
+    $post = Post::factory()->published()->create();
+
+    clickOn('/posts/'.$post->id.'?rg_src=landing&cid=landing-1')->assertOk();
+    clickOn('/?rg_src=landing&cid=landing-2')->assertOk();
+
+    expect(TrafficVisit::query()->where('source_id', $source->id)->orderBy('id')->pluck('landing_post_id')->all())->toBe([$post->id, null]);
+});

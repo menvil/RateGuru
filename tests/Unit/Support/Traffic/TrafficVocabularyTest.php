@@ -52,3 +52,15 @@ it('gives no step to the goal, the sign-up form, the bonuses or an account activ
         ->and(TrafficEvent::Activated->canPostBack())->toBeFalse()
         ->and(TrafficStep::ofEvent(TrafficEvent::Started, 5))->toBe('started');
 });
+
+it('gives no step and no postback to the registration steps, which are counted only', function (TrafficEvent $event) {
+    expect(TrafficStep::ofEvent($event, 5))->toBeNull()
+        ->and($event->canPostBack())->toBeFalse()
+        ->and($event->column())->toBe($event->value.'_at');
+})->with([
+    'the sign-in dialog opened' => TrafficEvent::AuthOpened,
+    'the registration form seen' => TrafficEvent::RegisterForm,
+    'Google or Facebook started' => TrafficEvent::SocialStarted,
+    'the email form sent' => TrafficEvent::SignupSubmitted,
+    'a sign-up refused' => TrafficEvent::SignupRefused,
+]);

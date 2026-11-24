@@ -69,8 +69,21 @@ it('opens from the header and from the guest upload button by naming a mode only
         ->and($handler('guest-upload-button'))->toStartWith("rgOpenAuthModal(\$event, 'register', ")
         // Still real links, for a page without JavaScript or a new tab.
         ->and($xpath->evaluate('string(//*[@data-testid="header-login-link"]/@href)'))->toBe(route('login'))
-        ->and($xpath->evaluate('string(//*[@data-testid="header-register-link"]/@href)'))->toBe(route('register'));
+        ->and($xpath->evaluate('string(//*[@data-testid="header-register-link"]/@href)'))->toBe(route('register'))
+        // Each names itself as what opened the dialog (AuthTrigger), for the registration funnel.
+        ->and(array_map(fn (string $testId): string => $xpath->evaluate('string(//*[@data-testid="'.$testId.'"]/@data-auth-trigger)'), ['header-login-link', 'header-register-link', 'guest-upload-button']))
+        ->toBe(['header_login', 'header_signup', 'upload']);
 });
+
+it('names the standalone pages as what showed their form, and the state each shows', function (string $path, string $mode) {
+    $xpath = new DOMXPath(pageDocument($this->get($path)->assertOk()->getContent()));
+
+    expect($xpath->evaluate('string(//*[@data-rg-traffic-signal="signup_form"]/@data-rg-traffic-mode)'))->toBe($mode)
+        ->and($xpath->evaluate('string(//*[@data-rg-traffic-signal="signup_form"]/@data-rg-traffic-trigger)'))->toBe('page');
+})->with([
+    'sign in' => ['/login', 'login'],
+    'sign up' => ['/register', 'register'],
+]);
 
 it('no longer shows guests the sign-up-required toast', function () {
     $this->get('/')->assertOk()->assertDontSee('Create an account or sign in to upload a post.');

@@ -77,6 +77,7 @@ final class RecordPaidClickAction
      * @param  array<array-key, mixed>  $query
      * @param  string|null  $route  the name of the route the click landed on
      * @param  string|null  $gameSlug  the game the page belongs to, on a game's page or one of its result pages
+     * @param  int|null  $landingPostId  the post whose own page the click landed on
      */
     public function handle(
         TrafficSource $source,
@@ -88,6 +89,7 @@ final class RecordPaidClickAction
         ?string $gameSlug,
         VisitorSignals $signals,
         CarbonImmutable $now,
+        ?int $landingPostId = null,
     ): ?TrafficVisit {
         $params = ClickParameters::parse($query, $source->link_params);
         $flags = $signals->botFlags;
@@ -158,6 +160,7 @@ final class RecordPaidClickAction
             'source_key' => AnalyticsSource::keyFor($channel, (int) $source->id, null),
             'creative_key' => $params->creative,
             'landing_key' => LandingRoute::key($route, $landingGameId, null),
+            'landing_post_id' => $landingPostId,
             ...UtmTags::fromQuery($query)->columns(),
         ];
 

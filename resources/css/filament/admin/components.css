@@ -18305,13 +18305,75 @@
         color: var(--rg-admin-text-tertiary);
     }
 
-    /* The chart: a column per bucket, dark where something happened on it. */
+    /*
+     * The chart: a column per bucket, dark where something happened on it, on a scale of round values, with a readout of the
+     * column pointed at, tapped or arrowed to — the busiest one's while none is.
+     */
+    .rg-admin-analytics__readout {
+        margin: 0 0 var(--rg-admin-space-2);
+        min-height: var(--rg-admin-leading-caption);
+        font-size: var(--rg-admin-text-caption);
+        line-height: var(--rg-admin-leading-caption);
+        color: var(--rg-admin-text-strong);
+        font-variant-numeric: tabular-nums;
+    }
+
+    .rg-admin-analytics__plot {
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr);
+        column-gap: var(--rg-admin-space-2);
+    }
+
+    .rg-admin-analytics__axis {
+        position: relative;
+        height: 180px;
+        font-size: var(--rg-admin-text-overline);
+        line-height: var(--rg-admin-leading-overline);
+        color: var(--rg-admin-text-tertiary);
+        font-variant-numeric: tabular-nums;
+        text-align: right;
+    }
+
+    /* As wide as its widest value: the values themselves stand out of the flow. */
+    .rg-admin-analytics__axis-size {
+        visibility: hidden;
+    }
+
+    .rg-admin-analytics__axis-value {
+        position: absolute;
+        right: 0;
+        transform: translateY(50%);
+        white-space: nowrap;
+    }
+
+    .rg-admin-analytics__field {
+        position: relative;
+        height: 180px;
+        border-bottom: 1px solid var(--rg-admin-border-default);
+        /* A finger dragged across reads the columns; up and down still scrolls the page. */
+        touch-action: pan-y;
+        outline: none;
+    }
+
+    .rg-admin-analytics__field:focus-visible {
+        outline: 2px solid var(--rg-admin-focus-ring);
+        outline-offset: 2px;
+    }
+
+    .rg-admin-analytics__gridline {
+        position: absolute;
+        left: 0;
+        right: 0;
+        border-top: 1px dashed var(--rg-admin-border-default);
+        pointer-events: none;
+    }
+
     .rg-admin-analytics__bars {
+        position: relative;
         display: flex;
         align-items: flex-end;
         gap: var(--rg-admin-space-2);
-        height: 180px;
-        border-bottom: 1px solid var(--rg-admin-border-default);
+        height: 100%;
     }
 
     .rg-admin-analytics__bars--dense {
@@ -18324,17 +18386,30 @@
         min-height: 2px;
         border-radius: 3px 3px 0 0;
         background: var(--rg-admin-gray-300);
-    }
-
-    .rg-admin-analytics__bar:hover {
-        opacity: 0.75;
+        transition: box-shadow 120ms ease, background-color 120ms ease;
     }
 
     .rg-admin-analytics__bar--marked {
         background: var(--rg-admin-surface-inverse);
     }
 
+    /* An hour still to come counts nobody yet: a dotted foot, never the stub of an hour of nobody. */
+    .rg-admin-analytics__bar--to-come {
+        background: none;
+        border-bottom: 2px dotted var(--rg-admin-border-strong);
+        border-radius: 0;
+    }
+
+    .rg-admin-analytics__bar--chosen {
+        box-shadow: 0 0 0 2px var(--rg-admin-surface-card), 0 0 0 3px var(--rg-admin-text-strong);
+    }
+
+    .rg-admin-analytics__bar--chosen:not(.rg-admin-analytics__bar--marked, .rg-admin-analytics__bar--to-come) {
+        background: var(--rg-admin-gray-500);
+    }
+
     .rg-admin-analytics__ticks {
+        grid-column: 2;
         display: flex;
         justify-content: space-between;
         margin-top: 6px;
@@ -18669,6 +18744,22 @@
 
     .rg-admin-analytics__step--legend > :first-child {
         text-align: left;
+    }
+
+    /* A part of the step above it — what opened the dialog, a way to start signing up — set in under it, lighter. */
+    .rg-admin-analytics__step--sub {
+        min-height: 30px;
+        border-top-style: dashed;
+    }
+
+    .rg-admin-analytics__step--sub .rg-admin-analytics__step-name {
+        padding: 4px 0 4px var(--rg-admin-space-4);
+    }
+
+    .rg-admin-analytics__step--sub .rg-admin-analytics__step-label,
+    .rg-admin-analytics__step--sub .rg-admin-analytics__step-count {
+        font-size: var(--rg-admin-text-caption);
+        color: var(--rg-admin-text-secondary);
     }
 
     /*
