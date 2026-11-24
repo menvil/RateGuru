@@ -122,13 +122,14 @@ final class PopAdsConnector implements EditsBlockLists, ReadsCampaigns, ReadsSpe
         return [TrafficBlockLevel::Site];
     }
 
-    public function blockLists(ConnectorSession $session, array $campaignIds, TrafficBlockLevel $level): array
+    public function blockLists(ConnectorSession $session, array $campaignIds, TrafficBlockLevel $level): BlockListsRead
     {
         if ($level !== TrafficBlockLevel::Site) {
             throw new ConnectorException(TrafficConnectorFailure::Unsupported);
         }
 
         $lists = [];
+        $failure = null;
 
         foreach ($campaignIds as $index => $id) {
             if ($index > 0) {
@@ -143,15 +144,25 @@ final class PopAdsConnector implements EditsBlockLists, ReadsCampaigns, ReadsSpe
                     continue;
                 }
 
-                // The sync says whose list it couldn't read.
-                throw $exception->forCampaign($id);
+                if ($exception->failure->needsAttention()) {
+                    throw $exception->forCampaign($id);
+                }
+
+                // The sync says whose list it couldn't read; the other campaigns' are read all the same, unless PopAds is down, slow or busy.
+                $failure ??= $exception->forCampaign($id);
+
+                if ($exception->failure->passes()) {
+                    break;
+                }
+
+                continue;
             }
 
             // Targeting turned off excludes nothing, whatever sites it still keeps.
             $lists[$id] = $mode === 'none' ? [] : array_values(array_unique($items));
         }
 
-        return $lists;
+        return new BlockListsRead($lists, $failure);
     }
 
     public function applyBlockDelta(ConnectorSession $session, string $campaignId, TrafficBlockLevel $level, array $add, array $remove): BlockDeltaResult
@@ -199,8 +210,8 @@ final class PopAdsConnector implements EditsBlockLists, ReadsCampaigns, ReadsSpe
      * A campaign's exclusion list as PopAds has it — its own, or the one it
      * shares through `global` targeting — with where it is written and the
      * campaign's mode; none while its targeting is off. A list read without
-     * its sites is never taken for an empty one: rewritten from it, the sites
-     * it held would be lost.
+     * its sites, or an answer without the mode, is never taken for an empty
+     * one: rewritten from it, the sites it held would be lost.
      *
      * @return array{0: string, 1: list<string>, 2: string} where it is written, its sites, the mode
      *
@@ -209,7 +220,13 @@ final class PopAdsConnector implements EditsBlockLists, ReadsCampaigns, ReadsSpe
     private function exclusionList(ConnectorSession $session, string $campaignId): array
     {
         $targeting = $this->json($this->get($session, '/api/campaign_website_targeting/'.rawurlencode($campaignId)));
-        $mode = (string) ($targeting['mode'] ?? 'none');
+        $mode = $targeting['mode'] ?? null;
+
+        // An answer that doesn't say how the campaign targets sites says nothing of its list: never taken for targeting turned off.
+        if (! is_string($mode)) {
+            throw new ConnectorException(TrafficConnectorFailure::UnexpectedResponse);
+        }
+
         [$path, $items] = match (true) {
             $mode === 'global' && ($targeting['global_mode'] ?? null) === 'exclude' => ['/api/website_targeting/'.rawurlencode((string) $targeting['global_id']), $targeting['global_items'] ?? null],
             $mode === 'exclude' => ['/api/campaign_website_targeting/'.rawurlencode($campaignId), $targeting['items'] ?? null],

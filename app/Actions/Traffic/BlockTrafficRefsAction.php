@@ -14,6 +14,7 @@ use App\Exceptions\Traffic\CannotManageTrafficException;
 use App\Models\TrafficApiConnection;
 use App\Models\TrafficBlock;
 use App\Models\TrafficBlockEvent;
+use App\Models\TrafficBlockListing;
 use App\Models\TrafficSource;
 use App\Models\User;
 use App\Services\Traffic\Connectors\ConnectorRegistry;
@@ -81,6 +82,7 @@ final class BlockTrafficRefsAction
                 || ($locked !== null && $viaApi && $method !== TrafficBlockMethod::Auto && in_array($block->network_state, self::SENT_AGAIN, true)));
             TrafficBlock::query()->whereKey($again->pluck('id')->all())
                 ->update(['network_state' => TrafficBlockNetworkState::Pending, 'network_error' => null]);
+            $this->forgetMarks($again->modelKeys());
             $taken = $existing->pluck('ref')->all();
             $new = array_values(array_diff($refs, $taken));
 
@@ -156,6 +158,7 @@ final class BlockTrafficRefsAction
 
             $blocks = TrafficBlock::query()->where('source_id', $current->id)->where('level', $level)->whereIn('ref', $refs)
                 ->where('network_state', '!=', TrafficBlockNetworkState::Pending)->lockForUpdate()->get();
+            $this->forgetMarks($blocks->modelKeys());
 
             foreach ($blocks as $block) {
                 $block->forceFill([
@@ -189,9 +192,9 @@ final class BlockTrafficRefsAction
             $listings = $record->listings()->get();
 
             // A block that may be on the network — on its campaigns' lists, on some of them, found blocked in the network's panel, or being sent
-            // there now, or one that failed where where it stands isn't known — is taken off there first, from the lists holding it; one only
-            // marked here, or that no list holds, simply goes.
-            if ($record->network_state !== TrafficBlockNetworkState::ByHand && ($listings->isEmpty() || $listings->contains('listed', true) || $record->network_state === TrafficBlockNetworkState::Pending)) {
+            // there now, or one that failed where where it stands isn't known, or only because the network was slow, down or busy — is taken
+            // off there first, from the lists that may hold it; one only marked here, or that no list holds, simply goes.
+            if ($record->network_state !== TrafficBlockNetworkState::ByHand && ($listings->isEmpty() || $listings->contains(fn (TrafficBlockListing $listing): bool => $listing->mayBeListed()) || $record->network_state === TrafficBlockNetworkState::Pending)) {
                 $record->forceFill(['network_state' => TrafficBlockNetworkState::Removing, 'network_error' => null])->save();
             } else {
                 $record->delete();
@@ -212,6 +215,22 @@ final class BlockTrafficRefsAction
                 'occurred_at' => now(),
             ]);
         });
+    }
+
+    /**
+     * A block sent again by an administrator goes to every campaign it is
+     * for: the marks the sync left on it for the campaigns it was missing
+     * from (TrafficBlockListing::PENDING) — kept by an unblock before they
+     * went — go, or it would go to those alone. Only an unblock leaves a
+     * block not waiting with marks, so the sync's own are never touched.
+     *
+     * @param  list<int>  $blockIds
+     */
+    private function forgetMarks(array $blockIds): void
+    {
+        if ($blockIds !== []) {
+            TrafficBlockListing::query()->whereIn('block_id', $blockIds)->where('error', TrafficBlockListing::PENDING)->delete();
+        }
     }
 
     /** @param  list<string>  $refs */

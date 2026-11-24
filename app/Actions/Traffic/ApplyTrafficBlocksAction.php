@@ -38,7 +38,10 @@ use Illuminate\Support\Facades\DB;
  * TrafficConnectorFailure, or `no_campaign`); one unblocked goes once no
  * list holds it, and stays with the reason where one still does — one found
  * in the network's panel stays blocked there (BlockStanding). A call
- * that failed changed nothing: a list that held a site holds it still. One
+ * the network refused changed nothing: a list that held a site holds it
+ * still. One that failed only because the network was slow, down or busy
+ * may have landed all the same, so an unblock takes the site off that list
+ * too (TrafficBlockListing::mayBeListed()). One
  * line of the log per batch, with the HTTP code and how many campaigns took
  * it all, saying whether it went all the way or part of it. Safe to repeat:
  * each change reads the list first, and never touches a site or zone it
@@ -103,11 +106,12 @@ final class ApplyTrafficBlocksAction
         // and keeps where it stands on the others; any other, to every running campaign it is for.
         $marked = $pending->mapWithKeys(fn (TrafficBlock $block): array => [(int) $block->id => $block->listings->where('error', TrafficBlockListing::PENDING)->pluck('campaign_id')->map(fn (mixed $id): int => (int) $id)->values()->all()])->all();
         $to = $pending->mapWithKeys(fn (TrafficBlock $block): array => [(int) $block->id => $marked[(int) $block->id] === [] ? $targets : array_values(array_intersect($targets, $marked[(int) $block->id]))])->all();
-        // A block being unblocked comes off the campaigns whose lists hold it; while where it stands isn't known, off every running one it is
-        // for — or the one it names, ended or not, as it was put there.
+        // A block being unblocked comes off the campaigns whose lists hold it, or may — an add that failed only because the network was slow,
+        // down or busy may have landed; while where it stands isn't known, off every running one it is for — or the one it names, ended or
+        // not, as it was put there.
         $from = $removing->mapWithKeys(fn (TrafficBlock $block): array => [(int) $block->id => array_values(array_filter(
             match (true) {
-                $block->listings->isNotEmpty() => $block->listings->where('listed', true)->pluck('campaign_id')->map(fn (mixed $id): int => (int) $id)->all(),
+                $block->listings->isNotEmpty() => $block->listings->filter(fn (TrafficBlockListing $listing): bool => $listing->mayBeListed())->pluck('campaign_id')->map(fn (mixed $id): int => (int) $id)->all(),
                 $block->campaign_id !== null => [(int) $block->campaign_id],
                 default => $targets,
             },
@@ -163,7 +167,7 @@ final class ApplyTrafficBlocksAction
         $done = count(array_filter($results, fn (BlockDeltaResult|ConnectorException $result): bool => $result instanceof BlockDeltaResult && $result->applied));
 
         // Where the blocks stand, their new states and the batch's line of the log, together: a log line that can't be written leaves the blocks waiting, to be sent again.
-        DB::transaction(function () use ($connection, $group, $first, $pending, $removing, $targets, $marked, $to, $listings, $status, $done, $calls): void {
+        DB::transaction(function () use ($connection, $group, $first, $pending, $removing, $targets, $marked, $to, $from, $listings, $status, $done, $calls): void {
             // The source, then its blocks, in the order every writer of blocks locks them (LocksTrafficRecords): an unblock, a push or a read
             // of the lists waits for this batch, or this batch for it, and none of them can delete a block under the listings written here.
             $this->lockSource((int) $connection->source_id);
@@ -207,7 +211,8 @@ final class ApplyTrafficBlocksAction
 
             foreach ($removing as $block) {
                 $held = $standing->get($block->id, collect())->where('listed', true);
-                $off = $standing->get($block->id, collect())->where('listed', false)->whereIn('campaign_id', $calls)->isNotEmpty();
+                // Judged by the campaigns it was taken off, not those the batch called for another block.
+                $off = $standing->get($block->id, collect())->where('listed', false)->whereIn('campaign_id', $from[(int) $block->id])->isNotEmpty();
                 $outcomes[] = match (true) {
                     $held->isEmpty() => 'taken off',
                     $off => 'still on some lists',

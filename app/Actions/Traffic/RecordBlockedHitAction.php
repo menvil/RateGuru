@@ -13,7 +13,8 @@ use App\Models\TrafficVisit;
  * a campaign whose list holds the block as far as RateGuru knows: the
  * network is still sending it. A campaign that refused the block, or had it
  * taken off in the network's panel, sends it as it should, and so does one
- * whose list was never seen holding a block found in the panel. The visit is
+ * whose list was never seen holding a block found in the panel — or a click
+ * whose campaign RateGuru can't name, against such a block. The visit is
  * marked, every block it matches counts it — its site's and its zone's both,
  * in the database itself, so clicks counted at once never overwrite each
  * other; an applied block with a growing count is worth pushing again — and
@@ -38,11 +39,12 @@ final class RecordBlockedHitAction
                 ->when($visit->site_ref !== null, fn ($site) => $site->orWhere(fn ($query) => $query->where('level', TrafficBlockLevel::Site)->where('ref', $visit->site_ref))))
             ->where(fn ($campaign) => $campaign->whereNull('campaign_id')->orWhere('campaign_id', $visit->campaign_id))
             // A campaign whose list is known not to hold the block sends its clicks as it should; one found in the network's panel is only on
-            // the lists known to hold it.
+            // the lists known to hold it — never that of a click whose campaign RateGuru can't name, which no list was seen holding it for.
             ->when($visit->campaign_id !== null, fn ($query) => $query
                 ->whereDoesntHave('listings', fn ($listing) => $listing->where('campaign_id', $visit->campaign_id)->where('listed', false))
                 ->where(fn ($panel) => $panel->where('method', '!=', TrafficBlockMethod::Panel)
                     ->orWhereHas('listings', fn ($listing) => $listing->where('campaign_id', $visit->campaign_id)->where('listed', true))))
+            ->when($visit->campaign_id === null, fn ($query) => $query->where('method', '!=', TrafficBlockMethod::Panel))
             ->increment('clicks_after', 1, ['last_click_after_at' => $visit->arrived_at]);
 
         if ($hits > 0) {

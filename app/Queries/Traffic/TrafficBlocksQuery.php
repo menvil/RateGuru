@@ -34,9 +34,6 @@ use Illuminate\Support\Collection;
  */
 final class TrafficBlocksQuery
 {
-    /** @var list<TrafficConnectorFailure> the failures a network passes through — slow, down, busy — rather than a refusal */
-    private const array TRANSIENT = [TrafficConnectorFailure::Timeout, TrafficConnectorFailure::Unavailable, TrafficConnectorFailure::RateLimited];
-
     /** Losing is judged only once the worth stands on this many accounts. */
     public const int WORTH_KNOWN_AT = 30;
 
@@ -147,9 +144,9 @@ final class TrafficBlocksQuery
      * whose listings aren't known yet waits for the read of the lists to
      * know them, but for one sent while the source had no campaign. A
      * campaign that didn't take it only because the network was slow,
-     * down or busy (TRANSIENT) is sent it again once its list was read
-     * since — once a read of the lists, never in a loop. One query, in the
-     * order the blocks and campaigns came.
+     * down or busy (TrafficConnectorFailure::passes()) is sent it again
+     * once its list was read since — once a read of the lists, never in a
+     * loop. One query, in the order the blocks and campaigns came.
      *
      * @param  list<TrafficBlockLevel>  $levels  the levels the source's API blocks
      * @param  CarbonInterface|null  $readAt  when the source's lists were last read: a passing failure noted before it is tried again
@@ -160,6 +157,8 @@ final class TrafficBlocksQuery
         if ($levels === []) {
             return [];
         }
+
+        $passes = array_values(array_map(fn (TrafficConnectorFailure $failure): string => $failure->value, array_filter(TrafficConnectorFailure::cases(), fn (TrafficConnectorFailure $failure): bool => $failure->passes())));
 
         return TrafficBlock::query()
             ->join('traffic_campaigns as targets', fn (JoinClause $join): JoinClause => $join
@@ -177,7 +176,7 @@ final class TrafficBlocksQuery
                 ->orWhere(fn (Builder $nothing): Builder => $nothing->where('standing.listed', false)->whereNull('standing.error'))
                 ->when($readAt !== null, fn (Builder $passing): Builder => $passing->orWhere(fn (Builder $again): Builder => $again
                     ->where('standing.listed', false)
-                    ->whereIn('standing.error', array_map(fn (TrafficConnectorFailure $failure): string => $failure->value, self::TRANSIENT))
+                    ->whereIn('standing.error', $passes)
                     ->where('standing.checked_at', '<', $readAt))))
             ->where(fn (Builder $known): Builder => $known->whereHas('listings')->orWhere('traffic_blocks.network_error', BlockStanding::NO_CAMPAIGN))
             ->whereDoesntHave('listings', fn (Builder $stuck): Builder => $stuck->where('listed', true)->whereNotNull('error'))

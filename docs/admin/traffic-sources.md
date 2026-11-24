@@ -77,8 +77,10 @@ You block by hand in Report → Sites & zones: tick sites or zones, then
 API connected the block is queued and reaches the network within a minute;
 without it the block is only marked here, and the IDs go into the network's
 blacklist by hand. **Unblock** works the same way: a block marked here goes at
-once; one on the network's list shows **Unblocking…** until the network has
-taken it off, within a minute — off every campaign whose list holds it. Should
+once; one on the network's list — or that may be, its block having failed
+only because the network was slow or down — shows **Unblocking…** until the
+network has taken it off, within a minute — off every campaign whose list
+holds it. One every campaign refused goes at once. Should
 the network refuse, the site stays blocked and its badge says **Blocked ·
 unblock failed** (or **Partly blocked · unblock failed** when some campaigns
 took it off) with the network's reason — Unblock again to try again. Taking a

@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\TrafficConnectorFailure;
 use Carbon\CarbonImmutable;
 use Database\Factories\TrafficBlockListingFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -55,6 +56,18 @@ class TrafficBlockListing extends Model
             'listed' => 'boolean',
             'checked_at' => 'immutable_datetime',
         ];
+    }
+
+    /**
+     * On the campaign's list, as far as RateGuru can tell: on it, or not
+     * known to be on it only because the call putting it there failed while
+     * the network was slow, down or busy — a write that may have landed all
+     * the same. An unblock takes it off such a list too; a refusal never put
+     * it there.
+     */
+    public function mayBeListed(): bool
+    {
+        return $this->listed || TrafficConnectorFailure::tryFrom((string) $this->error)?->passes() === true;
     }
 
     /** @return BelongsTo<TrafficBlock, $this> */

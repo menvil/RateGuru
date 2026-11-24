@@ -18,12 +18,15 @@ interface ReadsBlockLists
     /**
      * Each campaign's block list at a level, by the campaign's ID. A campaign
      * whose list can't be read for what it is — the network doesn't know it,
-     * or it lists what to allow, not what to block — is left out.
+     * or it lists what to allow, not what to block — is left out. So is one
+     * whose list couldn't be read, the first such failure given back with the
+     * lists read: one campaign's answer never costs the others theirs, and
+     * the network slow, down or busy leaves the rest for the next read. A key
+     * the network refused is thrown.
      *
      * @param  list<string>  $campaignIds
-     * @return array<string, list<string>>
      *
      * @throws ConnectorException
      */
-    public function blockLists(ConnectorSession $session, array $campaignIds, TrafficBlockLevel $level): array;
+    public function blockLists(ConnectorSession $session, array $campaignIds, TrafficBlockLevel $level): BlockListsRead;
 }

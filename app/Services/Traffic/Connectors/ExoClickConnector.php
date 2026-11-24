@@ -133,13 +133,14 @@ final class ExoClickConnector implements EditsBlockLists, ReadsCampaigns, ReadsS
         return [TrafficBlockLevel::Zone];
     }
 
-    public function blockLists(ConnectorSession $session, array $campaignIds, TrafficBlockLevel $level): array
+    public function blockLists(ConnectorSession $session, array $campaignIds, TrafficBlockLevel $level): BlockListsRead
     {
         if ($level !== TrafficBlockLevel::Zone) {
             throw new ConnectorException(TrafficConnectorFailure::Unsupported);
         }
 
         $lists = [];
+        $failure = null;
 
         foreach ($campaignIds as $id) {
             // A campaign ExoClick doesn't know, or one listing zones to allow, has no list of zones to block.
@@ -150,12 +151,20 @@ final class ExoClickConnector implements EditsBlockLists, ReadsCampaigns, ReadsS
                     continue;
                 }
 
-                // The sync says whose list it couldn't read.
-                throw $exception->forCampaign($id);
+                if ($exception->failure->needsAttention()) {
+                    throw $exception->forCampaign($id);
+                }
+
+                // The sync says whose list it couldn't read; the other campaigns' are read all the same, unless ExoClick is down, slow or busy.
+                $failure ??= $exception->forCampaign($id);
+
+                if ($exception->failure->passes()) {
+                    break;
+                }
             }
         }
 
-        return $lists;
+        return new BlockListsRead($lists, $failure);
     }
 
     public function applyBlockDelta(ConnectorSession $session, string $campaignId, TrafficBlockLevel $level, array $add, array $remove): BlockDeltaResult

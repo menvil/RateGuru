@@ -42,7 +42,9 @@ use Illuminate\Support\Str;
  * what was taken off every list it was on — a block found in the panel
  * gone, or RateGuru's own taken off — which the block rule then leaves to
  * the owner for 30 days, as it does a site an administrator unblocked, and
- * what was taken off some lists only. It is given the connector as a
+ * what was taken off some lists only. A list that couldn't be read is left
+ * out — the lists read are recorded all the same — and the first such
+ * failure is thrown once they are. It is given the connector as a
  * ReadsBlockLists alone, so it can't write a list.
  */
 final class ReadTrafficBlockListsAction
@@ -50,7 +52,9 @@ final class ReadTrafficBlockListsAction
     /** The sites or zones a line of the blocks log names, every one of them. */
     private const int REFS_A_LINE = 200;
 
-    /** @throws ConnectorException */
+    /**
+     * @throws ConnectorException why the first list that couldn't be read wasn't, once every list read is recorded
+     */
     public function handle(int $sourceId, ReadsBlockLists $connector, ConnectorSession $session): void
     {
         // RateGuru's campaign by its ID with the network.
@@ -61,11 +65,14 @@ final class ReadTrafficBlockListsAction
             return;
         }
 
+        $failure = null;
+
         foreach ($connector->blockLevels() as $level) {
-            $lists = $connector->blockLists($session, array_map('strval', array_keys($campaigns)), $level);
+            $result = $connector->blockLists($session, array_map('strval', array_keys($campaigns)), $level);
+            $failure ??= $result->failure;
             $read = [];
 
-            foreach ($lists as $externalId => $refs) {
+            foreach ($result->lists as $externalId => $refs) {
                 if (isset($campaigns[(string) $externalId])) {
                     $read[$campaigns[(string) $externalId]] = array_fill_keys(array_map(fn (string $ref): string => mb_substr(trim($ref), 0, 120), $refs), true);
                 }
@@ -74,6 +81,11 @@ final class ReadTrafficBlockListsAction
             if ($read !== []) {
                 $this->record($sourceId, $level, $read);
             }
+        }
+
+        // A list that couldn't be read changed nothing, and cost the others nothing: the sync is told whose it was.
+        if ($failure !== null) {
+            throw $failure;
         }
     }
 

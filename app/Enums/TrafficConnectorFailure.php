@@ -36,6 +36,15 @@ enum TrafficConnectorFailure: string
         };
     }
 
+    /**
+     * Whether the network only passed through it — slow, down or busy — rather than refusing: a call that failed so may have
+     * done what it asked all the same, and another call now would most likely fail the same way.
+     */
+    public function passes(): bool
+    {
+        return in_array($this, [self::Timeout, self::Unavailable, self::RateLimited], true);
+    }
+
     /** Whether the connection needs the administrator before anything else is tried. */
     public function needsAttention(): bool
     {
