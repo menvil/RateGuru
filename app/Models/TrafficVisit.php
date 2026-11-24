@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Enums\AccountSignupMethod;
 use App\Enums\AccountSignupPlace;
+use App\Enums\AuthTrigger;
 use App\Enums\TrafficChannel;
 use App\Enums\TrafficDevice;
 use App\Enums\TrafficEvent;
@@ -79,6 +80,14 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
  * @property CarbonImmutable|null $returned_at
  * @property CarbonImmutable|null $settled_at
  * @property CarbonImmutable|null $activated_at
+ * @property CarbonImmutable|null $auth_opened_at
+ * @property AuthTrigger|null $auth_trigger what opened the sign-in dialog first on the visit
+ * @property CarbonImmutable|null $register_form_at
+ * @property CarbonImmutable|null $social_started_at
+ * @property string|null $social_provider the provider the visit went on to first: google or facebook
+ * @property CarbonImmutable|null $signup_submitted_at
+ * @property CarbonImmutable|null $signup_refused_at
+ * @property int $signup_refusals every reason a sign-up was refused on the visit, a SignupRefusal bit each
  * @property CarbonImmutable|null $late_signup_at
  * @property AccountSignupPlace|null $signup_place
  * @property AccountSignupMethod|null $signup_method
@@ -164,6 +173,13 @@ class TrafficVisit extends Model
             'returned_at' => 'immutable_datetime',
             'settled_at' => 'immutable_datetime',
             'activated_at' => 'immutable_datetime',
+            'auth_opened_at' => 'immutable_datetime',
+            'auth_trigger' => AuthTrigger::class,
+            'register_form_at' => 'immutable_datetime',
+            'social_started_at' => 'immutable_datetime',
+            'signup_submitted_at' => 'immutable_datetime',
+            'signup_refused_at' => 'immutable_datetime',
+            'signup_refusals' => 'integer',
             'late_signup_at' => 'immutable_datetime',
             'signup_place' => AccountSignupPlace::class,
             'signup_method' => AccountSignupMethod::class,

@@ -162,6 +162,30 @@ found as for a post opened (`traffic_visits.votes`, `comments`,
 `posts_created`), the first of them keeps its moment there (`acted_at`), and a
 vote or a comment marks that visit's row of the post.
 
+### Registration steps
+
+Between the sign-in dialog and an account a visit records the steps the
+registration funnel counts, each once, from the deploy that added them on —
+nothing is filled in for the visits before:
+
+- `auth_opened_at` and `auth_trigger` — the sign-in dialog opened, or a page or
+  a game showed a sign-in or sign-up form of its own, and what opened it first
+  (`AuthTrigger`: the header's sign-up or log-in, an upload, a vote, a rating or
+  a comment vote by a guest, a game, a game's own form, the standalone pages);
+- `register_form_at` — the registration form shown;
+- `social_started_at` and `social_provider` — Continue with Google or Facebook
+  pressed, a sign-up or a sign-in alike: only the provider's answer tells which;
+- `signup_submitted_at` — the email sign-up form sent, whatever came of it;
+- `signup_refused_at` and `signup_refusals` — a sign-up refused, and every
+  reason the visit met as a bit of `SignupRefusal`: an address already taken,
+  any other mistake in the form, the challenge failed, stopped as a likely bot,
+  a limit reached, something else. Only a real refusal counts: report mode
+  refuses nothing. Never a value the form held.
+
+They are counted only: no step of worth (`TrafficStep::ofEvent()`), no
+conversion and no postback, and they never revalue a visit or keep a paid
+click from settling.
+
 ## Presets
 
 `config/traffic_presets.php` holds eight networks and "Other ad network" as data:

@@ -7,7 +7,9 @@ namespace App\Enums;
  * in its own column (`traffic_visits.{event}_at`). Twelve of them, the
  * confirmed account and the visit settling can be reported to the network
  * that sent the visitor; the rest are counted only — an account activated
- * among them, which never makes a conversion.
+ * among them, which never makes a conversion, and the registration steps
+ * between the sign-in dialog and an account (RecordRegistrationStepAction),
+ * which are no step of worth either.
  */
 enum TrafficEvent: string
 {
@@ -34,6 +36,11 @@ enum TrafficEvent: string
     case Returned = 'returned';
     case Settled = 'settled';
     case Activated = 'activated';
+    case AuthOpened = 'auth_opened';
+    case RegisterForm = 'register_form';
+    case SocialStarted = 'social_started';
+    case SignupSubmitted = 'signup_submitted';
+    case SignupRefused = 'signup_refused';
 
     public function column(): string
     {
@@ -94,6 +101,11 @@ enum TrafficEvent: string
             self::Returned => 'Came back',
             self::Settled => 'Visit settled',
             self::Activated => 'Account activated',
+            self::AuthOpened => 'Opened sign-in or sign-up',
+            self::RegisterForm => 'Saw the registration form',
+            self::SocialStarted => 'Went on to Google or Facebook',
+            self::SignupSubmitted => 'Sent the sign-up form',
+            self::SignupRefused => 'Sign-up refused',
         };
     }
 
@@ -123,6 +135,11 @@ enum TrafficEvent: string
             self::Returned => 'Back on another day within 7 days of signing up',
             self::Settled => 'Came to rest — its account confirmed, 30 minutes without a new step, or a day after the click — with the best worth it reached',
             self::Activated => 'The confirmed account came back on one of the 7 days after signing up and voted, commented, posted or started a game',
+            self::AuthOpened => 'The sign-in dialog opened, or a page or a game showed a sign-in or sign-up form — the first opener kept',
+            self::RegisterForm => 'The registration form shown: the dialog in its sign-up state, the sign-up page or a game’s form',
+            self::SocialStarted => 'Pressed Continue with Google or Facebook: a sign-up or a sign-in, the provider tells which',
+            self::SignupSubmitted => 'Sent the email sign-up form, whatever came of it',
+            self::SignupRefused => 'A sign-up form sent and refused — every reason kept, never what was typed',
         };
     }
 }
