@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Auth;
 
 use App\Actions\Auth\CompletePendingSocialLinkAction;
 use App\Actions\Auth\ResolveSocialLoginAction;
+use App\Actions\Traffic\RecordRegistrationStepAction;
 use App\Enums\SocialCallbackIntent;
 use App\Enums\SocialLoginOutcome;
 use App\Enums\SocialProvider;
@@ -15,11 +16,14 @@ use App\Models\User;
 use App\Support\Auth\AuthSurfaceContext;
 use App\Support\Auth\SocialLinkContext;
 use App\Support\Auth\SocialProviderGateway;
+use App\Support\Games\Play\GameVisitorResolver;
 use App\Support\Profile\ConnectedAccountsResponse;
 use App\Support\Traffic\Attribution\SignupOrigin;
+use Carbon\CarbonImmutable;
 use Illuminate\Contracts\Session\Session;
 use Illuminate\Http\RedirectResponse;
 use Symfony\Component\HttpFoundation\RedirectResponse as ProviderRedirect;
+use Throwable;
 
 class SocialAuthController extends Controller
 {
@@ -28,12 +32,16 @@ class SocialAuthController extends Controller
      * the server-side session only — which surface they left from. This is
      * always a sign-in: a connection abandoned earlier in this session is
      * void from here on. A provider that is switched off never sees the
-     * person; they are back on their surface with a message instead.
+     * person; they are back on their surface with a message instead. Going
+     * on to the provider is a registration step of the browser's visit
+     * (RecordRegistrationStepAction), whose failure never stops the person.
      */
     public function redirect(
         SocialRedirectRequest $request,
         SocialProvider $provider,
         SocialProviderGateway $gateway,
+        RecordRegistrationStepAction $steps,
+        GameVisitorResolver $visitors,
     ): ProviderRedirect {
         $surface = AuthSurfaceContext::fromInput($request->validated());
         SocialLinkContext::forget($request->session());
@@ -45,6 +53,12 @@ class SocialAuthController extends Controller
         }
 
         $surface->remember($request->session());
+
+        try {
+            $steps->socialStarted($visitors->browserHash(), $provider->value, CarbonImmutable::now());
+        } catch (Throwable $exception) {
+            report($exception);
+        }
 
         return $response;
     }
