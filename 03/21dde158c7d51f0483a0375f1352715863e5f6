@@ -1,0 +1,80 @@
+app/Enums/TrafficConnectorFailure.php
+  s_4b9dc6ab6b25d3::t_816a29f43e386f 26-30
+app/Support/Traffic/Links/LinkInspector.php
+  s_4b9dc6ab6b25d3::t_816a29f43e386f 40,56
+config/traffic_presets.php
+  s_4b9dc6ab6b25d3::t_816a29f43e386f 288,295
+resources/views/filament/pages/analytics/overview.blade.php
+  s_4b9dc6ab6b25d3::t_816a29f43e386f 23,168
+resources/views/filament/pages/analytics/retention.blade.php
+  s_4b9dc6ab6b25d3::t_816a29f43e386f 37
+app/Enums/TrafficActor.php
+  s_4b9dc6ab6b25d3::t_816a29f43e386f 22
+resources/views/filament/pages/analytics/engagement.blade.php
+  s_4b9dc6ab6b25d3::t_816a29f43e386f 34
+resources/views/filament/pages/traffic-sources/spend.blade.php
+  s_4b9dc6ab6b25d3::t_816a29f43e386f 17,33
+tests/Feature/SiteNameTest.php
+  s_4b9dc6ab6b25d3::t_816a29f43e386f 1-68
+resources/views/filament/pages/traffic-sources/source-editor.blade.php
+  s_4b9dc6ab6b25d3::t_816a29f43e386f 117,125,333
+app/Support/Analytics/JourneyTimeline.php
+  s_4b9dc6ab6b25d3::t_816a29f43e386f 725
+tests/Unit/Support/Traffic/PresetsAndLinksTest.php
+  s_4b9dc6ab6b25d3::t_816a29f43e386f 39,165,167
+tests/Feature/Traffic/TrafficReportPageTest.php
+  s_4b9dc6ab6b25d3::t_816a29f43e386f 1205-1206
+app/Filament/Pages/Analytics/CampaignsTab.php
+  s_4b9dc6ab6b25d3::t_816a29f43e386f 908-911
+resources/views/filament/pages/traffic-sources/sites.blade.php
+  ai_agent 16
+resources/views/filament/pages/traffic-sources/logs.blade.php
+  s_4b9dc6ab6b25d3::t_816a29f43e386f 141
+app/Support/Traffic/Postbacks/PostbackTemplate.php
+  s_4b9dc6ab6b25d3::t_816a29f43e386f 70
+app/Filament/Pages/Analytics/TrackingLinksTab.php
+  s_4b9dc6ab6b25d3::t_816a29f43e386f 159
+app/Filament/Resources/Games/Analytics/GameAnalyticsView.php
+  s_4b9dc6ab6b25d3::t_816a29f43e386f 305,357
+resources/views/filament/pages/analytics.blade.php
+  s_4b9dc6ab6b25d3::t_816a29f43e386f 18,37,73
+app/Actions/Traffic/ReadTrafficBlockListsAction.php
+  s_4b9dc6ab6b25d3::t_58fbcfe6ff3f35 138
+resources/views/filament/pages/traffic-sources/report.blade.php
+  s_4b9dc6ab6b25d3::t_816a29f43e386f 177
+app/Support/helpers.php
+  s_4b9dc6ab6b25d3::t_816a29f43e386f 4,13-18
+resources/views/filament/pages/traffic-sources/campaign-editor.blade.php
+  s_4b9dc6ab6b25d3::t_816a29f43e386f 157
+resources/views/filament/pages/traffic-sources/campaigns.blade.php
+  s_4b9dc6ab6b25d3::t_816a29f43e386f 82
+tests/Feature/Architecture/SiteNameInTextTest.php
+  s_4b9dc6ab6b25d3::t_816a29f43e386f 1-68
+app/Providers/MailLocalizationServiceProvider.php
+  s_4b9dc6ab6b25d3::t_816a29f43e386f 11,13,15,41-54
+app/Actions/Traffic/ConnectTrafficApiAction.php
+  s_4b9dc6ab6b25d3::t_816a29f43e386f 40
+resources/views/filament/pages/traffic-sources/sources.blade.php
+  s_4b9dc6ab6b25d3::t_816a29f43e386f 24,58,83,94,96
+app/Filament/Pages/TrafficSources/TrafficSourcesView.php
+  s_4b9dc6ab6b25d3::t_58fbcfe6ff3f35 934,942,944,950,2127
+  s_4b9dc6ab6b25d3::t_816a29f43e386f 420-421,585,1674,1833,1975-1979,2090,2186-2187
+resources/views/filament/pages/traffic-sources/value.blade.php
+  s_4b9dc6ab6b25d3::t_816a29f43e386f 72,130,135
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "0321dde158c7d51f0483a0375f1352715863e5f6",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
