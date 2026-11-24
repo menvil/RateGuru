@@ -124,9 +124,11 @@
                             <livewire:notifications.notification-bell />
 
                             {{-- Below the desktop width the drawer also holds it; from there on only here. The theme is in the account menu. --}}
-                            <div class="hidden lg:block" data-header-fit="3" data-header-fit-display="block" data-header-fit-always="(min-width: 1024px)">
-                                <x-locale-switcher />
-                            </div>
+                            @if (app(\App\Support\Locale\LocaleManager::class)->offersChoice())
+                                <div class="hidden lg:block" data-header-fit="3" data-header-fit-display="block" data-header-fit-always="(min-width: 1024px)">
+                                    <x-locale-switcher />
+                                </div>
+                            @endif
 
                             <div
                                 x-data="{ userMenuOpen: false }"
@@ -277,9 +279,11 @@
                             </a>
 
                             {{-- Below the desktop width the drawer also holds both; from there on only here. --}}
-                            <div class="hidden lg:block" data-header-fit="3" data-header-fit-display="block" data-header-fit-always="(min-width: 1024px)">
-                                <x-locale-switcher />
-                            </div>
+                            @if (app(\App\Support\Locale\LocaleManager::class)->offersChoice())
+                                <div class="hidden lg:block" data-header-fit="3" data-header-fit-display="block" data-header-fit-always="(min-width: 1024px)">
+                                    <x-locale-switcher />
+                                </div>
+                            @endif
 
                             <div class="hidden lg:block" data-testid="desktop-header-theme" data-header-fit="2" data-header-fit-display="block" data-header-fit-always="(min-width: 1024px)">
                                 <livewire:theme.theme-switcher />
@@ -368,7 +372,7 @@
                             <x-brand-wordmark />
                         </a>
                         <div class="flex shrink-0 items-center gap-2">
-                            <x-locale-switcher />
+                            <x-locale-switcher compact />
                             <button
                                 type="button"
                                 class="grid size-8 cursor-pointer place-items-center rounded-rgSm border border-rg-border2 bg-rg-card2 text-rg-text2 transition hover:text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent"

@@ -74,3 +74,24 @@ it('tells assistive technology whether the switcher is open, on its button, with
             ->and($trigger->hasAttribute('aria-haspopup'))->toBeFalse();
     }
 });
+
+it('offers no language to choose where the project offers only one, to a guest or a member, in the header, the side panel or the profile', function () {
+    offerLocales([]);
+
+    $this->get(route('feed'))->assertOk()->assertDontSee('data-testid="language-switcher"', false);
+
+    $this->actingAs(User::factory()->create());
+
+    $this->get(route('feed'))->assertOk()->assertDontSee('data-testid="language-switcher"', false);
+    $this->get(route('profile.edit'))->assertOk()->assertDontSee('data-testid="user-locale-settings"', false);
+});
+
+it('offers the choice again as soon as the project offers a second language', function () {
+    offerLocales(['ru']);
+
+    $this->get(route('feed'))->assertOk()->assertSee('data-testid="language-switcher"', false);
+
+    $this->actingAs(User::factory()->create());
+
+    $this->get(route('profile.edit'))->assertOk()->assertSee('data-testid="user-locale-settings"', false);
+});

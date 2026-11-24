@@ -26,6 +26,14 @@ beforeEach(function () {
     $this->actingAs($this->draft['admin']);
 });
 
+it('offers no language in a preview, whose place a reload would lose', function () {
+    offerLocales(['ru']);
+
+    Livewire::test(PreviewGame::class, ['game' => $this->draft['game']->id])
+        ->assertSeeHtml('data-testid="game-brand"')
+        ->assertDontSeeHtml('data-testid="language-switcher"');
+});
+
 it('previews a draft for an administrator only, whatever the games switch says', function () {
     $url = route('games.preview', ['game' => $this->draft['game']->id]);
 

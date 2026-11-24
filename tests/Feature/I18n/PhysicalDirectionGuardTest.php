@@ -78,11 +78,14 @@ const PHYSICAL_DIRECTION_ALLOWED_DECLARATIONS = [
 /**
  * Script that reads or sets a horizontal position, or hears the left and
  * right arrow keys, by file — each place says here how it takes the page's
- * direction into account. None today.
+ * direction into account.
  *
  * @var array<string, list<string>>
  */
-const PHYSICAL_DIRECTION_ALLOWED_SCRIPT = [];
+const PHYSICAL_DIRECTION_ALLOWED_SCRIPT = [
+    // How far the list reaches past the screen: from the trigger's right edge on a right-to-left page, its left edge otherwise.
+    'resources/views/components/locale-switcher.blade.php' => ['.left', '.right'],
+];
 
 /**
  * A Tailwind class split into its variants and the utility itself, on the
