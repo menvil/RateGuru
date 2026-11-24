@@ -36,7 +36,7 @@ it('names what is wrong with a broken preset', function () {
 
     expect(PresetSchema::violations($presets, TRAFFIC_RESERVED_PARAMS))->toBe([
         'preset exoclick: The address must name a host, such as postback.example.com, not an IP address.',
-        'preset exoclick: {tag} isn’t a placeholder RateGuru fills in.',
+        'preset exoclick: {tag} isn’t a placeholder the site fills in.',
         'preset exoclick: Put {click_id} in the address: without it the network can’t tell which click converted.',
         'preset popads: link_key must be 2–40 of a-z, 0-9, _ and -, and not a channel\'s name',
         'preset popads: attribution_days must be one of 1, 2, 3, 7 or 30',
@@ -162,9 +162,9 @@ describe('checking a link', function () {
 
         expect($none->mode)->toBe('none')
             ->and(array_column($none->warnings, 'text'))->toBe([
-                'The link opens elsewhere.test, not this site: no click on it reaches RateGuru.',
+                'The link opens elsewhere.test, not this site: no click on it reaches the site.',
                 'The link doesn’t open a game. Visits still count for the source, but no game gets them.',
-                'No rg_src in the link. RateGuru can’t tell it’s paid: visits will count as unpaid (another site or direct).',
+                'No rg_src in the link. The site can’t tell it’s paid: visits will count as unpaid (another site or direct).',
             ])
             ->and(array_column($unknown->warnings, 'text'))->toBe(['No game has the address “nope”.', 'No source has the key “exo”. Check the key under Sources, or add the source first.'])
             ->and(array_column($noClick->warnings, 'text'))->toContain('No click id (cid=[IMPRESSIONID]): postbacks can’t tell PopAds which click it was.')

@@ -156,7 +156,7 @@ final class TrackingLinksTab implements AnalyticsTab
                 ['label' => 'Registrations', 'value' => number_format($figures->accounts), 'note' => $rate($figures->accountRate($minimum), 'new visitors')],
                 ['label' => 'Activated', 'value' => number_format($figures->activated), 'note' => $rate($figures->activationRate($minimum), 'new visitors')],
             ],
-            'period' => $when.($filter->device === null ? '' : ' · '.$filter->device->label()).' · counted by RateGuru',
+            'period' => $when.($filter->device === null ? '' : ' · '.$filter->device->label()).' · counted by '.site_name(),
             'meta' => [
                 ['icon' => 'map-pin', 'label' => 'Destination', 'value' => self::destination($link, $pages)],
                 ['icon' => 'radio', 'label' => 'Source', 'value' => TrackingLinkUrl::sourceLabel($link->utm_source)],

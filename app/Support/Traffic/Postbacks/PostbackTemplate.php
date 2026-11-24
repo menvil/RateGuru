@@ -67,7 +67,7 @@ final class PostbackTemplate
 
         foreach (self::placeholders($template) as $placeholder) {
             if (! self::isKnown($placeholder)) {
-                $problems[] = "{{$placeholder}} isn’t a placeholder RateGuru fills in.";
+                $problems[] = "{{$placeholder}} isn’t a placeholder the site fills in.";
             }
         }
 

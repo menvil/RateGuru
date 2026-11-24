@@ -136,7 +136,7 @@
             </div>
         </div>
         <div class="rg-admin-traffic__pager">
-            <span class="rg-admin-traffic__note">{{ $log === 'postbacks' ? 'Every postback RateGuru sends, newest first, with the exact request and the network’s answer. Kept for 90 days. An account’s postback goes out when it is confirmed, for the latest paid click within the source’s window, wherever on the site the visitor signed up.' : 'Newest first, fifty to a page.' }}</span>
+            <span class="rg-admin-traffic__note">{{ $log === 'postbacks' ? 'Every postback '.site_name().' sends, newest first, with the exact request and the network’s answer. Kept for 90 days. An account’s postback goes out when it is confirmed, for the latest paid click within the source’s window, wherever on the site the visitor signed up.' : 'Newest first, fifty to a page.' }}</span>
             <span class="rg-admin-traffic__pager-buttons">
                 <x-admin.ui.icon-button icon="chevron-left" label="Newer" size="sm" :disabled="$pageNumber <= 1" wire:click="goToPage({{ $pageNumber - 1 }})" />
                 <x-admin.ui.icon-button icon="chevron-right" label="Older" size="sm" :disabled="! $logPage->hasMorePages()" wire:click="goToPage({{ $pageNumber + 1 }})" />

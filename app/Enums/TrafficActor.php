@@ -14,7 +14,7 @@ enum TrafficActor: string
     {
         return match ($this) {
             self::User => 'Administrator',
-            self::System => 'RateGuru',
+            self::System => site_name(),
             self::NetworkApi => 'Network API',
             self::BlockRule => 'Block rule',
         };

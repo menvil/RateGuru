@@ -14,7 +14,7 @@
 <section class="rg-admin-traffic__panel" data-testid="traffic-spend-methods">
     <header class="rg-admin-traffic__panel-head">
         <h2 class="rg-admin-traffic__panel-title">Where spend comes from</h2>
-        <p class="rg-admin-traffic__note">Every source names one way to know what its visits cost. Value is always RateGuru’s own count; spend is the only figure that comes from outside.</p>
+        <p class="rg-admin-traffic__note">Every source names one way to know what its visits cost. Value is always {{ site_name() }}’s own count; spend is the only figure that comes from outside.</p>
     </header>
     <div class="rg-admin-traffic__methods">
         @foreach ($methods as $method)
@@ -30,7 +30,7 @@
 <section class="rg-admin-traffic__panel" data-testid="traffic-spend-sources">
     <header class="rg-admin-traffic__panel-head">
         <h2 class="rg-admin-traffic__panel-title">Spend by source</h2>
-        <p class="rg-admin-traffic__note">Spend in reports for the period, how it was worked out, and what the network itself reports where RateGuru can ask it. Spend no visit took still counts, here and in the reports.</p>
+        <p class="rg-admin-traffic__note">Spend in reports for the period, how it was worked out, and what the network itself reports where {{ site_name() }} can ask it. Spend no visit took still counts, here and in the reports.</p>
     </header>
     @if ($spendRows === [])
         <x-admin.ui.empty-state icon="megaphone" title="No paid sources yet">Add a network or a banner under Sources; its spend shows here.</x-admin.ui.empty-state>

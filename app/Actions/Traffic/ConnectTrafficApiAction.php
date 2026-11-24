@@ -37,7 +37,7 @@ final class ConnectTrafficApiAction
     public function connect(User $admin, TrafficSource $source, array $secret): TrafficApiConnection
     {
         if ($source->connector === null) {
-            throw CannotManageTrafficException::because('This network has no API RateGuru can connect to yet.');
+            throw CannotManageTrafficException::because('This network has no API '.site_name().' can connect to yet.');
         }
 
         DB::transaction(fn () => $this->lockAdministrator($admin));
