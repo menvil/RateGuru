@@ -17500,6 +17500,15 @@
         color: var(--rg-admin-text-strong);
     }
 
+    /* An API key's field and its Connect button: the field takes the room, the button sits level with the box. */
+    .rg-admin-traffic__key-row > .rg-admin-field {
+        flex: 1 1 240px;
+    }
+
+    .rg-admin-traffic__key-row > .rg-admin-button {
+        margin-bottom: calc((var(--rg-admin-input-md) - var(--rg-admin-control-sm)) / 2);
+    }
+
     .rg-admin-traffic__preset-chips {
         display: grid;
         grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
