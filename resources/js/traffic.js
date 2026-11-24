@@ -39,11 +39,20 @@ function rgTrafficSend(signal, arrival, fields) {
     }
 }
 
+// The signals of a page go one after another, each once the one before has its answer, so the tracker reads them in
+// the order they happened: the first thing that opened the sign-in dialog stays the first, whatever the network does.
+var rgTrafficSignals = Promise.resolve();
+
 window.rgTrafficSignal = function (signal, fields) {
     var send = function () {
-        rgTrafficOpening.then(function () {
-            rgTrafficSend(signal, null, fields);
-        });
+        rgTrafficSignals = rgTrafficSignals
+            .then(function () {
+                return rgTrafficOpening;
+            })
+            .then(function () {
+                return rgTrafficSend(signal, null, fields);
+            })
+            .catch(function () {});
     };
 
     if (document.prerendering) {

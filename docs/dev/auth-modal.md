@@ -59,7 +59,10 @@ opener while it stays open — a switch between its states names none — and
 tells the tracker the state it shows and the opener each time it shows a form
 (`rgTrafficSignal('signup_form', { mode, trigger })`). The standalone pages
 name themselves (`data-rg-traffic-mode`, `data-rg-traffic-trigger="page"`).
-An opener the server doesn't know counts as `other`.
+An opener the server doesn't know counts as `other`. The tracker's signals of a
+page go one after another (`resources/js/traffic.js`), each once the one
+before has its answer, so the first opener of a visit is the first the person
+used, whatever order the network would deliver them in.
 
 The security log (`App\Support\Observability\GuestVoteAttemptLog`) is
 best-effort and normally limited: one visitor address writes at most 30
