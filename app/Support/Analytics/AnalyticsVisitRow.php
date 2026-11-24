@@ -27,7 +27,8 @@ final class AnalyticsVisitRow
         'post_published_at', 'returned_at', 'signup_after_seconds', 'account_after_seconds', 'votes', 'comments', 'posts_created',
         'spend', 'spend_estimated', 'value_real', 'value_expected', 'bot_flags', 'source_key', 'campaign_key', 'creative_key',
         'landing_key', 'device', 'country', 'city', 'game_id', 'version_id', 'utm_source', 'utm_medium', 'utm_campaign', 'utm_content',
-        'utm_term',
+        'utm_term', 'auth_opened_at', 'auth_trigger', 'register_form_at', 'social_started_at', 'signup_submitted_at', 'signup_refused_at',
+        'signup_refusals', 'landing_post_id',
     ];
 
     /** @var list<string> the columns of a row, in order */
@@ -39,6 +40,7 @@ final class AnalyticsVisitRow
         'country', 'city', 'game_id', 'version_id', 'utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term',
         'post_rows', 'post_views', 'post_viewed', 'post_voted', 'post_shares',
         'attempts', 'share_clicks', 'shared_results', 'session_post_id',
+        'auth_opened', 'auth_trigger', 'register_form', 'social_started', 'signup_submitted', 'signup_refused', 'signup_refusals', 'landing_post_id',
     ];
 
     /** @var list<string> what a visit did with posts, worked out from its rows of traffic_visit_posts (postFigures()) */
@@ -47,9 +49,15 @@ final class AnalyticsVisitRow
     /** @var list<string> what was played on a visit, worked out from the attempts started on it (attemptFigures()) */
     public const array ATTEMPT_FIGURES = ['attempts', 'share_clicks', 'shared_results'];
 
-    private const array FLAGS = ['opened', 'known', 'signed_in', 'started', 'completed', 'goal', 'signup_form', 'signed_up', 'account', 'activated', 'post_published', 'returned', 'spend_estimated', 'tagged', 'crawler', 'post_viewed', 'post_voted'];
+    private const array FLAGS = [
+        'opened', 'known', 'signed_in', 'started', 'completed', 'goal', 'signup_form', 'signed_up', 'account', 'activated', 'post_published', 'returned', 'spend_estimated', 'tagged', 'crawler', 'post_viewed', 'post_voted',
+        'auth_opened', 'register_form', 'social_started', 'signup_submitted', 'signup_refused',
+    ];
 
-    private const array NUMBERS = ['id', 'entry_visit_id', 'source_id', 'campaign_id', 'visitor_key', 'signup_after_seconds', 'account_after_seconds', 'votes', 'comments', 'posts_created', 'game_id', 'version_id', 'post_rows', 'post_views', 'post_shares', 'attempts', 'share_clicks', 'shared_results', 'session_post_id'];
+    private const array NUMBERS = [
+        'id', 'entry_visit_id', 'source_id', 'campaign_id', 'visitor_key', 'signup_after_seconds', 'account_after_seconds', 'votes', 'comments', 'posts_created', 'game_id', 'version_id', 'post_rows', 'post_views', 'post_shares', 'attempts', 'share_clicks', 'shared_results', 'session_post_id',
+        'signup_refusals', 'landing_post_id',
+    ];
 
     private const array MONEY = ['spend', 'value_real', 'value_expected'];
 
@@ -204,6 +212,15 @@ final class AnalyticsVisitRow
             'share_clicks' => $visit['share_clicks'] ?? 0,
             'shared_results' => $visit['shared_results'] ?? 0,
             'session_post_id' => $visit['session_post_id'] ?? null,
+            // The registration steps, and the post the session landed on (docs/architecture/traffic.md, "Registration steps").
+            'auth_opened' => $set('auth_opened_at'),
+            'auth_trigger' => $visit['auth_trigger'] ?? null,
+            'register_form' => $set('register_form_at'),
+            'social_started' => $set('social_started_at'),
+            'signup_submitted' => $set('signup_submitted_at'),
+            'signup_refused' => $set('signup_refused_at'),
+            'signup_refusals' => $visit['signup_refusals'] ?? 0,
+            'landing_post_id' => $visit['landing_post_id'] ?? null,
         ]);
     }
 

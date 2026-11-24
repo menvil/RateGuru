@@ -111,6 +111,15 @@ the visit (`traffic_visits.votes`, `comments`, `posts_created`, and the moment
 of the first in `acted_at`), which lives as long as the visit. Where a post is counted opened and how a share is counted is
 in docs/architecture/traffic.md, "Capture".
 
+A visit's registration steps (docs/architecture/traffic.md, "Registration
+steps") are kept on its row from the deploy that added them on: a flag each —
+`auth_opened`, `register_form`, `social_started`, `signup_submitted`,
+`signup_refused` — what opened the dialog (`auth_trigger`), every reason a
+sign-up was refused (`signup_refusals`, a `SignupRefusal` bit each) and the
+post the session landed on (`landing_post_id`). They are on the rows only,
+read by the registration funnel; no cell counts them, and the figures every
+tab shares (`VisitorFigures`) leave them out.
+
 ### Activity, activation and retention
 
 A member's day on the site is a row of `user_activity_days` (UTC day, a flag
