@@ -352,9 +352,9 @@ final class PopAdsConnector implements EditsBlockLists, ReadsCampaigns, ReadsImp
             }
         }
 
-        $listed = array_map('strval', (array) $listed);
+        $listed = $this->siteIds($listed);
 
-        return new BlockDeltaResult(array_diff($add, $listed) === [] && array_intersect($remove, $listed) === [], $response->status(), array_values($listed));
+        return new BlockDeltaResult(array_diff($add, $listed) === [] && array_intersect($remove, $listed) === [], $response->status(), $listed);
     }
 
     /**
@@ -386,11 +386,32 @@ final class PopAdsConnector implements EditsBlockLists, ReadsCampaigns, ReadsImp
             default => throw new ConnectorException(TrafficConnectorFailure::Unsupported),
         };
 
+        return [$path, $this->siteIds($items), $mode];
+    }
+
+    /**
+     * A list's site IDs, each a number or a string with something in it. A
+     * list missing, or holding anything else, is an answer this doesn't
+     * understand, never an empty entry: read as one, every site it held
+     * would look taken off, and written back, the list would hold a blank.
+     *
+     * @return list<string>
+     *
+     * @throws ConnectorException
+     */
+    private function siteIds(mixed $items): array
+    {
         if (! is_array($items)) {
             throw new ConnectorException(TrafficConnectorFailure::UnexpectedResponse);
         }
 
-        return [$path, array_values(array_map('strval', $items)), $mode];
+        foreach ($items as $item) {
+            if (! is_int($item) && ! (is_string($item) && trim($item) !== '')) {
+                throw new ConnectorException(TrafficConnectorFailure::UnexpectedResponse);
+            }
+        }
+
+        return array_values(array_map('strval', $items));
     }
 
     /**

@@ -1,5 +1,6 @@
 <?php
 
+use App\Actions\Traffic\ApplyTrafficBlocksAction;
 use App\Actions\Traffic\BlockTrafficRefsAction;
 use App\Actions\Traffic\ConnectTrafficApiAction;
 use App\Actions\Traffic\QueueMissingTrafficBlocksAction;
@@ -1165,6 +1166,72 @@ it('no longer holds a block to a campaign that ended without taking it', functio
         ->and($block->listings()->pluck('campaign_id')->all())->toBe([$running->id]);
 });
 
+it('keeps a block taken off a campaign in the panel off it once that campaign ends, and never sends it to another for that', function (bool $otherHeldIt) {
+    $connection = TrafficApiConnection::factory()->create(['source_id' => $this->popads->id, 'next_sync_at' => now(), 'backfill_cursor' => null]);
+    $running = TrafficCampaign::factory()->create(['source_id' => $this->popads->id, 'external_id' => '881204']);
+    $ended = TrafficCampaign::factory()->create(['source_id' => $this->popads->id, 'external_id' => '881205', 'status' => TrafficCampaignStatus::Archived]);
+    // Taken off the ended campaign's list in the panel; the running one holds it, or came after and was rightly never sent it.
+    $block = TrafficBlock::factory()->create(['source_id' => $this->popads->id, 'level' => TrafficBlockLevel::Site, 'ref' => '40123', 'method' => 'api', 'network_state' => $otherHeldIt ? TrafficBlockNetworkState::Partial : TrafficBlockNetworkState::TakenOff]);
+    TrafficBlockListing::factory()->create(['block_id' => $block->id, 'campaign_id' => $running->id, 'listed' => $otherHeldIt, 'error' => null]);
+    TrafficBlockListing::factory()->create(['block_id' => $block->id, 'campaign_id' => $ended->id, 'listed' => false, 'error' => TrafficBlockListing::TAKEN_OFF]);
+    $lists = ['881204' => $otherHeldIt ? ['40123'] : ['111'], '881205' => ['111']];
+    popAdsWithLists($lists);
+
+    app(SyncTrafficNetworkAction::class)->handle($connection, CarbonImmutable::now());
+    // Back from the archive with a click.
+    $ended->forceFill(['status' => TrafficCampaignStatus::Active])->save();
+    $this->travel(7)->hours();
+    app(SyncTrafficNetworkAction::class)->handle($connection->fresh(), CarbonImmutable::now());
+    $this->artisan('traffic:sync-networks')->assertSuccessful();
+
+    expect($lists)->toBe(['881204' => $otherHeldIt ? ['40123'] : ['111'], '881205' => ['111']])
+        ->and($block->listings()->where('campaign_id', $ended->id)->sole())->listed->toBeFalse()->error->toBe(TrafficBlockListing::TAKEN_OFF);
+})->with([
+    'another campaign holding it' => true,
+    'another campaign that came after' => false,
+]);
+
+it('keeps every site an administrator unblocked lately apart, however alike their IDs read as numbers', function () {
+    foreach (['1', '01'] as $ref) {
+        TrafficBlockEvent::query()->create(['source_id' => $this->popads->id, 'kind' => 'unblock', 'level' => TrafficBlockLevel::Site, 'ref' => $ref, 'ref_count' => 1, 'refs' => [$ref], 'method' => TrafficBlockMethod::Api, 'actor' => TrafficActor::User, 'actor_user_id' => $this->admin->id, 'ok' => true, 'occurred_at' => now()]);
+    }
+    TrafficBlockEvent::query()->create(['source_id' => $this->popads->id, 'kind' => 'unblock', 'level' => TrafficBlockLevel::Site, 'ref' => '1', 'ref_count' => 1, 'refs' => ['1'], 'method' => TrafficBlockMethod::Api, 'actor' => TrafficActor::User, 'actor_user_id' => $this->admin->id, 'ok' => true, 'occurred_at' => now()]);
+
+    expect(app(TrafficBlocksQuery::class)->unblockedLately((int) $this->popads->id, TrafficBlockLevel::Site, now()))->toEqualCanonicalizing(['1', '01']);
+});
+
+it('never takes a list read before a block went on it for one the block was taken off', function () {
+    $connection = TrafficApiConnection::factory()->create(['source_id' => $this->popads->id, 'next_sync_at' => now(), 'backfill_cursor' => null]);
+    TrafficCampaign::factory()->create(['source_id' => $this->popads->id, 'external_id' => '881204']);
+    TrafficCampaign::factory()->create(['source_id' => $this->popads->id, 'external_id' => '881205']);
+    app(BlockTrafficRefsAction::class)->block($this->admin, $this->popads, TrafficBlockLevel::Site, ['40123'], null, true);
+    $block = TrafficBlock::query()->sole();
+    $lists = ['881204' => [], '881205' => []];
+    $overlapping = true;
+    Http::fake(function (Request $request) use (&$lists, &$overlapping, $connection) {
+        if (! preg_match('#/api/campaign_website_targeting/(\w+)#', $request->url(), $match)) {
+            return Http::response(str_contains($request->url(), 'report_advertiser') ? ['rows' => []] : ['data' => []]);
+        }
+
+        if ($request->method() === 'POST') {
+            $lists[$match[1]] = str_contains($request->url(), 'mode=none') ? [] : array_values(array_filter(explode("\n", $request->body())));
+        } elseif ($match[1] === '881205' && $overlapping) {
+            // A second sync, its lock run out, sends the block while this one reads the lists: 881204's was read before it.
+            $overlapping = false;
+            $this->travel(1)->seconds();
+            app(ApplyTrafficBlocksAction::class)->handle($connection->fresh());
+        }
+
+        return Http::response($lists[$match[1]] === [] ? ['mode' => 'none', 'items' => []] : ['mode' => 'exclude', 'items' => $lists[$match[1]]]);
+    });
+
+    app(SyncTrafficNetworkAction::class)->handle($connection, CarbonImmutable::now());
+
+    expect($lists)->toBe(['881204' => ['40123'], '881205' => ['40123']])
+        ->and($block->fresh()->network_state)->toBe(TrafficBlockNetworkState::Applied)
+        ->and(TrafficBlockEvent::query()->where('kind', 'gone')->exists())->toBeFalse();
+});
+
 it('keeps what a block from before the lists were kept said when the lists are first read', function () {
     $connection = TrafficApiConnection::factory()->create(['source_id' => $this->popads->id, 'next_sync_at' => now(), 'backfill_cursor' => null]);
     TrafficCampaign::factory()->create(['source_id' => $this->popads->id, 'external_id' => '881204']);
@@ -1219,7 +1286,26 @@ it('keeps the sync going when the campaigns’ block lists can’t be read, but 
     'a list without its sites' => [fn () => Http::response(['mode' => 'exclude']), TrafficConnectionStatus::Connected, 0],
     'the API down' => [fn () => Http::response('Bad gateway', 502), TrafficConnectionStatus::Connected, 0],
     'a refused key' => [fn () => Http::response('Unauthorized', 401), TrafficConnectionStatus::NeedsAttention, 1],
+    'a list of what are no site IDs' => [fn () => Http::response(['mode' => 'exclude', 'items' => [['id' => 40123]]]), TrafficConnectionStatus::Connected, 0],
 ]);
+
+it('never reads a PopAds list with an empty entry as one its blocks were taken off', function () {
+    $connection = TrafficApiConnection::factory()->create(['source_id' => $this->popads->id, 'next_sync_at' => now(), 'backfill_cursor' => null]);
+    $campaign = TrafficCampaign::factory()->create(['source_id' => $this->popads->id, 'external_id' => '881204']);
+    $block = TrafficBlock::factory()->create(['source_id' => $this->popads->id, 'level' => TrafficBlockLevel::Site, 'ref' => '40123', 'method' => 'api', 'network_state' => TrafficBlockNetworkState::Applied]);
+    TrafficBlockListing::factory()->create(['block_id' => $block->id, 'campaign_id' => $campaign->id, 'listed' => true]);
+    Http::fake(fn (Request $request) => match (true) {
+        str_contains($request->url(), 'report_advertiser') => Http::response(['rows' => []]),
+        str_contains($request->url(), 'campaign_website_targeting') => Http::response(['mode' => 'exclude', 'items' => [null]]),
+        default => Http::response(['data' => []]),
+    });
+
+    app(SyncTrafficNetworkAction::class)->handle($connection, CarbonImmutable::now());
+
+    expect($block->fresh()->network_state)->toBe(TrafficBlockNetworkState::Applied)
+        ->and($block->listings()->sole())->listed->toBeTrue()->error->toBeNull()
+        ->and($connection->fresh())->block_lists_error->toBe('unexpected_response')->block_lists_error_campaign->toBe('881204')->failures->toBe(0);
+});
 
 it('says in the Blocking pane whose block list couldn’t be read, when and why, until a read goes through', function () {
     $connection = TrafficApiConnection::factory()->create(['source_id' => $this->popads->id, 'next_sync_at' => now(), 'backfill_cursor' => null]);

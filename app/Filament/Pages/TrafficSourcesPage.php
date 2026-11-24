@@ -436,19 +436,20 @@ final class TrafficSourcesPage extends Page
             $viaApi = app(BlockTrafficRefsAction::class)->canBlockViaApi($source, $level);
 
             try {
-                app(BlockTrafficRefsAction::class)->block($this->admin(), $source, $level, $refs, null, $viaApi);
+                // Those blocked already, and left as they are, aren't counted.
+                $changed = app(BlockTrafficRefsAction::class)->block($this->admin(), $source, $level, $refs, null, $viaApi);
             } catch (CannotManageTrafficException|RateLimitExceededException $exception) {
                 $this->stopPartWay($queued + $byHand, $exception);
 
                 return;
             }
 
-            $viaApi ? $queued += count($refs) : $byHand += count($refs);
+            $viaApi ? $queued += $changed : $byHand += $changed;
             $this->untick($source, $level, $refs);
         }
 
         $this->selected = [];
-        $this->toast(trim(($queued > 0 ? $queued.' queued for the network. ' : '').($byHand > 0 ? $byHand.' marked as blocked: add them to the network’s list — Copy IDs gives them to you.' : '')));
+        $this->toast(trim(($queued > 0 ? $queued.' queued for the network. ' : '').($byHand > 0 ? $byHand.' marked as blocked: add them to the network’s list — Copy IDs gives them to you.' : '')) ?: 'Nothing to block: those are blocked already.');
     }
 
     /** Unblocks the sites and zones ticked. */
@@ -457,19 +458,23 @@ final class TrafficSourcesPage extends Page
         $count = 0;
 
         foreach ($this->selectedRefs() as ['source' => $source, 'level' => $level, 'refs' => $refs]) {
+            $done = [];
+
             foreach (TrafficBlock::query()->where('source_id', $source->id)->where('level', $level)->whereIn('ref', $refs)->get() as $block) {
                 try {
                     app(BlockTrafficRefsAction::class)->unblock($this->admin(), $block);
                 } catch (CannotManageTrafficException|RateLimitExceededException $exception) {
+                    $this->untick($source, $level, $done);
                     $this->stopPartWay($count, $exception);
 
                     return;
                 }
 
                 $count++;
-                $this->untick($source, $level, [(string) $block->ref]);
+                $done[] = (string) $block->ref;
             }
 
+            // The batch's every ref is done: unblocked, or with no block to unblock.
             $this->untick($source, $level, $refs);
         }
 
@@ -501,8 +506,8 @@ final class TrafficSourcesPage extends Page
             $this->untick($source, $level, $refs);
         }
 
-        $this->selected = [];
-        $this->toast(trim(($count > 0 ? $count.' queued for the network again. ' : '').($skipped > 0 ? $skipped.' can’t go through their network’s API: add them to its list by hand.' : '')) ?: 'Nothing to send: those are on their way already.', $count === 0 && $skipped > 0 ? 'error' : 'success');
+        // Those whose network's API can't send them stay ticked, for Copy IDs.
+        $this->toast(trim(($count > 0 ? $count.' queued for the network again. ' : '').($skipped > 0 ? $skipped.' can’t go through their network’s API: add them to its list by hand — they are still ticked for Copy IDs.' : '')) ?: 'Nothing to send: those are on their way already.', $count === 0 && $skipped > 0 ? 'error' : 'success');
     }
 
     /**

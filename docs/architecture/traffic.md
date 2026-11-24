@@ -304,8 +304,10 @@ excludes nothing, whatever sites PopAds still keeps saved for it: a block
 added there is the only site the list then excludes — the saved ones are
 never excluded again — and taking one off writes nothing. An error PopAds explains in an
 `errors` list is a refusal (`Rejected`), whatever its status — never an API
-that is down. A list read without its sites, or a campaign listing what to
-allow rather than what to block (`Unsupported`), is never rewritten; reading
+that is down. A list read without its sites, or with an entry that is no
+site ID (`UnexpectedResponse`: never a blank read as every site taken off),
+or a campaign listing what to allow rather than what to block
+(`Unsupported`), is never rewritten; reading
 the lists alone leaves such a campaign out, as it does one the network
 doesn't know. A change is judged site by site, or zone by zone, from the
 list the campaign reads back ("Blocking").
@@ -530,7 +532,9 @@ listing says it doesn't hold the block is no blocked click
 Every six hours the sync reads each running campaign's block list at every
 level its API blocks (`ReadsBlockLists::blockLists()`, a second between
 PopAds campaigns) and records it in one transaction on the source locked,
-writing nothing to the network:
+writing nothing to the network. A listing written after the read began — a
+batch applied meanwhile by another sync, whose lock ran out — is newer than
+the lists read and is left to the next read:
 
 - a site or zone on a list that RateGuru has no block for was blocked in the
   network's own panel: it becomes a block of method `panel`, `applied`, with
@@ -549,7 +553,9 @@ writing nothing to the network:
   panel — marked `taken_off`, never put back, which would undo what an
   administrator did there. A campaign that ended without taking
   it is no longer one it is for: its listing goes, so a refusal there never
-  keeps a block `partial`. A block from before listings were kept starts from
+  keeps a block `partial` — but not one taken off there in the panel, the
+  owner's doing, kept so that neither that campaign, back from the archive,
+  nor another one for its going, is sent the block. A block from before listings were kept starts from
   what it said — an unblock that failed, on the lists holding it, a refusal
   on those that don't;
 - a block only marked here, or on its way to or off the lists, is left to its

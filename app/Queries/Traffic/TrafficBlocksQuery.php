@@ -126,7 +126,8 @@ final class TrafficBlocksQuery
             ->get(['ref', 'refs'])
             ->flatMap(fn (TrafficBlockEvent $event): array => $event->ref !== null ? [$event->ref] : ($event->refs ?? []))
             ->map(fn (mixed $ref): string => (string) $ref)
-            ->unique()
+            // Compared as they are written: "1" and "01" are two sites.
+            ->uniqueStrict()
             ->values()
             ->all();
     }

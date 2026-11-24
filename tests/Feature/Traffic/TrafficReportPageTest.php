@@ -339,6 +339,36 @@ it('keeps ticked only the sites a batch that failed, or never went, was for, say
         ->and(TrafficBlock::query()->where('ref', $left)->exists())->toBeFalse();
 });
 
+it('counts in its toast only the sites a Block changed, never those blocked already', function () {
+    $this->source->forceFill(['connector' => TrafficConnector::PopAds, 'block_level' => TrafficBlockLevel::Site])->save();
+    TrafficApiConnection::factory()->create(['source_id' => $this->source->id]);
+    siteClicks($this->source, '70001', 1, 1);
+    siteClicks($this->source, '70002', 1, 1);
+    TrafficBlock::factory()->create(['source_id' => $this->source->id, 'level' => TrafficBlockLevel::Site, 'ref' => '70001', 'method' => 'api', 'network_state' => TrafficBlockNetworkState::Applied]);
+
+    Livewire::withQueryParams(['view' => 'sites', 'list' => 'site'])->test(TrafficSourcesPage::class)->call('load')
+        ->set('selected', [$this->source->id.':site:70001', $this->source->id.':site:70002'])
+        ->call('blockSelected')
+        ->assertDispatched('rg-admin-toast', message: '1 queued for the network.');
+});
+
+it('keeps ticked, for Copy IDs, the blocks Push again can’t send because their source’s API is not connected', function () {
+    $this->source->forceFill(['connector' => TrafficConnector::PopAds, 'block_level' => TrafficBlockLevel::Site])->save();
+    TrafficApiConnection::factory()->create(['source_id' => $this->source->id]);
+    $offline = TrafficSource::factory()->create(['name' => 'PopAds second', 'connector' => TrafficConnector::PopAds, 'block_level' => TrafficBlockLevel::Site]);
+
+    foreach ([[$this->source, '70001'], [$offline, '70002']] as [$source, $site]) {
+        siteClicks($source, $site, 1, 1);
+        TrafficBlock::factory()->create(['source_id' => $source->id, 'level' => TrafficBlockLevel::Site, 'ref' => $site, 'method' => 'api', 'network_state' => TrafficBlockNetworkState::Failed, 'network_error' => 'rejected']);
+    }
+
+    Livewire::withQueryParams(['view' => 'sites', 'list' => 'site', 'seg' => 'blocked'])->test(TrafficSourcesPage::class)->call('load')
+        ->set('selected', [$this->source->id.':site:70001', $offline->id.':site:70002'])
+        ->call('pushSelected')
+        ->assertDispatched('rg-admin-toast', message: '1 queued for the network again. 1 can’t go through their network’s API: add them to its list by hand — they are still ticked for Copy IDs.')
+        ->assertSet('selected', [$offline->id.':site:70002']);
+});
+
 it('keeps every site Select all ticks, past two thousand, through a change of search, threshold or segment', function () {
     $this->source->forceFill(['connector' => TrafficConnector::PopAds, 'block_level' => TrafficBlockLevel::Site])->save();
     TrafficApiConnection::factory()->create(['source_id' => $this->source->id]);
@@ -350,14 +380,19 @@ it('keeps every site Select all ticks, past two thousand, through a change of se
         TrafficVisit::query()->insert($chunk->map(fn (TrafficVisit $visit): array => $visit->getAttributes())->values()->all());
     }
 
-    Livewire::withQueryParams(['view' => 'sites', 'list' => 'site'])->test(TrafficSourcesPage::class)->call('load')
+    // Searched down to one site: the other 2,000 ticked are out of view, and stay ticked.
+    $page = Livewire::withQueryParams(['view' => 'sites', 'list' => 'site'])->test(TrafficSourcesPage::class)->call('load')
         ->call('selectMatching')
         ->assertCount('selected', $many)
         ->set('minClicks', 1)
-        ->set('q', '9')
         ->set('segment', 'all')
-        ->assertCount('selected', $many)
-        ->call('blockSelected')
+        ->set('q', '90001')
+        ->assertCount('selected', $many);
+
+    expect(collect($page->viewData('list')['rows'])->pluck('ref')->all())->toBe(['90001'])
+        ->and($page->get('selected'))->toContain($this->source->id.':site:92001');
+
+    $page->call('blockSelected')
         ->assertSet('selected', [])
         ->assertDispatched('rg-admin-toast', message: $many.' queued for the network.');
 

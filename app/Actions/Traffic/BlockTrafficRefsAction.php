@@ -49,7 +49,7 @@ final class BlockTrafficRefsAction
 
     /**
      * @param  list<string>  $refs
-     * @return int how many were blocked
+     * @return int how many were blocked, or blocked again: one already blocked and left as it is isn't counted
      *
      * @throws CannotManageTrafficException
      */
@@ -126,7 +126,7 @@ final class BlockTrafficRefsAction
                 $this->logSentAgain($current, $level, $sent, $locked);
             }
 
-            return count($new);
+            return count($new) + $again->count();
         });
     }
 
