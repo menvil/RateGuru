@@ -64,7 +64,7 @@
                     target="_blank"
                     rel="nofollow noopener noreferrer"
                     data-testid="share-picture-open"
-                    class="ml-auto shrink-0 rounded-rgControl bg-rg-accent px-3 py-1.5 text-xs font-medium text-rg-onAccent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent"
+                    class="ms-auto shrink-0 rounded-rgControl bg-rg-accent px-3 py-1.5 text-xs font-medium text-rg-onAccent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent"
                 ></a>
             </div>
         </div>

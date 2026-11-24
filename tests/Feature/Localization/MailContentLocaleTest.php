@@ -1,6 +1,9 @@
 <?php
 
+use App\Enums\SocialProvider;
 use App\Models\User;
+use App\Notifications\SocialAccountConnectedNotification;
+use App\Notifications\SocialAccountDisconnectedNotification;
 use Illuminate\Auth\Notifications\ResetPassword;
 use Illuminate\Auth\Notifications\VerifyEmail;
 use Illuminate\Support\Facades\URL;
@@ -95,9 +98,34 @@ it('keeps the password reset link identical to the framework default', function 
 
 it('greets a user with no display name without an empty salutation', function () {
     app()->setLocale('en');
-    $user = User::factory()->unverified()->create(['name' => 'Reader', 'display_name' => null]);
+    $user = User::factory()->create(['name' => 'Reader', 'display_name' => null]);
 
-    expect(renderedMail(new VerifyEmail, $user)['body'])
+    expect(renderedMail(new ResetPassword('a-token'), $user)['body'])
         ->toContain('Reader')
         ->not->toContain('Hello, !');
+});
+
+it('never writes what an account calls itself to an address it has not confirmed', function (object $notification) {
+    app()->setLocale('en');
+    $user = User::factory()->unverified()->create([
+        'name' => '[Claim your prize](https://spam.example/name)',
+        'display_name' => 'Visit https://spam.example/display',
+    ]);
+
+    expect(renderedMail($notification, $user)['body'])
+        ->toContain(e(__('mail.fallback_greeting')))
+        ->not->toContain('spam.example')
+        ->not->toContain('Claim your prize');
+})->with([
+    'verification' => fn () => new VerifyEmail,
+    'password reset' => fn () => new ResetPassword('a-token'),
+    'provider connected' => fn () => new SocialAccountConnectedNotification(SocialProvider::Google, null),
+    'provider disconnected' => fn () => new SocialAccountDisconnectedNotification(SocialProvider::Google, null),
+]);
+
+it('greets a confirmed address by name', function () {
+    app()->setLocale('en');
+    $user = User::factory()->create(['name' => 'Reader', 'display_name' => null]);
+
+    expect(renderedMail(new ResetPassword('a-token'), $user)['body'])->toContain('Hello, Reader!');
 });

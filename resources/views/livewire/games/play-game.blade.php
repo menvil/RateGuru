@@ -1,6 +1,7 @@
 {{--
-    A game, played (PlayGame): its own bar — the site's name and the way out;
-    the page draws no header of its own — then the step on screen, or why the
+    A game, played (PlayGame): its own bar — the site's name, the language
+    where there is a choice, and the way out; the page draws no header of its
+    own — then the step on screen, or why the
     game can't be played now, or the end card. wire:init assigns the visitor
     once the browser runs the page, so a crawler is neither assigned nor
     counted.
@@ -38,8 +39,14 @@
     @endif
 
     <header class="rg-game__bar">
-        <a href="{{ url('/') }}" class="rg-game__brand" data-testid="game-brand"><x-brand-wordmark /></a>
-        <button type="button" class="rg-game__link" wire:click="leave('feed')" data-testid="game-skip-to-feed">{{ __('games.play.skip_to_feed') }} →</button>
+        <div class="rg-game__bar-start">
+            <a href="{{ url('/') }}" class="rg-game__brand" data-testid="game-brand"><x-brand-wordmark /></a>
+            {{-- Not in a preview: changing language reloads the page, and a preview keeps its place only while the page stays. --}}
+            @if (empty($preview) && app(\App\Support\Locale\LocaleManager::class)->offersChoice())
+                <div wire:ignore><x-locale-switcher compact align="start" /></div>
+            @endif
+        </div>
+        <button type="button" class="rg-game__link" wire:click="leave('feed')" data-testid="game-skip-to-feed">{{ __('games.play.skip_to_feed') }} <span class="rg-mirror-rtl" aria-hidden="true">→</span></button>
     </header>
 
     <div class="rg-game__frame">
@@ -62,7 +69,7 @@
                 </div>
             </section>
         @else
-            @include('livewire.games.steps.'.str_replace('_', '-', $play->data['type']), ['data' => $play->data, 'texts' => $play->data['texts'], 'game' => $game])
+            @include('livewire.games.steps.'.str_replace('_', '-', $play->data['type']), ['data' => $play->data, 'texts' => $play->data['texts'], 'shown' => $play->data['shown'], 'game' => $game])
         @endif
     </div>
 </div>

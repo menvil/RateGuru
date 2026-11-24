@@ -29,6 +29,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property string|null $block_lists_error_campaign the campaign, by the network's ID, whose list that read couldn't read
  * @property string|null $spend_closed_through
  * @property string|null $backfill_cursor
+ * @property string|null $country_cursor
  * @property string|null $last_error
  * @property int $failures
  * @property int $connected_by_user_id

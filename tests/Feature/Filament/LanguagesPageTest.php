@@ -197,6 +197,8 @@ it('shares one table among however many languages there are, with no branch for 
         ->push((string) file_get_contents(resource_path('views/filament/pages/languages.blade.php')))
         ->push((string) file_get_contents(app_path('Filament/Pages/LanguagesPage.php')))
         ->implode("\n");
+    // A status tab's descriptor keys its status as the kit's tabs take it: the field 'id', not Indonesian.
+    $views = str_replace("'id' => \$status,", '', $views);
 
     foreach (supportedLocales() as $locale) {
         expect($views)->not->toContain("'{$locale}'")->not->toContain("\"{$locale}\"");

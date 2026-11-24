@@ -2,6 +2,7 @@
 
 namespace App\Actions\Profile;
 
+use App\Actions\Auth\SendEmailVerificationNotificationAction;
 use App\Exceptions\Profile\CannotUpdateProfileException;
 use App\Models\User;
 use App\Support\Database\UniqueColumnViolation;
@@ -11,6 +12,10 @@ use Illuminate\Validation\ValidationException;
 
 final class UpdateUserIdentityAction
 {
+    public function __construct(
+        private readonly SendEmailVerificationNotificationAction $sendConfirmation,
+    ) {}
+
     /**
      * @param  array{name: string, username: string, email: string}  $validated
      *
@@ -20,7 +25,7 @@ final class UpdateUserIdentityAction
     public function execute(User $user, array $validated): void
     {
         try {
-            $this->write($user, $validated);
+            $emailChanged = $this->write($user, $validated);
         } catch (QueryException $exception) {
             $taken = UniqueColumnViolation::among($exception, 'users', ['username', 'email']);
 
@@ -32,15 +37,23 @@ final class UpdateUserIdentityAction
                 $taken => __('validation.unique', ['attribute' => __("validation.attributes.{$taken}")]),
             ]);
         }
+
+        // After the commit: the link is for the address now on the account.
+        if ($emailChanged) {
+            $this->sendConfirmation->attempt($user);
+        }
     }
 
-    /** @param array{name: string, username: string, email: string} $validated */
-    private function write(User $user, array $validated): void
+    /**
+     * @param  array{name: string, username: string, email: string}  $validated
+     * @return bool whether the address changed
+     */
+    private function write(User $user, array $validated): bool
     {
         // Re-read under lock and check the *current* lifecycle state: a
         // stale session's in-flight update racing account anonymization
         // must never write identity back into a committed tombstone.
-        DB::transaction(function () use ($user, $validated): void {
+        return DB::transaction(function () use ($user, $validated): bool {
             $locked = User::query()->whereKey($user->getKey())->lockForUpdate()->firstOrFail();
 
             if (! $locked->canUpdateProfile()) {
@@ -49,13 +62,17 @@ final class UpdateUserIdentityAction
 
             $locked->fill($validated);
 
-            if ($locked->isDirty('email')) {
+            $emailChanged = $locked->isDirty('email');
+
+            if ($emailChanged) {
                 $locked->email_verified_at = null;
             }
 
             $locked->save();
 
             $user->setRawAttributes($locked->getAttributes(), true);
+
+            return $emailChanged;
         });
     }
 }

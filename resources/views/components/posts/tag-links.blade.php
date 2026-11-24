@@ -18,6 +18,7 @@
                 x-on:click.stop
                 data-feed-part="tag"
                 data-testid="post-tag-link"
+                dir="auto"
                 class="inline-flex rounded-rgPill border border-rg-border bg-rg-card px-2.5 py-1 text-xs font-semibold text-rg-text2 transition hover:border-rg-accent hover:text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent"
             >#{{ $tag->slug }}</a>
         </li>

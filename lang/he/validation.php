@@ -1,0 +1,57 @@
+<?php
+
+return [
+    'accepted' => 'יש לאשר את השדה :attribute.',
+    'required' => 'חובה למלא את השדה :attribute.',
+    'string' => 'השדה :attribute חייב להכיל טקסט.',
+    'max' => [
+        'array' => 'השדה :attribute יכול להכיל עד :max פריטים.',
+        'file' => 'הקובץ בשדה :attribute יכול להיות בגודל של עד :max קילובייט.',
+        'string' => 'השדה :attribute יכול להכיל עד :max תווים.',
+    ],
+    'min' => [
+        'string' => 'השדה :attribute חייב להכיל לפחות :min תווים.',
+    ],
+    'in' => 'הערך שנבחר בשדה :attribute אינו תקין.',
+    'unique' => 'הערך בשדה :attribute כבר תפוס.',
+    'email' => 'השדה :attribute חייב להכיל כתובת אימייל תקינה.',
+    'confirmed' => 'אימות השדה :attribute אינו תואם.',
+    'array' => 'השדה :attribute חייב להיות מערך.',
+    'boolean' => 'השדה :attribute חייב להיות אמת או שקר.',
+    'current_password' => 'הסיסמה שגויה.',
+    'dimensions' => 'מידות התמונה בשדה :attribute אינן תקינות.',
+    'enum' => 'הערך שנבחר בשדה :attribute אינו תקין.',
+    'exists' => 'הערך שנבחר בשדה :attribute אינו תקין.',
+    'image' => 'השדה :attribute חייב להכיל תמונה.',
+    'integer' => 'השדה :attribute חייב להיות מספר שלם.',
+    'lowercase' => 'השדה :attribute חייב להיות באותיות קטנות.',
+    'mimes' => 'השדה :attribute חייב להיות קובץ מסוג: :values.',
+    'not_regex' => 'הפורמט של השדה :attribute אינו תקין.',
+    'regex' => 'הפורמט של השדה :attribute אינו תקין.',
+    'uploaded' => 'העלאת הקובץ בשדה :attribute נכשלה.',
+    'url' => 'השדה :attribute חייב להכיל כתובת URL תקינה.',
+
+    // The field names public forms submit, so a message reads as a sentence
+    // in the reader's language instead of carrying an English identifier.
+    'attributes' => [
+        'bio' => 'אודות',
+        'categoryId' => 'קטגוריה',
+        'current_password' => 'סיסמה נוכחית',
+        'description' => 'תיאור',
+        'display_name' => 'שם תצוגה',
+        'email' => 'אימייל',
+        'image' => 'תמונה',
+        'locale' => 'שפה',
+        'message' => 'הודעה',
+        'name' => 'שם',
+        'password' => 'סיסמה',
+        'profile_website_url' => 'אתר אינטרנט',
+        'reason' => 'סיבה',
+        'sourceUrl' => 'כתובת המקור',
+        'subject' => 'נושא',
+        'tagIds' => 'תגיות',
+        'title' => 'כותרת',
+        'url' => 'כתובת URL',
+        'username' => 'שם משתמש',
+    ],
+];

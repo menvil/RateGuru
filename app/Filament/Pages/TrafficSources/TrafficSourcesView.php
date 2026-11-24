@@ -133,7 +133,7 @@ final class TrafficSourcesView
     private const int CAMPAIGN_CAP = 300;
 
     /** The visit columns a network's impressions are never split by: filtered by one, a report has no impressions to set beside its visits. */
-    private const array UNSPLIT = ['device', 'country', 'city', 'game_id', 'version_id'];
+    private const array UNSPLIT = ['device', 'city', 'game_id', 'version_id'];
 
     /** @var array<string, array{general: array<string, int|string>, rules: array<int, array<string, int|string>>, startRates: array<int, float|null>, openRates: array<int, float|null>, campaignTargets: array<int, string>, sourceTargets: array<int, string|null>, worthKnown: bool, blocks: Collection<string, TrafficBlock>, firstClicks: array<string, CarbonImmutable>, windowFrom: CarbonImmutable, now: CarbonImmutable, reachHints: array<string, array{tip: string, replacesProfit: bool}>}> what the block rule needs, by filter, for this render */
     private array $judged = [];
@@ -204,6 +204,7 @@ final class TrafficSourcesView
             'sourceOptions' => [['value' => '', 'label' => 'All sources'], ...$sources->map(fn (TrafficSource $source): array => ['value' => (string) $source->id, 'label' => $source->name])->values()->all()],
             'typeOptions' => [['value' => '', 'label' => 'All traffic'], ['value' => 'network', 'label' => 'Ad networks'], ['value' => 'placement', 'label' => 'Banners & links'], ['value' => 'unpaid', 'label' => 'Unpaid']],
             'deviceOptions' => [['value' => '', 'label' => 'All devices'], ['value' => 'mobile', 'label' => 'Mobile'], ['value' => 'desktop', 'label' => 'Desktop']],
+            'countryOptions' => $this->countryOptions($filter),
             'gameOptions' => [['value' => '', 'label' => 'All games', 'trigger' => 'All games'], ...Game::query()->orderBy('title')->get(['id', 'title'])->map(fn (Game $game): array => ['value' => (string) $game->id, 'label' => $game->title])->all()],
             'campaignOptions' => [['value' => '', 'label' => 'All campaigns', 'trigger' => 'All'], ...TrafficCampaign::query()->when(is_numeric($page->source), fn ($query) => $query->where('source_id', (int) $page->source))->orderByDesc('first_click_at')->limit(100)->get(['id', 'name', 'external_id'])->map(fn (TrafficCampaign $campaign): array => ['value' => (string) $campaign->id, 'label' => $campaign->name ?? 'Campaign '.$campaign->external_id])->all()],
             'periodDays' => ReportPeriod::span(CarbonImmutable::parse($filter->fromDay, 'UTC'), CarbonImmutable::parse($filter->toDay, 'UTC')),
@@ -236,8 +237,8 @@ final class TrafficSourcesView
         $cutoff = UnconfirmedAccountsQuery::cutoff();
         $summary = $this->reports->summary($filter, $cutoff);
         $sum = fn (iterable $rows): ReportFigures => collect($rows)->reduce(fn (ReportFigures $total, array $row): ReportFigures => $total->plus($row['figures']), new ReportFigures);
-        // Spend no visit took counts in the totals, but only where nothing narrows the visits to a game, a device, a campaign or unpaid traffic.
-        $unallocated = array_intersect_key($filter->where, array_flip(['game_id', 'device', 'campaign_id'])) === [] && ! (array_key_exists('source_id', $filter->where) && $filter->where['source_id'] === null) && ($filter->where['channel'] ?? 'network') === 'network'
+        // Spend no visit took counts in the totals, but only where nothing narrows the visits to a game, a device, a country, a campaign or unpaid traffic.
+        $unallocated = ! $this->narrowsVisits($filter) && ! (array_key_exists('source_id', $filter->where) && $filter->where['source_id'] === null) && ($filter->where['channel'] ?? 'network') === 'network'
             ? $this->spend->unallocated($filter->fromDay, $filter->toDay, isset($filter->where['source_id']) ? (int) $filter->where['source_id'] : null)
             : [];
         $extra = array_reduce($unallocated, fn (string $total, array $row): string => TrafficMoney::stored(TrafficMoney::of($total)->plus(TrafficMoney::of($row['amount']))), '0');
@@ -358,28 +359,47 @@ final class TrafficSourcesView
      * filters' period, source and campaign against what reached RateGuru of
      * the same slices, opened the page and started the game — and the
      * impressions paid for that never arrived, with an estimate of what
-     * they cost; the days not closed yet named. Narrowed to a device, a
-     * country or a game, the network has no impressions of its own to set
-     * beside the visits: only the networks' visits on the filters show.
-     * None where the period has no impressions.
+     * they cost; the days not closed yet named. Narrowed to a country, the
+     * network's own figures for it. Narrowed to a device, a city or a game,
+     * or to a country it reported nothing for, there are no impressions to
+     * set beside the visits: only the networks' visits on the filters show.
+     * None where the period has no impressions. Says too what the reach
+     * columns of Sites & zones mean on these filters, where that needs saying.
      *
      * @param  list<array{device: string, channel: string, figures: ReportFigures}>  $summary
      * @return array<string, mixed>|null
      */
     private function reachCard(TrafficReportFilter $filter, array $summary, $sources): ?array
     {
-        $tally = $this->reachTally($filter);
         [$sourceId, $campaignId] = self::reachScope($filter);
+        // Whether there is anything to leave out is the period's, whichever country is on screen.
+        $period = $this->reachTally(new TrafficReportFilter($filter->fromDay, $filter->toDay, array_diff_key($filter->where, ['country' => true])));
 
-        if ($tally === null || ($total = $tally->total($sourceId, $campaignId))->impressions === 0) {
+        if ($period === null) {
             return null;
         }
 
-        if ($this->reachSplit($filter)) {
+        $tally = $this->reachTally($filter) ?? $period;
+        $total = $tally->total($sourceId, $campaignId);
+        $country = self::reachCountry($filter);
+
+        // A country's own figures can outlive the day's: they are something to show even with none for the whole period.
+        if ($period->total($sourceId, $campaignId)->impressions === 0 && $total->impressions === 0) {
+            return null;
+        }
+
+        if ($this->reachSplit($filter) || $total->impressions === 0) {
             $network = array_reduce(array_filter($summary, fn (array $row): bool => $row['channel'] === TrafficChannel::Network->value), fn (ReportFigures $sum, array $row): ReportFigures => $sum->plus($row['figures']), new ReportFigures);
+            $unsplit = array_intersect_key($filter->where, array_flip(self::UNSPLIT)) !== [];
 
             return [
                 'split' => true,
+                'leftOut' => $unsplit
+                    ? 'The network’s impressions aren’t split by device, city or game, so they’re left out on these filters.'
+                    : 'The network reported no impressions for this country, so they’re left out on these filters.',
+                'listNote' => ($unsplit
+                    ? 'Paid impressions are counted by day, campaign, site and country, not by device, city or game.'
+                    : 'The network reported no impressions for this country.').' On these filters Paid impr. and Reached show “—” and no site is marked Low reach.',
                 'steps' => [
                     ['name' => 'Visits from ad networks', 'count' => $network->visits, 'of' => null, 'note' => 'On these filters'],
                     ['name' => 'Opened the page', 'count' => $network->opened, 'of' => $network->visits, 'note' => 'Of those visits'],
@@ -394,9 +414,10 @@ final class TrafficSourcesView
 
         return [
             'split' => false,
+            'listNote' => $country === null ? null : 'Paid impr. and Reached are this country’s. Low reach is judged across all countries, so no site is marked on this filter.',
             'steps' => [
                 ['name' => 'Paid impressions (network)', 'count' => $total->impressions, 'of' => null, 'note' => $one ? 'What the network billed for, by its own count' : 'What the networks billed for, by their own count'],
-                ['name' => 'Reached RateGuru', 'count' => $total->reached, 'of' => $total->impressions, 'note' => 'Visits of the same days, campaigns and sites'],
+                ['name' => 'Reached RateGuru', 'count' => $total->reached, 'of' => $total->impressions, 'note' => $country === null ? 'Visits of the same days, campaigns and sites' : 'Visits of the same days, campaigns, sites and country'],
                 ['name' => 'Opened the page', 'count' => $total->opened, 'of' => $total->reached, 'note' => 'Of those that reached RateGuru'],
                 ['name' => 'Started the game', 'count' => $total->started, 'of' => $total->opened, 'note' => 'Of those that opened the page'],
             ],
@@ -441,9 +462,9 @@ final class TrafficSourcesView
     /**
      * The networks' impressions on the filters' period and source, folded
      * as they were read (ReachTally), every campaign's: read once a render
-     * for each source, the read of every source serving any. None where the
-     * filters go to traffic no network bills by the impression — unpaid,
-     * banners and links.
+     * for each source and country, the read of every source serving any. None
+     * where the filters go to traffic no network bills by the impression —
+     * unpaid, banners and links.
      */
     private function reachTally(TrafficReportFilter $filter): ?ReachTally
     {
@@ -452,9 +473,41 @@ final class TrafficSourcesView
         }
 
         $sourceId = self::reachScope($filter)[0];
-        $period = $filter->fromDay.'|'.$filter->toDay.'|';
+        $country = self::reachCountry($filter);
+        $period = $filter->fromDay.'|'.$filter->toDay.'|'.($country ?? '').'|';
 
-        return $this->reachRead[$period.'*'] ?? ($this->reachRead[$period.($sourceId ?? '*')] ??= $this->reach->tally($filter->fromDay, $filter->toDay, $sourceId));
+        return $this->reachRead[$period.'*'] ?? ($this->reachRead[$period.($sourceId ?? '*')] ??= $this->reach->tally($filter->fromDay, $filter->toDay, $sourceId, country: $country));
+    }
+
+    /** The country the filters name, if any: a visit with none located has no impressions to set beside it. */
+    private static function reachCountry(TrafficReportFilter $filter): ?string
+    {
+        return isset($filter->where['country']) ? (string) $filter->where['country'] : null;
+    }
+
+    /**
+     * The Country filter: the countries the networks billed on the period,
+     * source and campaign, the most impressions first — and the one chosen,
+     * whatever it had, so the filter always reads what is on screen.
+     *
+     * @return list<array{value: string, label: string, count?: string}>
+     */
+    private function countryOptions(TrafficReportFilter $filter): array
+    {
+        $impressions = $this->reach->countries($filter->fromDay, $filter->toDay, ...self::reachScope($filter));
+        $chosen = self::reachCountry($filter);
+
+        if ($chosen !== null) {
+            $impressions[$chosen] ??= 0;
+        }
+
+        $options = [['value' => '', 'label' => 'All countries']];
+
+        foreach ($impressions as $code => $count) {
+            $options[] = ['value' => (string) $code, 'label' => Countries::name((string) $code), 'count' => number_format($count)];
+        }
+
+        return $options;
     }
 
     /**
@@ -475,7 +528,8 @@ final class TrafficSourcesView
     /** Whether the filters narrow the visits by what a network's impressions are never split by. */
     private function reachSplit(TrafficReportFilter $filter): bool
     {
-        return array_intersect_key($filter->where, array_flip(self::UNSPLIT)) !== [];
+        return array_intersect_key($filter->where, array_flip(self::UNSPLIT)) !== []
+            || (array_key_exists('country', $filter->where) && $filter->where['country'] === null);
     }
 
     /**
@@ -503,13 +557,14 @@ final class TrafficSourcesView
      * one its visits' spend was shared out from: its spend then counts the
      * visits that came, never what the network billed for those that did
      * not — and, judgeRow() adds, wherever no visit came at all. A hint,
-     * never blocked by itself.
+     * never blocked by itself. Judged over every country: a block takes the
+     * whole site, so one country's figures do not mark it.
      *
      * @return array<string, array{tip: string, replacesProfit: bool}>
      */
     private function reachHints(TrafficReportFilter $filter): array
     {
-        $tally = $this->reachSplit($filter) ? null : $this->reachTally($filter);
+        $tally = $this->reachSplit($filter) || self::reachCountry($filter) !== null ? null : $this->reachTally($filter);
 
         if ($tally === null) {
             return [];
@@ -1594,7 +1649,9 @@ final class TrafficSourcesView
     private function spendTab(TrafficSourcesPage $page, TrafficReportFilter $filter, $sources): array
     {
         $paid = $sources->whereIn('type', [TrafficSourceType::Network, TrafficSourceType::Placement])->values()->loadCount('campaigns');
-        $unallocated = collect($this->spend->unallocated($filter->fromDay, $filter->toDay));
+        // On a game, device, country or campaign the visits are that part of the source, and the network's bill and the spend no visit took are the whole of it.
+        $narrowed = $this->narrowsVisits($filter);
+        $unallocated = $narrowed ? collect() : collect($this->spend->unallocated($filter->fromDay, $filter->toDay));
         $bySource = collect($this->reports->level($filter, TrafficDimension::Source))->keyBy(fn (array $group): string => (string) ($group['keys']['source_id'] ?? ''));
         // What the network itself says, one origin a source's day as the day is counted: its file where one was taken, else its API.
         $network = TrafficSpendDay::query()->whereBetween('network_day', [$filter->fromDay, $filter->toDay])->whereIn('origin', [TrafficSpendOrigin::Api, TrafficSpendOrigin::Csv])->get(['source_id', 'campaign_id', 'origin', 'network_day', 'amount'])
@@ -1617,7 +1674,7 @@ final class TrafficSourcesView
                 ['icon' => 'calendar', 'name' => 'Fixed price', 'text' => 'A set amount for a day, a month or once, spread evenly over the days and split across visits.', 'users' => $users([TrafficSpendMode::Fixed])],
                 ['icon' => 'file', 'name' => 'Typed in or imported', 'text' => 'Type the spend per campaign and day, or import the network’s CSV export. It replaces any estimate for those days.', 'users' => $users([TrafficSpendMode::Manual])],
             ],
-            'spendRows' => $paid->map(function (TrafficSource $source) use ($bySource, $unallocated, $network, $campaignFigures, $connections, $page): array {
+            'spendRows' => $paid->map(function (TrafficSource $source) use ($bySource, $unallocated, $narrowed, $network, $campaignFigures, $connections, $page): array {
                 $figures = $bySource->get((string) $source->id)['figures'] ?? new ReportFigures;
                 $without = $unallocated->where('source_id', $source->id)->sum(fn (array $row): float => (float) $row['amount']);
                 $reported = TrafficMoney::of($figures->spend)->plus(TrafficMoney::of($without));
@@ -1637,9 +1694,11 @@ final class TrafficSourcesView
                     'reported' => (string) $reported,
                     'estimated' => $figures->spendEstimated,
                     'without' => (string) $without,
+                    'narrowed' => $narrowed,
                     'network' => match (true) {
                         $source->spend_mode === TrafficSpendMode::Fixed => ['Agreed price', null],
                         $networkFacts->isEmpty() => ['Not checked', $source->spend_mode === TrafficSpendMode::Api ? 'Waiting for the first sync' : 'Import the network’s CSV to compare'],
+                        $narrowed => [TrafficMoney::format($networkSum), 'For the whole source'],
                         default => [TrafficMoney::format($networkSum), $networkSum > 0 ? 'Differs by '.number_format(((float) (string) $reported - $networkSum) / $networkSum * 100, 1).'%' : null],
                     },
                     'status' => $this->spendStatus($source, $connection),
@@ -1671,6 +1730,12 @@ final class TrafficSourcesView
             // The days a correction is offered for, the last fourteen in the network's own time zone.
             'correctDay' => ['min' => CarbonImmutable::parse($today)->subDays(13)->toDateString(), 'max' => $today, 'timezone' => $chosen->reporting_timezone ?? 'UTC'],
         ];
+    }
+
+    /** Whether a filter keeps only a game's, a device's, a country's or a campaign's visits of a source. */
+    private function narrowsVisits(TrafficReportFilter $filter): bool
+    {
+        return array_intersect_key($filter->where, array_flip(['game_id', 'device', 'country', 'campaign_id'])) !== [];
     }
 
     /** @return array{icon: string, text: string} how a source's spend is worked out, as Spend says it */

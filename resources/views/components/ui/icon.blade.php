@@ -44,10 +44,15 @@
         'user-plus' => '<path d="M9 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><path d="M19 8v6"/><path d="M16 11h6"/>',
         'flag' => '<path d="M5 21V4"/><path d="M5 4h11l-2 4 2 4H5"/>',
     ];
+
+    // The icons that point along the line of text — on, back, reply, undo, a
+    // trend over time — and so turn round on a page read right to left
+    // (rg-mirror-rtl). Up, down, and an icon with no side to it never do.
+    $directional = ['arrow-right', 'reply', 'restore', 'trending'];
 @endphp
 
 <svg
-    {{ $attributes->class(['size-4']) }}
+    {{ $attributes->class(['size-4', 'rg-mirror-rtl' => in_array($name, $directional, true)]) }}
     xmlns="http://www.w3.org/2000/svg"
     viewBox="0 0 24 24"
     fill="none"

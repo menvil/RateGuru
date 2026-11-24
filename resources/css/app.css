@@ -48,6 +48,121 @@
 }
 
 /*
+ * Languages read right to left. The layout itself turns with the page's dir
+ * (layouts set it from config/locales.php), because the templates name sides
+ * only as start and end; what is left here is the type, and the signs that
+ * point along the line.
+ *
+ * Arabic and Hebrew script are not in Inter, and nothing is downloaded for
+ * them: the system's own faces draw them. Inter stays first, so a Latin name
+ * or a number in the line keeps the site's face, and each Arabic or Hebrew
+ * letter falls through to the first face below that has it — Noto on Android
+ * and Linux, Geeza Pro or Arial Hebrew on Apple systems, Segoe UI or Tahoma on
+ * Windows. Urdu is written in Nastaliq where the system has a face for it, the
+ * Arabic faces otherwise; Nastaliq stands far taller than Latin, so its lines
+ * are spaced to hold it — the leading of every text size, and of the page.
+ *
+ * The monospaced face gets the same faces ahead of its last resorts: a
+ * monospaced font that has these scripts at all (Courier New) draws every
+ * letter in a cell of the same width, which tears joined Arabic apart.
+ *
+ * Outside any layer on purpose: Tailwind writes the theme's variables
+ * (--font-sans, --text-sm--line-height, …) outside every layer, and an
+ * unlayered rule outranks any layered one whatever its selector — inside
+ * @layer base these would never apply. Unlayered, the language in the
+ * selector makes them the more specific, so they win on these pages only.
+ */
+:root:lang(he) {
+    --font-sans: 'Inter Variable', 'Noto Sans Hebrew', 'Arial Hebrew', 'Segoe UI', Arial, ui-sans-serif, system-ui,
+        sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
+    --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Noto Sans Hebrew',
+        'Arial Hebrew', 'Segoe UI', Arial, 'Courier New', monospace;
+}
+
+:root:lang(ar) {
+    --font-sans: 'Inter Variable', 'Noto Naskh Arabic', 'Noto Sans Arabic', 'Geeza Pro', 'Segoe UI', Tahoma,
+        'Arabic Typesetting', ui-sans-serif, system-ui, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji',
+        'Segoe UI Symbol', 'Noto Color Emoji';
+    --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Noto Naskh Arabic',
+        'Noto Sans Arabic', 'Geeza Pro', 'Segoe UI', Tahoma, 'Courier New', monospace;
+}
+
+:root:lang(ur) {
+    --font-sans: 'Inter Variable', 'Noto Nastaliq Urdu', 'Jameel Noori Nastaleeq', 'Urdu Typesetting',
+        'Noto Naskh Arabic', 'Noto Sans Arabic', 'Geeza Pro', 'Segoe UI', Tahoma, ui-sans-serif, system-ui,
+        sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
+    --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Noto Nastaliq Urdu',
+        'Jameel Noori Nastaleeq', 'Noto Naskh Arabic', 'Noto Sans Arabic', 'Geeza Pro', 'Segoe UI', Tahoma,
+        'Courier New', monospace;
+    --text-xs--line-height: 2;
+    --text-sm--line-height: 2;
+    --text-base--line-height: 2;
+    --text-lg--line-height: 1.9;
+    --text-xl--line-height: 1.9;
+    --text-2xl--line-height: 1.8;
+    --text-3xl--line-height: 1.7;
+    --text-4xl--line-height: 1.6;
+    --text-6xl--line-height: 1.5;
+
+    line-height: 2;
+}
+
+@layer base {
+    /*
+     * Arabic script is joined up: tracking pulls its letters apart, and a
+     * negative one runs them into each other, so nothing on a page in it is
+     * tracked — whatever a utility or a component asks for.
+     */
+    :lang(ar),
+    :lang(ur) {
+        letter-spacing: normal !important;
+    }
+
+    /*
+     * The forms plugin draws a select's chevron at the right edge by name and
+     * keeps room for it there. On a page read right to left the chosen option
+     * starts at the right, so the chevron sat on its first letters: it goes
+     * to the end of the line instead, with the room for it. Background
+     * positions have no logical side, so this is written for that direction
+     * alone; a page read left to right keeps the plugin's own rule. Padding
+     * utilities on a select still win, as they do over the plugin's.
+     */
+    [dir='rtl'] select:not([multiple], [size]:not([size='1'])) {
+        background-position: left 0.5rem center;
+        padding-inline-start: 0.75rem;
+        padding-inline-end: 2.5rem;
+    }
+
+    /*
+     * A field people write in reads its own way (dir="auto"), but while it is
+     * empty it has no letter to go by and a browser lays it out left to
+     * right: on a page read right to left the placeholder then starts at the
+     * wrong end, and so does the caret. The field keeps the page's direction
+     * instead, and each line typed into it takes its own from its first
+     * letters, as dir="auto" would.
+     */
+    :is(input, textarea)[dir='auto'] {
+        direction: inherit;
+        unicode-bidi: plaintext;
+    }
+}
+
+/*
+ * A sign that points along the line — on, back, reply, a pager's arrows —
+ * turns round on a page read right to left, where "on" is to the left: the
+ * icons that do (x-ui.icon), the arrows drawn as text in the game. A text
+ * arrow needs a box of its own for the turn to apply; it gets one only on such
+ * a page, so a page read left to right is drawn exactly as before.
+ */
+[dir='rtl'] .rg-mirror-rtl {
+    scale: -1 1;
+}
+
+[dir='rtl'] .rg-mirror-rtl:not(svg) {
+    display: inline-block;
+}
+
+/*
  * A disabled control never shows the pointer, whatever utility classes it
  * carries. Kept outside any layer on purpose: unlayered rules outrank the
  * utilities layer, so a cursor-pointer on the element cannot win.
@@ -67,10 +182,22 @@ select:disabled {
 .rg-feed-split-grid {
     display: block;
 }
+/* A header button whose words the fit has put away (resources/js/header-fit.js
+   marks them data-header-fit-away) is as wide as it is tall, like the icon
+   buttons beside it, and takes no more of the row than they do. */
+.rg-header-icon-button:has(> [data-header-fit-away]) {
+    aspect-ratio: 1;
+    padding-inline: 0;
+}
+
 @media (min-width: 1024px) {
+    /* The brand's column is never narrower than the name: the search narrows
+       first, down to its least width, and then the optional controls are put
+       away. With 1fr alone the search took its 480px first, and from 1024px to
+       about 1280px a guest's row of controls left the brand no room at all. */
     .rg-app-header-layout {
         display: grid;
-        grid-template-columns: 1fr minmax(0, 480px) auto;
+        grid-template-columns: minmax(max-content, 1fr) minmax(0, 480px) auto;
         gap: 1rem;
         padding-inline: 1.25rem;
     }
@@ -205,6 +332,13 @@ select:disabled {
         font-size: 13px;
     }
 
+    .rg-game__bar-start {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        min-width: 0;
+    }
+
     .rg-game__brand {
         min-width: 0;
         overflow: hidden;
@@ -262,14 +396,17 @@ select:disabled {
         margin-bottom: clamp(8px, 1.6vh, 14px);
     }
 
+    /* Centred over the pair. Only the line's place: its size stays rgGameLine's. */
     .rg-game__round > .rg-game__question {
         margin-bottom: clamp(10px, 2.4vh, 22px);
+        text-align: center;
     }
 
     .rg-game__round > .rg-game__lead {
         display: -webkit-box;
         margin: -4px 0 clamp(10px, 2.2vh, 20px);
         overflow: hidden;
+        text-align: center;
         -webkit-box-orient: vertical;
         -webkit-line-clamp: 2;
     }
@@ -304,6 +441,11 @@ select:disabled {
 
     .rg-game__title--sm {
         font-size: clamp(26px, 6.5vw, 38px);
+    }
+
+    /* Nastaliq stands far taller than Latin: a headline's tight leading would run its two lines into each other. */
+    :lang(ur) :is(.rg-game__title, .rg-game__question, .rg-game__result-headline, .rg-game__share-card-profile) {
+        line-height: 1.7;
     }
 
     /* One line as large as the title where it fits: games.js (rgGameLine) measures it; until then its length gives a first guess. */
@@ -444,7 +586,8 @@ select:disabled {
 
     .rg-game__timer {
         position: absolute;
-        inset: 0 auto 0 0;
+        inset-block: 0;
+        inset-inline: 0 auto;
         width: 0;
         background: rgba(255, 255, 255, 0.22);
     }
@@ -471,9 +614,9 @@ select:disabled {
     }
 
     /*
-     * The post the way on leads to, as the reference draws it: its picture on the left, about half the card, its
-     * title and what the step shows of it on the right — small enough that the result, the post and the button
-     * fit on one screen.
+     * The post the way on leads to, as the reference draws it: its picture at the start of the line (the left in a
+     * language read left to right), about half the card, its title and what the step shows of it after — small
+     * enough that the result, the post and the button fit on one screen.
      */
     .rg-game__onward-post {
         display: grid;
@@ -573,12 +716,16 @@ select:disabled {
         cursor: pointer;
     }
 
+    /* Short of room it wraps before the site's name is cut. */
     .rg-game__bar > .rg-game__link {
+        flex: 0 1000 auto;
         min-height: 0;
         padding: 0;
         color: var(--rg-muted);
         font-size: 13.5px;
         font-weight: 400;
+        line-height: 1.15;
+        text-align: end;
     }
 
     .rg-game__link:hover {
@@ -753,7 +900,7 @@ select:disabled {
     .rg-game__label {
         position: absolute;
         top: 12px;
-        left: 12px;
+        inset-inline-start: 12px;
         max-width: calc(100% - 84px);
         height: 34px;
         padding: 0 12px;
@@ -806,7 +953,7 @@ select:disabled {
     .rg-game__badge {
         position: absolute;
         top: 12px;
-        right: 12px;
+        inset-inline-end: 12px;
         padding: 6px 11px;
         border-radius: var(--rg-radius-pill);
         background: #fff;
@@ -875,7 +1022,14 @@ select:disabled {
         }
     }
 
+    /*
+     * The administrator's message reads its own way (dir="auto") but stays with the verdict at the
+     * page's start: only as wide as its words, so an English line on a page read right to left is not
+     * pushed across to the way on, and it is still cut at its own end.
+     */
     .rg-game__verdict > .rg-game__note--message {
+        align-self: flex-start;
+        max-width: 100%;
         -webkit-line-clamp: 1;
     }
 
@@ -1045,7 +1199,7 @@ select:disabled {
         padding: 0;
         border: 0;
         background: transparent;
-        text-align: left;
+        text-align: start;
     }
 
     .rg-game__named {
@@ -1099,7 +1253,7 @@ select:disabled {
     }
 
     .rg-game__lines {
-        text-align: left;
+        text-align: start;
     }
 
     .rg-game__quote {
@@ -1321,9 +1475,8 @@ select:disabled {
 
     .rg-game__share-card-text {
         position: absolute;
-        right: 16px;
         bottom: 14px;
-        left: 16px;
+        inset-inline: 16px;
         display: flex;
         flex-direction: column;
         gap: 4px;
@@ -1346,7 +1499,8 @@ select:disabled {
 
     /*
      * The score and the byline — the site's address or the player's @name: on a narrow card the byline goes whole to a
-     * second line rather than being cut, and breaks inside only when even a line of its own is too narrow for it.
+     * second line rather than being cut, and breaks inside only when even a line of its own is too narrow for it. The
+     * byline reads its own way (dir="auto"), so an @name keeps its @ in front on a page read right to left.
      */
     .rg-game__share-card-line {
         font-size: 12.5px;

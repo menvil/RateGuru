@@ -37,6 +37,7 @@
             class="mt-1 block w-full"
             type="text"
             name="name"
+            dir="auto"
             :value="$active ? old('name') : null"
             required
             :autofocus="! $isModal"
@@ -87,6 +88,9 @@
         />
         <x-input-error :messages="$active ? $bag->get('password_confirmation') : []" class="mt-2" />
     </div>
+
+    <x-auth.registration-guard />
+    <x-input-error :messages="$active ? $bag->get('registration') : []" class="mt-4" data-testid="{{ $testId }}-refused" />
 
     <x-primary-button class="mt-6 w-full" data-testid="{{ $testId }}-submit">
         {{ __('auth.register.action') }}

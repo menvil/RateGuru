@@ -21,7 +21,7 @@
         >
             @include('livewire.feed.post-drawer-close')
 
-            <section class="flex min-w-0 items-start gap-3 pr-10" data-testid="post-drawer-meta">
+            <section class="flex min-w-0 items-start gap-3 pe-10" data-testid="post-drawer-meta">
                 @if($post->user?->public_username)
                     <a href="{{ route('profile.show', $post->user->public_username) }}" wire:navigate class="shrink-0 rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent">
                         <x-ui.avatar :src="$post->user?->resolved_avatar_url" :srcset="$post->user?->resolved_avatar_srcset" :name="$post->user->resolved_display_name" size="lg" />
@@ -32,14 +32,14 @@
 
                 <div class="min-w-0">
                     @if($post->user?->public_username)
-                        <a href="{{ route('profile.show', $post->user->public_username) }}" wire:navigate class="block truncate text-sm font-semibold text-rg-text hover:underline focus-visible:outline-none">{{ $post->user->resolved_display_name }}</a>
+                        <a href="{{ route('profile.show', $post->user->public_username) }}" wire:navigate {{ \App\Support\Locale\WrittenText::dir($post->user->resolved_display_name) }} class="block w-fit max-w-full truncate text-sm font-semibold text-rg-text hover:underline focus-visible:outline-none">{{ $post->user->resolved_display_name }}</a>
                     @else
-                        <div class="truncate text-sm font-semibold text-rg-text">{{ $post->user?->resolved_display_name ?? __('ui.user.unknown') }}</div>
+                        <div {{ \App\Support\Locale\WrittenText::dir($post->user?->resolved_display_name ?? __('ui.user.unknown')) }} class="w-fit max-w-full truncate text-sm font-semibold text-rg-text">{{ $post->user?->resolved_display_name ?? __('ui.user.unknown') }}</div>
                     @endif
 
                     <div class="truncate text-xs text-rg-muted">
                         @if($post->user?->public_username)
-                            {{ '@' . $post->user->public_username }}
+                            <bdi>{{ '@' . $post->user->public_username }}</bdi>
                         @endif
                         @if($post->published_at)
                             {{ $post->user?->public_username ? ' · ' : '' }}{{ $post->published_at->diffForHumans() }}
@@ -48,16 +48,17 @@
                 </div>
 
                 @if($canSeeFollowButton)
-                    <div class="ml-auto shrink-0" data-testid="post-drawer-follow" wire:click.stop>
+                    <div class="ms-auto shrink-0" data-testid="post-drawer-follow" wire:click.stop>
                         <livewire:follows.follow-button :author="$post->user" variant="compact" :key="'post-drawer-follow-'.$post->id" />
                     </div>
                 @endif
             </section>
 
-            <h2 id="post-drawer-title" data-testid="post-drawer-title" class="mt-4 pr-10 text-[22px] font-bold tracking-normal text-rg-text">{{ $post->title }}</h2>
+            {{-- Its room at the end follows the title's own direction, so it starts where the description does. --}}
+            <h2 id="post-drawer-title" data-testid="post-drawer-title" {{ \App\Support\Locale\WrittenText::dir($post->title) }} class="mt-4 pe-10 text-[22px] font-bold tracking-normal text-rg-text">{{ $post->title }}</h2>
 
             @if($post->description)
-                <p class="mt-3 break-words text-sm leading-relaxed text-rg-muted">{{ $post->description }}</p>
+                <p {{ \App\Support\Locale\WrittenText::dir($post->description) }} class="mt-3 break-words text-sm leading-relaxed text-rg-muted">{{ $post->description }}</p>
             @endif
 
             @if($post->category)
@@ -142,7 +143,7 @@
                         x-show="menuOpen"
                         x-on:click.outside="menuOpen = false"
                         data-testid="post-drawer-menu"
-                        class="absolute right-0 top-full z-20 mt-2 w-44 rounded-rgControl border border-rg-border bg-rg-card2 p-1 shadow-rgDropdown"
+                        class="absolute inset-e-0 top-full z-20 mt-2 w-44 rounded-rgControl border border-rg-border bg-rg-card2 p-1 shadow-rgDropdown"
                     >
                         @if($canReportPost)
                             <div>
@@ -159,7 +160,7 @@
                             <button
                                 type="button"
                                 x-on:click="menuOpen = false; deleteOpen = true"
-                                class="flex w-full cursor-pointer items-center rounded-rgSm px-3 py-1.5 text-left text-sm font-semibold text-rg-dangerText transition hover:bg-rg-dangerSoft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-dangerText"
+                                class="flex w-full cursor-pointer items-center rounded-rgSm px-3 py-1.5 text-start text-sm font-semibold text-rg-dangerText transition hover:bg-rg-dangerSoft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-dangerText"
                             >
                                 {{ __('ui.post.delete') }}
                             </button>
@@ -186,7 +187,7 @@
                 @php
                     $fullscreenImage = $postImagePresenter->responsive($post, \App\Enums\PostImageContext::Fullscreen);
                 @endphp
-                <x-ui.modal title="{{ $post->title }}" state="imageOpen" size="fullscreen" below-header close-on-escape>
+                <x-ui.modal :title="$post->title" title-dir="auto" state="imageOpen" size="fullscreen" below-header close-on-escape>
                     <x-media.post-image
                         :post="$post"
                         :src="$fullscreenImage?->src"

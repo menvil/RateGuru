@@ -304,3 +304,15 @@ it('draws the game under its own bar — the site\'s name and the way out — an
         ->assertDontSee('data-testid="app-header"', false)
         ->assertDontSee('data-testid="mobile-nav-drawer"', false);
 });
+
+it('puts the language beside the site\'s name where there is a choice, and nothing where there is none', function () {
+    $switchers = fn (): int => livewireDom($this->get('/games/'.$this->slug)->assertOk()->getContent())
+        ->query("//*[contains(@class, 'rg-game__bar-start')]//*[@data-testid='language-switcher']")
+        ->length;
+
+    offerLocales(['ru']);
+    expect($switchers())->toBe(1);
+
+    offerLocales([]);
+    expect($switchers())->toBe(0);
+});

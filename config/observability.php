@@ -35,6 +35,7 @@ return [
             'session_token',
             'refresh_token',
             'secret',
+            'cf-turnstile-response',
         ],
     ],
 

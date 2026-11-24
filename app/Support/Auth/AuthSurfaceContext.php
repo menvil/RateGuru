@@ -7,6 +7,7 @@ use Closure;
 use Illuminate\Contracts\Session\Session;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Validation\ValidationException;
+use SensitiveParameter;
 
 /**
  * Where an authentication attempt started, and therefore where it ends.
@@ -62,10 +63,10 @@ final readonly class AuthSurfaceContext
     }
 
     /**
-     * @param  array<array-key, mixed>  $input  request input carrying the modal's marker fields, if any
+     * @param  array<array-key, mixed>  $input  request input carrying the modal's marker fields, if any; a whole form, password included
      * @param  AuthModalMode|null  $mode  fixed by the endpoint for form posts; read from the input otherwise
      */
-    public static function fromInput(array $input, ?AuthModalMode $mode = null): self
+    public static function fromInput(#[SensitiveParameter] array $input, ?AuthModalMode $mode = null): self
     {
         if (! in_array($input[self::SURFACE_FIELD] ?? null, [self::MODAL, self::EMBEDDED], true)) {
             return self::page();

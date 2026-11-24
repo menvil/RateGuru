@@ -1,0 +1,57 @@
+<?php
+
+return [
+    'accepted' => 'Kolom :attribute harus disetujui.',
+    'required' => 'Kolom :attribute wajib diisi.',
+    'string' => 'Kolom :attribute harus berupa teks.',
+    'max' => [
+        'array' => 'Kolom :attribute tidak boleh memiliki lebih dari :max item.',
+        'file' => 'Kolom :attribute tidak boleh lebih dari :max kilobyte.',
+        'string' => 'Kolom :attribute tidak boleh lebih dari :max karakter.',
+    ],
+    'min' => [
+        'string' => 'Kolom :attribute harus berisi minimal :min karakter.',
+    ],
+    'in' => 'Pilihan :attribute tidak valid.',
+    'unique' => 'Isian :attribute ini sudah dipakai.',
+    'email' => 'Kolom :attribute harus berupa alamat email yang valid.',
+    'confirmed' => 'Konfirmasi :attribute tidak cocok.',
+    'array' => 'Kolom :attribute harus berupa array.',
+    'boolean' => 'Kolom :attribute harus bernilai benar atau salah.',
+    'current_password' => 'Kata sandi salah.',
+    'dimensions' => 'Kolom :attribute memiliki dimensi gambar yang tidak valid.',
+    'enum' => 'Pilihan :attribute tidak valid.',
+    'exists' => 'Pilihan :attribute tidak valid.',
+    'image' => 'Kolom :attribute harus berupa gambar.',
+    'integer' => 'Kolom :attribute harus berupa bilangan bulat.',
+    'lowercase' => 'Kolom :attribute harus menggunakan huruf kecil.',
+    'mimes' => 'Kolom :attribute harus berupa file dengan tipe: :values.',
+    'not_regex' => 'Format kolom :attribute tidak valid.',
+    'regex' => 'Format kolom :attribute tidak valid.',
+    'uploaded' => 'File :attribute gagal diunggah.',
+    'url' => 'Kolom :attribute harus berupa URL yang valid.',
+
+    // The field names public forms submit, so a message reads as a sentence
+    // in the reader's language instead of carrying an English identifier.
+    'attributes' => [
+        'bio' => 'bio',
+        'categoryId' => 'kategori',
+        'current_password' => 'kata sandi saat ini',
+        'description' => 'deskripsi',
+        'display_name' => 'nama tampilan',
+        'email' => 'email',
+        'image' => 'gambar',
+        'locale' => 'bahasa',
+        'message' => 'pesan',
+        'name' => 'nama',
+        'password' => 'kata sandi',
+        'profile_website_url' => 'situs web',
+        'reason' => 'alasan',
+        'sourceUrl' => 'URL sumber',
+        'subject' => 'subjek',
+        'tagIds' => 'tag',
+        'title' => 'judul',
+        'url' => 'URL',
+        'username' => 'nama pengguna',
+    ],
+];

@@ -31,6 +31,8 @@ return [
     'register' => [
         'title' => 'Registracija',
         'action' => 'Registriraj se',
+        'refused' => 'Registracije ni bilo mogoče dokončati. Poskusi znova pozneje.',
+        'javascript_required' => 'Varnostno preverjanje se ni naložilo. Vklopi JavaScript ali znova naloži stran, da dokončaš registracijo.',
     ],
 
     'divider' => 'ali',
@@ -52,8 +54,12 @@ return [
 
     'verify_email' => [
         'intro' => 'Hvala za registracijo! Preden začneš, potrdi svoj e-poštni naslov s klikom na povezavo, ki smo ti jo pravkar poslali. Če e-pošta ni prispela, ti bomo z veseljem poslali novo.',
-        'link_sent' => 'Nova povezava za potrditev je bila poslana na e-poštni naslov, naveden ob registraciji.',
+        'link_sent' => 'Nova povezava za potrditev je bila poslana na tvoj trenutni e-poštni naslov.',
         'resend' => 'Znova pošlji potrditveno e-pošto',
+        'confirmed' => 'Tvoj e-poštni naslov je potrjen.',
+        'link_expired' => 'Ta povezava za potrditev je potekla. Spodaj zahtevaj novo.',
+        'throttled' => 'Novo povezavo lahko zahtevaš čez :minutes min.',
+        'notice_changed_address' => 'Potrdi svoj novi e-poštni naslov :email, da boš lahko objavljal, komentiral, glasoval in sledil drugim. Če nimaš povezave, zahtevaj novo.',
     ],
 
     'social' => [

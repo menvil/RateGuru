@@ -3,6 +3,18 @@
         {{ __('auth.verify_email.intro') }}
     </div>
 
+    @if (session('status') === 'verification-link-expired')
+        <div class="mb-4 font-medium text-sm text-red-600" role="alert" data-testid="verification-link-expired">
+            {{ __('auth.verify_email.link_expired') }}
+        </div>
+    @endif
+
+    @if (filled(session('verification_wait')))
+        <div class="mb-4 font-medium text-sm text-red-600" role="alert" data-testid="verification-wait">
+            {{ session('verification_wait') }}
+        </div>
+    @endif
+
     @if (session('status') == 'verification-link-sent')
         <div class="mb-4 font-medium text-sm text-green-600">
             {{ __('auth.verify_email.link_sent') }}

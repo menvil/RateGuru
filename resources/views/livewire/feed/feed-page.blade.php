@@ -77,15 +77,15 @@
         <section
             x-ref="feedScroll"
             class="{{ $splitMode
-                ? 'min-w-0 lg:border-r lg:border-rg-border lg:pr-5'
+                ? 'min-w-0 lg:border-e lg:border-rg-border lg:pe-5'
                 : 'mx-auto min-w-0 max-w-[820px]' }}"
             data-testid="feed-layout"
         >
             @if(filled($tag))
                 <div class="mb-4 flex flex-wrap items-center gap-2" data-testid="feed-tag-filter">
                     <span class="text-[13px] text-rg-muted">{{ __('ui.feed.tag_filter') }}</span>
-                    <span class="inline-flex items-center gap-0.5 rounded-rgPill border border-rg-accentBorder bg-rg-accentSoft pl-2.5 pr-0.5 text-xs leading-5 font-semibold text-rg-text">
-                        <span data-testid="feed-tag-filter-name">#{{ $tag }}</span>
+                    <span class="inline-flex items-center gap-0.5 rounded-rgPill border border-rg-accentBorder bg-rg-accentSoft ps-2.5 pe-0.5 text-xs leading-5 font-semibold text-rg-text">
+                        <span data-testid="feed-tag-filter-name" dir="auto">#{{ $tag }}</span>
                         <a
                             href="{{ $this->urlWithoutTag() }}"
                             wire:navigate
@@ -119,8 +119,8 @@
                                         color="purple"
                                     />
                                     <span class="min-w-0">
-                                        <span class="block truncate text-sm font-semibold text-rg-text">{{ $matchedUser->resolved_display_name }}</span>
-                                        <span class="block truncate text-xs text-rg-muted">{{ '@'.$matchedUser->username }}</span>
+                                        <span {{ \App\Support\Locale\WrittenText::dir($matchedUser->resolved_display_name) }} class="block w-fit max-w-full truncate text-sm font-semibold text-rg-text">{{ $matchedUser->resolved_display_name }}</span>
+                                        <span class="block truncate text-xs text-rg-muted"><bdi>{{ '@'.$matchedUser->username }}</bdi></span>
                                     </span>
                                 </a>
                             </li>
@@ -145,7 +145,7 @@
             <aside
                 x-ref="detailScroll"
                 data-testid="post-detail-column"
-                class="hidden min-w-0 lg:block lg:sticky lg:top-[80px] lg:max-h-[calc(100vh-100px)] lg:overflow-y-auto lg:pl-5 lg:pr-5"
+                class="hidden min-w-0 lg:block lg:sticky lg:top-[80px] lg:max-h-[calc(100vh-100px)] lg:overflow-y-auto lg:ps-5 lg:pe-5"
             >
                 <livewire:feed.post-drawer
                     :post-id="$selectedPostId"

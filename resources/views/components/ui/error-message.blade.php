@@ -6,7 +6,7 @@
 <section
     role="alert"
     {{ $attributes->merge([
-        'class' => 'w-full rounded-rgCard border border-rg-dangerBorder bg-rg-dangerSoft px-5 py-4 text-left shadow-rgPopover',
+        'class' => 'w-full rounded-rgCard border border-rg-dangerBorder bg-rg-dangerSoft px-5 py-4 text-start shadow-rgPopover',
     ]) }}
 >
     <div class="flex gap-3">

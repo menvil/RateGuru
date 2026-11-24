@@ -1,12 +1,15 @@
 <?php
 
 use App\Actions\Auth\RegisterUserAction;
+use App\Actions\Auth\ScreenRegistrationAction;
 use App\Actions\Moderation\MarkUserTrustedAction;
 use App\Actions\Users\GenerateUniqueUsernameAction;
 use App\Enums\UserRole;
 use App\Enums\UserStatus;
 use App\Models\User;
+use App\Support\Auth\AuthSurfaceContext;
 use Illuminate\Database\QueryException;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Notification;
 
 test('registration screen can be rendered', function () {
@@ -178,3 +181,42 @@ test('counts registrations on their own, so reset links asked for from the same 
 
     $this->assertAuthenticated();
 });
+
+test('keeps the password out of the call arguments a failed sign-up reports', function () {
+    Event::listen('eloquent.creating: '.User::class, function (): void {
+        throw new QueryException((string) config('database.default'), 'insert into users', [], new PDOException('server has gone away'));
+    });
+
+    $values = reportedCallArguments(fn () => $this->withoutExceptionHandling()->post('/register', [
+        'name' => 'Ada',
+        'email' => 'ada@example.test',
+        'password' => 'a-long-password',
+        'password_confirmation' => 'a-long-password',
+    ]));
+
+    // The address is there, so the frames did carry their arguments.
+    expect($values)->toContain('ada@example.test')
+        ->and($values)->not->toContain('a-long-password');
+});
+
+test('keeps the password out of the call arguments when it cannot be hashed', function () {
+    $password = "long-enough\0password";
+
+    $values = reportedCallArguments(fn () => app(RegisterUserAction::class)->execute([
+        'name' => 'Ada',
+        'email' => 'ada@example.test',
+        'password' => $password,
+    ]));
+
+    expect($values)->not->toContain($password);
+});
+
+test('marks the whole sign-up form as sensitive wherever it is passed', function (string $class, string $method) {
+    $form = (new ReflectionMethod($class, $method))->getParameters()[0];
+
+    expect($form->getAttributes(SensitiveParameter::class))->toHaveCount(1);
+})->with([
+    'creating the account' => [RegisterUserAction::class, 'execute'],
+    'screening the sign-up' => [ScreenRegistrationAction::class, 'execute'],
+    'reading the surface' => [AuthSurfaceContext::class, 'fromInput'],
+]);
