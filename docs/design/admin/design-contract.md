@@ -1469,7 +1469,8 @@ start. The architecture is `docs/architecture/analytics.md`; the operator guide 
 - **Overview:** eight figures (Visitors, New visitors, Game starters, Game completers, Accounts created, Activated
   users — a Too early badge while accounts can still activate — Visitor → registration, Visitor → activation), the
   first six with “+18% vs the previous 30 days”; the acquisition funnel of eight steps with Of previous and Of
-  visitors and See an example journey; Visitors per hour, day or week as bars with their markers; Traffic sources
+  visitors and See an example journey; Visitors per hour, day or week as bars with their markers, on a scale of round
+  values, with a readout line of the busiest bar or the one pointed at, tapped or arrowed to; Traffic sources
   (Source · medium, group badge, Attribution basis, Visitors, Started, Completed, Registered, Activated; Sort; a row
   filters the page, the chosen one sunken; Other referrals; All sources); Referral performance; Data notes; Tracking
   with Tracking settings.

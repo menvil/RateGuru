@@ -113,14 +113,20 @@ reads the visitors each version was given.
   step counts people, not attempts. **See an example journey** opens one of the
   funnel's people on the Journeys tab.
 - **Visitors per hour, day or week**: one day by the hour, up to 31 days by the
-  day, longer periods by blocks of 7 days. Today's hours not yet begun say
-  "still to come" instead of a count. Marked days say what happened: a
-  version published, a paid campaign's first click, a comparison started.
+  day, longer periods by blocks of 7 days, on a scale of round values. The line
+  above the bars names the busiest one with its count; point at a bar, tap it
+  or drag a finger across, or focus the chart and use the arrow keys (Home,
+  End, Escape), and it reads that bar's exact count out. Today's hours not yet
+  begun say "still to come" instead of a count and are drawn as a dotted foot,
+  apart from an hour of nobody. Marked days say what happened: a version
+  published, a paid campaign's first click, a comparison started.
 - **Traffic sources**: the ten sources the most people came from, then "Other
   referrals", with starts, completions, accounts and activations; **Attribution
   basis** says how each was recognised (a tagged link, the referrer, or both, or
   a paid source's own link). A registration rate well below the table's is
   marked. Click a row to filter the whole page by it, click again to clear it.
+  It counts every source, for the period and the device, and says so while a
+  source or a campaign is chosen.
   **Sort** by visitors or a rate.
 - **Referral performance**: share clicks on game results, results shared, the
   visits that came through a shared result, and how far those visitors went. A

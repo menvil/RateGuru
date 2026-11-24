@@ -78,6 +78,38 @@ it('draws the shell and Overview at every width, never wider than the screen', f
     $page->assertNoJavaScriptErrors();
 })->with([1440, 1280, 1024, 390]);
 
+it('reads out the busiest day, then the count of the column pointed at, arrowed to or tapped, on a scale of round values', function (int $width) {
+    $page = visitAnalytics('/admin/analytics?period=7d', $width);
+    $readout = fn (): string => trim((string) $page->script("document.querySelector('[data-testid=\"analytics-chart-readout\"]').textContent"));
+    $busiest = now()->subDays(2)->format('D d M Y');
+
+    expect($readout())->toBe('Busiest: '.$busiest.' · 61 visitors')
+        ->and($page->script("[...document.querySelectorAll('.rg-admin-analytics__axis-value')].map((value) => value.textContent.trim())"))->toBe(['20', '40', '60', '80'])
+        ->and($page->script('document.documentElement.scrollWidth > window.innerWidth'))->toBeFalse();
+
+    // The busiest column is the fifth of seven: pointed at on a desktop, tapped on a phone.
+    if ($width > 600) {
+        $page->hover('.rg-admin-analytics__bar:nth-child(5)');
+    } else {
+        $page->click('.rg-admin-analytics__bar:nth-child(5)');
+    }
+
+    waitForScript($page, "document.querySelector('[data-testid=\"analytics-chart-readout\"]').textContent.trim() === ".json_encode($busiest.' · 61 visitors'));
+
+    // From the keyboard: Home, then one column on; Escape goes back to the busiest.
+    $page->script("document.querySelector('.rg-admin-analytics__field').focus()");
+    $page->keys(':focus', 'Home');
+    $page->keys(':focus', 'ArrowRight');
+
+    expect($readout())->toBe(now()->subDays(5)->format('D d M Y').' · 0 visitors')
+        ->and($page->script("document.querySelectorAll('.rg-admin-analytics__bar--chosen').length"))->toBe(1);
+
+    $page->keys(':focus', 'Escape');
+
+    expect($readout())->toBe('Busiest: '.$busiest.' · 61 visitors');
+    $page->assertNoJavaScriptErrors();
+})->with([1440, 390]);
+
 it('changes the period, the device and the source, with the chip and a source row, and sorts the sources', function () {
     $page = visitAnalytics('/admin/analytics');
     // The first day carries its year only when the range crosses into another, as the top bar writes it.

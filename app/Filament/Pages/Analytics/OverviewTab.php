@@ -18,6 +18,7 @@ use App\Support\Analytics\AnalyticsFilter;
 use App\Support\Analytics\AnalyticsPeriod;
 use App\Support\Analytics\AnalyticsSource;
 use App\Support\Analytics\CampaignKey;
+use App\Support\Analytics\ChartScale;
 use App\Support\Analytics\FigureChange;
 use App\Support\Analytics\VisitorFigures;
 use App\Support\Traffic\Money\TrafficMoney;
@@ -87,6 +88,9 @@ final class OverviewTab implements AnalyticsTab
             'funnel' => ['note' => ($scope === '' ? '' : $scope.' · ').$period->label().'. Each step counts unique visitors, not attempts. Sign-ups, accounts and activations are shares of new visitors.', 'steps' => self::funnel($figures)],
             'chart' => $this->chart($filter, $scope),
             'sources' => $this->sources($table, $all, $quality, $names, $filter->sourceKey, (string) $page->sort),
+            // The table counts every source, and says so while one is chosen: no filter is ever silently ignored.
+            'sourcesNote' => ($filter->narrowsSource() ? 'Every source, for the period and the device, whatever source or campaign is chosen. ' : '')
+                .'Click a source to filter the whole page. Start rate uses visitors; registration and activation use new visitors.',
             'referral' => $this->referral($base, $table),
             'notes' => self::notes($quality),
             'tracking' => $this->tracking(),
@@ -160,7 +164,12 @@ final class OverviewTab implements AnalyticsTab
      * so instead — each bucket marked dark when something happened on it,
      * with the legend of what did.
      *
-     * @return array{title: string, note: string, bars: list<array{height: float, title: string, marked: bool}>, ticks: list<string>, markers: list<string>, dense: bool}
+     * A scale of round values says how many the bars stand for, the busiest
+     * bucket is named, and pointing at a bar, tapping it or arrowing through
+     * them reads its own count out — an hour still to come drawn apart from
+     * an hour of nobody.
+     *
+     * @return array{title: string, note: string, bars: list<array{height: float, title: string, marked: bool, toCome: bool}>, scale: list<array{value: string, at: float}>, peak: string, ticks: list<string>, markers: list<string>, dense: bool}
      */
     private function chart(AnalyticsFilter $filter, string $scope): array
     {
@@ -182,7 +191,9 @@ final class OverviewTab implements AnalyticsTab
             }
         }
 
-        $max = max(1, ...$counts);
+        $busiest = max(0, ...$counts);
+        $scale = ChartScale::of($busiest);
+        $peak = array_search($busiest, $counts, true);
         $unit = $period->unit();
         $each = match ($unit) {
             AnalyticsPeriod::HOUR => 'A visitor in two hours counts in each.',
@@ -193,12 +204,15 @@ final class OverviewTab implements AnalyticsTab
 
         return [
             'title' => 'Visitors per '.$unit,
-            'note' => $period->range().($scope === '' ? '' : ' · '.$scope).'. '.$each.' Hover a bar for the exact count.',
+            'note' => $period->range().($scope === '' ? '' : ' · '.$scope).'. '.$each.' Point at or tap a bar, or arrow through them, for its exact count.',
             'bars' => array_map(fn (int $index, array $bucket): array => [
-                'height' => round($counts[$index] / $max * 100, 1),
-                'title' => $bucket['hint'].' · '.($bucket['toCome'] ? 'still to come' : self::count($counts[$index]).($counts[$index] === 1 ? ' visitor' : ' visitors')).(isset($marked[$index]) ? ' · '.implode(' · ', $marked[$index]) : ''),
+                'height' => $scale->height($counts[$index]),
+                'title' => $bucket['hint'].' · '.($bucket['toCome'] ? 'still to come' : self::visitors($counts[$index])).(isset($marked[$index]) ? ' · '.implode(' · ', $marked[$index]) : ''),
                 'marked' => isset($marked[$index]),
+                'toCome' => (bool) $bucket['toCome'],
             ], array_keys($buckets), $buckets),
+            'scale' => array_map(fn (int $line): array => ['value' => self::count($line), 'at' => $scale->height($line)], $scale->lines),
+            'peak' => $busiest === 0 || $peak === false ? 'Nobody in these '.$unit.'s yet' : 'Busiest: '.$buckets[$peak]['hint'].' · '.self::visitors($busiest),
             'ticks' => array_values(array_unique([$buckets[0]['label'], $buckets[intdiv($last, 2)]['label'], $buckets[$last]['label']])),
             'markers' => array_map(fn (array $marker): string => $marker['at']->format($unit === AnalyticsPeriod::HOUR ? 'H:i' : 'd M').' · '.$marker['text'], $markers),
             'dense' => count($buckets) > 20,
@@ -415,6 +429,11 @@ final class OverviewTab implements AnalyticsTab
     private static function count(int $count): string
     {
         return number_format($count);
+    }
+
+    private static function visitors(int $count): string
+    {
+        return self::count($count).($count === 1 ? ' visitor' : ' visitors');
     }
 
     private static function percent(?float $rate, string $none = '—'): string
