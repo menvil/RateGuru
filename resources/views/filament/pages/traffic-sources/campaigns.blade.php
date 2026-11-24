@@ -165,7 +165,7 @@
                             </span>
                             <span role="cell" class="rg-admin-traffic__perf-label">
                                 <span>{{ $row['countries'] ?? ($row['new'] && ! $row['synced'] ? 'Not set yet' : 'Every country') }}</span>
-                                <span class="rg-admin-traffic__note">{{ $row['new'] ? 'First seen '.$row['since']->format('j M H:i') : implode(' · ', array_filter([$row['devices'], $row['format']])) }}</span>
+                                <span class="rg-admin-traffic__note">{{ $row['new'] && ! $row['synced'] ? 'First seen '.$row['since']->format('j M H:i') : implode(' · ', array_filter([$row['devices'], $row['format']])) }}</span>
                             </span>
                             <span role="cell" class="rg-admin-traffic__perf-label">
                                 <x-admin.ui.badge :tone="$stageTone[$row['stage']] ?? 'outline'">{{ $stages[$row['stage']] ?? ucfirst($row['stage']) }}</x-admin.ui.badge>

@@ -511,7 +511,9 @@ final class TrafficSourcesPage extends Page
 
     /**
      * The sites and zones ticked, grouped by source and level, each source
-     * read once.
+     * read once, each group split into batches of as many as the actions take
+     * at a time (MOST_REFS): Select all ticks every row that matches, however
+     * many.
      *
      * @return list<array{source: TrafficSource, level: TrafficBlockLevel, refs: list<string>}>
      */
@@ -533,8 +535,12 @@ final class TrafficSourcesPage extends Page
             $source = $sources->get($group['source']);
             $level = TrafficBlockLevel::tryFrom($group['level']);
 
-            if ($source !== null && $level !== null) {
-                $out[] = ['source' => $source, 'level' => $level, 'refs' => array_values(array_unique($group['refs']))];
+            if ($source === null || $level === null) {
+                continue;
+            }
+
+            foreach (array_chunk(array_values(array_unique($group['refs'])), BlockTrafficRefsAction::MOST_REFS) as $refs) {
+                $out[] = ['source' => $source, 'level' => $level, 'refs' => $refs];
             }
         }
 

@@ -1,5 +1,6 @@
 <?php
 
+use App\Actions\Traffic\BlockTrafficRefsAction;
 use App\Actions\Traffic\EnterSpendAction;
 use App\Enums\TrafficActor;
 use App\Enums\TrafficBlockLevel;
@@ -270,6 +271,43 @@ it('pushes the ticked blocks again to the network from Blocked', function () {
         ->assertSet('selected', []);
 
     expect($block->fresh())->network_state->toBe(TrafficBlockNetworkState::Pending)->network_error->toBeNull();
+});
+
+it('pushes again and blocks every site Select all ticks, more than one batch holds, a batch at a time', function () {
+    $this->source->forceFill(['connector' => TrafficConnector::PopAds, 'block_level' => TrafficBlockLevel::Site])->save();
+    TrafficApiConnection::factory()->create(['source_id' => $this->source->id]);
+    $many = BlockTrafficRefsAction::MOST_REFS + 1;
+    TrafficBlock::factory()->count($many)->sequence(fn ($sequence): array => ['ref' => (string) (80001 + $sequence->index)])
+        ->create(['source_id' => $this->source->id, 'level' => TrafficBlockLevel::Site, 'method' => 'api', 'network_state' => TrafficBlockNetworkState::Failed, 'network_error' => 'rejected']);
+    TrafficVisit::factory()->count($many)->sequence(fn ($sequence): array => ['site_ref' => (string) (90001 + $sequence->index)])
+        ->create(['source_id' => $this->source->id, 'arrived_at' => '2026-11-16 10:00:00', 'network_day' => '2026-11-16', 'opened_at' => now(), 'spend' => '0.01']);
+
+    $page = Livewire::withQueryParams(['view' => 'sites', 'list' => 'site', 'seg' => 'blocked'])->test(TrafficSourcesPage::class)->call('load')
+        ->call('selectMatching')
+        ->assertCount('selected', $many)
+        ->call('pushSelected')
+        ->assertSet('selected', [])
+        ->assertDispatched('rg-admin-toast', message: $many.' sent to the network again.');
+
+    $batches = fn (): array => TrafficBlockEvent::query()->where('kind', 'queued')->get()->groupBy('note')
+        ->map(fn ($lines): array => $lines->pluck('ref_count')->sort()->values()->all())->all();
+
+    // Each batch a line of its own in the log, as one push of so many would write.
+    expect(TrafficBlock::query()->where('network_state', TrafficBlockNetworkState::Pending)->count())->toBe($many)
+        ->and($batches())->toBe(['Sent to the network’s list again' => [1, BlockTrafficRefsAction::MOST_REFS]]);
+
+    $page->set('segment', 'all')
+        ->call('selectMatching')
+        ->assertCount('selected', $many)
+        ->call('blockSelected')
+        ->assertSet('selected', [])
+        ->assertDispatched('rg-admin-toast', message: $many.' queued for the network.');
+
+    expect(TrafficBlock::query()->where('ref', 'like', '9%')->where('network_state', TrafficBlockNetworkState::Pending)->count())->toBe($many)
+        ->and($batches())->toBe([
+            'Sent to the network’s list again' => [1, BlockTrafficRefsAction::MOST_REFS],
+            'Waiting to be added to the network’s list' => [1, BlockTrafficRefsAction::MOST_REFS],
+        ]);
 });
 
 it('never ticks a row that is not a site or zone key', function () {
@@ -849,7 +887,8 @@ it('lays out Campaigns: the new campaign to set up, the link with samples, the l
         ->assertDontSeeHtml('<button type="button" class="rg-admin-traffic__camp-row');
 
     $page->set('stage', 'scale')->assertSee('TYT push')->assertDontSee('New campaign 881377')
-        ->set('stage', 'new')->assertSee('New campaign 881377')
+        // Never read from an API: when it was first seen stands where its targeting will.
+        ->set('stage', 'new')->assertSeeInOrder(['New campaign 881377', 'Not set yet', 'First seen 17 Nov 12:00'])
         ->call('openCampaign', $new->id)->assertSet('camp', (string) $new->id)
         // A network's campaign, its type and its sites ticked: none of it the banner's, so its report drops them.
         ->set('campaignId', (string) $scaling->id)->set('type', 'network')->set('selected', [$network->id.':site:47494'])
@@ -858,7 +897,7 @@ it('lays out Campaigns: the new campaign to set up, the link with samples, the l
 });
 
 it('shows a new campaign the network API read by its name and targeting, leaving only its stage to choose', function () {
-    TrafficCampaign::factory()->create(['source_id' => $this->source->id, 'external_id' => '9612052', 'status' => 'new', 'name' => 'PopAds - Tabup/Mobile/All countries - #9612052', 'countries' => null, 'synced_at' => '2026-11-16 09:00:00']);
+    TrafficCampaign::factory()->create(['source_id' => $this->source->id, 'external_id' => '9612052', 'status' => 'new', 'name' => 'PopAds - Tabup/Mobile/All countries - #9612052', 'countries' => null, 'devices' => ['mobile'], 'format' => 'Popunder', 'first_click_at' => '2026-11-16 08:00:00', 'synced_at' => '2026-11-16 09:00:00']);
 
     $page = Livewire::withQueryParams(['tab' => 'campaigns'])->test(TrafficSourcesPage::class)->call('load')
         ->assertSee('PopAds main campaign “PopAds - Tabup/Mobile/All countries - #9612052” is new')
@@ -866,7 +905,10 @@ it('shows a new campaign the network API read by its name and targeting, leaving
         ->assertSee('Choose its stage')
         ->assertDontSee('Set it up')
         ->assertDontSee('New campaign 9612052')
-        ->assertDontSee('Not set yet');
+        ->assertDontSee('Not set yet')
+        // The targeting the API read, the day it was first seen kept in its stage rather than in place of it.
+        ->assertSeeHtmlInOrder(['PopAds - Tabup/Mobile/All countries - #9612052', 'Every country', 'Phones only · Popunder', 'New', 'since 16 Nov'])
+        ->assertDontSee('First seen');
     $row = collect($page->viewData('campaignGroups'))->flatMap(fn (array $group): array => $group['rows'])->firstWhere('name', 'PopAds - Tabup/Mobile/All countries - #9612052');
 
     expect($row)->toMatchArray(['new' => true, 'synced' => true, 'countries' => null, 'stage' => 'new']);

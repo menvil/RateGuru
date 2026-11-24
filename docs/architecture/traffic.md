@@ -415,8 +415,11 @@ the running campaigns RateGuru's own blocks are still to be sent to
 again never frees room under the cap the same day. Sites & zones lists a block
 in force that sent no click in the period too, with no figures, while the
 filters go no narrower than the source, so its Blocked segment matches the
-pane. When the rule last ran is kept in the cache
-(`TrafficSetting::blockRuleRanAt()`), not on the settings row, whose saves are
+pane. Its Select all ticks every row that matches, however many; Block and
+Push again split the ticks by source and level, and each group into batches
+of `BlockTrafficRefsAction::MOST_REFS` (200), the most the action takes at a
+time, each batch its own transaction and line of the log. When the rule last
+ran is kept in the cache (`TrafficSetting::blockRuleRanAt()`), not on the settings row, whose saves are
 held to their `lock_version`.
 
 ### Where a block stands on the network
