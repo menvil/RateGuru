@@ -1,0 +1,27 @@
+app/Services/Traffic/Connectors/PopAdsConnector.php
+  s_4b9dc6ab6b25d3::t_13c30d0b334451 341,355-357
+tests/Feature/Traffic/TrafficConnectorsTest.php
+  s_4b9dc6ab6b25d3::t_55f3476ca407dd 1234-1240,1242-1260,1262-1299
+  s_4b9dc6ab6b25d3::t_7ba9967ffe1afe 1241,1261
+docs/architecture/traffic.md
+  s_4b9dc6ab6b25d3::t_fd8e2ca53fcf88 310-312,537-542,563-565
+app/Actions/Traffic/ReadTrafficBlockListsAction.php
+  s_4b9dc6ab6b25d3::t_3d40edba3c290a 233-251
+  s_4b9dc6ab6b25d3::t_fe1cc11f35dbee 71-73,85,100,102,104,116-117,123,159,162,173-177,256-257,280-282
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "db7e6b08732c4be52089a2150ea8138c438b3f94",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
