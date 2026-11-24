@@ -72,7 +72,7 @@ it('uses feed-card title and description sizing on post show page', function () 
         ->assertSee('text-[13px] leading-snug', false);
 });
 
-it('renders post show comments header with count and top sort', function () {
+it('renders post show comments header with count and the newest-first sort', function () {
     $post = Post::factory()->published()->create([
         'comments_count' => 0,
     ]);
@@ -80,8 +80,7 @@ it('renders post show comments header with count and top sort', function () {
     $this->get(route('posts.show', $post))
         ->assertOk()
         ->assertSee('Comments (0)')
-        ->assertSee('data-testid="comments-sort-trigger"', false)
-        ->assertSee('Top');
+        ->assertSeeInOrder(['data-testid="comments-sort-trigger"', 'Newest', 'Top'], false);
 });
 
 it('has post show comment scroll action', function () {

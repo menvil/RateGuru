@@ -39,7 +39,8 @@ final class CommentsSection extends Component
     #[Locked]
     public int $visibleCount = 5;
 
-    public string $commentSort = 'top';
+    /** Newest first by default; replies under each comment stay in the order they were written. */
+    public string $commentSort = 'newest';
 
     public ?int $replyingTo = null;
 
@@ -201,9 +202,9 @@ final class CommentsSection extends Component
             return;
         }
 
-        // Surface the freshly posted comment: under "top"/"hot" sorting a new
-        // comment with zero votes lands at the bottom of the list, invisible
-        // to its author.
+        // Surface the freshly posted comment: under "top"/"hot", chosen by the
+        // viewer, a new comment with zero votes lands at the bottom of the
+        // list, invisible to its author.
         $isTopLevel = $commentId !== null && Comment::query()
             ->whereKey($commentId)
             ->whereNull('parent_id')

@@ -1,7 +1,7 @@
 @php
     $sortLabels = [
-        'top' => __('ui.comments.sort.top'),
         'newest' => __('ui.comments.sort.newest'),
+        'top' => __('ui.comments.sort.top'),
         'hot' => __('ui.comments.sort.hot'),
     ];
 @endphp
@@ -25,7 +25,7 @@
                     aria-controls="comments-sort-menu"
                     x-bind:aria-expanded="open"
                 >
-                    {{ $sortLabels[$commentSort] ?? $sortLabels['top'] }}
+                    {{ $sortLabels[$commentSort] ?? $sortLabels['newest'] }}
                     <x-ui.icon name="chevron-down" class="size-3.5" />
                 </button>
 

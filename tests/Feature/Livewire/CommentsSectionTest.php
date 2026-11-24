@@ -191,6 +191,24 @@ it('has comments loading state markup', function () {
         ->assertSee('wire:loading', false);
 });
 
+it('opens on the newest comments, above better-liked older ones, with Newest first in the menu and replies kept in the order they were written', function () {
+    $post = Post::factory()->published()->create();
+    $liked = Comment::factory()->for($post)->create(['body' => 'Older and liked', 'status' => CommentStatus::Visible, 'upvotes_count' => 40, 'created_at' => now()->subDay()]);
+    Comment::factory()->for($post)->create(['body' => 'Newer, no votes yet', 'status' => CommentStatus::Visible, 'created_at' => now()]);
+    Comment::factory()->for($post)->create(['body' => 'First reply', 'parent_id' => $liked->id, 'status' => CommentStatus::Visible, 'created_at' => now()->subHours(20)]);
+    Comment::factory()->for($post)->create(['body' => 'Second reply', 'parent_id' => $liked->id, 'status' => CommentStatus::Visible, 'created_at' => now()->subHours(2)]);
+
+    $component = Livewire::test(CommentsSection::class, ['postId' => $post->id])->assertSet('commentSort', 'newest');
+    $html = $component->html();
+    $trigger = substr($html, (int) strpos($html, 'data-testid="comments-sort-trigger"'), 600);
+    $menu = substr($html, (int) strpos($html, 'id="comments-sort-menu"'));
+
+    expect(strpos($html, 'Newer, no votes yet'))->toBeLessThan(strpos($html, 'Older and liked'))
+        ->and(strpos($html, 'First reply'))->toBeLessThan(strpos($html, 'Second reply'))
+        ->and($trigger)->toContain('Newest')
+        ->and(strpos($menu, 'Newest'))->toBeLessThan(strpos($menu, 'Top'));
+});
+
 it('renders newest top level comments first', function () {
     $post = Post::factory()->published()->create();
 

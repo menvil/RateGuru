@@ -66,6 +66,10 @@ filter, so hidden/deleted replies never load. Sorting is unchanged:
 tombstone roots keep their stored counters and thread position (`top`/`hot`
 still order by the root's own vote counters — no reply-aggregate ranking).
 
+A thread opens newest first (`CommentsSection::$commentSort`); Top and Hot
+are the viewer's to choose, for that page view. Replies under a root always
+read in the order they were written, whatever the roots' order.
+
 ## Race matrix (all row-locked)
 
 - **Hide, then author delete** — allowed; author deletion is the final
