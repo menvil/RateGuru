@@ -1,0 +1,44 @@
+app/Actions/Traffic/BlockTrafficRefsAction.php
+  s_4b9dc6ab6b25d3::t_e81f7dae02d582 167
+  s_4b9dc6ab6b25d3::t_f8fd54c2efaf68 84
+  s_4b9dc6ab6b25d3::t_ee923c34bbc5a2 199
+tests/Feature/Traffic/TrafficReportPageTest.php
+  s_4b9dc6ab6b25d3::t_025f755af8a4d6 313-337
+app/Actions/Traffic/ApplyTrafficBlocksAction.php
+  s_4b9dc6ab6b25d3::t_b5ac4d2d911909 211-214
+  s_4b9dc6ab6b25d3::t_d788f1fce70383 229,236-239
+  s_4b9dc6ab6b25d3::t_c2cf9b7b1bae35 175-180
+app/Filament/Pages/TrafficSourcesPage.php
+  s_4b9dc6ab6b25d3::t_b6a04c2a83660c 1253
+  s_4b9dc6ab6b25d3::t_265c1f7c46adf1 1254
+  s_4b9dc6ab6b25d3::t_78fd0cd1a5c352 79-81
+  s_4b9dc6ab6b25d3::t_06795fb1ffc97e 400
+database/migrations/2026_11_24_100000_add_request_version_to_traffic_blocks_table.php
+  s_4b9dc6ab6b25d3::t_e6b4a4d7d338d7 1-35
+tests/Feature/Traffic/TrafficConnectorsTest.php
+  s_4b9dc6ab6b25d3::t_6996c0e92953ac 1583,1592,1621
+  s_4b9dc6ab6b25d3::t_aee3a552577196 1570-1582,1584-1591,1593-1620,1622-1643
+app/Models/TrafficBlock.php
+  s_4b9dc6ab6b25d3::t_0d27153435531e 60
+  s_4b9dc6ab6b25d3::t_250e87631a5842 32
+docs/architecture/traffic.md
+  s_4b9dc6ab6b25d3::t_34bb23af748ce0 472-482
+app/Actions/Traffic/QueueMissingTrafficBlocksAction.php
+  s_4b9dc6ab6b25d3::t_1ac493d6df0935 78
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "02600c2afad3c9b5787fc6951705fe754957b1da",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
