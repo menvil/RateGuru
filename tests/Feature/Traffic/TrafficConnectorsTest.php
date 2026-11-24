@@ -30,6 +30,7 @@ use App\Models\TrafficVisit;
 use App\Models\User;
 use App\Queries\Traffic\TrafficBlocksQuery;
 use App\Services\Traffic\Connectors\BlockListsRead;
+use App\Services\Traffic\Connectors\ConnectorRegistry;
 use App\Services\Traffic\Connectors\ConnectorSession;
 use App\Services\Traffic\Connectors\ReadsBlockLists;
 use Carbon\CarbonImmutable;
@@ -53,6 +54,13 @@ beforeEach(function () {
 
 afterEach(function () {
     Http::assertNotSent(fn (Request $request): bool => collect(POPADS_MONEY_CALLS)->contains(fn (string $call): bool => str_contains($request->url(), $call)));
+});
+
+it('holds PopAds as checked on a real account, its spend read matching its own panel to the cent, and ExoClick not yet', function () {
+    $registry = app(ConnectorRegistry::class);
+
+    expect($registry->verified(TrafficConnector::PopAds))->toBeTrue()
+        ->and($registry->verified(TrafficConnector::ExoClick))->toBeFalse();
 });
 
 it('connects PopAds with a key it checked, kept encrypted', function () {
@@ -1999,6 +2007,7 @@ it('takes a block off the network before it goes, leaves one already going alone
 });
 
 it('blocks by itself the sites the rule calls bots, within the day’s cap, only with a verified API', function () {
+    config(['traffic_presets.connectors.popads.verified' => false]);
     TrafficApiConnection::factory()->create(['source_id' => $this->popads->id, 'next_sync_at' => now()->addHour()]);
     // Its sites have a few dozen clicks each: it judges bots from 30, not the general 100.
     $this->popads->forceFill(['block_auto' => true, 'block_daily_cap' => 2, 'block_bot_clicks' => 30])->save();

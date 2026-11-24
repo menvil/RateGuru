@@ -293,7 +293,8 @@ return [
             'credential_label' => 'API key',
             'credential_help' => 'PopAds → Account → API',
             'promise' => ':site only reads statistics and campaigns and edits website exclusion lists; it never changes bids, budgets or funds.',
-            'verified' => false,
+            // Checked on the owner's account: impressions and spend by day and campaign matched PopAds' own report (UTC) to the cent.
+            'verified' => true,
         ],
     ],
 
