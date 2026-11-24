@@ -16,9 +16,27 @@
 @endphp
 
 @if ($locales->offersChoice())
-<div x-data="{ open: false }" class="relative shrink-0" @click.outside="open = false" @keydown.escape.window="open = false" data-testid="language-switcher">
+{{-- Opened from its start edge, after a long site name, the list can reach past the far side of a narrow screen: it is drawn back by that much and no more. --}}
+<div
+    x-data="{
+        open: false,
+        drawnBack: 0,
+        keepOnScreen() {
+            const trigger = this.$refs.trigger.getBoundingClientRect();
+            const width = this.$refs.list.offsetWidth;
+            const rtl = getComputedStyle(this.$refs.trigger).direction === 'rtl';
+            const past = rtl ? 8 - (trigger.right - width) : trigger.left + width - (document.documentElement.clientWidth - 8);
+            this.drawnBack = Math.max(0, past);
+        },
+    }"
+    class="relative shrink-0"
+    @click.outside="open = false"
+    @keydown.escape.window="open = false"
+    data-testid="language-switcher"
+>
     <button
         type="button"
+        x-ref="trigger"
         @click="open = !open"
         aria-label="{{ __('ui.a11y.switch_language') }}"
         x-bind:aria-expanded="open.toString()"
@@ -49,8 +67,13 @@
     </button>
 
     <div
+        x-ref="list"
         x-cloak
         x-show="open"
+        @if ($align === 'start')
+            x-effect="if (open) $nextTick(() => keepOnScreen())"
+            x-bind:style="{ marginInlineStart: (-drawnBack) + 'px' }"
+        @endif
         x-transition:enter="transition ease-out duration-100"
         x-transition:enter-start="opacity-0 scale-95"
         x-transition:enter-end="opacity-100 scale-100"
