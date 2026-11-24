@@ -18746,6 +18746,22 @@
         text-align: left;
     }
 
+    /* A part of the step above it — what opened the dialog, a way to start signing up — set in under it, lighter. */
+    .rg-admin-analytics__step--sub {
+        min-height: 30px;
+        border-top-style: dashed;
+    }
+
+    .rg-admin-analytics__step--sub .rg-admin-analytics__step-name {
+        padding: 4px 0 4px var(--rg-admin-space-4);
+    }
+
+    .rg-admin-analytics__step--sub .rg-admin-analytics__step-label,
+    .rg-admin-analytics__step--sub .rg-admin-analytics__step-count {
+        font-size: var(--rg-admin-text-caption);
+        color: var(--rg-admin-text-secondary);
+    }
+
     /*
      * Compare sources: a row of sources to pick for each side, its tag
      * first, then the metrics side by side, the better figure of a row

@@ -78,6 +78,34 @@ final class RegistrationFunnelQuery
     }
 
     /**
+     * The posts the period's new visitors landed on most, by the people who
+     * landed on each, the most first, then by the post — what the funnel's
+     * landing can be narrowed to.
+     *
+     * @return array<int, int> people by post
+     */
+    public function landingPosts(AnalyticsFilter $filter, int $limit): array
+    {
+        if (! $this->gate->reads()) {
+            return [];
+        }
+
+        return $this->landed($filter, FunnelLanding::anyPost())
+            ->whereNotNull('landing_post_id')
+            ->reorder()
+            ->groupBy('landing_post_id')
+            ->select('landing_post_id')
+            ->selectRaw('COUNT(DISTINCT visitor_key) AS people', [])
+            ->orderByDesc('people')
+            ->orderBy('landing_post_id')
+            ->limit($limit)
+            ->toBase()
+            ->get()
+            ->mapWithKeys(fn (object $row): array => [(int) $row->landing_post_id => (int) $row->people])
+            ->all();
+    }
+
+    /**
      * The people what opened the dialog brought, each under every opener of their visits.
      *
      * @param  Builder<AnalyticsVisit>  $people

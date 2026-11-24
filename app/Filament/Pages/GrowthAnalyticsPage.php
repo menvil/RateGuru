@@ -31,6 +31,7 @@ use App\Support\Analytics\AnalyticsFilter;
 use App\Support\Analytics\AnalyticsPeriod;
 use App\Support\Analytics\AnalyticsSource;
 use App\Support\Analytics\CampaignKey;
+use App\Support\Analytics\FunnelLanding;
 use Carbon\CarbonImmutable;
 use Filament\Pages\Page;
 use Filament\Support\Enums\Width;
@@ -192,6 +193,10 @@ final class GrowthAnalyticsPage extends Page
     /** A campaign's key (CampaignKey), or every campaign. */
     #[Url(except: '')]
     public mixed $campaign = '';
+
+    /** Site engagement: where the registration funnel's people landed (FunnelLanding::key()), or anywhere. */
+    #[Url(except: '')]
+    public mixed $landing = '';
 
     /** Overview: what its sources table is sorted by, one of SORTS. */
     #[Url(except: 'visitors')]
@@ -837,6 +842,7 @@ final class GrowthAnalyticsPage extends Page
         $this->source = AnalyticsSource::read($this->source) ?? '';
         $this->campaign = CampaignKey::read($this->campaign) ?? '';
         $this->sort = is_string($this->sort) && array_key_exists($this->sort, self::SORTS) ? $this->sort : 'visitors';
+        $this->landing = FunnelLanding::fromKey(is_string($this->landing) ? $this->landing : null)->key();
         // The comparison is the Experiments tab's alone.
         $this->exp = $this->tab === 'experiments' && (is_int($this->exp) || is_string($this->exp)) && preg_match('/^[1-9]\d{0,17}$/', (string) $this->exp) === 1 ? (string) $this->exp : '';
 

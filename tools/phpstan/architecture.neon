@@ -176,7 +176,7 @@ parameters:
             -
                 class: App\Queries\Analytics\RegistrationFunnelQuery
                 methods: [selectRaw]
-                reason: 'Analytics → Site engagement''s registration funnel counts people, not visits: each person''s registration steps over a period''s rows summed up first (MAX(CASE WHEN … THEN 1 ELSE 0 END), grouped by the browser''s number), then the people of each step among those of the steps before it and of each main step who viewed a post (SUM(CASE WHEN …)), the people under each opener of the dialog (COUNT(DISTINCT …) grouped by auth_trigger) and under each reason a sign-up was refused ((signup_refusals & ?) <> 0, a bound bit each) — without hydrating up to millions of rows; portable, every value bound, every column named by the query.'
+                reason: 'Analytics → Site engagement''s registration funnel counts people, not visits: each person''s registration steps over a period''s rows summed up first (MAX(CASE WHEN … THEN 1 ELSE 0 END), grouped by the browser''s number), then the people of each step among those of the steps before it and of each main step who viewed a post (SUM(CASE WHEN …)), the people under each opener of the dialog and the posts landed on most (COUNT(DISTINCT …) grouped by auth_trigger, or by landing_post_id ordered by it) and under each reason a sign-up was refused ((signup_refusals & ?) <> 0, a bound bit each) — without hydrating up to millions of rows; portable, every value bound, every column named by the query.'
                 bindings: required
                 behaviorTests: [tests/Feature/Queries/RegistrationFunnelQueryTest.php]
                 status: approved

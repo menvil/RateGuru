@@ -459,3 +459,59 @@ it('reads the tab in a bounded number of queries, however many sources, posts an
         ->and($narrowed)->toBeLessThanOrEqual(24)
         ->and($many - $few)->toBeLessThanOrEqual(3);
 });
+
+/** Visitors through the registration steps, for the funnel card: four new ones and a member, one landed on the post given. */
+function registrationVisitors(int $postId): void
+{
+    analyticsVisit('ann', ['landing_key' => 'feed', 'auth_opened_at' => '2026-11-15 10:01:00', 'auth_trigger' => 'header_signup', 'register_form_at' => '2026-11-15 10:01:00', 'signup_submitted_at' => '2026-11-15 10:02:00', 'signup_at' => '2026-11-15 10:02:00', 'account_at' => '2026-11-15 11:00:00']);
+    analyticsVisit('bob', ['landing_key' => 'posts.show', 'landing_post_id' => $postId, 'auth_opened_at' => '2026-11-15 10:01:00', 'auth_trigger' => 'vote', 'register_form_at' => '2026-11-15 10:01:00', 'signup_submitted_at' => '2026-11-15 10:02:00', 'signup_refused_at' => '2026-11-15 10:02:00', 'signup_refusals' => 1]);
+    analyticsVisit('cat', ['landing_key' => 'feed', 'auth_opened_at' => '2026-11-15 10:01:00', 'auth_trigger' => 'header_login', 'social_started_at' => '2026-11-15 10:01:30', 'social_provider' => 'google', 'signup_at' => '2026-11-15 10:02:00', 'account_at' => '2026-11-15 10:02:00']);
+    analyticsVisit('dan', ['landing_key' => 'feed']);
+    analyticsVisit('eve', ['landing_key' => 'feed', 'known' => true, 'known_reason' => 'browser']);
+    fillAnalyticsRollup();
+}
+
+it('shows the registration funnel of the new visitors: each step among the people of the steps before it, what opened the dialog, the two ways to start and why sign-ups were refused', function () {
+    $post = Post::factory()->published()->create(['title' => 'A post landed on']);
+    registrationVisitors($post->id);
+
+    $card = analyticsEngagement(['period' => '7d'])['registration'];
+
+    expect(collect($card['steps'])->map(fn (array $step): array => [$step['name'], $step['count'], $step['sub']])->all())->toBe([
+        ['Landed', '4', false],
+        ['Opened sign-in or sign-up', '3', false],
+        ['A vote on a post', '1', true],
+        ['Log in in the header', '1', true],
+        ['Sign up in the header', '1', true],
+        ['Saw the registration form', '2', false],
+        ['Started signing up', '3', false],
+        ['Sent the email form', '2', true],
+        ['Went on to Google or Facebook', '1', true],
+        ['Signed up', '2', false],
+        ['Confirmed the account', '2', false],
+        ['Activated', '0', false],
+    ])
+        ->and($card['foot'])->toBe(['Signed up by any way: 2', 'Refused: Address already taken 1'])
+        ->and(collect($card['landing']['options'])->pluck('label', 'value')->all())->toBe([
+            '' => 'All landings', 'feed' => 'Home feed', 'post' => 'Any post', 'post:'.$post->id => '#'.$post->id.' A post landed on', 'other' => 'Other pages',
+        ]);
+});
+
+it('narrows the registration funnel to the people who landed where chosen, kept in the address', function () {
+    $post = Post::factory()->published()->create();
+    registrationVisitors($post->id);
+
+    $page = Livewire::withQueryParams(['tab' => 'engagement', 'period' => '7d'])->test(GrowthAnalyticsPage::class)->call('load')
+        ->set('landing', 'post:'.$post->id)
+        ->assertSet('landing', 'post:'.$post->id);
+
+    expect($page->viewData('data')['registration']['steps'][0]['count'])->toBe('1')
+        ->and($page->set('landing', 'nowhere')->get('landing'))->toBe('');
+});
+
+it('says the registration funnel waits for Analytics’ own rows', function () {
+    analyticsVisit('ann', ['landing_key' => 'feed']);
+    config(['analytics.rollup.read' => false]);
+
+    expect(analyticsEngagement(['period' => '7d'])['registration'])->toMatchArray(['ready' => false]);
+});

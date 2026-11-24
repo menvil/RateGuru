@@ -189,4 +189,34 @@
             @endif
         </x-admin.ui.card>
     @endunless
+
+    {{-- The registration funnel: the people who landed where chosen, and what they did between the sign-in dialog and an account. --}}
+    @php($registration = $data['registration'])
+    <x-admin.ui.card title="Registration funnel" :description="$registration['note']" data-testid="analytics-registration-funnel">
+        <x-slot:aside>
+            <x-admin.ui.filter-dropdown label="Landing" id="rg-admin-analytics-landing" class="rg-admin-analytics__filter" :options="$registration['landing']['options']" :value="$registration['landing']['value']" wire:model.live="landing" wire:key="analytics-landing-{{ count($registration['landing']['options']) }}-{{ $registration['landing']['value'] }}" />
+        </x-slot:aside>
+        @if ($registration['ready'])
+            <ol class="rg-admin-analytics__funnel">
+                @foreach ($registration['steps'] as $step)
+                    <li @class(['rg-admin-analytics__step', 'rg-admin-analytics__step--sub' => $step['sub']])>
+                        <span class="rg-admin-analytics__step-name">
+                            <span class="rg-admin-analytics__step-label">{{ $step['name'] }}</span>
+                            <span class="rg-admin-analytics__track" aria-hidden="true"><span @class(['rg-admin-analytics__fill', 'rg-admin-analytics__fill--strong' => $step['strong']]) style="width: {{ $step['bar'] }}%"></span></span>
+                        </span>
+                        <span class="rg-admin-analytics__step-count">{{ $step['count'] }}</span>
+                        <span class="rg-admin-analytics__step-rate">{{ $step['previous'] }}</span>
+                        <span class="rg-admin-analytics__step-first">{{ $step['first'] }}</span>
+                    </li>
+                @endforeach
+            </ol>
+            <div class="rg-admin-analytics__step rg-admin-analytics__step--head rg-admin-analytics__step--legend" aria-hidden="true">
+                <span>New visitors at each step</span>
+                <span>Count</span>
+                <span>Of the step before</span>
+                <span>Of landed</span>
+            </div>
+            <x-slot:footer data-testid="analytics-registration-foot">{{ implode(' · ', $registration['foot']) }}</x-slot:footer>
+        @endif
+    </x-admin.ui.card>
 @endif

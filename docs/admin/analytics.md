@@ -156,6 +156,24 @@ Everyone who came to any page of the site, games or not:
   votes, comments, engagement (viewers who voted or commented) and the
   registrations of sessions whose first opened post it was; "Not attributed"
   counts the accounts whose session opened no post.
+- **Registration funnel**: the new visitors who landed where **Landing** says —
+  all landings, the home feed, any post, one of the posts landed on most, or
+  other pages, kept in the address — and what they did on any visit of the
+  period, so a sign-up a day after the landing counts: landed → opened sign-in
+  or sign-up, split by what opened it (Sign up or Log in in the header, Upload,
+  a vote, a rating or a comment vote, a game, a game's own form, the sign-in or
+  sign-up page) → saw the registration form → started signing up (the email
+  form sent, or Google or Facebook, which the sign-in form offers too) →
+  signed up → confirmed the account → activated. Each step counts the people
+  of the steps before it; its share of the step it follows and of the people
+  who landed. At its foot, everyone who signed up by any way and why sign-ups
+  were refused (an address taken, a mistake in the form, the challenge, the
+  screening for bots, a limit). The steps between the dialog and an account
+  are counted since they began to be recorded, so an older period shows them
+  empty; the source, campaign and device filters narrow the people who landed.
+  **Offer new guests sign-up when they vote** in Project settings lets you
+  try which state of the dialog a guest's vote should open; the split by what
+  opened the dialog shows what came of it.
 
 A browser's post history is kept 90 days. A period reaching further back shows
 "—" for the post figures rather than part of them.
