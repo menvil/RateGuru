@@ -393,10 +393,14 @@
                                 <x-admin.ui.button size="sm" wire:click="disconnectApi">Disconnect</x-admin.ui.button>
                             </div>
                         @endif
-                        <div class="rg-admin-traffic__row">
-                            <x-admin.ui.text-field :label="$editor['connector']['credential_label'] ?? 'Key'" id="rg-admin-source-secret" type="password" :value="''" :hint="$editor['connector']['credential_help'] ?? null" wire:model="secret" autocomplete="new-password" data-1p-ignore data-lpignore="true" data-bwignore />
+                        {{-- Where to find the key goes below the field and its button, so the button lines up with the field itself. --}}
+                        <div class="rg-admin-traffic__row rg-admin-traffic__key-row">
+                            <x-admin.ui.text-field :label="$editor['connector']['credential_label'] ?? 'Key'" id="rg-admin-source-secret" type="password" :value="''" :aria-describedby="isset($editor['connector']['credential_help']) ? 'rg-admin-source-secret-hint' : null" wire:model="secret" autocomplete="new-password" data-1p-ignore data-lpignore="true" data-bwignore />
                             <x-admin.ui.button size="sm" wire:click="connectApi">{{ $connected ? 'Reconnect' : 'Connect' }}</x-admin.ui.button>
                         </div>
+                        @isset($editor['connector']['credential_help'])
+                            <span id="rg-admin-source-secret-hint" class="rg-admin-traffic__note">{{ $editor['connector']['credential_help'] }}</span>
+                        @endisset
                     </div>
                 @endif
             </div>

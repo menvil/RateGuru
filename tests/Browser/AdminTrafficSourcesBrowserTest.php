@@ -2,8 +2,10 @@
 
 use App\Actions\Traffic\SaveTrafficSourceAction;
 use App\Enums\TrafficBlockLevel;
+use App\Enums\TrafficConnector;
 use App\Models\Game;
 use App\Models\ProjectSettings;
+use App\Models\TrafficApiConnection;
 use App\Models\TrafficBlock;
 use App\Models\TrafficCampaign;
 use App\Models\TrafficSource;
@@ -121,6 +123,33 @@ it('picks a custom range in the period picker’s own calendar with two clicks, 
 
     $page->assertNoJavaScriptErrors();
 })->with([1440, 390]);
+
+it('lines up Reconnect with the API key’s field, the hint where to find the key below them both', function (int $width) {
+    $source = TrafficSource::factory()->create(['name' => 'PopAds', 'connector' => TrafficConnector::PopAds, 'block_level' => TrafficBlockLevel::Site]);
+    TrafficApiConnection::factory()->create(['source_id' => $source->id]);
+    $page = visitAdminEditor('/admin/traffic-sources?tab=sources&edit='.$source->id, $width);
+
+    waitForScript($page, "document.querySelector('#rg-admin-traffic-source [role=\"tab\"][aria-selected=\"true\"]') !== null");
+    $page->click('#rg-admin-traffic-source [role="tab"]:has-text("Blocking")');
+    waitForScript($page, "document.querySelector('#rg-admin-source-secret')?.offsetParent !== null");
+
+    $boxes = $page->script(<<<'JS'
+        (() => {
+            const input = document.querySelector('#rg-admin-source-secret').closest('.rg-admin-input').getBoundingClientRect()
+            const button = [...document.querySelectorAll('#rg-admin-traffic-source button')].find((node) => node.textContent.trim() === 'Reconnect').getBoundingClientRect()
+            const hint = document.querySelector('#rg-admin-source-secret-hint').getBoundingClientRect()
+
+            return { offset: Math.abs((input.top + input.height / 2) - (button.top + button.height / 2)), beside: button.left >= input.right, hintBelow: hint.top >= Math.max(input.bottom, button.bottom) }
+        })()
+        JS);
+
+    expect($boxes['offset'])->toBeLessThanOrEqual(1)
+        ->and($boxes['beside'])->toBeTrue()
+        ->and($boxes['hintBelow'])->toBeTrue()
+        ->and($page->script("document.querySelector('#rg-admin-source-secret').getAttribute('aria-describedby')"))->toContain('rg-admin-source-secret-hint');
+
+    $page->assertNoJavaScriptErrors();
+})->with([1440, 1024]);
 
 it('chooses a fixed price’s days in one calendar — an end by keys, then none by No end or by closing after a new start — and saves each as chosen', function () {
     $today = CarbonImmutable::now('UTC')->startOfDay();
