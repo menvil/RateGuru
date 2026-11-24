@@ -1,0 +1,29 @@
+app/Exceptions/Auth/RegistrationRefusedException.php
+  s_4b9dc6ab6b25d3::t_87e3c74201e84f 1-29
+app/Actions/Auth/ScreenRegistrationAction.php
+  s_4b9dc6ab6b25d3::t_87e3c74201e84f 6,8,118-119
+tests/Feature/Auth/RegistrationScreeningTest.php
+  s_4b9dc6ab6b25d3::t_16c89d9221dd36 5,7,340-395
+app/Http/Controllers/Auth/RegisteredUserController.php
+  s_4b9dc6ab6b25d3::t_87e3c74201e84f 7,9-10,14,16-17,21,40-41,47-48,50-60,70,78-86
+app/Http/Requests/Auth/RegisterUserRequest.php
+  s_4b9dc6ab6b25d3::t_87e3c74201e84f 6,8,14-16,19,23-25,46-60
+docs/dev/auth-modal.md
+  ai_agent 162-168
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "5781c253faa48d02c143523cc63403ab9d26271d",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
