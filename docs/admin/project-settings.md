@@ -120,6 +120,7 @@ Feature flags are stored in `feature_flags` JSON column:
 | `show_saved_posts` | false | Saved/bookmarked posts UI |
 | `allow_user_uploads` | true | Whether members can create posts: the upload button, and the upload form itself |
 | `allow_guest_viewing` | true | Whether guests can see the content: off, the feed, posts, share links and profiles ask to sign in (the legal and contact pages stay open) |
+| `guest_actions_open_sign_up` | false | A guest's vote, rating or comment vote opens the sign-up form instead of sign-in, for a browser no account has signed up or signed in with — to try which brings more accounts; the registration funnel shows what opened the dialog and what came of it |
 | `content_studio_verified_adults` | false | An administrator's confirmation that everyone in Content Studio's photos is a verified adult; lets its texts and discussions flirt with the people shown (`docs/architecture/studio-personas.md`). Applying a preset switches it off |
 
 ### Security warning for feature flags

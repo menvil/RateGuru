@@ -105,7 +105,7 @@ class RatingVoting extends Component
             }
 
             $this->error = __('ui.voting.sign_in_to_vote');
-            $this->openAuthModal(trigger: AuthTrigger::Rating);
+            $this->askGuestToAuthenticate(AuthTrigger::Rating);
 
             return;
         }

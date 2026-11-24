@@ -87,7 +87,7 @@ final class CommentVoting extends Component
                 // that is gone, votable again: that is the answer then, as a
                 // member gets it, not the sign-in dialog.
                 if ($comment->canReceiveVotes() && $comment->post?->canReceiveVotes() === true) {
-                    $this->openAuthModal(trigger: AuthTrigger::CommentVote);
+                    $this->askGuestToAuthenticate(AuthTrigger::CommentVote);
                 } else {
                     $this->error = CannotVoteCommentException::becauseCommentIsNotVisible()->getMessage();
                 }

@@ -86,7 +86,7 @@ final class PostVoting extends Component
 
             $this->error = __('ui.voting.sign_in_to_vote');
             $this->dispatch('post-vote-error', postId: $this->postId, message: $this->error);
-            $this->openAuthModal(trigger: AuthTrigger::Vote);
+            $this->askGuestToAuthenticate(AuthTrigger::Vote);
 
             return;
         }

@@ -29,7 +29,12 @@ it; later guest actions (comments, follows) can do the same.
 A Livewire component whose server refuses a guest opens it from that
 answer instead, with `App\Livewire\Concerns\OpensAuthModal`:
 `$this->openAuthModal()` sends the same event, in login mode unless it
-names another. Post, comment and rating votes do: the refusal is still
+names another. A guest's vote, rating or comment vote asks through
+`askGuestToAuthenticate()`: sign-in, as always, unless Project settings
+offers sign-up instead (**Offer new guests sign-up when they vote**,
+`guest_actions_open_sign_up`, off by default) to a browser no account has
+signed up or signed in with — for the owner to try which brings more
+accounts. Post, comment and rating votes do: the refusal is still
 shown next to the buttons, and the dialog opens over the page, so the
 attempt reaches the server and is still recorded in the security log.
 
