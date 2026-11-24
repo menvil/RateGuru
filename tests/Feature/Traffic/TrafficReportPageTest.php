@@ -1202,6 +1202,8 @@ it('reads the visitors of a log’s page at once, never one row at a time', func
     $logs = ['postbacks', 'milestones', 'clicks'];
 
     loggedVisitor($this->source, 'first');
+    // The project's settings are read once, by whatever asks first: only what the page reads per visitor is at issue.
+    site_name();
     $few = array_map($queries, $logs);
 
     foreach (range(1, 5) as $n) {

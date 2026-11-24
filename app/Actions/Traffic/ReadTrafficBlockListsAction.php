@@ -135,7 +135,7 @@ final class ReadTrafficBlockListsAction
             }
 
             $off = $this->settle($blocks->whereIn('id', array_values(array_unique([...$touched, ...array_values($ended)]))), $now);
-            $this->log($sourceId, $level, array_map('strval', array_keys($found)), 'found', false, 'On the network’s list, blocked in its panel, not by RateGuru', $now);
+            $this->log($sourceId, $level, array_map('strval', array_keys($found)), 'found', false, 'On the network’s list, blocked in its panel, not by '.site_name(), $now);
             // Off every list it was on: left to the owner as a site an administrator unblocked is (TrafficBlocksQuery::unblockedLately()).
             $this->log($sourceId, $level, $off, 'gone', false, 'Off every campaign’s list: the block rule leaves it alone for 30 days', $now);
             $this->log($sourceId, $level, array_values(array_diff($taken, $off)), 'gone', true, 'Still on other campaigns’ lists', $now);

@@ -37,7 +37,7 @@ final class LinkInspector
         $warnings = [];
 
         if (strcasecmp((string) $parts['host'], $ownHost) !== 0) {
-            $warnings[] = ['tone' => 'danger', 'text' => 'The link opens '.$parts['host'].', not this site: no click on it reaches RateGuru.'];
+            $warnings[] = ['tone' => 'danger', 'text' => 'The link opens '.$parts['host'].', not this site: no click on it reaches the site.'];
         }
 
         $slug = preg_match('#^/games/([^/?\#]+)#', (string) ($parts['path'] ?? ''), $match) === 1 ? rawurldecode($match[1]) : null;
@@ -53,7 +53,7 @@ final class LinkInspector
         $found = $key === null || $key === '' ? null : $source($key);
 
         if ($key === null || $key === '') {
-            $warnings[] = ['tone' => 'danger', 'text' => 'No rg_src in the link. RateGuru can’t tell it’s paid: visits will count as unpaid (another site or direct).'];
+            $warnings[] = ['tone' => 'danger', 'text' => 'No rg_src in the link. The site can’t tell it’s paid: visits will count as unpaid (another site or direct).'];
         } elseif ($found === null) {
             $warnings[] = ['tone' => 'danger', 'text' => "No source has the key “{$key}”. Check the key under Sources, or add the source first."];
         }

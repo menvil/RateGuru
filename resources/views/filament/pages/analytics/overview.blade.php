@@ -20,7 +20,7 @@
                 <div class="rg-admin-analytics__kpi">
                     <dt class="rg-admin-analytics__kpi-label">
                         {{ $kpi['label'] }}
-                        <span class="rg-admin-analytics__shield" title="Counted by RateGuru"><x-admin.ui.icon name="shield-check" :size="12" /></span>
+                        <span class="rg-admin-analytics__shield" title="Counted by {{ site_name() }}"><x-admin.ui.icon name="shield-check" :size="12" /></span>
                     </dt>
                     <dd class="rg-admin-analytics__kpi-value">{{ $kpi['value'] }}</dd>
                     <dd class="rg-admin-analytics__kpi-unit">{{ $kpi['unit'] }}</dd>
@@ -165,7 +165,7 @@
             </ul>
         </x-admin.ui.card>
 
-        <x-admin.ui.card title="Tracking" description="What RateGuru records itself. Nothing here comes from an external tool." data-testid="analytics-tracking">
+        <x-admin.ui.card title="Tracking" :description="'What '.site_name().' records itself. Nothing here comes from an external tool.'" data-testid="analytics-tracking">
             <ul class="rg-admin-analytics__list">
                 @foreach ($data['tracking']['rows'] as $line)
                     <li class="rg-admin-analytics__line rg-admin-analytics__line--setting">

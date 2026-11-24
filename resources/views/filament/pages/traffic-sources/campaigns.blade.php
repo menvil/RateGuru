@@ -79,7 +79,7 @@
     <section class="rg-admin-traffic__panel" data-testid="traffic-check-link">
         <header class="rg-admin-traffic__panel-head">
             <h2 class="rg-admin-traffic__panel-title">Check a link</h2>
-            <p class="rg-admin-traffic__note">Paste the link from a campaign, or a click as it arrived, and see how RateGuru reads it: which network, which game, which campaign.</p>
+            <p class="rg-admin-traffic__note">Paste the link from a campaign, or a click as it arrived, and see how {{ site_name() }} reads it: which network, which game, which campaign.</p>
         </header>
         <input type="text" class="rg-admin-input rg-admin-traffic__mono" placeholder="https://…/games/…?rg_src=…" aria-label="A link to check" wire:model.live.debounce.500ms="checkLink" />
         @if ($samples !== [])

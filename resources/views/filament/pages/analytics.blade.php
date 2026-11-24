@@ -15,7 +15,7 @@
     <section class="rg-admin-page-header rg-admin-analytics__header" aria-labelledby="rg-admin-analytics-title">
         <div class="rg-admin-page-header__text">
             <h1 id="rg-admin-analytics-title" class="rg-admin-page-header__title">Analytics</h1>
-            <p class="rg-admin-page-header__description">Where visitors come from and what they do. RateGuru counts every figure here itself.</p>
+            <p class="rg-admin-page-header__description">Where visitors come from and what they do. {{ site_name() }} counts every figure here itself.</p>
         </div>
         <div class="rg-admin-analytics__period">
             @include('filament.pages.elements.period-picker', ['picker' => $periodPicker, 'id' => 'rg-admin-analytics-period', 'align' => 'end'])
@@ -34,7 +34,7 @@
                     </button>
                 </span>
             @endif
-            <span class="rg-admin-analytics__counted"><x-admin.ui.icon name="shield-check" :size="13" />Counted by RateGuru</span>
+            <span class="rg-admin-analytics__counted"><x-admin.ui.icon name="shield-check" :size="13" />Counted by {{ site_name() }}</span>
             {{-- A tab slow to read shows its figures as kept since they were read, for a few minutes, until Refresh. --}}
             @if ($readAt !== null)
                 <span class="rg-admin-analytics__read" data-testid="analytics-figures-read">
@@ -70,7 +70,7 @@
             <x-admin.ui.card>
                 {{-- A switch that is off says so in the notice above, with the way to Tracking. --}}
                 <x-admin.ui.empty-state icon="chart-no-axes-column" title="No visits recorded yet">
-                    Analytics counts the visits RateGuru records itself. None has been recorded yet.
+                    Analytics counts the visits {{ site_name() }} records itself. None has been recorded yet.
                 </x-admin.ui.empty-state>
             </x-admin.ui.card>
         @elseif ($state === 'early')

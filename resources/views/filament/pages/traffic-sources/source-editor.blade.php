@@ -114,7 +114,7 @@
                 </div>
             </div>
             <div class="rg-admin-traffic__detected">
-                <strong>Detected by RateGuru</strong>
+                <strong>Detected by {{ site_name() }}</strong>
                 <span class="rg-admin-traffic__note">Device (mobile or desktop), operating system, browser, country, city and language come from the visit itself, so the link needs no parameters for them.</span>
             </div>
         </div>
@@ -122,7 +122,7 @@
         <div class="rg-admin-traffic__pane" x-show="pane === 'spend'" x-cloak>
             @php
                 $modes = $network
-                    ? ['click_cost' => ['The price in each click', 'The network puts the price of every click into the link. Exact per click, at once.'], 'rate' => ['A rate you set', 'You type the price you bid, per device. Clicks × rate, an estimate.'], 'api' => ['The network’s API', 'RateGuru asks the network for its spend every five minutes; until the network has a click’s cost, the click’s own price stands in.'], 'manual' => ['Typed in or a file', 'Type a day’s spend, or import the network’s CSV.'], 'none' => ['Not counted', 'Visits from this source cost nothing in reports.']]
+                    ? ['click_cost' => ['The price in each click', 'The network puts the price of every click into the link. Exact per click, at once.'], 'rate' => ['A rate you set', 'You type the price you bid, per device. Clicks × rate, an estimate.'], 'api' => ['The network’s API', site_name().' asks the network for its spend every five minutes; until the network has a click’s cost, the click’s own price stands in.'], 'manual' => ['Typed in or a file', 'Type a day’s spend, or import the network’s CSV.'], 'none' => ['Not counted', 'Visits from this source cost nothing in reports.']]
                     : ['fixed' => ['A fixed price', 'A set amount once, a day, a week or a month, spread over the days.'], 'manual' => ['Typed in or a file', 'Type a day’s spend, or import a CSV.'], 'none' => ['Not counted', 'Visits from this source cost nothing in reports.']];
             @endphp
             <fieldset class="rg-admin-field rg-admin-games__radio-rows">
@@ -330,7 +330,7 @@
                                 <div>
                                     <span class="rg-admin-traffic__tile-label">Marked here</span>
                                     <strong>{{ number_format($c['marked']) }}</strong>
-                                    <span class="rg-admin-traffic__note">No API sends these: copy their IDs into the network’s blacklist. RateGuru can’t see that list.</span>
+                                    <span class="rg-admin-traffic__note">No API sends these: copy their IDs into the network’s blacklist. {{ site_name() }} can’t see that list.</span>
                                 </div>
                             @endif
                             <div>

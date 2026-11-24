@@ -417,8 +417,8 @@ final class TrafficSourcesView
             'listNote' => $country === null ? null : 'Paid impr. and Reached are this country’s. Low reach is judged across all countries, so no site is marked on this filter.',
             'steps' => [
                 ['name' => 'Paid impressions (network)', 'count' => $total->impressions, 'of' => null, 'note' => $one ? 'What the network billed for, by its own count' : 'What the networks billed for, by their own count'],
-                ['name' => 'Reached RateGuru', 'count' => $total->reached, 'of' => $total->impressions, 'note' => $country === null ? 'Visits of the same days, campaigns and sites' : 'Visits of the same days, campaigns, sites and country'],
-                ['name' => 'Opened the page', 'count' => $total->opened, 'of' => $total->reached, 'note' => 'Of those that reached RateGuru'],
+                ['name' => 'Reached '.site_name(), 'count' => $total->reached, 'of' => $total->impressions, 'note' => $country === null ? 'Visits of the same days, campaigns and sites' : 'Visits of the same days, campaigns, sites and country'],
+                ['name' => 'Opened the page', 'count' => $total->opened, 'of' => $total->reached, 'note' => 'Of those that reached '.site_name()],
                 ['name' => 'Started the game', 'count' => $total->started, 'of' => $total->opened, 'note' => 'Of those that opened the page'],
             ],
             'lost' => 'Paid, never reached: '.number_format($total->neverReached()).' ('.self::share($total->neverReachedRate() ?? 0.0).') · ≈ '.TrafficMoney::format($total->lostAmount()).' of the '.($one ? 'network’s ' : 'networks’ ').TrafficMoney::format($total->amount),
@@ -582,7 +582,7 @@ final class TrafficSourcesView
 
             if ($source !== null && $place->fallsShortOf($source, $least, $below)) {
                 $hints[$key] = [
-                    'tip' => 'Paid impressions mostly never reach RateGuru: '.number_format(($place->reachRate() ?? 0) * 100, 0).'% reached against '.number_format(($source->reachRate() ?? 0) * 100, 0).'% for the source, over '.number_format($place->impressions).' paid impressions of closed days',
+                    'tip' => 'Paid impressions mostly never reach '.site_name().': '.number_format(($place->reachRate() ?? 0) * 100, 0).'% reached against '.number_format(($source->reachRate() ?? 0) * 100, 0).'% for the source, over '.number_format($place->impressions).' paid impressions of closed days',
                     'replacesProfit' => ! isset($inSpend[$key]),
                 ];
             }
@@ -931,7 +931,7 @@ final class TrafficSourcesView
         $notOn = fn (TrafficBlockListing $listing): string => 'not on '.$name($listing).'’s: '.match ($listing->error) {
             // RateGuru's own block goes by itself to a campaign it is missing from, within minutes.
             null, TrafficBlockListing::PENDING => 'not sent there yet — it goes there within minutes.',
-            TrafficBlockListing::TAKEN_OFF => 'taken off its list in the '.$network.' panel, not by RateGuru.',
+            TrafficBlockListing::TAKEN_OFF => 'taken off its list in the '.$network.' panel, not by '.site_name().'.',
             default => (string) $why($listing->error),
         };
 
@@ -939,15 +939,15 @@ final class TrafficSourcesView
             $block->network_state === TrafficBlockNetworkState::Pending => ['label' => 'Blocking…', 'tone' => 'warning', 'tip' => $tip.' · waiting to be added to the network’s list'],
             $block->network_state === TrafficBlockNetworkState::Removing => ['label' => 'Unblocking…', 'tone' => 'warning', 'tip' => 'Waiting to be taken off the network’s list'],
             $block->method === TrafficBlockMethod::Panel && $block->network_error !== null => ['label' => 'Blocked on '.$network.' · unblock failed', 'tone' => 'danger',
-                'tip' => 'Blocked in the '.$network.' panel, not by RateGuru · still on '.($on->isNotEmpty() ? $lists($on) : 'the network’s list').': '.$why($block->network_error).' Unblock it again to try again.'],
+                'tip' => 'Blocked in the '.$network.' panel, not by '.site_name().' · still on '.($on->isNotEmpty() ? $lists($on) : 'the network’s list').': '.$why($block->network_error).' Unblock it again to try again.'],
             $block->method === TrafficBlockMethod::Panel => ['label' => 'Blocked on '.$network, 'tone' => $still ? 'danger' : 'neutral',
-                'tip' => 'Blocked in the '.$network.' panel, not by RateGuru · found '.$block->blocked_at->format('j M').$holding.$since],
+                'tip' => 'Blocked in the '.$network.' panel, not by '.site_name().' · found '.$block->blocked_at->format('j M').$holding.$since],
             $block->network_state === TrafficBlockNetworkState::Partial && $stuck !== null => ['label' => 'Partly blocked · unblock failed', 'tone' => 'danger',
                 'tip' => 'Still on '.$lists($on).': '.$why($stuck->error).($off->isNotEmpty() ? ' Taken off '.$lists($off).'.' : '').' Unblock it again to try again.'],
             $block->network_state === TrafficBlockNetworkState::Partial => ['label' => 'Partly blocked · '.$on->count().' of '.$listings->count().' campaigns', 'tone' => 'warning',
                 'tip' => $tip.' · on '.$lists($on).' · '.$off->map($notOn)->implode(' · ')],
             $block->network_state === TrafficBlockNetworkState::TakenOff => ['label' => 'Taken off on the network', 'tone' => 'warning',
-                'tip' => $tip.' · taken off '.$lists($off->where('error', TrafficBlockListing::TAKEN_OFF)->values()).' in the '.$network.' panel, not by RateGuru. Push again to put it back, or Unblock to let it go.'],
+                'tip' => $tip.' · taken off '.$lists($off->where('error', TrafficBlockListing::TAKEN_OFF)->values()).' in the '.$network.' panel, not by '.site_name().'. Push again to put it back, or Unblock to let it go.'],
             $block->network_state === TrafficBlockNetworkState::Failed => ['label' => 'Not blocked on the network', 'tone' => 'danger',
                 'tip' => $tip.' · the network didn’t take it'.($off->isEmpty() ? ': '.$why($block->network_error) : ' · '.$off->map($notOn)->implode(' · '))],
             $block->network_state === TrafficBlockNetworkState::Applied && $block->network_error !== null => ['label' => 'Blocked · unblock failed', 'tone' => 'danger',
@@ -1671,7 +1671,7 @@ final class TrafficSourcesView
 
         return [
             'methods' => [
-                ['icon' => 'refresh-cw', 'name' => 'Network API', 'text' => 'RateGuru asks the network for its spend per campaign, site, zone and day, every five minutes. Exactly what the network bills, as soon as the network has it.', 'users' => $users([TrafficSpendMode::Api])],
+                ['icon' => 'refresh-cw', 'name' => 'Network API', 'text' => site_name().' asks the network for its spend per campaign, site, zone and day, every five minutes. Exactly what the network bills, as soon as the network has it.', 'users' => $users([TrafficSpendMode::Api])],
                 ['icon' => 'link', 'name' => 'Price in each click', 'text' => 'The network puts the price of every click into the link. Exact per click, available at once, no typing.', 'users' => $users([TrafficSpendMode::ClickCost])],
                 ['icon' => 'smartphone', 'name' => 'Rate you set', 'text' => 'You type the price you bid, per device. Clicks × rate. An estimate: good enough to compare zones, not to match the invoice.', 'users' => $users([TrafficSpendMode::Rate])],
                 ['icon' => 'calendar', 'name' => 'Fixed price', 'text' => 'A set amount for a day, a month or once, spread evenly over the days and split across visits.', 'users' => $users([TrafficSpendMode::Fixed])],
@@ -1830,7 +1830,7 @@ final class TrafficSourcesView
                 'referral' => ['Other sites', 'globe', 'A link on another site, without a source key. Grouped by the referring site.'],
                 'search' => ['Search', 'search', 'Referred by a search engine.'],
                 'direct' => ['Direct', 'arrow-right', 'No referrer and no source key: typed in, bookmarks, apps that hide the referrer.'],
-                'internal' => ['Inside RateGuru', 'home', 'From the feed, a post page, another game or a notification on this site.'],
+                'internal' => ['Inside '.site_name(), 'home', 'From the feed, a post page, another game or a notification on this site.'],
             ])->map(fn (array $channel, string $key): array => ['key' => $key, 'name' => $channel[0], 'icon' => $channel[1], 'how' => $channel[2], 'visits' => ($byGroup->get('c:'.$key)['figures'] ?? new ReportFigures)->visits])->values()->all(),
         ];
     }
@@ -1972,7 +1972,11 @@ final class TrafficSourcesView
                 'url' => TrafficSourcesPage::getUrl(['tab' => 'value', ...self::periodQuery($page)]).'#traffic-value-sources',
             ],
             'preset' => $preset,
-            'connector' => $connector === null ? null : [...($this->presets->connector($connector->value) ?? []), 'verified' => $this->connectors->verified($connector)],
+            'connector' => $connector === null ? null : [
+                ...($connectorPreset = $this->presets->connector($connector->value) ?? []),
+                'promise' => str_replace(':site', site_name(), (string) ($connectorPreset['promise'] ?? '')),
+                'verified' => $this->connectors->verified($connector),
+            ],
             'connection' => $source?->apiConnection?->only(['status', 'account_label', 'last_synced_at', 'next_sync_at', 'last_error', 'spend_closed_through']),
             'events' => array_map(fn (TrafficEvent $event): string => $event->value, TrafficEvent::postbackEvents()),
             'floors' => collect(TrafficEvent::settledFloors())->mapWithKeys(fn (TrafficEvent $event): array => [$event->value => self::ruleEvent($event->value)])->all(),
@@ -2083,7 +2087,7 @@ final class TrafficSourcesView
                 $source->status !== TrafficSourceStatus::Active
                     ? ($source->status === TrafficSourceStatus::Ended ? 'The source has ended' : 'The source is paused').': the rule blocks only for an active source.'
                     : null,
-                $source->connector === null ? 'RateGuru has no API for this network: block by hand and copy the IDs into its blacklist.' : null,
+                $source->connector === null ? site_name().' has no API for this network: block by hand and copy the IDs into its blacklist.' : null,
                 $source->connector !== null && $connection?->status !== TrafficConnectionStatus::Connected
                     ? ($connection === null || $connection->status === TrafficConnectionStatus::Disconnected ? 'No API connected: connect it below.' : 'The API connection needs attention: reconnect it below.')
                     : null,
@@ -2120,7 +2124,7 @@ final class TrafficSourcesView
         $whose = $external === null ? 'the campaigns’ block lists' : ($name ?? 'Campaign '.$external).'’s block list';
 
         return 'Couldn’t read '.$whose.($connection->block_lists_read_at !== null ? ' at '.$connection->block_lists_read_at->format('j M H:i') : '').': '
-            .(TrafficConnectorFailure::tryFrom($connection->block_lists_error)?->message() ?? 'The network answered in a way RateGuru doesn’t understand.');
+            .(TrafficConnectorFailure::tryFrom($connection->block_lists_error)?->message() ?? 'The network answered in a way '.site_name().' doesn’t understand.');
     }
 
     /** A postback rule's event, as the editor names it. */
@@ -2179,8 +2183,8 @@ final class TrafficSourcesView
                 ],
                 'note' => match (true) {
                     (bool) ($preset['custom'] ?? false) => 'Any network without a preset. Link, postbacks and reports work the same: you type in its tokens and postback address and check them with Check a link.',
-                    $preset['connector'] !== null => 'Read through the RateGuru connector: spend, campaigns and blocking.',
-                    ($preset['network_api'] ?? '') !== '' => 'Its API offers '.$preset['network_api'].' · no RateGuru connector yet',
+                    $preset['connector'] !== null => 'Read through the built-in connector: spend, campaigns and blocking.',
+                    ($preset['network_api'] ?? '') !== '' => 'Its API offers '.$preset['network_api'].' · no built-in connector yet',
                     default => '',
                 },
             ])->values()->all(),
