@@ -1,0 +1,24 @@
+tests/Feature/Traffic/TrafficWorthTest.php
+  s_6a0f90a935e849::t_72fa411a1ee7d3 82
+  s_6a0f90a935e849::t_4fa9a1fcce5392 72-81,87-89
+  s_6a0f90a935e849::t_d65d5318b8559a 28
+  s_6a0f90a935e849::t_b953badc068edb 83-86
+app/Queries/Traffic/TrafficChanceSampleQuery.php
+  s_6a0f90a935e849::t_04319525d9391c 53-54,62-71
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "44b002a1e53b4f7644632353e6397befd6276470",
+  "prompts": {},
+  "sessions": {
+    "s_6a0f90a935e849": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0c534e04-92e1-423d-8dc4-9f4bf22e3c99",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
