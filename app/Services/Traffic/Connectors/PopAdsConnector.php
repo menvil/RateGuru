@@ -338,7 +338,7 @@ final class PopAdsConnector implements EditsBlockLists, ReadsCampaigns, ReadsImp
         $listed = is_array($json) ? ($json['items'] ?? $json['global_items'] ?? (($json['mode'] ?? null) === 'none' ? [] : null)) : null;
 
         // An answer without the list proves nothing: the list is read back, never taken to be the one sent — nor an empty one when the read back has none.
-        if ($listed === null) {
+        if (! is_array($listed)) {
             Sleep::for(1)->second();
             $again = $this->json($this->get($session, '/api/campaign_website_targeting/'.rawurlencode($campaignId)));
             $listed = match (true) {
@@ -352,7 +352,9 @@ final class PopAdsConnector implements EditsBlockLists, ReadsCampaigns, ReadsImp
             }
         }
 
-        $listed = $this->siteIds($listed);
+        // Judged by the sites the list holds: an entry that is no site ID says nothing of those written, and is left out — the change
+        // stands, never taken for one that didn't go, which an unblock would then leave on the list.
+        $listed = array_values(array_map('strval', array_filter($listed, fn (mixed $item): bool => is_int($item) || (is_string($item) && trim($item) !== ''))));
 
         return new BlockDeltaResult(array_diff($add, $listed) === [] && array_intersect($remove, $listed) === [], $response->status(), $listed);
     }

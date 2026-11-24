@@ -1218,7 +1218,6 @@ it('never takes a list read before a block went on it for one the block was take
         } elseif ($match[1] === '881205' && $overlapping) {
             // A second sync, its lock run out, sends the block while this one reads the lists: 881204's was read before it.
             $overlapping = false;
-            $this->travel(1)->seconds();
             app(ApplyTrafficBlocksAction::class)->handle($connection->fresh());
         }
 
@@ -1230,6 +1229,74 @@ it('never takes a list read before a block went on it for one the block was take
     expect($lists)->toBe(['881204' => ['40123'], '881205' => ['40123']])
         ->and($block->fresh()->network_state)->toBe(TrafficBlockNetworkState::Applied)
         ->and(TrafficBlockEvent::query()->where('kind', 'gone')->exists())->toBeFalse();
+});
+
+it('never takes a site a block unblocked while the lists were read was on for one blocked in the panel', function () {
+    $connection = TrafficApiConnection::factory()->create(['source_id' => $this->popads->id, 'next_sync_at' => now(), 'backfill_cursor' => null]);
+    $first = TrafficCampaign::factory()->create(['source_id' => $this->popads->id, 'external_id' => '881204']);
+    $second = TrafficCampaign::factory()->create(['source_id' => $this->popads->id, 'external_id' => '881205']);
+    $block = TrafficBlock::factory()->create(['source_id' => $this->popads->id, 'level' => TrafficBlockLevel::Site, 'ref' => '40123', 'method' => 'api', 'network_state' => TrafficBlockNetworkState::Removing]);
+    TrafficBlockListing::factory()->create(['block_id' => $block->id, 'campaign_id' => $first->id, 'listed' => true]);
+    TrafficBlockListing::factory()->create(['block_id' => $block->id, 'campaign_id' => $second->id, 'listed' => true]);
+    $lists = ['881204' => ['40123'], '881205' => ['40123']];
+    $overlapping = true;
+    Http::fake(function (Request $request) use (&$lists, &$overlapping, $connection) {
+        if (! preg_match('#/api/campaign_website_targeting/(\w+)#', $request->url(), $match)) {
+            return Http::response(str_contains($request->url(), 'report_advertiser') ? ['rows' => []] : ['data' => []]);
+        }
+
+        if ($request->method() === 'POST') {
+            $lists[$match[1]] = str_contains($request->url(), 'mode=none') ? [] : array_values(array_filter(explode("\n", $request->body())));
+        } elseif ($match[1] === '881205' && $overlapping) {
+            // Another sync takes the block off both lists, and deletes it, after this one read 881204's.
+            $overlapping = false;
+            app(ApplyTrafficBlocksAction::class)->handle($connection->fresh());
+        }
+
+        return Http::response($lists[$match[1]] === [] ? ['mode' => 'none', 'items' => []] : ['mode' => 'exclude', 'items' => $lists[$match[1]]]);
+    });
+
+    app(SyncTrafficNetworkAction::class)->handle($connection, CarbonImmutable::now());
+
+    expect($lists)->toBe(['881204' => [], '881205' => []])
+        ->and(TrafficBlock::query()->exists())->toBeFalse()
+        ->and(TrafficBlockEvent::query()->where('kind', 'found')->exists())->toBeFalse();
+});
+
+it('keeps an ended campaign among those an unblock takes a block off while the network may have put it there', function () {
+    $connection = TrafficApiConnection::factory()->create(['source_id' => $this->popads->id, 'next_sync_at' => now(), 'backfill_cursor' => null]);
+    $running = TrafficCampaign::factory()->create(['source_id' => $this->popads->id, 'external_id' => '881204']);
+    $ended = TrafficCampaign::factory()->create(['source_id' => $this->popads->id, 'external_id' => '881205', 'status' => TrafficCampaignStatus::Archived]);
+    $block = TrafficBlock::factory()->create(['source_id' => $this->popads->id, 'level' => TrafficBlockLevel::Site, 'ref' => '40123', 'method' => 'api', 'network_state' => TrafficBlockNetworkState::Partial, 'network_error' => 'timeout']);
+    TrafficBlockListing::factory()->create(['block_id' => $block->id, 'campaign_id' => $running->id, 'listed' => true]);
+    // The add timed out, and landed all the same, before the campaign ended.
+    TrafficBlockListing::factory()->create(['block_id' => $block->id, 'campaign_id' => $ended->id, 'listed' => false, 'error' => 'timeout']);
+    $lists = ['881204' => ['40123'], '881205' => ['40123']];
+    popAdsWithLists($lists);
+
+    app(SyncTrafficNetworkAction::class)->handle($connection, CarbonImmutable::now());
+
+    expect($block->listings()->where('campaign_id', $ended->id)->sole())->listed->toBeFalse()->error->toBe('timeout');
+
+    app(BlockTrafficRefsAction::class)->unblock($this->admin, $block->fresh());
+    $this->artisan('traffic:sync-networks')->assertSuccessful();
+
+    expect($lists)->toBe(['881204' => [], '881205' => []])
+        ->and($block->fresh())->toBeNull();
+});
+
+it('judges a PopAds change by the sites its answer lists, an entry in it that is no site ID left out', function () {
+    TrafficApiConnection::factory()->create(['source_id' => $this->popads->id, 'next_sync_at' => now()->addHour(), 'block_lists_read_at' => now()]);
+    TrafficCampaign::factory()->create(['source_id' => $this->popads->id, 'external_id' => '881204']);
+    Http::fake(fn (Request $request) => $request->method() === 'POST'
+        ? Http::response(['mode' => 'exclude', 'items' => ['111', '40123', null]])
+        : Http::response(['mode' => 'exclude', 'items' => ['111']]));
+    app(BlockTrafficRefsAction::class)->block($this->admin, $this->popads, TrafficBlockLevel::Site, ['40123'], null, true);
+
+    $this->artisan('traffic:sync-networks')->assertSuccessful();
+
+    expect(TrafficBlock::query()->sole())->network_state->toBe(TrafficBlockNetworkState::Applied)
+        ->and(TrafficBlockListing::query()->sole())->listed->toBeTrue()->error->toBeNull();
 });
 
 it('keeps what a block from before the lists were kept said when the lists are first read', function () {

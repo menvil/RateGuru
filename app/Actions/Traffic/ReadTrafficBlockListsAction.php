@@ -66,10 +66,11 @@ final class ReadTrafficBlockListsAction
         }
 
         $failure = null;
-        // A listing written after this — a batch another sync applied meanwhile — is newer than the lists read: the next read judges it.
-        $startedAt = now();
 
         foreach ($connector->blockLevels() as $level) {
+            // Where each block stands as its lists begin to be read: one changed since — sent, sent again or unblocked meanwhile by another
+            // sync whose lock ran out, or by an administrator — stands newer than the lists read, and the next read judges it.
+            $asRead = $this->asRead($sourceId, $level);
             $result = $connector->blockLists($session, array_map('strval', array_keys($campaigns)), $level);
             $failure ??= $result->failure;
             $read = [];
@@ -81,7 +82,7 @@ final class ReadTrafficBlockListsAction
             }
 
             if ($read !== []) {
-                $this->record($sourceId, $level, $read, $startedAt);
+                $this->record($sourceId, $level, $read, $asRead);
             }
         }
 
@@ -96,11 +97,11 @@ final class ReadTrafficBlockListsAction
      * at once on the source locked.
      *
      * @param  array<int, array<array-key, true>>  $read  each campaign's list, by RateGuru's campaign
-     * @param  CarbonInterface  $startedAt  when the lists began to be read
+     * @param  array<string, string>  $asRead  where each block stood as the lists began to be read (asRead())
      */
-    private function record(int $sourceId, TrafficBlockLevel $level, array $read, CarbonInterface $startedAt): void
+    private function record(int $sourceId, TrafficBlockLevel $level, array $read, array $asRead): void
     {
-        DB::transaction(function () use ($sourceId, $level, $read, $startedAt): void {
+        DB::transaction(function () use ($sourceId, $level, $read, $asRead): void {
             if (TrafficSource::query()->whereKey($sourceId)->lockForUpdate()->first() === null) {
                 return;
             }
@@ -112,13 +113,14 @@ final class ReadTrafficBlockListsAction
 
             foreach ($read as $held) {
                 foreach (array_keys($held) as $ref) {
-                    if ((string) $ref !== '' && ! $blocks->has((string) $ref)) {
+                    // A block there as the lists began to be read, gone since — unblocked meanwhile — was RateGuru's, never the panel's.
+                    if ((string) $ref !== '' && ! $blocks->has((string) $ref) && ! isset($asRead[(string) $ref])) {
                         $found[(string) $ref] = true;
                     }
                 }
             }
 
-            [$listings, $touched, $taken] = $this->standings($blocks, $read, $now, $startedAt);
+            [$listings, $touched, $taken] = $this->standings($blocks, $read, $now, $asRead);
             $ended = $this->endedWithout($sourceId, $blocks);
 
             foreach ($this->recordFound($sourceId, $level, array_map('strval', array_keys($found)), $now) as $ref => $id) {
@@ -154,10 +156,10 @@ final class ReadTrafficBlockListsAction
      *
      * @param  Collection<string, TrafficBlock>  $blocks
      * @param  array<int, array<array-key, true>>  $read
-     * @param  CarbonInterface  $startedAt  when the lists began to be read: a listing written since is newer than they are
+     * @param  array<string, string>  $asRead  where each block stood as the lists began to be read (asRead())
      * @return array{0: list<array<string, mixed>>, 1: list<int>, 2: list<string>}
      */
-    private function standings(Collection $blocks, array $read, CarbonInterface $now, CarbonInterface $startedAt): array
+    private function standings(Collection $blocks, array $read, CarbonInterface $now, array $asRead): array
     {
         $listings = [];
         $touched = [];
@@ -168,17 +170,17 @@ final class ReadTrafficBlockListsAction
                 continue;
             }
 
+            // Changed since the lists began to be read, it stands newer than they do: the next read judges it.
+            if (($asRead[(string) $ref] ?? null) !== self::standing($block)) {
+                continue;
+            }
+
             foreach ($read as $campaignId => $held) {
                 if ($block->method !== TrafficBlockMethod::Panel && $block->campaign_id !== null && $block->campaign_id !== $campaignId) {
                     continue;
                 }
 
                 $before = $block->listings->firstWhere('campaign_id', $campaignId);
-
-                // Written since the read began — by a batch another sync applied meanwhile — it is newer than the list read: the next read judges it.
-                if ($before?->checked_at !== null && $before->checked_at->greaterThan($startedAt)) {
-                    continue;
-                }
                 $listed = isset($held[(string) $ref]);
 
                 // A block found in the panel is kept against the lists that hold it, or held it: it was never for the others.
@@ -228,10 +230,31 @@ final class ReadTrafficBlockListsAction
     }
 
     /**
+     * Where each of the source's blocks of a level stands, by its ref: its
+     * state and how many times it was queued for the network. A block
+     * changed while the lists were read stands otherwise when they are
+     * recorded — whatever the clock says, to the second or not.
+     *
+     * @return array<string, string>
+     */
+    private function asRead(int $sourceId, TrafficBlockLevel $level): array
+    {
+        return TrafficBlock::query()->where('source_id', $sourceId)->where('level', $level)->get(['ref', 'network_state', 'request_version'])
+            ->mapWithKeys(fn (TrafficBlock $block): array => [(string) $block->ref => self::standing($block)])
+            ->all();
+    }
+
+    private static function standing(TrafficBlock $block): string
+    {
+        return $block->network_state->value.'|'.$block->request_version;
+    }
+
+    /**
      * The listings saying a campaign that has ended doesn't hold a block of
      * RateGuru's: a block is no longer for a campaign that ended without
      * taking it, so it isn't partly blocked for ever. A list that holds one
-     * is kept — an unblock takes it off there — and so is one it was taken
+     * is kept — an unblock takes it off there — and so are one that may hold
+     * it, the network only slow, down or busy to take it, one it was taken
      * off in the network's panel, the owner's doing, and a block on its way
      * to or off the lists, whose listings its sync writes.
      *
@@ -254,8 +277,9 @@ final class ReadTrafficBlockListsAction
 
             foreach ($block->listings as $listing) {
                 // Taken off in the panel, it is the owner's doing, kept so the campaign, back from the archive, isn't sent it again, nor
-                // another one for its going.
-                if (! $listing->listed && $listing->error !== TrafficBlockListing::TAKEN_OFF && isset($ended[(int) $listing->campaign_id])) {
+                // another one for its going; and one the network may hold it on all the same — an add only slow, down or busy — is kept so an
+                // unblock takes it off there.
+                if (! $listing->listed && $listing->error !== TrafficBlockListing::TAKEN_OFF && ! $listing->mayBeListed() && isset($ended[(int) $listing->campaign_id])) {
                     $listings[(int) $listing->id] = (int) $block->id;
                 }
             }

@@ -307,7 +307,9 @@ never excluded again — and taking one off writes nothing. An error PopAds expl
 that is down. A list read without its sites, or with an entry that is no
 site ID (`UnexpectedResponse`: never a blank read as every site taken off),
 or a campaign listing what to allow rather than what to block
-(`Unsupported`), is never rewritten; reading
+(`Unsupported`), is never rewritten; the answer to a change is judged by the
+site IDs it holds, any other entry left out, so a change that went is never
+taken for one that didn't; reading
 the lists alone leaves such a campaign out, as it does one the network
 doesn't know. A change is judged site by site, or zone by zone, from the
 list the campaign reads back ("Blocking").
@@ -532,9 +534,12 @@ listing says it doesn't hold the block is no blocked click
 Every six hours the sync reads each running campaign's block list at every
 level its API blocks (`ReadsBlockLists::blockLists()`, a second between
 PopAds campaigns) and records it in one transaction on the source locked,
-writing nothing to the network. A listing written after the read began — a
-batch applied meanwhile by another sync, whose lock ran out — is newer than
-the lists read and is left to the next read:
+writing nothing to the network. A block that changed while its lists were
+read — sent, sent again or unblocked meanwhile, by another sync whose lock
+ran out or by an administrator: its state and `request_version` are no
+longer those the read began with — stands newer than the lists read and is
+left to the next read, and a site of a block deleted meanwhile is never
+taken for one blocked in the panel:
 
 - a site or zone on a list that RateGuru has no block for was blocked in the
   network's own panel: it becomes a block of method `panel`, `applied`, with
@@ -555,7 +560,9 @@ the lists read and is left to the next read:
   it is no longer one it is for: its listing goes, so a refusal there never
   keeps a block `partial` — but not one taken off there in the panel, the
   owner's doing, kept so that neither that campaign, back from the archive,
-  nor another one for its going, is sent the block. A block from before listings were kept starts from
+  nor another one for its going, is sent the block; nor one the network may
+  hold it on all the same (`mayBeListed()`), kept so an unblock takes it
+  off there. A block from before listings were kept starts from
   what it said — an unblock that failed, on the lists holding it, a refusal
   on those that don't;
 - a block only marked here, or on its way to or off the lists, is left to its
