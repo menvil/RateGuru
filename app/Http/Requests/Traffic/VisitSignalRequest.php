@@ -40,6 +40,11 @@ final class VisitSignalRequest extends FormRequest
                     }
                 },
             ],
+            // A sign-up form's signal from the sign-in dialog: the state it shows, and what opened it (AuthTrigger, one the
+            // server doesn't know being anything else). Without an opener — a page's script older than the dialog's steps —
+            // no step of the dialog is recorded.
+            'mode' => ['exclude_unless:signal,signup_form', 'nullable', 'string', 'in:login,register'],
+            'trigger' => ['exclude_unless:signal,signup_form', 'nullable', 'string', 'max:32'],
         ];
     }
 }

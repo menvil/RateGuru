@@ -46,6 +46,7 @@ return [
         'allow_url_imports' => 'Allow imports from a link',
         'allow_games' => 'Allow games',
         'allow_guest_viewing' => 'Allow guest viewing',
+        'guest_actions_open_sign_up' => 'Offer new guests sign-up when they vote',
         'content_studio_verified_adults' => 'Content Studio photos show verified adults',
         'label' => 'Label',
         'title' => 'Title',

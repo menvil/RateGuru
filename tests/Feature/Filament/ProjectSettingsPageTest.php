@@ -131,6 +131,20 @@ it('switches imports from a link off, the one switch they have', function () {
         ->and(app(ProjectSettingsManager::class)->featureEnabled('allow_url_imports'))->toBeFalse();
 });
 
+it('switches a guest’s vote, rating or comment vote to open sign-up, off until an administrator saves it on', function () {
+    $settings = ProjectSettings::factory()->create();
+
+    expect(app(ProjectSettingsManager::class)->featureEnabled('guest_actions_open_sign_up'))->toBeFalse();
+
+    Livewire::withQueryParams(['tab' => 'features'])->test(ProjectSettingsPage::class)
+        ->assertSeeHtml(__('admin.fields.guest_actions_open_sign_up'))
+        ->set('data.feature_flags.guest_actions_open_sign_up', true)
+        ->dispatch('save-project-settings')
+        ->assertHasNoErrors();
+
+    expect($settings->fresh()->feature_flags['guest_actions_open_sign_up'])->toBeTrue();
+});
+
 it('saves only the flags and providers the project has, leaving out whatever a request adds', function () {
     ProjectSettings::factory()->create();
 

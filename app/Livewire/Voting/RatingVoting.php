@@ -5,6 +5,7 @@ namespace App\Livewire\Voting;
 use App\Actions\Analytics\RecordUserActivityAction;
 use App\Actions\Games\CreditGameSiteActivityAction;
 use App\Actions\Rating\VoteRatingOptionAction;
+use App\Enums\AuthTrigger;
 use App\Enums\UserActivity;
 use App\Exceptions\Rating\CannotVoteForRatingOptionException;
 use App\Livewire\Concerns\CreditsGameSiteActivity;
@@ -104,7 +105,7 @@ class RatingVoting extends Component
             }
 
             $this->error = __('ui.voting.sign_in_to_vote');
-            $this->openAuthModal();
+            $this->askGuestToAuthenticate(AuthTrigger::Rating);
 
             return;
         }

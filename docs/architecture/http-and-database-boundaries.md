@@ -70,6 +70,13 @@ The reviewed boundaries are:
   most opened first — and the different browsers of the accounts whose session
   first opened each post, through a `NOT EXISTS` on an earlier post of the
   session.
+- `RegistrationFunnelQuery` for Analytics → Site engagement's registration
+  funnel, which counts people rather than visits: each person's registration
+  steps over a period's rows summed up first (`MAX(CASE WHEN … THEN 1 ELSE 0
+  END)` grouped by the browser's number), then the people of each step among
+  those of the steps before it (`SUM(CASE WHEN …)`), the people under each
+  opener of the dialog (`COUNT(DISTINCT …)`), and under each reason a sign-up
+  was refused (`(signup_refusals & ?) <> 0`, a bound bit each).
 - `AnalyticsVisitsQuery` for Growth → Analytics, which counts people rather
   than visits: conditional `COUNT(DISTINCT CASE WHEN … THEN visitor_hash END)`
   and sums over a period's visits — in all, per dimension of the visit with

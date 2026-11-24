@@ -123,6 +123,17 @@ it('moves a browser’s first day on to the earliest of its visits left, so the 
         ->and([$first('ann'), $first('bob'), $first('cid'), $first('dan'), $first('eve')])->toBe(['2026-11-14', '2026-10-01', '2026-11-16', null, '2025-10-12']);
 });
 
+it('lets go of the post a session landed on after 90 days, the visit staying and its day read again', function () {
+    $old = TrafficVisit::factory()->create(['arrived_at' => now()->subDays(91), 'network_day' => now()->subDays(91)->toDateString(), 'landing_post_id' => 11]);
+    $fresh = TrafficVisit::factory()->create(['landing_post_id' => 12]);
+
+    $this->artisan('traffic:purge-expired', ['--chunk' => 1])->assertSuccessful()->expectsOutput('Deleted 1 landing posts of visits.');
+
+    expect($old->fresh()->landing_post_id)->toBeNull()
+        ->and($fresh->fresh()->landing_post_id)->toBe(12)
+        ->and(AnalyticsDirtyDay::query()->pluck('day')->map(fn (mixed $day): string => substr((string) $day, 0, 10))->all())->toContain(now()->subDays(91)->toDateString());
+});
+
 it('deletes the posts a visit opened after 90 days from the first, the visit staying', function () {
     $visit = TrafficVisit::factory()->create(['arrived_at' => now()->subDays(91), 'network_day' => now()->subDays(91)->toDateString()]);
     $fresh = TrafficVisit::factory()->create();

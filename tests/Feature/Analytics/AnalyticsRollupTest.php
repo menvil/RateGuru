@@ -58,6 +58,20 @@ it('writes a row a visit, then only the rows of the visits that changed', functi
         ->and(AnalyticsVisit::query()->find($ann->id)->started)->toBeTrue();
 });
 
+it('keeps the registration steps on a visit’s row, and rewrites no row of a visit that reached none', function () {
+    $ann = analyticsVisit('ann', ['network_day' => '2026-11-10']);
+    analyticsVisit('bob', ['network_day' => '2026-11-10']);
+    $refresh = app(RefreshAnalyticsDayAction::class);
+    $refresh->handle('2026-11-10');
+
+    $ann->forceFill(['auth_opened_at' => '2026-11-10 10:02:00', 'auth_trigger' => 'header_signup', 'register_form_at' => '2026-11-10 10:02:00', 'signup_submitted_at' => '2026-11-10 10:03:00', 'signup_refused_at' => '2026-11-10 10:03:00', 'signup_refusals' => 1])->save();
+
+    expect($refresh->handle('2026-11-10'))->toBe(1)
+        ->and(AnalyticsVisit::query()->find($ann->id))
+        ->auth_opened->toBeTrue()->auth_trigger->toBe('header_signup')->register_form->toBeTrue()
+        ->signup_submitted->toBeTrue()->signup_refused->toBeTrue()->signup_refusals->toBe(1)->social_started->toBeFalse();
+});
+
 it('keeps each browser’s first day the earliest its page ran, whatever order the days are read in', function () {
     analyticsVisit('ann', ['network_day' => '2026-11-12']);
     analyticsVisit('ann', ['network_day' => '2026-11-05']);

@@ -1,5 +1,6 @@
 <?php
 
+use App\Enums\AuthTrigger;
 use App\Models\TrafficVisit;
 use App\Support\Traffic\Capture\ArrivalToken;
 use Carbon\CarbonImmutable;
@@ -74,4 +75,34 @@ it('holds an address without the visitor cookie to 120 signals a minute, and a b
 
     signal(['signal' => 'signup_form'])->assertStatus(429);
     signal(['signal' => 'signup_form'], 'otherBrowserotherBrowserotherBrowserothe')->assertNoContent();
+});
+
+it('records what opened the sign-in dialog once a visit, and the registration form only when it shows it', function () {
+    $visit = analyticsVisit('signal-reader', ['visitor_hash' => browserHashOf(SIGNAL_TOKEN), 'network_day' => '2026-11-17', 'arrived_at' => '2026-11-17 11:50:00', 'last_seen_at' => '2026-11-17 11:55:00']);
+
+    signal(['signal' => 'signup_form', 'mode' => 'login', 'trigger' => 'header_login'])->assertNoContent();
+
+    expect($visit->fresh())->auth_opened_at->not->toBeNull()->auth_trigger->toBe(AuthTrigger::HeaderLogin)->register_form_at->toBeNull();
+
+    // Switched to signing up — or opened again from a vote: the first opener stays.
+    CarbonImmutable::setTestNow('2026-11-17 12:01:00');
+    signal(['signal' => 'signup_form', 'mode' => 'register', 'trigger' => 'vote'])->assertNoContent();
+
+    expect($visit->fresh())->auth_trigger->toBe(AuthTrigger::HeaderLogin)->register_form_at->toEqual(CarbonImmutable::parse('2026-11-17 12:01:00'));
+});
+
+it('records no step of the dialog for a signal that names no opener, and an opener it does not know as anything else', function () {
+    $visit = analyticsVisit('signal-reader', ['visitor_hash' => browserHashOf(SIGNAL_TOKEN), 'network_day' => '2026-11-17', 'arrived_at' => '2026-11-17 11:50:00', 'last_seen_at' => '2026-11-17 11:55:00']);
+
+    signal(['signal' => 'signup_form'])->assertNoContent();
+
+    expect($visit->fresh()->auth_opened_at)->toBeNull();
+
+    signal(['signal' => 'signup_form', 'mode' => 'register', 'trigger' => 'a_button_to_come'])->assertNoContent();
+
+    expect($visit->fresh())->auth_trigger->toBe(AuthTrigger::Other)->register_form_at->not->toBeNull();
+});
+
+it('refuses a dialog state it does not know', function () {
+    signal(['signal' => 'signup_form', 'mode' => 'forgot', 'trigger' => 'header_login'])->assertSessionHasErrors('mode');
 });

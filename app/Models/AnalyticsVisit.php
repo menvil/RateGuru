@@ -61,6 +61,14 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property string|null $utm_campaign
  * @property string|null $utm_content
  * @property string|null $utm_term
+ * @property bool $auth_opened
+ * @property string|null $auth_trigger what opened the sign-in dialog first on the visit (AuthTrigger)
+ * @property bool $register_form
+ * @property bool $social_started
+ * @property bool $signup_submitted
+ * @property bool $signup_refused
+ * @property int $signup_refusals every reason a sign-up was refused, a SignupRefusal bit each
+ * @property int|null $landing_post_id the post the session landed on
  */
 class AnalyticsVisit extends Model
 {
@@ -109,6 +117,13 @@ class AnalyticsVisit extends Model
             'crawler' => 'boolean',
             'game_id' => 'integer',
             'version_id' => 'integer',
+            'auth_opened' => 'boolean',
+            'register_form' => 'boolean',
+            'social_started' => 'boolean',
+            'signup_submitted' => 'boolean',
+            'signup_refused' => 'boolean',
+            'signup_refusals' => 'integer',
+            'landing_post_id' => 'integer',
         ];
     }
 

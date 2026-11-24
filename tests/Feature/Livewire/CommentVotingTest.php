@@ -46,7 +46,7 @@ it('asks a guest who votes on a comment to sign in, in the authentication modal 
         ->call('vote', VoteType::Up->value)
         ->assertSet('error', __('ui.voting.errors.guest_comment'))
         ->assertSee(__('ui.voting.errors.guest_comment'))
-        ->assertDispatched('open-auth-modal', mode: 'login');
+        ->assertDispatched('open-auth-modal', mode: 'login', trigger: 'comment_vote');
 
     expect(CommentVote::query()->count())->toBe(0);
 });

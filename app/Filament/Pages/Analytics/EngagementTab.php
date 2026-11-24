@@ -3,19 +3,23 @@
 namespace App\Filament\Pages\Analytics;
 
 use App\Enums\AnalyticsDimension;
+use App\Enums\AuthTrigger;
 use App\Enums\PostStatus;
+use App\Enums\SignupRefusal;
 use App\Filament\Pages\GrowthAnalyticsPage;
 use App\Filament\Pages\TrafficSourcesPage;
 use App\Models\Post;
 use App\Models\TrafficSetting;
 use App\Queries\Analytics\AnalyticsContentQuery;
 use App\Queries\Analytics\AnalyticsVisitsQuery;
+use App\Queries\Analytics\RegistrationFunnelQuery;
 use App\Support\Analytics\ActivityDay;
 use App\Support\Analytics\AnalyticsFilter;
 use App\Support\Analytics\AnalyticsPeriod;
 use App\Support\Analytics\AnalyticsSource;
 use App\Support\Analytics\CampaignKey;
 use App\Support\Analytics\FigureChange;
+use App\Support\Analytics\FunnelLanding;
 use App\Support\Analytics\VisitorFigures;
 
 /**
@@ -46,12 +50,16 @@ final class EngagementTab implements AnalyticsTab
 
     public const string POSTS_KEPT = 'Post views are kept for 90 days';
 
+    /** How many posts the registration funnel's landing offers, those landed on most first. */
+    public const int LANDING_POSTS = 10;
+
     public const string SITE_OFF = 'Record site visits is off, so the posts people open and what they do on the site aren’t counted. Only the accounts are shown.';
 
     public function __construct(
         private readonly AnalyticsVisitsQuery $visits,
         private readonly AnalyticsContentQuery $content,
         private readonly AnalyticsView $view,
+        private readonly RegistrationFunnelQuery $registration,
     ) {}
 
     /** @return array<string, mixed> */
@@ -78,7 +86,7 @@ final class EngagementTab implements AnalyticsTab
         $change = fn (int $now, ?int $before): ?string => FigureChange::between($now, $before, $previous === null ? null : $period->comparison())?->text;
 
         if ($state['siteOff']) {
-            return ['empty' => false, ...$state, 'cards' => self::accountCards($figures, $previous, $period, $change)];
+            return ['empty' => false, ...$state, 'cards' => self::accountCards($figures, $previous, $period, $change), 'registration' => $this->registration($page, $filter)];
         }
 
         // Posts are kept back to a moment of the day 90 days ago: the days after it are the oldest still whole.
@@ -93,6 +101,7 @@ final class EngagementTab implements AnalyticsTab
             'scope' => 'All visitors of the site, including people who never open a game. '.$this->scope($filter).'.',
             'cards' => $this->cards($filter, $figures, $previousFilter, $previous, $posts, $postsBefore, $change),
             'funnel' => self::funnel($figures, $posts['viewers'] ?? null),
+            'registration' => $this->registration($page, $filter),
             'compare' => $this->compare($page, $filter->periodAndDevice(), $kept),
             'content' => $this->content($filter, $kept),
         ];
@@ -195,6 +204,81 @@ final class EngagementTab implements AnalyticsTab
                     'strong' => $index >= 3,
                 ];
             }, array_keys($steps), $steps),
+        ];
+    }
+
+    /**
+     * The registration funnel (RegistrationFunnelQuery) of the new visitors
+     * who landed where the address says: each step's people, its share of
+     * the step it follows and of the people who landed, and a bar against
+     * them — what opened the dialog under Opened, the email form and Google
+     * or Facebook under Started — with everyone who signed up by any way and
+     * why sign-ups were refused at its foot; the landing offered among the
+     * posts landed on most, the one chosen kept. Waiting while Analytics'
+     * own rows aren't ready.
+     *
+     * @return array<string, mixed>
+     */
+    private function registration(GrowthAnalyticsPage $page, AnalyticsFilter $filter): array
+    {
+        $landing = FunnelLanding::fromKey(is_string($page->landing) ? $page->landing : null);
+        $posts = $this->registration->landingPosts($filter, self::LANDING_POSTS);
+
+        if ($landing->postId !== null) {
+            $posts += [$landing->postId => 0];
+        }
+
+        $titles = $this->content->posts(array_keys($posts));
+        $options = [
+            ['value' => '', 'label' => 'All landings', 'trigger' => 'All'],
+            ['value' => FunnelLanding::FEED, 'label' => 'Home feed'],
+            ['value' => FunnelLanding::POST, 'label' => 'Any post'],
+            ...array_map(function (int $id) use ($titles): array {
+                $post = $titles->get($id);
+
+                return ['value' => FunnelLanding::post($id)->key(), 'label' => '#'.$id.' '.($post instanceof Post && ! $post->trashed() ? (string) $post->title : 'Post removed')];
+            }, array_keys($posts)),
+            ['value' => FunnelLanding::OTHER, 'label' => 'Other pages'],
+        ];
+        $state = ['landing' => ['value' => $landing->key(), 'options' => $options]];
+        $funnel = $this->registration->read($filter, $landing);
+
+        if ($funnel === null) {
+            return ['ready' => false, ...$state, 'note' => 'Counted once Analytics’ own rows are ready.'];
+        }
+
+        $people = $funnel->people();
+        $landed = $people['landed'];
+        $row = fn (string $name, int $count, ?int $of, bool $sub = false, bool $strong = false): array => [
+            'name' => $name,
+            'count' => self::count($count),
+            'previous' => $of === null ? '—' : self::percent(VisitorFigures::rate($count, $of)),
+            'first' => self::percent(VisitorFigures::rate($count, $landed)),
+            'bar' => $landed === 0 ? 0.0 : round(min(1, $count / $landed) * 100, 1),
+            'strong' => $strong,
+            'sub' => $sub,
+        ];
+        $triggers = $funnel->triggers;
+        uksort($triggers, fn (string $one, string $other): int => [$triggers[$other], AuthTrigger::fromSignal($one)->label()] <=> [$triggers[$one], AuthTrigger::fromSignal($other)->label()]);
+        $refused = array_map(fn (string $reason, int $count): string => SignupRefusal::from($reason)->label().' '.self::count($count), array_keys($funnel->refusals), $funnel->refusals);
+
+        return [
+            'ready' => true,
+            ...$state,
+            'note' => 'New visitors who landed here in the period, and what they did on any visit of it. A step counts the people of the steps before it, but Google or Facebook, which the sign-in form offers too. These steps are counted since they began to be recorded: an older period shows them empty.',
+            'steps' => [
+                $row('Landed', $landed, null),
+                $row('Opened sign-in or sign-up', $people['opened'], $landed),
+                ...array_map(fn (string $trigger, int $count): array => $row(AuthTrigger::fromSignal($trigger)->label(), $count, $people['opened'], sub: true), array_keys($triggers), $triggers),
+                $row('Saw the registration form', $people['register_form'], $people['opened']),
+                $row('Started signing up', $people['started'], $people['opened']),
+                $row('Sent the email form', $people['sent_email'], $people['started'], sub: true),
+                $row('Went on to Google or Facebook', $people['started_social'], $people['started'], sub: true),
+                $row('Signed up', $people['signed_up'], $people['started'], strong: true),
+                $row('Confirmed the account', $people['confirmed'], $people['signed_up'], strong: true),
+                $row('Activated', $people['activated'], $people['confirmed'], strong: true),
+            ],
+            'foot' => ['Signed up by any way: '.self::count($funnel->signedUpAnyWay), ...($refused === [] ? [] : ['Refused: '.implode(', ', $refused)])],
         ];
     }
 

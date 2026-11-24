@@ -237,6 +237,7 @@
                                 <x-ui.button
                                     class="rg-header-icon-button"
                                     data-testid="guest-upload-button"
+                                    data-auth-trigger="upload"
                                     data-header-fit="6"
                                     data-header-fit-display="inline-flex"
                                     x-on:click="rgOpenAuthModal($event, 'register', {{ \Illuminate\Support\Js::from(route('register')) }})"
@@ -260,6 +261,7 @@
                                 <a
                                     href="{{ route('register') }}"
                                     data-testid="header-register-link"
+                                    data-auth-trigger="header_signup"
                                     data-header-fit="5"
                                     data-header-fit-display="inline-flex"
                                     x-on:click="rgOpenAuthModal($event, 'register')"
@@ -272,6 +274,7 @@
                             <a
                                 href="{{ route('login') }}"
                                 data-testid="header-login-link"
+                                data-auth-trigger="header_login"
                                 x-on:click="rgOpenAuthModal($event, 'login')"
                                 class="inline-flex h-[38px] cursor-pointer items-center justify-center gap-2 rounded-rgControl border border-rg-border2 bg-rg-card px-4 text-[13px] font-semibold text-rg-text2 transition-colors hover:bg-rg-card2 hover:text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent focus-visible:ring-offset-2 focus-visible:ring-offset-rg-bg"
                             >

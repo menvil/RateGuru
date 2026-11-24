@@ -1,5 +1,6 @@
 <?php
 
+use App\Enums\AuthTrigger;
 use App\Enums\GameEventType;
 use App\Enums\GameOnwardKind;
 use App\Models\GameAttempt;
@@ -96,6 +97,20 @@ it('puts the sign-up form a page shows on the visit that page makes, its signal 
     waitForScript($page, "document.querySelector('meta[name=\"rg-arrival\"]')?.dataset.sent === '1'");
 
     eventually(fn () => expect(TrafficVisit::query()->sole())->game_id->toBeNull()->signup_form_at->not->toBeNull());
+});
+
+it('tells the tracker what opened the sign-in dialog, and that it showed the registration form', function () {
+    $page = visit('/')->withUserAgent(DESKTOP_CHROME_USER_AGENT);
+    waitForScript($page, "document.querySelector('meta[name=\"rg-arrival\"]')?.dataset.sent === '1'");
+    eventually(fn () => expect(TrafficVisit::query()->sole()->opened_at)->not->toBeNull());
+
+    $page->click('[data-testid="header-register-link"]');
+
+    eventually(fn () => expect(TrafficVisit::query()->sole())
+        ->auth_trigger->toBe(AuthTrigger::HeaderSignup)
+        ->register_form_at->not->toBeNull()
+        ->signup_form_at->not->toBeNull());
+    $page->assertNoJavaScriptErrors();
 });
 
 it('names the post the sign-in dialog opens on, crediting the game that sent the browser there', function () {

@@ -210,6 +210,7 @@ final class CaptureTrafficArrival
             in_array($route, self::GAME_ROUTES, true) && is_string($request->route('slug')) ? $request->route('slug') : null,
             app(RequestSignals::class)->read(),
             $now,
+            self::postOf($request, $route)['post'] ?? null,
         );
 
         if ($visit === null) {

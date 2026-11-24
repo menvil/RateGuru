@@ -8,6 +8,9 @@ window.rgAuthModal = function ({ open = false, mode = 'login' } = {}) {
     return {
         open: Boolean(open),
         mode: normalize(mode),
+        // What opened the dialog (App\Enums\AuthTrigger), kept while it stays open: a switch between its states inside
+        // it names no opener of its own. The tracker keeps the first opener of a visit.
+        trigger: 'other',
 
         init() {
             // Opened by the server: a failed submission or a provider round
@@ -22,6 +25,7 @@ window.rgAuthModal = function ({ open = false, mode = 'login' } = {}) {
 
         // Opens the dialog, or switches the state of the one already open.
         show(detail) {
+            this.trigger = detail?.trigger ?? (this.open ? this.trigger : 'other');
             this.mode = normalize(detail?.mode);
             this.syncReturnPath();
             this.open = true;
@@ -49,7 +53,8 @@ window.rgAuthModal = function ({ open = false, mode = 'login' } = {}) {
 
             const post = document.querySelector('[data-rg-post]')?.dataset.rgPost;
 
-            window.rgTrafficSignal('signup_form', post ? { post } : undefined);
+            // The state shown and what opened the dialog, for the registration funnel's steps.
+            window.rgTrafficSignal('signup_form', { ...(post ? { post } : {}), mode: this.mode, trigger: this.trigger });
         },
 
         // The page the person is on right now. Livewire may have changed the
@@ -130,5 +135,6 @@ window.rgOpenAuthModal = function (event, mode, fallbackUrl = null) {
     }
 
     event?.preventDefault();
-    window.dispatchEvent(new CustomEvent('open-auth-modal', { detail: { mode } }));
+    // What opened it names itself (data-auth-trigger), for the registration funnel.
+    window.dispatchEvent(new CustomEvent('open-auth-modal', { detail: { mode, trigger: event?.currentTarget?.dataset?.authTrigger ?? 'other' } }));
 };

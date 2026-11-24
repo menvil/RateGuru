@@ -66,7 +66,7 @@ it('does not allow guests to vote through rating voting, and asks them to sign i
         ->call('vote', $option->id)
         ->assertSet('error', 'Sign in to vote.')
         ->assertSee('Sign in to vote.')
-        ->assertDispatched('open-auth-modal', mode: 'login');
+        ->assertDispatched('open-auth-modal', mode: 'login', trigger: 'rating');
 
     expect(RatingVote::query()->count())->toBe(0);
 });

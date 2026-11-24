@@ -106,3 +106,28 @@ it('keeps a source picked for a side in the address, and asks for two different 
 
     $page->assertNoJavaScriptErrors();
 });
+
+it('narrows the registration funnel to the people who landed on a post, the page never wider than the screen', function (int $width) {
+    $recent = now()->subDays(2);
+    $post = Post::query()->sole();
+    analyticsVisit('landed-on-the-post', [
+        'network_day' => $recent->toDateString(), 'arrived_at' => $recent->toDateTimeString(), 'landing_key' => 'posts.show', 'landing_post_id' => $post->id,
+        'auth_opened_at' => $recent->toDateTimeString(), 'auth_trigger' => 'vote', 'register_form_at' => $recent->toDateTimeString(),
+        'signup_submitted_at' => $recent->toDateTimeString(), 'signup_at' => $recent->toDateTimeString(),
+    ]);
+    fillAnalyticsRollup();
+
+    $page = visitAnalyticsEngagement('/admin/analytics?tab=engagement&period=7d', $width);
+    // The figure as the eye reads it: the words a screen reader hears before it left out.
+    $landed = "[...(document.querySelector('[data-testid=\"analytics-registration-funnel\"] .rg-admin-analytics__step-count')?.childNodes ?? [])].filter((node) => node.nodeType === Node.TEXT_NODE).map((node) => node.textContent).join('').trim()";
+
+    expect($page->script($landed))->toBe('66')
+        ->and($page->script('document.documentElement.scrollWidth > window.innerWidth'))->toBeFalse();
+
+    $page->click('#rg-admin-analytics-landing');
+    $page->click('#rg-admin-analytics-landing-menu [role=menuitemradio]:has-text("Any post")');
+
+    waitForScript($page, $landed." === '1'");
+    expect($page->script('location.search'))->toContain('landing=post');
+    $page->assertNoJavaScriptErrors();
+})->with([1440, 390]);

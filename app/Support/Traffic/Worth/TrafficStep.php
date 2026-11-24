@@ -47,12 +47,13 @@ final class TrafficStep
         return [...$playing, 'completed', ...self::AFTER_THE_RESULT, ...self::ON_THE_SITE, ...self::ACCOUNTS];
     }
 
-    /** The step an event stands for; null for those that are not a step (the goal, the sign-up form, the bonuses, an account activated). */
+    /** The step an event stands for; null for those that are not a step (the goal, the sign-up form, the bonuses, an account activated, the registration steps). */
     public static function ofEvent(TrafficEvent $event, int $rounds): ?string
     {
         return match ($event) {
             TrafficEvent::Halfway => self::halfway($rounds),
-            TrafficEvent::Goal, TrafficEvent::SignupForm, TrafficEvent::PostPublished, TrafficEvent::Returned, TrafficEvent::Settled, TrafficEvent::Activated => null,
+            TrafficEvent::Goal, TrafficEvent::SignupForm, TrafficEvent::PostPublished, TrafficEvent::Returned, TrafficEvent::Settled, TrafficEvent::Activated,
+            TrafficEvent::AuthOpened, TrafficEvent::RegisterForm, TrafficEvent::SocialStarted, TrafficEvent::SignupSubmitted, TrafficEvent::SignupRefused => null,
             default => $event->value,
         };
     }

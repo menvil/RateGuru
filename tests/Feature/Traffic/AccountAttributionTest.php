@@ -8,6 +8,7 @@ use App\Actions\Traffic\RecordAccountSignupAction;
 use App\Data\Auth\SocialIdentity;
 use App\Enums\AccountSignupMethod;
 use App\Enums\AccountSignupPlace;
+use App\Enums\AuthTrigger;
 use App\Enums\GameEventType;
 use App\Enums\SocialProvider;
 use App\Enums\TrafficChannel;
@@ -366,7 +367,9 @@ it('marks the visit that saw a sign-up form in the game', function () {
     GameAttempt::query()->sole()->forceFill(['traffic_visit_id' => $visit->id])->save();
     $play->call('choose', 0)->call('next');
 
-    expect($visit->fresh()->signup_form_at)->not->toBeNull();
+    expect($visit->fresh()->signup_form_at)->not->toBeNull()
+        // The game's own form: opened by it, the registration form shown.
+        ->and($visit->fresh())->auth_trigger->toBe(AuthTrigger::GameForm)->register_form_at->not->toBeNull();
 });
 
 it('issues no visitor cookie on sign-up while visits are not recorded', function () {

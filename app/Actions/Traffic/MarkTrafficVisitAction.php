@@ -26,6 +26,7 @@ use App\Support\Traffic\Postbacks\PostbackUrl;
 use App\Support\Traffic\Worth\TrafficStep;
 use App\Support\Traffic\Worth\VisitValue;
 use Carbon\CarbonImmutable;
+use Illuminate\Support\Facades\DB;
 
 /**
  * The tracker's one writer of what a visit reached (docs/architecture/
@@ -49,6 +50,51 @@ final class MarkTrafficVisitAction
         private readonly TrafficVisitWorth $worth,
         private readonly MarkAnalyticsDayAction $analytics,
     ) {}
+
+    /**
+     * A visit's registration steps (RecordRegistrationStepAction), counted
+     * only: each moment set where the visit has none yet, with what goes with
+     * it, and the reasons a sign-up was refused added to those kept — under a
+     * lock on the visit, inside the caller's transaction or one of its own,
+     * its day marked for Analytics. Never a worth, a conversion, a postback or
+     * a moment the visit was seen at, so a paid click settles as it would.
+     * Whether anything changed.
+     *
+     * @param  array<string, array<string, string>>  $moments  each moment's column, and the columns written with it
+     * @param  int  $refusals  SignupRefusal bits to add
+     */
+    public function registrationSteps(int $visitId, array $moments, int $refusals, CarbonImmutable $at): bool
+    {
+        return DB::transaction(function () use ($visitId, $moments, $refusals, $at): bool {
+            $visit = TrafficVisit::query()->whereKey($visitId)->lockForUpdate()->first(['id', 'network_day', 'signup_refusals', ...array_keys($moments)]);
+
+            if ($visit === null) {
+                return false;
+            }
+
+            $changes = [];
+
+            foreach ($moments as $column => $with) {
+                if ($visit->getAttribute($column) === null) {
+                    $changes = [...$changes, $column => $at, ...$with];
+                }
+            }
+
+            if (($visit->signup_refusals | $refusals) !== $visit->signup_refusals) {
+                $changes['signup_refusals'] = $visit->signup_refusals | $refusals;
+            }
+
+            if ($changes === []) {
+                return false;
+            }
+
+            TrafficVisit::query()->whereKey($visitId)->update($changes);
+            // A click days old is read again for its own day, marked with the write.
+            $this->analytics->handle($visit->network_day, $at);
+
+            return true;
+        });
+    }
 
     /**
      * Whether this call was the first to mark it.

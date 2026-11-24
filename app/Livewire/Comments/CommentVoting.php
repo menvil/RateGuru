@@ -2,6 +2,7 @@
 
 namespace App\Livewire\Comments;
 
+use App\Enums\AuthTrigger;
 use App\Enums\VoteType;
 use App\Exceptions\Votes\CannotVoteCommentException;
 use App\Livewire\Concerns\OpensAuthModal;
@@ -86,7 +87,7 @@ final class CommentVoting extends Component
                 // that is gone, votable again: that is the answer then, as a
                 // member gets it, not the sign-in dialog.
                 if ($comment->canReceiveVotes() && $comment->post?->canReceiveVotes() === true) {
-                    $this->openAuthModal();
+                    $this->askGuestToAuthenticate(AuthTrigger::CommentVote);
                 } else {
                     $this->error = CannotVoteCommentException::becauseCommentIsNotVisible()->getMessage();
                 }

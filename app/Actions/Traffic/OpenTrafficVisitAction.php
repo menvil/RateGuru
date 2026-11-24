@@ -223,6 +223,7 @@ final class OpenTrafficVisitAction
                 'campaign_key' => CampaignKey::tag($tags->campaign),
                 'creative_key' => $tags->creative(),
                 'landing_key' => LandingRoute::key(isset($arrival['route']) ? (string) $arrival['route'] : null, $gameId, $versionId),
+                'landing_post_id' => isset($arrival['post']) ? (int) $arrival['post'] : null,
                 ...$tags->columns(),
             ]
             : [
@@ -231,6 +232,7 @@ final class OpenTrafficVisitAction
                 'campaign_key' => $session->campaign_key,
                 'creative_key' => $session->creative_key,
                 'landing_key' => $session->landing_key,
+                'landing_post_id' => $session->landing_post_id,
                 ...self::tagsOf($session)->columns(),
             ];
 
