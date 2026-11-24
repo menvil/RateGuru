@@ -159,7 +159,13 @@ checks, in this order:
 | `report` | written to the security log, and the sign-up goes through |
 | `enforce` | written to the security log, and refused with one generic message |
 
-A blank or unknown value reads as `report`. The log line carries the reasons
+A blank or unknown value reads as `report`. A sign-up form sent, and one
+refused — by its rules (an address already taken apart from any other
+mistake, recorded before the form goes back), by these checks in `enforce`
+(`RegistrationRefusedException` carries why), or for an address another
+sign-up took first — are registration steps of the browser's visit
+(`docs/architecture/traffic.md`, "Registration steps"); `report` refuses
+nothing, so it records no refusal. Never a value the form held. The log line carries the reasons
 and the browser's bot flags, never the name or the address. A refusal only
 about the address is shown on the email field, in the words a mistyped or
 taken address gets; any other is the one generic message. A new address on

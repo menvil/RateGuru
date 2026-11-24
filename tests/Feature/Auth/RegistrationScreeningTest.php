@@ -2,7 +2,9 @@
 
 use App\Actions\Auth\ScreenRegistrationAction;
 use App\Enums\RegistrationScreeningMode;
+use App\Enums\SignupRefusal;
 use App\Models\ProjectSettings;
+use App\Models\TrafficVisit;
 use App\Models\User;
 use App\Support\AbuseGuards\RateLimitKey;
 use App\Support\Auth\RegistrationFormStamp;
@@ -334,4 +336,61 @@ it('shows a refusal on the sign-up inside a game, at the step with the button', 
         ->assertOk()
         ->assertSee(__('auth.register.refused'))
         ->assertSee("step: 'details'", false);
+});
+
+/** A browser with a visit of a few minutes ago, its sign-up form sent from it: the visit its registration steps go on. */
+function signUpFromVisit(array $form): TrafficVisit
+{
+    recordTraffic();
+    $token = 'signupTokensignupTokensignupTokensignupT';
+    $visit = analyticsVisit('signing-up', ['visitor_hash' => browserHashOf($token), 'network_day' => now()->toDateString(), 'arrived_at' => now()->subMinutes(5), 'last_seen_at' => now()->subMinutes(5)]);
+
+    test()->withCookie((string) config('games.visitor_cookie.name'), $token)->post('/register', $form);
+
+    return $visit->fresh();
+}
+
+it('records a sign-up form sent, and nothing refused when the account is made', function () {
+    $visit = signUpFromVisit(screenedSignUp());
+
+    $this->assertAuthenticated();
+    expect($visit)->signup_submitted_at->not->toBeNull()->signup_refused_at->toBeNull()->signup_refusals->toBe(0);
+});
+
+it('records a taken address and any other mistake in the form as refusals, before the form reaches its controller', function () {
+    User::factory()->create(['email' => 'taken@example.com']);
+
+    $visit = signUpFromVisit([...screenedSignUp(), 'email' => 'taken@example.com', 'password' => 'short', 'password_confirmation' => 'short']);
+
+    expect($visit)->signup_submitted_at->not->toBeNull()->signup_refused_at->not->toBeNull()
+        ->signup_refusals->toBe(SignupRefusal::mask([SignupRefusal::EmailTaken, SignupRefusal::Invalid]));
+});
+
+it('records a refusal the checks enforce as a likely bot, never what was typed', function () {
+    $visit = signUpFromVisit([...screenedSignUp(), ScreenRegistrationAction::HONEYPOT_FIELD => 'https://spam.example']);
+
+    $this->assertGuest();
+    expect($visit->signup_refusals)->toBe(SignupRefusal::Screened->bit())
+        ->and(collect($visit->getAttributes())->filter(fn (mixed $value): bool => is_string($value) && str_contains($value, 'spam.example'))->all())->toBe([]);
+});
+
+it('records no refusal while the checks only report', function () {
+    config(['registration.screening_mode' => 'report']);
+
+    $visit = signUpFromVisit([...screenedSignUp(), ScreenRegistrationAction::HONEYPOT_FIELD => 'https://spam.example']);
+
+    $this->assertAuthenticated();
+    expect($visit)->signup_submitted_at->not->toBeNull()->signup_refused_at->toBeNull()->signup_refusals->toBe(0);
+});
+
+it('records an address another sign-up took first as taken', function () {
+    // The other sign-up lands between this one's validation and its insert.
+    User::creating(function (User $user): void {
+        User::flushEventListeners();
+        User::factory()->create(['email' => $user->email]);
+    });
+
+    $visit = signUpFromVisit(screenedSignUp());
+
+    expect($visit->signup_refusals)->toBe(SignupRefusal::EmailTaken->bit());
 });
