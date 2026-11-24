@@ -66,15 +66,73 @@
         </x-admin.ui.card>
 
         <x-admin.ui.card :title="$data['chart']['title']" :description="$data['chart']['note']" data-testid="analytics-chart">
-            <div @class(['rg-admin-analytics__bars', 'rg-admin-analytics__bars--dense' => $data['chart']['dense']]) role="list" aria-label="{{ $data['chart']['title'] }}">
-                @foreach ($data['chart']['bars'] as $bar)
-                    <span role="listitem" @class(['rg-admin-analytics__bar', 'rg-admin-analytics__bar--marked' => $bar['marked']]) style="height: {{ $bar['height'] }}%" title="{{ $bar['title'] }}" aria-label="{{ $bar['title'] }}"></span>
-                @endforeach
-            </div>
-            <div class="rg-admin-analytics__ticks" aria-hidden="true">
-                @foreach ($data['chart']['ticks'] as $tick)
-                    <span>{{ $tick }}</span>
-                @endforeach
+            {{--
+                The readout says the count of the bar pointed at, tapped or arrowed to — the busiest one's while none is — so the exact
+                figure never waits on a hover a phone can't do. The whole column is the target, not the painted bar. Each bar keeps its
+                own name for a screen reader; the readout only repeats it. Keyed by the bars, a new period draws a new chart.
+            --}}
+            <div
+                class="rg-admin-analytics__chart"
+                wire:key="analytics-chart-{{ md5(json_encode($data['chart']['bars'])) }}"
+                x-data="{
+                    at: null,
+                    count: {{ count($data['chart']['bars']) }},
+                    pick(event) {
+                        const box = this.$refs.bars.getBoundingClientRect()
+                        this.at = Math.min(this.count - 1, Math.max(0, Math.floor((event.clientX - box.left) / box.width * this.count)))
+                    },
+                    step(by) {
+                        this.at = this.at === null ? (by > 0 ? 0 : this.count - 1) : Math.min(this.count - 1, Math.max(0, this.at + by))
+                    },
+                    get readout() {
+                        return this.at === null ? this.$refs.readout.dataset.peak : this.$refs.bars.children[this.at].dataset.title
+                    },
+                }"
+                x-on:click.outside="at = null"
+            >
+                <p class="rg-admin-analytics__readout" x-ref="readout" data-peak="{{ $data['chart']['peak'] }}" x-text="readout" aria-live="polite" data-testid="analytics-chart-readout">{{ $data['chart']['peak'] }}</p>
+                <div class="rg-admin-analytics__plot">
+                    <div class="rg-admin-analytics__axis" aria-hidden="true">
+                        <span class="rg-admin-analytics__axis-size">{{ collect($data['chart']['scale'])->last()['value'] ?? '' }}</span>
+                        @foreach ($data['chart']['scale'] as $line)
+                            <span class="rg-admin-analytics__axis-value" style="bottom: {{ $line['at'] }}%">{{ $line['value'] }}</span>
+                        @endforeach
+                    </div>
+                    <div
+                        class="rg-admin-analytics__field"
+                        tabindex="0"
+                        aria-label="{{ $data['chart']['title'] }}: arrow keys read each bar"
+                        x-on:pointermove="pick($event)"
+                        x-on:pointerdown="pick($event)"
+                        x-on:pointerleave="if ($event.pointerType === 'mouse') at = null"
+                        x-on:keydown.right.prevent="step(1)"
+                        x-on:keydown.left.prevent="step(-1)"
+                        x-on:keydown.home.prevent="at = 0"
+                        x-on:keydown.end.prevent="at = count - 1"
+                        x-on:keydown.escape="at = null"
+                        x-on:blur="at = null"
+                    >
+                        @foreach ($data['chart']['scale'] as $line)
+                            <span class="rg-admin-analytics__gridline" style="bottom: {{ $line['at'] }}%" aria-hidden="true"></span>
+                        @endforeach
+                        <div @class(['rg-admin-analytics__bars', 'rg-admin-analytics__bars--dense' => $data['chart']['dense']]) role="list" aria-label="{{ $data['chart']['title'] }}" x-ref="bars">
+                            @foreach ($data['chart']['bars'] as $bar)
+                                <span
+                                    role="listitem"
+                                    @class(['rg-admin-analytics__bar', 'rg-admin-analytics__bar--marked' => $bar['marked'], 'rg-admin-analytics__bar--to-come' => $bar['toCome']])
+                                    x-bind:class="{ 'rg-admin-analytics__bar--chosen': at === {{ $loop->index }} }"
+                                    style="height: {{ $bar['height'] }}%"
+                                    data-title="{{ $bar['title'] }}"
+                                ><span class="rg-admin-sr-only">{{ $bar['title'] }}</span></span>
+                            @endforeach
+                        </div>
+                    </div>
+                    <div class="rg-admin-analytics__ticks" aria-hidden="true">
+                        @foreach ($data['chart']['ticks'] as $tick)
+                            <span>{{ $tick }}</span>
+                        @endforeach
+                    </div>
+                </div>
             </div>
             @if ($data['chart']['markers'] !== [])
                 <ul class="rg-admin-analytics__markers" data-testid="analytics-markers">
@@ -86,7 +144,7 @@
         </x-admin.ui.card>
     </div>
 
-    <x-admin.ui.card title="Traffic sources" description="Click a source to filter the whole page. Start rate uses visitors; registration and activation use new visitors." flush class="rg-admin-analytics__sources-card" data-testid="analytics-sources">
+    <x-admin.ui.card title="Traffic sources" :description="$data['sourcesNote']" flush class="rg-admin-analytics__sources-card" data-testid="analytics-sources">
         <x-slot:aside>
             <x-admin.ui.segmented label="Sort" compact :options="GrowthAnalyticsPage::SORTS" :value="$this->sort" wire:model.live="sort" class="rg-admin-analytics__sort" />
         </x-slot:aside>
