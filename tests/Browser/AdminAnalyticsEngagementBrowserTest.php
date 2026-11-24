@@ -118,7 +118,8 @@ it('narrows the registration funnel to the people who landed on a post, the page
     fillAnalyticsRollup();
 
     $page = visitAnalyticsEngagement('/admin/analytics?tab=engagement&period=7d', $width);
-    $landed = "document.querySelector('[data-testid=\"analytics-registration-funnel\"] .rg-admin-analytics__step-count')?.textContent.trim()";
+    // The figure as the eye reads it: the words a screen reader hears before it left out.
+    $landed = "[...(document.querySelector('[data-testid=\"analytics-registration-funnel\"] .rg-admin-analytics__step-count')?.childNodes ?? [])].filter((node) => node.nodeType === Node.TEXT_NODE).map((node) => node.textContent).join('').trim()";
 
     expect($page->script($landed))->toBe('66')
         ->and($page->script('document.documentElement.scrollWidth > window.innerWidth'))->toBeFalse();
