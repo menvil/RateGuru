@@ -943,7 +943,8 @@ final class TrafficSourcesView
             $block->method === TrafficBlockMethod::Panel => ['label' => 'Blocked on '.$network, 'tone' => $still ? 'danger' : 'neutral',
                 'tip' => 'Blocked in the '.$network.' panel, not by '.site_name().' · found '.$block->blocked_at->format('j M').$holding.$since],
             $block->network_state === TrafficBlockNetworkState::Partial && $stuck !== null => ['label' => 'Partly blocked · unblock failed', 'tone' => 'danger',
-                'tip' => 'Still on '.$lists($on).': '.$why($stuck->error).($off->isNotEmpty() ? ' Taken off '.$lists($off).'.' : '').' Unblock it again to try again.'],
+                // Off the lists with nothing said against them: one that refused to take the block never held it, so it was never taken off.
+                'tip' => 'Still on '.$lists($on).': '.$why($stuck->error).($off->whereNull('error')->isNotEmpty() ? ' Off '.$lists($off->whereNull('error')->values()).'.' : '').' Unblock it again to try again.'],
             $block->network_state === TrafficBlockNetworkState::Partial => ['label' => 'Partly blocked · '.$on->count().' of '.$listings->count().' campaigns', 'tone' => 'warning',
                 'tip' => $tip.' · on '.$lists($on).' · '.$off->map($notOn)->implode(' · ')],
             $block->network_state === TrafficBlockNetworkState::TakenOff => ['label' => 'Taken off on the network', 'tone' => 'warning',

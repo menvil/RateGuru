@@ -75,7 +75,9 @@ Growth → Traffic sources (`/admin/traffic-sources`), for active administrators
 You block by hand in Report → Sites & zones: tick sites or zones, then
 **Block**, or **Copy IDs** for the network's own blacklist. **Select all**
 ticks every row that matches, however many: Block and Push again (below)
-take them 200 at a time, each 200 a line of its own in Logs → Blocks. With
+take them 200 at a time, each 200 a line of its own in Logs → Blocks; if
+one 200 is refused, those already through are unticked and the rest stay
+ticked to try again. With
 the source's API connected the block is queued and reaches the network within a minute;
 without it the block is only marked here, and the IDs go into the network's
 blacklist by hand. **Unblock** works the same way: a block marked here goes at

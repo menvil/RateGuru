@@ -438,12 +438,13 @@ final class TrafficSourcesPage extends Page
             try {
                 app(BlockTrafficRefsAction::class)->block($this->admin(), $source, $level, $refs, null, $viaApi);
             } catch (CannotManageTrafficException|RateLimitExceededException $exception) {
-                $this->toast($exception->getMessage(), 'error');
+                $this->stopPartWay($queued + $byHand, $exception);
 
                 return;
             }
 
             $viaApi ? $queued += count($refs) : $byHand += count($refs);
+            $this->untick($source, $level, $refs);
         }
 
         $this->selected = [];
@@ -460,13 +461,16 @@ final class TrafficSourcesPage extends Page
                 try {
                     app(BlockTrafficRefsAction::class)->unblock($this->admin(), $block);
                 } catch (CannotManageTrafficException|RateLimitExceededException $exception) {
-                    $this->toast($exception->getMessage(), 'error');
+                    $this->stopPartWay($count, $exception);
 
                     return;
                 }
 
                 $count++;
+                $this->untick($source, $level, [(string) $block->ref]);
             }
+
+            $this->untick($source, $level, $refs);
         }
 
         $this->selected = [];
@@ -489,14 +493,34 @@ final class TrafficSourcesPage extends Page
             try {
                 $count += app(BlockTrafficRefsAction::class)->push($this->admin(), $source, $level, $refs);
             } catch (CannotManageTrafficException|RateLimitExceededException $exception) {
-                $this->toast($exception->getMessage(), 'error');
+                $this->stopPartWay($count, $exception);
 
                 return;
             }
+
+            $this->untick($source, $level, $refs);
         }
 
         $this->selected = [];
-        $this->toast(trim(($count > 0 ? $count.' sent to the network again. ' : '').($skipped > 0 ? $skipped.' can’t go through their network’s API: add them to its list by hand.' : '')) ?: 'Nothing to send: those are on their way already.', $count === 0 && $skipped > 0 ? 'error' : 'success');
+        $this->toast(trim(($count > 0 ? $count.' queued for the network again. ' : '').($skipped > 0 ? $skipped.' can’t go through their network’s API: add them to its list by hand.' : '')) ?: 'Nothing to send: those are on their way already.', $count === 0 && $skipped > 0 ? 'error' : 'success');
+    }
+
+    /**
+     * Unticks the sites or zones of a batch that went through, so a batch
+     * that fails after it leaves ticked only what is still to do.
+     *
+     * @param  list<string>  $refs
+     */
+    private function untick(TrafficSource $source, TrafficBlockLevel $level, array $refs): void
+    {
+        $done = array_flip(array_map(fn (string $ref): string => $source->id.':'.$level->value.':'.$ref, $refs));
+        $this->selected = array_values(array_filter($this->selected, fn (string $key): bool => ! isset($done[$key])));
+    }
+
+    /** Says why a batch was refused, after how many went through, leaving the rest ticked to try again. */
+    private function stopPartWay(int $done, CannotManageTrafficException|RateLimitExceededException $exception): void
+    {
+        $this->toast(($done > 0 ? $done.' went through; the rest are still ticked. ' : '').$exception->getMessage(), 'error');
     }
 
     public function toggleBlockRule(): void

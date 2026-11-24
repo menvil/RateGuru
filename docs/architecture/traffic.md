@@ -299,7 +299,10 @@ PopAds replaces a campaign's website list whole and refuses one to exclude
 without a site (a validation error, which PopAds sends with HTTP 500): the last
 site taken off turns the campaign's targeting off (`mode=none`) instead, and a
 list shared through `global` targeting that would be left empty is left alone
-(`TrafficConnectorFailure::SharedList`). An error PopAds explains in an
+(`TrafficConnectorFailure::SharedList`). A campaign with its targeting off
+excludes nothing, whatever sites PopAds still keeps saved for it: a block
+added there is the only site the list then excludes — the saved ones are
+never excluded again — and taking one off writes nothing. An error PopAds explains in an
 `errors` list is a refusal (`Rejected`), whatever its status — never an API
 that is down. A list read without its sites, or a campaign listing what to
 allow rather than what to block (`Unsupported`), is never rewritten; reading
@@ -494,10 +497,13 @@ sync turn, after the campaigns and their lists are read,
 — one query — which running campaigns each `applied`, `partial` or `failed`
 block lacks: no listing there (a campaign that came after it, its first click
 or one back from the archive), or one not on the list with nothing said
-against it (a list read without it), or one that failed only because the
-network was slow, down or busy (`timeout`, `unavailable`, `rate_limited`)
-before the source's lists were last read — so a passing failure is tried
-again once a read of the lists, never in a loop. Never one whose listing
+against it (a list read without it). A listing that failed only because the
+network was slow, down or busy (`timeout`, `unavailable`, `rate_limited`) is
+one of those once a read of that campaign's own list finds the block isn't
+there: the read clears the failure, the add didn't land. So a passing failure
+is tried again once a read of the lists, never in a loop — and never while
+that campaign's list can't be read, when the add may have landed and an
+unblock still takes the block off there (`mayBeListed()`). Never one whose listing
 records a refusal or any other failure, nor one taken off there in the panel (`taken_off`,
 the owner's doing); never a block `taken_off` every list, one whose unblock
 failed on a list still holding it — an administrator wants it off — nor one

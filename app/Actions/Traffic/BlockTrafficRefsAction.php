@@ -248,7 +248,7 @@ final class BlockTrafficRefsAction
             'actor' => TrafficActor::User,
             'actor_user_id' => $admin->id,
             'ok' => true,
-            'note' => 'Sent to the network’s list again',
+            'note' => 'Waiting to go to the network’s list again',
             'occurred_at' => now(),
         ]);
     }

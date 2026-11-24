@@ -304,8 +304,7 @@ final class PopAdsConnector implements EditsBlockLists, ReadsCampaigns, ReadsImp
                 continue;
             }
 
-            // Targeting turned off excludes nothing, whatever sites it still keeps.
-            $lists[$id] = $mode === 'none' ? [] : array_values(array_unique($items));
+            $lists[$id] = array_values(array_unique($items));
         }
 
         return new BlockListsRead($lists, $failure);
@@ -318,6 +317,12 @@ final class PopAdsConnector implements EditsBlockLists, ReadsCampaigns, ReadsImp
         }
 
         [$path, $items, $mode] = $this->exclusionList($session, $campaignId);
+
+        // A campaign with its targeting off holds none of the sites to take off: nothing is written, and the sites it keeps stay as they are.
+        if ($mode === 'none' && $add === []) {
+            return new BlockDeltaResult(true, null, []);
+        }
+
         $list = array_values(array_diff(array_unique([...$items, ...$add]), $remove));
 
         // A list to exclude needs a site: the campaign's own, emptied, is its targeting turned off; a list other campaigns share can't be turned off for one.
@@ -376,7 +381,8 @@ final class PopAdsConnector implements EditsBlockLists, ReadsCampaigns, ReadsImp
         [$path, $items] = match (true) {
             $mode === 'global' && ($targeting['global_mode'] ?? null) === 'exclude' => ['/api/website_targeting/'.rawurlencode((string) $targeting['global_id']), $targeting['global_items'] ?? null],
             $mode === 'exclude' => ['/api/campaign_website_targeting/'.rawurlencode($campaignId), $targeting['items'] ?? null],
-            $mode === 'none' => ['/api/campaign_website_targeting/'.rawurlencode($campaignId), (array) ($targeting['items'] ?? [])],
+            // Targeting turned off excludes nothing, whatever sites it still keeps: written from those, they would be excluded again.
+            $mode === 'none' => ['/api/campaign_website_targeting/'.rawurlencode($campaignId), []],
             default => throw new ConnectorException(TrafficConnectorFailure::Unsupported),
         };
 

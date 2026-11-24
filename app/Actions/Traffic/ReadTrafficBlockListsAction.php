@@ -178,11 +178,13 @@ final class ReadTrafficBlockListsAction
                 }
 
                 // A list holding it has it; one that held it and holds it no longer had it taken off in the panel; one that never held it, still
-                // doesn't. A block from before where blocks stand was kept starts from what it said.
+                // doesn't — and one the network was only slow, down or busy to take it on, read without it, answers that: the add didn't land,
+                // so the block is sent there again (QueueMissingTrafficBlocksAction). A block from before where blocks stand was kept starts
+                // from what it said.
                 [$onList, $error] = match (true) {
                     $listed => [true, $before !== null ? ($before->listed ? $before->error : null) : $this->said($block, TrafficBlockNetworkState::Applied)],
                     $before?->listed === true => [false, TrafficBlockListing::TAKEN_OFF],
-                    $before !== null => [false, $before->error],
+                    $before !== null => [false, TrafficConnectorFailure::tryFrom((string) $before->error)?->passes() === true ? null : $before->error],
                     default => [false, $this->said($block, TrafficBlockNetworkState::Failed)],
                 };
 

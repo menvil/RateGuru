@@ -9,6 +9,7 @@ use App\Enums\TrafficBlockNetworkState;
 use App\Enums\TrafficChannel;
 use App\Enums\TrafficConnector;
 use App\Enums\TrafficKnownReason;
+use App\Enums\UserRole;
 use App\Filament\Pages\GrowthAnalyticsPage;
 use App\Filament\Pages\TrafficSources\TrafficSourcesView;
 use App\Filament\Pages\TrafficSourcesPage;
@@ -195,6 +196,7 @@ it('says on a site some campaigns took and others refused how many lists it is o
     $this->source->forceFill(['connector' => TrafficConnector::PopAds])->save();
     $us = TrafficCampaign::factory()->create(['source_id' => $this->source->id, 'name' => 'US popunder']);
     $eu = TrafficCampaign::factory()->create(['source_id' => $this->source->id, 'name' => 'EU popunder']);
+    $asia = TrafficCampaign::factory()->create(['source_id' => $this->source->id, 'name' => 'Asia popunder']);
     $block = function (string $site, TrafficBlockNetworkState $state, ?string $error, array $listings): void {
         siteClicks($this->source, $site, 1, 1);
         $block = TrafficBlock::factory()->create(['source_id' => $this->source->id, 'level' => TrafficBlockLevel::Site, 'ref' => $site, 'method' => 'api', 'network_state' => $state, 'network_error' => $error, 'blocked_at' => now()->subDay()]);
@@ -208,6 +210,8 @@ it('says on a site some campaigns took and others refused how many lists it is o
     $block('70003', TrafficBlockNetworkState::Failed, 'rejected', [[$us, false, 'rejected'], [$eu, false, 'unavailable']]);
     // An unblock that took it off one campaign, refused on the other.
     $block('70004', TrafficBlockNetworkState::Partial, 'shared_list', [[$us, false, null], [$eu, true, 'shared_list']]);
+    // The same, on a block a third campaign had refused to take: it was never on that list, so it was never taken off it.
+    $block('70005', TrafficBlockNetworkState::Partial, 'rejected', [[$us, false, null], [$eu, true, 'rejected'], [$asia, false, 'rejected']]);
 
     $page = Livewire::withQueryParams(['view' => 'sites', 'list' => 'site', 'seg' => 'blocked'])->test(TrafficSourcesPage::class)->call('load');
     $flags = collect($page->viewData('list')['rows'])->mapWithKeys(fn (array $row): array => [$row['ref'] => $row['flag']]);
@@ -220,7 +224,9 @@ it('says on a site some campaigns took and others refused how many lists it is o
         ->and($flags['70003'])->toMatchArray(['label' => 'Not blocked on the network', 'tone' => 'danger'])
         ->and($flags['70003']['tip'])->toContain('not on US popunder’s: The network refused the change. · not on EU popunder’s: The network’s API is down.')
         ->and($flags['70004'])->toMatchArray(['label' => 'Partly blocked · unblock failed', 'tone' => 'danger'])
-        ->and($flags['70004']['tip'])->toContain('Still on the list of EU popunder: The campaign blocks the sites of a list shared with other campaigns');
+        ->and($flags['70004']['tip'])->toContain('Still on the list of EU popunder: The campaign blocks the sites of a list shared with other campaigns')
+        ->and($flags['70004']['tip'])->toContain('Off the list of US popunder. Unblock it again to try again.')
+        ->and($flags['70005']['tip'])->toBe('Still on the list of EU popunder: The network refused the change. Off the list of US popunder. Unblock it again to try again.');
     $page->assertSee('Partly blocked · 1 of 2 campaigns');
 });
 
@@ -287,14 +293,14 @@ it('pushes again and blocks every site Select all ticks, more than one batch hol
         ->assertCount('selected', $many)
         ->call('pushSelected')
         ->assertSet('selected', [])
-        ->assertDispatched('rg-admin-toast', message: $many.' sent to the network again.');
+        ->assertDispatched('rg-admin-toast', message: $many.' queued for the network again.');
 
-    $batches = fn (): array => TrafficBlockEvent::query()->where('kind', 'queued')->get()->groupBy('note')
+    $batches = fn (): array => TrafficBlockEvent::query()->where('kind', 'queued')->orderBy('id')->get()->groupBy('note')
         ->map(fn ($lines): array => $lines->pluck('ref_count')->sort()->values()->all())->all();
 
     // Each batch a line of its own in the log, as one push of so many would write.
     expect(TrafficBlock::query()->where('network_state', TrafficBlockNetworkState::Pending)->count())->toBe($many)
-        ->and($batches())->toBe(['Sent to the network’s list again' => [1, BlockTrafficRefsAction::MOST_REFS]]);
+        ->and($batches())->toBe(['Waiting to go to the network’s list again' => [1, BlockTrafficRefsAction::MOST_REFS]]);
 
     $page->set('segment', 'all')
         ->call('selectMatching')
@@ -305,9 +311,32 @@ it('pushes again and blocks every site Select all ticks, more than one batch hol
 
     expect(TrafficBlock::query()->where('ref', 'like', '9%')->where('network_state', TrafficBlockNetworkState::Pending)->count())->toBe($many)
         ->and($batches())->toBe([
-            'Sent to the network’s list again' => [1, BlockTrafficRefsAction::MOST_REFS],
+            'Waiting to go to the network’s list again' => [1, BlockTrafficRefsAction::MOST_REFS],
             'Waiting to be added to the network’s list' => [1, BlockTrafficRefsAction::MOST_REFS],
         ]);
+});
+
+it('keeps ticked only the sites a batch that failed, or never went, was for, saying how many went through', function () {
+    $this->source->forceFill(['connector' => TrafficConnector::PopAds, 'block_level' => TrafficBlockLevel::Site])->save();
+    TrafficApiConnection::factory()->create(['source_id' => $this->source->id]);
+    $many = BlockTrafficRefsAction::MOST_REFS + 1;
+    TrafficVisit::factory()->count($many)->sequence(fn ($sequence): array => ['site_ref' => (string) (90001 + $sequence->index)])
+        ->create(['source_id' => $this->source->id, 'arrived_at' => '2026-11-16 10:00:00', 'network_day' => '2026-11-16', 'opened_at' => now(), 'spend' => '0.01']);
+    // The administrator stops being one once the first batch is queued: the second is refused.
+    TrafficBlockEvent::created(function (): void {
+        User::query()->whereKey(auth()->id())->update(['role' => UserRole::Moderator]);
+    });
+
+    $page = Livewire::withQueryParams(['view' => 'sites', 'list' => 'site'])->test(TrafficSourcesPage::class)->call('load')
+        ->call('selectMatching')
+        ->call('blockSelected')
+        ->assertDispatched('rg-admin-toast', message: BlockTrafficRefsAction::MOST_REFS.' went through; the rest are still ticked. You can’t manage traffic sources any more, so nothing was saved.')
+        ->assertCount('selected', 1);
+
+    $left = (string) str($page->get('selected')[0])->afterLast(':');
+
+    expect(TrafficBlock::query()->count())->toBe(BlockTrafficRefsAction::MOST_REFS)
+        ->and(TrafficBlock::query()->where('ref', $left)->exists())->toBeFalse();
 });
 
 it('keeps every site Select all ticks, past two thousand, through a change of search, threshold or segment', function () {
