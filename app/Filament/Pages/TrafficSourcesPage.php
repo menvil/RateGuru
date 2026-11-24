@@ -76,8 +76,8 @@ final class TrafficSourcesPage extends Page
     /** Every report page's presets: all time is every network day since the first visit, as far back as visits are kept. */
     public const array PERIODS = ReportPeriod::PRESETS;
 
-    /** A ticked site or zone: its source, its level and its ID. */
-    private const string SELECTION_KEY = '/^\d+:(site|zone):.{1,120}$/';
+    /** A ticked site or zone: its source, its level and its ID, up to 120 characters, as many as a ref holds in any script. */
+    private const string SELECTION_KEY = '/^\d+:(site|zone):.{1,120}$/u';
 
     protected string $view = 'filament.pages.traffic-sources';
 

@@ -335,6 +335,28 @@ it('keeps every site Select all ticks, past two thousand, through a change of se
     expect(TrafficBlock::query()->where('network_state', TrafficBlockNetworkState::Pending)->count())->toBe($many);
 });
 
+it('ticks, keeps and blocks a site whose ID is 120 characters of a script written in more than one byte', function () {
+    $this->source->forceFill(['connector' => TrafficConnector::PopAds, 'block_level' => TrafficBlockLevel::Site])->save();
+    TrafficApiConnection::factory()->create(['source_id' => $this->source->id]);
+    $long = str_repeat('я', 120);
+    foreach (['40123', $long] as $site) {
+        TrafficVisit::factory()->create(['source_id' => $this->source->id, 'site_ref' => $site, 'arrived_at' => '2026-11-16 10:00:00', 'network_day' => '2026-11-16', 'opened_at' => now(), 'spend' => '0.01']);
+    }
+    $key = $this->source->id.':site:'.$long;
+
+    Livewire::withQueryParams(['view' => 'sites', 'list' => 'site'])->test(TrafficSourcesPage::class)->call('load')
+        ->call('toggleSelected', $key)
+        ->assertSet('selected', [$key])
+        ->call('clearSelection')
+        ->call('selectMatching')
+        ->set('segment', 'all')
+        ->assertCount('selected', 2)
+        ->call('blockSelected')
+        ->assertDispatched('rg-admin-toast', message: '2 queued for the network.');
+
+    expect(TrafficBlock::query()->pluck('ref')->sort()->values()->all())->toBe(['40123', $long]);
+});
+
 it('never ticks a row that is not a site or zone key', function () {
     Livewire::withQueryParams(['view' => 'sites'])->test(TrafficSourcesPage::class)
         ->call('toggleSelected', 'anything')

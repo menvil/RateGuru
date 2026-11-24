@@ -1025,6 +1025,9 @@ final class TrafficSourcesView
         $rule = $one !== null ? ($judge['rules'][$one] ?? $judge['general']) : $judge['general'];
         $targets = $one !== null ? (BlockRule::target(null, $judge['sourceTargets'][$one] ?? null) !== null || $judge['campaignTargets'] !== []) : ($judge['campaignTargets'] !== [] || array_filter($judge['sourceTargets']) !== []);
         $own = $one === null && collect($judge['rules'])->contains(fn (array $sourceRule): bool => $sourceRule !== $judge['general']);
+        // Looked up by key, not searched for: Select all may have ticked every one of tens of thousands of rows.
+        $picked = array_flip($page->selected);
+        $ticked = collect($rows)->filter(fn (array $row): bool => isset($picked[$row['key']]));
 
         return [
             ...$list,
@@ -1036,8 +1039,8 @@ final class TrafficSourcesView
                     .($own ? ' Sources with thresholds of their own are judged by them.' : '') : ''),
             'selectable' => collect($list['rows'])->filter(fn (array $row): bool => $page->segment === 'blocked' ? $row['blocked'] : ! $row['blocked'])->pluck('key')->values()->all(),
             'selected' => count($page->selected),
-            'selectedBlocked' => collect($rows)->whereIn('key', $page->selected)->where('blocked', true)->count(),
-            'copyIds' => collect($rows)->whereIn('key', $page->selected)->pluck('ref')->implode("\n"),
+            'selectedBlocked' => $ticked->where('blocked', true)->count(),
+            'copyIds' => $ticked->pluck('ref')->implode("\n"),
             'from' => count($list['matching']) === 0 ? 0 : ($list['page'] - 1) * SiteZoneList::PER_PAGE + 1,
             'to' => min(count($list['matching']), $list['page'] * SiteZoneList::PER_PAGE),
         ];

@@ -25,6 +25,8 @@
         'value' => 'Value', 'profit' => 'Profit', 'roi' => 'ROI', 'cpv' => 'Cost / visit', 'vpv' => 'Value / visit', 'cpa' => 'Cost / account',
     ];
     $pageTicked = $list['selectable'] !== [] && array_diff($list['selectable'], $selected) === [];
+    // Looked up by key on every row: Select all may have ticked tens of thousands.
+    $tickedKeys = array_flip($selected);
     $noun = $list['noun'];
 @endphp
 
@@ -110,9 +112,9 @@
             </div>
             @foreach ($list['rows'] as $row)
                 @php($tickable = $segment === 'blocked' ? $row['blocked'] : ! $row['blocked'])
-                <div @class(['rg-admin-traffic__perf-row', 'rg-admin-traffic__perf-row--blocked' => $row['blocked'], 'rg-admin-traffic__perf-row--ticked' => in_array($row['key'], $selected, true)]) role="row" wire:key="site-{{ md5($row['key']) }}" data-testid="traffic-site-row">
+                <div @class(['rg-admin-traffic__perf-row', 'rg-admin-traffic__perf-row--blocked' => $row['blocked'], 'rg-admin-traffic__perf-row--ticked' => isset($tickedKeys[$row['key']])]) role="row" wire:key="site-{{ md5($row['key']) }}" data-testid="traffic-site-row">
                     <span class="rg-admin-traffic__perf-name" role="gridcell">
-                        <input type="checkbox" class="rg-admin-traffic__tick" aria-label="Tick {{ $row['level'] }} {{ $row['ref'] }}" @checked(in_array($row['key'], $selected, true)) @disabled(! $tickable) wire:click="toggleSelected(@js($row['key']))" />
+                        <input type="checkbox" class="rg-admin-traffic__tick" aria-label="Tick {{ $row['level'] }} {{ $row['ref'] }}" @checked(isset($tickedKeys[$row['key']])) @disabled(! $tickable) wire:click="toggleSelected(@js($row['key']))" />
                         <span class="rg-admin-traffic__perf-label">
                             <span class="rg-admin-traffic__perf-title rg-admin-traffic__mono">{{ $row['level'] }} {{ $row['ref'] }}</span>
                             <span class="rg-admin-traffic__note">{{ implode(' · ', array_filter([$row['site'] !== null ? 'site '.$row['site'] : null, $row['source'], $row['campaign'], $row['early']])) }}</span>
