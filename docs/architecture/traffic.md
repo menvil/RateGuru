@@ -166,7 +166,12 @@ vote or a comment marks that visit's row of the post.
 
 Between the sign-in dialog and an account a visit records the steps the
 registration funnel counts, each once, from the deploy that added them on —
-nothing is filled in for the visits before:
+nothing is filled in for the visits before. `RecordRegistrationStepAction` puts
+them on the visit the browser is on — the paid click holding it, else the
+visit it was seen on last within the session (`analytics.session_minutes`) —
+while visits are recorded and the visit is no crawler's; a game's own form
+goes on the game's visit. The first moment of each step stays, and the first
+opener of the dialog and the first provider gone on to with it:
 
 - `auth_opened_at` and `auth_trigger` — the sign-in dialog opened, or a page or
   a game showed a sign-in or sign-up form of its own, and what opened it first
