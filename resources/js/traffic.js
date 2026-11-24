@@ -70,7 +70,13 @@ function rgTrafficOpened() {
 function rgTrafficPageSignals() {
     document.querySelectorAll('[data-rg-traffic-signal]:not([data-sent])').forEach(function (element) {
         element.dataset.sent = '1';
-        window.rgTrafficSignal(element.dataset.rgTrafficSignal);
+
+        // A standalone sign-in or sign-up page names the state it shows and itself as what showed it.
+        const fields = element.dataset.rgTrafficTrigger
+            ? { mode: element.dataset.rgTrafficMode, trigger: element.dataset.rgTrafficTrigger }
+            : undefined;
+
+        window.rgTrafficSignal(element.dataset.rgTrafficSignal, fields);
     });
 }
 

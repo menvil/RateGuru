@@ -221,7 +221,7 @@ it('asks a guest to sign in, in the authentication modal too, only after a vote 
         ->assertSet('error', 'Sign in to vote.')
         ->assertSee('Sign in to vote.')
         ->assertDispatched('post-vote-error', postId: $post->id, message: 'Sign in to vote.')
-        ->assertDispatched('open-auth-modal', mode: 'login');
+        ->assertDispatched('open-auth-modal', mode: 'login', trigger: 'vote');
 
     $this->assertDatabaseCount('post_votes', 0);
 });

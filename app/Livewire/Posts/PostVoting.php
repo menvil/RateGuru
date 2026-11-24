@@ -5,6 +5,7 @@ namespace App\Livewire\Posts;
 use App\Actions\Analytics\RecordUserActivityAction;
 use App\Actions\Games\CreditGameSiteActivityAction;
 use App\Actions\Votes\VotePostAction;
+use App\Enums\AuthTrigger;
 use App\Enums\UserActivity;
 use App\Enums\VoteType;
 use App\Exceptions\Votes\CannotVoteException;
@@ -85,7 +86,7 @@ final class PostVoting extends Component
 
             $this->error = __('ui.voting.sign_in_to_vote');
             $this->dispatch('post-vote-error', postId: $this->postId, message: $this->error);
-            $this->openAuthModal();
+            $this->openAuthModal(trigger: AuthTrigger::Vote);
 
             return;
         }

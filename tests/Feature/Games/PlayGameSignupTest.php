@@ -122,7 +122,9 @@ it('counts how signing up began, and nothing it does not know', function () {
         ->call('signUpStarted', 'email')
         ->call('signUpStarted', 'google')
         ->call('signUpStarted', 'myspace')
-        ->call('signUp', 'login');
+        ->call('signUp', 'login')
+        // The dialog it opens is named as the game's opener.
+        ->assertDispatched('open-auth-modal', mode: 'login', trigger: 'game');
 
     expect(GameEvent::query()->where('type', GameEventType::RegistrationCtaClicked)->orderBy('id')->pluck('provider')->all())
         ->toBe(['email', 'google', 'login']);

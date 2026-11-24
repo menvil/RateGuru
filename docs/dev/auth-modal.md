@@ -42,6 +42,20 @@ vote gets the answer a member would get instead, with no dialog, when:
 - the comment is hidden or deleted, or its post no longer takes votes
   (comment votes).
 
+### What opened it
+
+The registration funnel counts what opened the dialog (`App\Enums\AuthTrigger`,
+`docs/architecture/traffic.md`, "Registration steps"). The event's detail
+names it beside the mode: `{ mode, trigger }`. `rgOpenAuthModal` reads it from
+the element clicked (`data-auth-trigger`: `header_signup`, `header_login` and
+`upload` in the header); `openAuthModal($mode, $trigger)` sends it from a
+component (`vote`, `rating`, `comment_vote`, `game`). The dialog keeps the
+opener while it stays open — a switch between its states names none — and
+tells the tracker the state it shows and the opener each time it shows a form
+(`rgTrafficSignal('signup_form', { mode, trigger })`). The standalone pages
+name themselves (`data-rg-traffic-mode`, `data-rg-traffic-trigger="page"`).
+An opener the server doesn't know counts as `other`.
+
 The security log (`App\Support\Observability\GuestVoteAttemptLog`) is
 best-effort and normally limited: one visitor address writes at most 30
 attempts a minute, then one line saying it was cut off, and nothing more
