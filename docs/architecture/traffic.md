@@ -469,7 +469,17 @@ or may — every campaign refused it — goes at once.
 The batch's outcome — listings, states and its line of the log — is written
 in one transaction on the source locked, then its blocks, the order every
 writer of blocks takes them in (`LocksTrafficRecords`), so an unblock, a push
-or a read of the lists waits for it, or it for them. **Push again** (`BlockTrafficRefsAction::push()`)
+or a read of the lists waits for it, or it for them. The network is called
+before that transaction, so a block may be unblocked, blocked again or pushed
+again meanwhile. Every write that queues a block — blocking again, Push
+again, an unblock, a mark for the campaigns missing it — counts one more
+request (`traffic_blocks.request_version`), and the batch settles a block
+only while it is still the request the batch read. One unblocked and blocked
+again while the network was being called is `pending` as the batch read it,
+yet a request of its own: it stays `pending` for the next batch, which sends
+it everywhere it is for, the campaign that refused it included. Only a block
+off every list is deleted whichever unblock asked for it — nothing was sent
+for it in between. **Push again** (`BlockTrafficRefsAction::push()`)
 sends ticked blocks back to `pending`, to every campaign they are for, and
 an administrator blocking again through the API does the same for a
 `failed`, `partial` or `taken_off` block, whoever made it — the rule never

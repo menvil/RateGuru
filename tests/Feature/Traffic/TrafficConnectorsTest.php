@@ -1567,6 +1567,80 @@ it('takes blocks off the network and puts others on in one change, leaving one b
         ->and($again->fresh()->network_state)->toBe(TrafficBlockNetworkState::Pending);
 });
 
+it('keeps a block unblocked and blocked again while the network was being called waiting for its own batch, which sends it to the campaign that refused it', function () {
+    TrafficApiConnection::factory()->create(['source_id' => $this->popads->id, 'next_sync_at' => now()->addHour()]);
+    TrafficCampaign::factory()->create(['source_id' => $this->popads->id, 'external_id' => '881204']);
+    TrafficCampaign::factory()->create(['source_id' => $this->popads->id, 'external_id' => '881205']);
+    app(BlockTrafficRefsAction::class)->block($this->admin, $this->popads, TrafficBlockLevel::Site, ['40123'], null, true);
+    $block = TrafficBlock::query()->sole();
+    $meanwhile = true;
+    $posted = [];
+    Http::fake(function (Request $request) use ($block, &$meanwhile, &$posted) {
+        if ($request->method() !== 'POST') {
+            return Http::response(['mode' => 'exclude', 'items' => []]);
+        }
+
+        $posted[] = basename((string) parse_url($request->url(), PHP_URL_PATH));
+
+        if ($meanwhile) {
+            $meanwhile = false;
+            app(BlockTrafficRefsAction::class)->unblock($this->admin, $block);
+            app(BlockTrafficRefsAction::class)->block($this->admin, $this->popads, TrafficBlockLevel::Site, ['40123'], null, true);
+        }
+
+        // 881205 doesn't take it.
+        return Http::response(['mode' => 'exclude', 'items' => end($posted) === '881205' ? [] : explode("\n", $request->body())]);
+    });
+
+    $this->artisan('traffic:sync-networks')->assertSuccessful();
+
+    expect($block->fresh()->network_state)->toBe(TrafficBlockNetworkState::Pending)
+        ->and($posted)->toBe(['881204', '881205']);
+
+    $this->artisan('traffic:sync-networks')->assertSuccessful();
+
+    expect($posted)->toBe(['881204', '881205', '881204', '881205'])
+        ->and($block->fresh()->network_state)->toBe(TrafficBlockNetworkState::Partial);
+});
+
+it('keeps a block blocked and unblocked again while the network was being called waiting to come off the list it may still be on', function () {
+    TrafficApiConnection::factory()->create(['source_id' => $this->popads->id, 'next_sync_at' => now()->addHour()]);
+    $taken = TrafficCampaign::factory()->create(['source_id' => $this->popads->id, 'external_id' => '881204']);
+    $slow = TrafficCampaign::factory()->create(['source_id' => $this->popads->id, 'external_id' => '881205']);
+    $block = TrafficBlock::factory()->create(['source_id' => $this->popads->id, 'level' => TrafficBlockLevel::Site, 'ref' => '40123', 'method' => 'api', 'network_state' => TrafficBlockNetworkState::Applied]);
+    TrafficBlockListing::factory()->create(['block_id' => $block->id, 'campaign_id' => $taken->id, 'listed' => true]);
+    TrafficBlockListing::factory()->create(['block_id' => $block->id, 'campaign_id' => $slow->id, 'listed' => true]);
+    app(BlockTrafficRefsAction::class)->unblock($this->admin, $block);
+    $meanwhile = true;
+    $posted = [];
+    Http::fake(function (Request $request) use ($block, &$meanwhile, &$posted) {
+        if ($request->method() !== 'POST') {
+            return Http::response(['mode' => 'exclude', 'items' => ['40123', '7']]);
+        }
+
+        $posted[] = basename((string) parse_url($request->url(), PHP_URL_PATH));
+
+        if ($meanwhile) {
+            $meanwhile = false;
+            app(BlockTrafficRefsAction::class)->block($this->admin, $this->popads, TrafficBlockLevel::Site, ['40123'], null, true);
+            app(BlockTrafficRefsAction::class)->unblock($this->admin, $block);
+        }
+
+        // 881205 is down for this batch only.
+        return count($posted) === 2 ? Http::response('', 503) : Http::response(['mode' => 'exclude', 'items' => ['7']]);
+    });
+
+    $this->artisan('traffic:sync-networks')->assertSuccessful();
+
+    expect($block->fresh()?->network_state)->toBe(TrafficBlockNetworkState::Removing)
+        ->and($posted)->toBe(['881204', '881205']);
+
+    $this->artisan('traffic:sync-networks')->assertSuccessful();
+
+    expect($posted)->toBe(['881204', '881205', '881205'])
+        ->and($block->fresh())->toBeNull();
+});
+
 it('leaves blocks waiting when the batch’s line of the log can’t be written, and logs them once when they go through', function () {
     TrafficApiConnection::factory()->create(['source_id' => $this->popads->id, 'next_sync_at' => now()->addHour()]);
     TrafficCampaign::factory()->create(['source_id' => $this->popads->id, 'external_id' => '881204']);

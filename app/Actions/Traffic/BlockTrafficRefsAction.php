@@ -81,7 +81,7 @@ final class BlockTrafficRefsAction
             $again = $existing->filter(fn (TrafficBlock $block): bool => $block->network_state === TrafficBlockNetworkState::Removing
                 || ($locked !== null && $viaApi && $method !== TrafficBlockMethod::Auto && in_array($block->network_state, self::SENT_AGAIN, true)));
             TrafficBlock::query()->whereKey($again->pluck('id')->all())
-                ->update(['network_state' => TrafficBlockNetworkState::Pending, 'network_error' => null]);
+                ->increment('request_version', 1, ['network_state' => TrafficBlockNetworkState::Pending, 'network_error' => null]);
             $this->forgetMarks($again->modelKeys());
             $taken = $existing->pluck('ref')->all();
             $new = array_values(array_diff($refs, $taken));
@@ -164,6 +164,7 @@ final class BlockTrafficRefsAction
                 $block->forceFill([
                     'network_state' => TrafficBlockNetworkState::Pending,
                     'network_error' => null,
+                    'request_version' => $block->request_version + 1,
                     'method' => in_array($block->method, [TrafficBlockMethod::Manual, TrafficBlockMethod::Panel], true) ? TrafficBlockMethod::Api : $block->method,
                 ])->save();
             }
@@ -195,7 +196,7 @@ final class BlockTrafficRefsAction
             // there now, or one that failed where where it stands isn't known, or only because the network was slow, down or busy — is taken
             // off there first, from the lists that may hold it; one only marked here, or that no list holds, simply goes.
             if ($record->network_state !== TrafficBlockNetworkState::ByHand && ($listings->isEmpty() || $listings->contains(fn (TrafficBlockListing $listing): bool => $listing->mayBeListed()) || $record->network_state === TrafficBlockNetworkState::Pending)) {
-                $record->forceFill(['network_state' => TrafficBlockNetworkState::Removing, 'network_error' => null])->save();
+                $record->forceFill(['network_state' => TrafficBlockNetworkState::Removing, 'network_error' => null, 'request_version' => $record->request_version + 1])->save();
             } else {
                 $record->delete();
             }

@@ -76,6 +76,9 @@ final class TrafficSourcesPage extends Page
     /** Every report page's presets: all time is every network day since the first visit, as far back as visits are kept. */
     public const array PERIODS = ReportPeriod::PRESETS;
 
+    /** A ticked site or zone: its source, its level and its ID. */
+    private const string SELECTION_KEY = '/^\d+:(site|zone):.{1,120}$/';
+
     protected string $view = 'filament.pages.traffic-sources';
 
     protected Width|string|null $maxContentWidth = 'rg-admin-main';
@@ -394,7 +397,7 @@ final class TrafficSourcesPage extends Page
     /** Ticks a site or zone, or unticks it. */
     public function toggleSelected(mixed $key): void
     {
-        if (! is_string($key) || preg_match('/^\d+:(site|zone):.{1,120}$/', $key) !== 1) {
+        if (! is_string($key) || preg_match(self::SELECTION_KEY, $key) !== 1) {
             return;
         }
 
@@ -1247,7 +1250,8 @@ final class TrafficSourcesPage extends Page
         $this->dir = $this->dir === 'asc' ? 'asc' : 'desc';
         $this->open = array_values(array_filter($this->open, 'is_string'));
         $this->more = array_values(array_filter($this->more, 'is_string'));
-        $this->selected = array_slice(array_values(array_filter($this->selected, 'is_string')), 0, 2000);
+        // Every tick kept, however many Select all made: the actions send them a batch at a time (selectedRefs).
+        $this->selected = array_values(array_unique(array_filter(array_filter($this->selected, 'is_string'), fn (string $key): bool => preg_match(self::SELECTION_KEY, $key) === 1)));
         $this->log = is_string($this->log) && in_array($this->log, ['clicks', 'milestones', 'postbacks', 'blocks'], true) ? $this->log : 'postbacks';
         $this->logFilter = $this->logFilter === 'failed' ? 'failed' : 'all';
         $this->pageNumber = is_numeric($this->pageNumber) ? max(1, (int) $this->pageNumber) : 1;

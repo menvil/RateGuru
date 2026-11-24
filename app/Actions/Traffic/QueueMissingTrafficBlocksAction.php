@@ -75,7 +75,7 @@ final class QueueMissingTrafficBlocksAction
             }
 
             TrafficBlock::query()->whereKey($blocks->pluck('id')->all())
-                ->update(['network_state' => TrafficBlockNetworkState::Pending, 'network_error' => null, 'updated_at' => $now]);
+                ->increment('request_version', 1, ['network_state' => TrafficBlockNetworkState::Pending, 'network_error' => null, 'updated_at' => $now]);
 
             foreach ($blocks->groupBy(fn (TrafficBlock $block): string => $block->level->value) as $level => $group) {
                 $refs = $group->pluck('ref')->map(fn (mixed $ref): string => (string) $ref)->values()->all();

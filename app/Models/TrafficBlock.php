@@ -29,6 +29,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * @property string|null $batch
  * @property TrafficBlockNetworkState $network_state
  * @property string|null $network_error
+ * @property int $request_version how many times it has been queued for the network: a sync batch settles only the request it read
  * @property int $clicks_after
  * @property CarbonImmutable|null $last_click_after_at
  * @property int|null $blocked_by_user_id
@@ -56,6 +57,7 @@ class TrafficBlock extends Model
             'method' => TrafficBlockMethod::class,
             'verdict' => TrafficBlockVerdict::class,
             'network_state' => TrafficBlockNetworkState::class,
+            'request_version' => 'integer',
             'clicks_after' => 'integer',
             'last_click_after_at' => 'immutable_datetime',
             'blocked_by_user_id' => 'integer',

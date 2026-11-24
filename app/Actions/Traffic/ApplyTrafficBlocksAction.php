@@ -172,8 +172,12 @@ final class ApplyTrafficBlocksAction
             // of the lists waits for this batch, or this batch for it, and none of them can delete a block under the listings written here.
             $this->lockSource((int) $connection->source_id);
             // What the lists hold is kept for every block still there, whatever became of it meanwhile: an unblock takes it off the lists these say hold it.
-            $present = array_flip(TrafficBlock::query()->whereKey($group->pluck('id')->all())->orderBy('id')->lockForUpdate()->pluck('id')->map(fn (mixed $id): int => (int) $id)->all());
-            $kept = array_values(array_filter($listings, fn (array $listing): bool => isset($present[$listing['block_id']])));
+            $asked = TrafficBlock::query()->whereKey($group->pluck('id')->all())->orderBy('id')->lockForUpdate()->pluck('request_version', 'id')
+                ->mapWithKeys(fn (mixed $version, mixed $id): array => [(int) $id => (int) $version])->all();
+            $kept = array_values(array_filter($listings, fn (array $listing): bool => isset($asked[$listing['block_id']])));
+            // A block is settled only while it is the request this batch read: one unblocked and blocked again, or blocked and unblocked again,
+            // while the network was being called is in the state the batch read it in all the same, and waits for a batch of its own.
+            $owned = fn (TrafficBlock $block): bool => ($asked[(int) $block->id] ?? null) === $block->request_version;
 
             foreach (array_chunk($kept, 500) as $chunk) {
                 TrafficBlockListing::query()->upsert($chunk, ['block_id', 'campaign_id'], ['listed', 'error', 'checked_at']);
@@ -204,7 +208,10 @@ final class ApplyTrafficBlocksAction
                     TrafficBlockNetworkState::Partial => 'partly blocked',
                     default => 'not blocked',
                 };
-                $updates[TrafficBlockNetworkState::Pending->value][$stands['state']->value.'|'.$stands['error']][] = $block->id;
+
+                if ($owned($block)) {
+                    $updates[TrafficBlockNetworkState::Pending->value][$stands['state']->value.'|'.$stands['error']][] = $block->id;
+                }
             }
 
             $gone = [];
@@ -219,14 +226,17 @@ final class ApplyTrafficBlocksAction
                     default => 'still on the lists',
                 };
 
+                // Off every list, it is gone, whichever unblock asked for it: nothing was sent for it in between.
                 if ($held->isEmpty()) {
                     $gone[] = $block->id;
 
                     continue;
                 }
 
-                $stands = BlockStanding::of($standing->get($block->id, collect()), $block->method === TrafficBlockMethod::Panel);
-                $updates[TrafficBlockNetworkState::Removing->value][$stands['state']->value.'|'.$stands['error']][] = $block->id;
+                if ($owned($block)) {
+                    $stands = BlockStanding::of($standing->get($block->id, collect()), $block->method === TrafficBlockMethod::Panel);
+                    $updates[TrafficBlockNetworkState::Removing->value][$stands['state']->value.'|'.$stands['error']][] = $block->id;
+                }
             }
 
             // Each result is written only over the state it was read in: a block unblocked, or blocked again, while the network was being called keeps its new state for the next sync.

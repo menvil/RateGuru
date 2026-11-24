@@ -310,6 +310,31 @@ it('pushes again and blocks every site Select all ticks, more than one batch hol
         ]);
 });
 
+it('keeps every site Select all ticks, past two thousand, through a change of search, threshold or segment', function () {
+    $this->source->forceFill(['connector' => TrafficConnector::PopAds, 'block_level' => TrafficBlockLevel::Site])->save();
+    TrafficApiConnection::factory()->create(['source_id' => $this->source->id]);
+    $many = 2001;
+    $visits = TrafficVisit::factory()->count($many)->sequence(fn ($sequence): array => ['site_ref' => (string) (90001 + $sequence->index)])
+        ->make(['source_id' => $this->source->id, 'arrived_at' => '2026-11-16 10:00:00', 'network_day' => '2026-11-16', 'opened_at' => now(), 'spend' => '0.01']);
+
+    foreach ($visits->chunk(250) as $chunk) {
+        TrafficVisit::query()->insert($chunk->map(fn (TrafficVisit $visit): array => $visit->getAttributes())->values()->all());
+    }
+
+    Livewire::withQueryParams(['view' => 'sites', 'list' => 'site'])->test(TrafficSourcesPage::class)->call('load')
+        ->call('selectMatching')
+        ->assertCount('selected', $many)
+        ->set('minClicks', 1)
+        ->set('q', '9')
+        ->set('segment', 'all')
+        ->assertCount('selected', $many)
+        ->call('blockSelected')
+        ->assertSet('selected', [])
+        ->assertDispatched('rg-admin-toast', message: $many.' queued for the network.');
+
+    expect(TrafficBlock::query()->where('network_state', TrafficBlockNetworkState::Pending)->count())->toBe($many);
+});
+
 it('never ticks a row that is not a site or zone key', function () {
     Livewire::withQueryParams(['view' => 'sites'])->test(TrafficSourcesPage::class)
         ->call('toggleSelected', 'anything')
