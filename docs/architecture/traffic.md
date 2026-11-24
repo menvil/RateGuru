@@ -536,8 +536,9 @@ level its API blocks (`ReadsBlockLists::blockLists()`, a second between
 PopAds campaigns) and records it in one transaction on the source locked,
 writing nothing to the network. A block that changed while its lists were
 read — sent, sent again or unblocked meanwhile, by another sync whose lock
-ran out or by an administrator: its state and `request_version` are no
-longer those the read began with — stands newer than the lists read and is
+ran out or by an administrator, or deleted and blocked again: its id, state
+and `request_version` are no longer those the read began with — stands newer
+than the lists read and is
 left to the next read, and a site of a block deleted meanwhile is never
 taken for one blocked in the panel:
 

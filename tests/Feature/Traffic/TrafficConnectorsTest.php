@@ -4,6 +4,7 @@ use App\Actions\Traffic\ApplyTrafficBlocksAction;
 use App\Actions\Traffic\BlockTrafficRefsAction;
 use App\Actions\Traffic\ConnectTrafficApiAction;
 use App\Actions\Traffic\QueueMissingTrafficBlocksAction;
+use App\Actions\Traffic\ReadTrafficBlockListsAction;
 use App\Actions\Traffic\RecordBlockedHitAction;
 use App\Actions\Traffic\SyncTrafficNetworkAction;
 use App\Enums\TrafficActor;
@@ -28,6 +29,9 @@ use App\Models\TrafficSpendDay;
 use App\Models\TrafficVisit;
 use App\Models\User;
 use App\Queries\Traffic\TrafficBlocksQuery;
+use App\Services\Traffic\Connectors\BlockListsRead;
+use App\Services\Traffic\Connectors\ConnectorSession;
+use App\Services\Traffic\Connectors\ReadsBlockLists;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Http\Client\Request;
@@ -1294,6 +1298,37 @@ it('judges a PopAds change by the sites its answer lists, an entry in it that is
     app(BlockTrafficRefsAction::class)->block($this->admin, $this->popads, TrafficBlockLevel::Site, ['40123'], null, true);
 
     $this->artisan('traffic:sync-networks')->assertSuccessful();
+
+    expect(TrafficBlock::query()->sole())->network_state->toBe(TrafficBlockNetworkState::Applied)
+        ->and(TrafficBlockListing::query()->sole())->listed->toBeTrue()->error->toBeNull();
+});
+
+it('never judges a block deleted and blocked again while the lists were read by the lists read before', function () {
+    $campaign = TrafficCampaign::factory()->create(['source_id' => $this->popads->id, 'external_id' => '881204']);
+    $old = TrafficBlock::factory()->create(['source_id' => $this->popads->id, 'level' => TrafficBlockLevel::Site, 'ref' => '40123', 'method' => 'api', 'network_state' => TrafficBlockNetworkState::Applied]);
+    TrafficBlockListing::factory()->create(['block_id' => $old->id, 'campaign_id' => $campaign->id, 'listed' => true]);
+    // While the list is read, another sync takes the block off and deletes it, and it is blocked again and put back: the list read is
+    // from before it went back, and the new block stands as the old one did.
+    $connector = new class($old, $campaign) implements ReadsBlockLists
+    {
+        public function __construct(private TrafficBlock $old, private TrafficCampaign $campaign) {}
+
+        public function blockLevels(): array
+        {
+            return [TrafficBlockLevel::Site];
+        }
+
+        public function blockLists(ConnectorSession $session, array $campaignIds, TrafficBlockLevel $level): BlockListsRead
+        {
+            $this->old->delete();
+            $again = TrafficBlock::factory()->create(['source_id' => $this->old->source_id, 'level' => TrafficBlockLevel::Site, 'ref' => '40123', 'method' => 'api', 'network_state' => TrafficBlockNetworkState::Applied]);
+            TrafficBlockListing::factory()->create(['block_id' => $again->id, 'campaign_id' => $this->campaign->id, 'listed' => true]);
+
+            return new BlockListsRead(['881204' => []]);
+        }
+    };
+
+    app(ReadTrafficBlockListsAction::class)->handle((int) $this->popads->id, $connector, new ConnectorSession(['api_key' => 'k']));
 
     expect(TrafficBlock::query()->sole())->network_state->toBe(TrafficBlockNetworkState::Applied)
         ->and(TrafficBlockListing::query()->sole())->listed->toBeTrue()->error->toBeNull();

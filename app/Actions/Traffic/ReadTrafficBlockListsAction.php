@@ -230,23 +230,25 @@ final class ReadTrafficBlockListsAction
     }
 
     /**
-     * Where each of the source's blocks of a level stands, by its ref: its
-     * state and how many times it was queued for the network. A block
-     * changed while the lists were read stands otherwise when they are
-     * recorded — whatever the clock says, to the second or not.
+     * Where each of the source's blocks of a level stands, by its ref: which
+     * block it is, its state and how many times it was queued for the
+     * network. A block changed while the lists were read — or deleted and
+     * blocked again, a new block standing as the old one did — stands
+     * otherwise when they are recorded, whatever the clock says, to the
+     * second or not.
      *
      * @return array<string, string>
      */
     private function asRead(int $sourceId, TrafficBlockLevel $level): array
     {
-        return TrafficBlock::query()->where('source_id', $sourceId)->where('level', $level)->get(['ref', 'network_state', 'request_version'])
+        return TrafficBlock::query()->where('source_id', $sourceId)->where('level', $level)->get(['id', 'ref', 'network_state', 'request_version'])
             ->mapWithKeys(fn (TrafficBlock $block): array => [(string) $block->ref => self::standing($block)])
             ->all();
     }
 
     private static function standing(TrafficBlock $block): string
     {
-        return $block->network_state->value.'|'.$block->request_version;
+        return $block->id.'|'.$block->network_state->value.'|'.$block->request_version;
     }
 
     /**
