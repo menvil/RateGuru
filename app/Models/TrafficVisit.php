@@ -88,6 +88,7 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
  * @property CarbonImmutable|null $signup_submitted_at
  * @property CarbonImmutable|null $signup_refused_at
  * @property int $signup_refusals every reason a sign-up was refused on the visit, a SignupRefusal bit each
+ * @property int|null $landing_post_id the post its session landed on
  * @property CarbonImmutable|null $late_signup_at
  * @property AccountSignupPlace|null $signup_place
  * @property AccountSignupMethod|null $signup_method
@@ -180,6 +181,7 @@ class TrafficVisit extends Model
             'signup_submitted_at' => 'immutable_datetime',
             'signup_refused_at' => 'immutable_datetime',
             'signup_refusals' => 'integer',
+            'landing_post_id' => 'integer',
             'late_signup_at' => 'immutable_datetime',
             'signup_place' => AccountSignupPlace::class,
             'signup_method' => AccountSignupMethod::class,

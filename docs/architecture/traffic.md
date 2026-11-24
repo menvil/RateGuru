@@ -191,6 +191,11 @@ They are counted only: no step of worth (`TrafficStep::ofEvent()`), no
 conversion and no postback, and they never revalue a visit or keep a paid
 click from settling.
 
+A session landing on a post's own page keeps that post on each of its visits
+(`landing_post_id`, from the arrival's `post`, a paid click's too), beside the
+route its landing already keeps (`landing_key`), for the funnel's landing
+filter.
+
 ## Presets
 
 `config/traffic_presets.php` holds eight networks and "Other ad network" as data:
