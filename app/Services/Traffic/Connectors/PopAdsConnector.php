@@ -48,7 +48,7 @@ final class PopAdsConnector implements EditsBlockLists, ReadsCampaigns, ReadsImp
         $form = $this->reportForm($networkDay, $campaignIds);
         $rows = [];
 
-        foreach ($this->reportRows($this->json($this->post($session, '/api/report_advertiser', [...$form, 'groups' => 'campaign,website,datetime:day']))) as $row) {
+        foreach ($this->spendReport($session, [...$form, 'groups' => 'campaign,website,datetime:day']) as $row) {
             $day = substr((string) ($row['datetime'] ?? $row['date'] ?? $networkDay), 0, 10);
 
             if ($day !== $networkDay) {
@@ -59,14 +59,14 @@ final class PopAdsConnector implements EditsBlockLists, ReadsCampaigns, ReadsImp
                 'campaign' => (string) ($row['campaign_id'] ?? $row['campaign'] ?? ''),
                 'site' => (string) ($row['website_id'] ?? $row['website'] ?? ''),
                 'zone' => '',
-                'amount' => TrafficMoney::stored($row['cost'] ?? $row['spent'] ?? $row['amount'] ?? 0),
+                'amount' => TrafficMoney::stored($this->costOf($row)),
                 'clicks' => null,
-                'impressions' => isset($row['impressions']) ? (int) $row['impressions'] : null,
+                'impressions' => isset($row['impressions']) ? $this->impressionCount($row['impressions']) : null,
             ];
         }
 
         Sleep::for(1)->second();
-        $totals = array_sum(array_map(fn (array $row): float => (float) ($row['cost'] ?? $row['spent'] ?? $row['amount'] ?? 0), $this->reportRows($this->json($this->post($session, '/api/report_advertiser', [...$form, 'groups' => 'campaign,datetime:day'])))));
+        $totals = array_sum(array_map(fn (array $row): float => (float) $this->costOf($row), $this->spendReport($session, [...$form, 'groups' => 'campaign,datetime:day'])));
         $sum = array_sum(array_map(fn (array $row): float => (float) $row['amount'], $rows));
 
         return new SpendDayReport($rows, abs($totals - $sum) < 0.01);
@@ -74,10 +74,10 @@ final class PopAdsConnector implements EditsBlockLists, ReadsCampaigns, ReadsImp
 
     /**
      * A day's impressions by campaign, website and country, the country as a
-     * two-letter code like a visit's. An answer that is no report, a count
-     * that is no count, or a report with rows and not one this can read is an
-     * answer it does not understand, never a day with no impressions, so the
-     * figures already kept stay.
+     * two-letter code like a visit's. An answer that is no report, a count or
+     * cost that is no figure, or a report with rows and not one this can read
+     * is an answer it does not understand, never a day with no impressions,
+     * so the figures already kept stay.
      */
     public function impressionsByCountry(ConnectorSession $session, string $networkDay, array $campaignIds): array
     {
@@ -86,13 +86,8 @@ final class PopAdsConnector implements EditsBlockLists, ReadsCampaigns, ReadsImp
         }
 
         Sleep::for(1)->second();
-        $answer = $this->json($this->post($session, '/api/report_advertiser', [...$this->reportForm($networkDay, $campaignIds), 'groups' => 'country,campaign,website,datetime:day']));
-
-        if (! $this->isReport($answer)) {
-            throw new ConnectorException(TrafficConnectorFailure::UnexpectedResponse);
-        }
-
-        $ofDay = array_filter($this->reportRows($answer), fn (array $row): bool => substr((string) ($row['datetime'] ?? $row['date'] ?? $networkDay), 0, 10) === $networkDay);
+        $reported = $this->report($session, [...$this->reportForm($networkDay, $campaignIds), 'groups' => 'country,campaign,website,datetime:day']);
+        $ofDay = array_filter($reported, fn (array $row): bool => substr((string) ($row['datetime'] ?? $row['date'] ?? $networkDay), 0, 10) === $networkDay);
         $rows = [];
 
         foreach ($ofDay as $row) {
@@ -108,7 +103,7 @@ final class PopAdsConnector implements EditsBlockLists, ReadsCampaigns, ReadsImp
                 'site' => (string) ($row['website_id'] ?? $row['website'] ?? ''),
                 'country' => $country,
                 'impressions' => $this->impressionCount($row['impressions'] ?? null),
-                'amount' => TrafficMoney::stored($row['cost'] ?? $row['spent'] ?? $row['amount'] ?? 0),
+                'amount' => TrafficMoney::stored($this->costOf($row)),
             ];
         }
 
@@ -120,20 +115,83 @@ final class PopAdsConnector implements EditsBlockLists, ReadsCampaigns, ReadsImp
     }
 
     /**
-     * Whether an answer is a report, if an empty one: its rows bare or under
-     * `rows` or `data`. A message in their place is not.
+     * A report's rows, bare or under `rows` or `data`, null there being none.
+     * An answer that is no report is never read as a day with nothing in it:
+     * the figures already kept would be replaced by none.
      *
-     * @param  array<mixed>  $answer
+     * @param  array<string, string>  $form
+     * @return array<int, array<string, mixed>>
+     *
+     * @throws ConnectorException
      */
-    private function isReport(array $answer): bool
+    private function report(ConnectorSession $session, array $form): array
     {
+        $answer = $this->json($this->post($session, '/api/report_advertiser', $form));
+
+        if ($this->listsErrors($answer)) {
+            throw new ConnectorException(TrafficConnectorFailure::Rejected);
+        }
+
         $rows = match (true) {
-            array_key_exists('rows', $answer) => $answer['rows'],
-            array_key_exists('data', $answer) => $answer['data'],
+            array_key_exists('rows', $answer) => $answer['rows'] ?? [],
+            array_key_exists('data', $answer) => $answer['data'] ?? [],
             default => $answer,
         };
 
-        return $rows === null || (is_array($rows) && array_filter($rows, 'is_array') === $rows);
+        if (array_key_exists('errors', $answer) || ! is_array($rows) || array_filter($rows, 'is_array') !== $rows) {
+            throw new ConnectorException(TrafficConnectorFailure::UnexpectedResponse);
+        }
+
+        return array_values($rows);
+    }
+
+    /**
+     * A report read for its spend, every row with its cost: stored without
+     * one, the day would be kept at part of what it cost.
+     *
+     * @param  array<string, string>  $form
+     * @return array<int, array<string, mixed>>
+     *
+     * @throws ConnectorException
+     */
+    private function spendReport(ConnectorSession $session, array $form): array
+    {
+        $rows = $this->report($session, $form);
+
+        foreach ($rows as $row) {
+            $this->costOf($row);
+        }
+
+        return $rows;
+    }
+
+    /**
+     * What a row cost, zero included. A row with no figure says nothing about
+     * it, least of all that it cost nothing.
+     *
+     * @param  array<string, mixed>  $row
+     *
+     * @throws ConnectorException
+     */
+    private function costOf(array $row): int|float|string
+    {
+        $cost = $row['cost'] ?? $row['spent'] ?? $row['amount'] ?? null;
+
+        if (! is_numeric($cost)) {
+            throw new ConnectorException(TrafficConnectorFailure::UnexpectedResponse);
+        }
+
+        return $cost;
+    }
+
+    /**
+     * Whether PopAds explains a refusal in an `errors` list.
+     *
+     * @param  array<mixed>  $answer
+     */
+    private function listsErrors(array $answer): bool
+    {
+        return is_array($answer['errors'] ?? null) && $answer['errors'] !== [];
     }
 
     /** A whole number of impressions, zero included, as a number or in a string. */
@@ -262,14 +320,6 @@ final class PopAdsConnector implements EditsBlockLists, ReadsCampaigns, ReadsImp
         return new BlockDeltaResult(array_diff($add, $listed) === [] && array_intersect($remove, $listed) === [], $response->status(), array_values($listed));
     }
 
-    /** @return array<int, array<string, mixed>> */
-    private function reportRows(array $json): array
-    {
-        $rows = $json['rows'] ?? $json['data'] ?? $json;
-
-        return array_values(array_filter((array) $rows, 'is_array'));
-    }
-
     /**
      * An error PopAds explains is a request it refused, whatever its status — 500 for a list it won't take — never an
      * API that is down, nor a refused key: PopAds refuses a key with a page, not an explained error.
@@ -279,7 +329,7 @@ final class PopAdsConnector implements EditsBlockLists, ReadsCampaigns, ReadsImp
         $json = $response->json();
 
         return match (true) {
-            is_array($json) && is_array($json['errors'] ?? null) && $json['errors'] !== [] => TrafficConnectorFailure::Rejected,
+            is_array($json) && $this->listsErrors($json) => TrafficConnectorFailure::Rejected,
             in_array($response->status(), [401, 403], true) => TrafficConnectorFailure::Auth,
             $response->status() === 429 => TrafficConnectorFailure::RateLimited,
             $response->serverError() => TrafficConnectorFailure::Unavailable,
