@@ -107,6 +107,7 @@ it('leaves the turn’s spend and the connection alone when the country report f
         ->and(TrafficSpendDayCountry::query()->where('network_day', '2026-11-16')->sole()->impressions)->toBe(9);
 })->with([
     'refused' => [fn () => fn () => Http::response(['errors' => [['title' => 'nope']]], 500)],
+    'refused with a success status' => [fn () => fn () => Http::response(['errors' => [['title' => 'nope']]])],
     'rows it cannot read' => [fn () => fn (string $day) => Http::response(['rows' => [['datetime' => $day, 'campaign_id' => '881204', 'impressions' => 5]]])],
     'a message for a report' => [fn () => fn () => Http::response(['message' => 'unexpected report format'])],
     'a message under its rows' => [fn () => fn () => Http::response(['data' => ['message' => 'unexpected report format']])],
@@ -114,6 +115,10 @@ it('leaves the turn’s spend and the connection alone when the country report f
     'a negative count' => [fn () => fn (string $day) => Http::response(['rows' => [['datetime' => $day, 'country' => 'DE', 'campaign_id' => '881204', 'website_id' => '40123', 'impressions' => -5, 'cost' => '0.09']]])],
     'a country without its count, beside one with' => [fn () => fn (string $day) => Http::response(['rows' => [
         ['datetime' => $day, 'country' => 'DE', 'campaign_id' => '881204', 'website_id' => '40123', 'impressions' => null, 'cost' => '0.09'],
+        ['datetime' => $day, 'country' => 'US', 'campaign_id' => '881204', 'website_id' => '40123', 'impressions' => 5, 'cost' => '0.05'],
+    ]])],
+    'a country without its cost, beside one with' => [fn () => fn (string $day) => Http::response(['rows' => [
+        ['datetime' => $day, 'country' => 'DE', 'campaign_id' => '881204', 'website_id' => '40123', 'impressions' => 9],
         ['datetime' => $day, 'country' => 'US', 'campaign_id' => '881204', 'website_id' => '40123', 'impressions' => 5, 'cost' => '0.05'],
     ]])],
 ]);

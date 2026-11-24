@@ -144,7 +144,7 @@ it('reads the campaigns’ own details on every turn, five minutes apart, and th
         ->and(TrafficSpendDay::query()->where('network_day', '2026-11-16')->sole())->id->toBe($fact->id)->allocated_at->not->toBeNull();
 });
 
-it('keeps a day’s spend when PopAds answers with anything but a report', function (Closure $answer) {
+it('keeps a day’s spend when PopAds answers with anything but a report', function (Closure $answer, TrafficConnectorFailure $failure = TrafficConnectorFailure::UnexpectedResponse) {
     $connection = TrafficApiConnection::factory()->create(['source_id' => $this->popads->id, 'next_sync_at' => now(), 'backfill_cursor' => null]);
     $closed = $connection->spend_closed_through;
     $campaign = TrafficCampaign::factory()->create(['source_id' => $this->popads->id, 'external_id' => '881204']);
@@ -158,13 +158,21 @@ it('keeps a day’s spend when PopAds answers with anything but a report', funct
     expect($kept->id)->toBe($figure->id)
         ->and($kept->amount)->toBe('1.25000000')
         ->and($connection->fresh()->failures)->toBe(1)
-        ->and($connection->fresh()->last_error)->toBe(TrafficConnectorFailure::UnexpectedResponse->value)
+        ->and($connection->fresh()->last_error)->toBe($failure->value)
         ->and($connection->fresh()->spend_closed_through)->toBe($closed);
 })->with([
     'a message' => [fn () => fn () => Http::response(['message' => 'unexpected report format'])],
-    'an error list' => [fn () => fn () => Http::response(['errors' => [['status' => 400, 'code' => 1, 'title' => 'Bad request']]])],
+    'an error list, refused whatever its status' => [fn () => fn () => Http::response(['errors' => [['status' => 400, 'code' => 1, 'title' => 'Bad request']]]), TrafficConnectorFailure::Rejected],
     'a message under its rows' => [fn () => fn () => Http::response(['data' => ['message' => 'unexpected report format']])],
     'rows with no cost' => [fn () => fn () => Http::response(['rows' => [['campaign_id' => '881204', 'website_id' => '40123', 'datetime' => '2026-11-17']]])],
+    'one row of two with no cost' => [fn () => fn () => Http::response(['rows' => [
+        ['campaign_id' => '881204', 'website_id' => '40123', 'datetime' => '2026-11-17', 'cost' => '0.50'],
+        ['campaign_id' => '881204', 'website_id' => '40124', 'datetime' => '2026-11-17'],
+    ]])],
+    'a blank cost' => [fn () => fn () => Http::response(['rows' => [['campaign_id' => '881204', 'website_id' => '40123', 'datetime' => '2026-11-17', 'cost' => '']]])],
+    'totals with a cost in words' => [fn () => fn (Request $request) => Http::response(['rows' => [str_contains($request->body(), 'website')
+        ? ['campaign_id' => '881204', 'website_id' => '40123', 'datetime' => '2026-11-17', 'cost' => '0.50']
+        : ['campaign_id' => '881204', 'datetime' => '2026-11-17', 'cost' => 'unavailable']]])],
     'a count in words' => [fn () => fn () => Http::response(['rows' => [['campaign_id' => '881204', 'website_id' => '40123', 'datetime' => '2026-11-17', 'cost' => '0.50', 'impressions' => 'unavailable']]])],
     'totals that are a message' => [fn () => fn (Request $request) => str_contains($request->body(), 'website')
         ? Http::response(['rows' => [['campaign_id' => '881204', 'website_id' => '40123', 'datetime' => '2026-11-17', 'cost' => '0.50']]])
@@ -186,7 +194,24 @@ it('still takes an empty report for a day with no spend', function (array $answe
     'no rows' => [['rows' => []]],
     'no data' => [['data' => []]],
     'null rows' => [['rows' => null]],
+    'null rows beside what a report carries' => [['fdow' => 'mon', 'campaigns' => [['id' => 881204]], 'time' => ['zone' => 'UTC'], 'websites' => [], 'mode' => 'advertiser', 'countries' => [], 'groups' => ['campaign', 'website', 'datetime:day'], 'orders' => [], 'generated' => 1795000000, 'rows' => null]],
     'as PopAds sends a period with no data' => [['fdow' => 'mon', 'campaigns' => [['id' => 881204]], 'time' => ['zone' => 'UTC'], 'websites' => [], 'mode' => 'advertiser', 'countries' => [], 'groups' => ['campaign', 'website', 'datetime:day'], 'orders' => [], 'generated' => 1795000000, 'rows' => []]],
+]);
+
+it('takes a cost of zero as a figure', function (mixed $zero) {
+    $connection = TrafficApiConnection::factory()->create(['source_id' => $this->popads->id, 'next_sync_at' => now(), 'backfill_cursor' => null]);
+    TrafficCampaign::factory()->create(['source_id' => $this->popads->id, 'external_id' => '881204']);
+    Http::fake(fn (Request $request) => str_contains($request->url(), 'report_advertiser')
+        ? Http::response(['rows' => [['campaign_id' => '881204', 'website_id' => '40123', 'datetime' => '2026-11-17', 'cost' => $zero]]])
+        : Http::response(['data' => []]));
+
+    app(SyncTrafficNetworkAction::class)->handle($connection, CarbonImmutable::now());
+
+    expect($connection->fresh()->failures)->toBe(0)
+        ->and(TrafficSpendDay::query()->where('origin', TrafficSpendOrigin::Api)->where('network_day', '2026-11-17')->sole()->amount)->toBe('0.00000000');
+})->with([
+    'a number' => [0],
+    'a string' => ['0.00'],
 ]);
 
 it('reads every day back to the one before yesterday before it stops reading back', function () {
