@@ -6930,6 +6930,9 @@
 
     .rg-admin-stepper-field__range {
         margin-left: auto;
+        /* "1–50" stays whole: a long label beside it wraps instead. */
+        flex-shrink: 0;
+        white-space: nowrap;
         font-size: var(--rg-admin-text-caption);
         color: var(--rg-admin-text-tertiary);
         font-variant-numeric: tabular-nums;

@@ -14,6 +14,9 @@ final class ContactMessageMail extends Mailable implements ShouldQueue
 {
     use Queueable, SerializesModels;
 
+    /** Inside the Redis queue's retry window, like every class the application queues. */
+    public int $timeout = 80;
+
     public function __construct(
         public readonly string $senderName,
         public readonly string $senderEmail,

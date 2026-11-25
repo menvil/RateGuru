@@ -24,7 +24,8 @@ it('has the expected retry configuration', function () {
     expect($job->tries)->toBe(4)
         ->and($job->backoff)->toBe([10, 60, 300])
         ->and($job->tries)->toBe(count($job->backoff) + 1)
-        ->and($job->timeout)->toBe(120);
+        // Inside the Redis queue's retry window, with QueuedWorkRetryWindowTest's margin.
+        ->and($job->timeout)->toBe(80);
 });
 
 it('logs a warning and returns without failing when the media asset no longer exists', function () {
