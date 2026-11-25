@@ -1133,6 +1133,7 @@ it('counts one origin of a network’s own figures a day on Spend — its file o
 
     Livewire::withQueryParams(['tab' => 'spend'])->test(TrafficSourcesPage::class)->call('load')
         ->set('spendSource', (string) $source->id)
+        ->call('toggleSpendSource', $source->id)
         ->assertViewHas('spendRows', fn (array $rows): bool => $rows[0]['network'] === ['$12.00', 'Differs by 25.0%']
             && $rows[0]['campaigns'][0]['network'] === '$12.00')
         ->assertViewHas('dayRows', fn (array $days): bool => TrafficMoney::of(collect($days)->firstWhere('date', '2026-11-16')['network'])->isEqualTo('12'));
@@ -1144,12 +1145,14 @@ it('counts every campaign of a network on Spend, and reads their rows only for a
     $visited = TrafficCampaign::factory()->create(['source_id' => $source->id, 'external_id' => '881204', 'first_click_at' => now()]);
     TrafficVisit::factory()->create(['source_id' => $source->id, 'campaign_id' => $visited->id, 'arrived_at' => '2026-11-16 10:00:00', 'network_day' => '2026-11-16', 'spend' => '0.25']);
 
-    // The only paid source opens by campaign to begin with.
+    // No source opens by itself; a click opens it by campaign, and another closes it.
     Livewire::withQueryParams(['tab' => 'spend'])->test(TrafficSourcesPage::class)->call('load')
+        ->assertSee('Ad network · 51 campaigns')
+        ->assertViewHas('spendRows', fn (array $rows): bool => ! $rows[0]['open'] && $rows[0]['campaigns'] === [])
+        ->call('toggleSpendSource', $source->id)
         ->assertSee('Ad network · 51 campaigns')
         ->assertViewHas('spendRows', fn (array $rows): bool => $rows[0]['open'] && collect($rows[0]['campaigns'])->pluck('external')->all() === ['881204'])
         ->call('toggleSpendSource', $source->id)
-        ->assertSee('Ad network · 51 campaigns')
         ->assertViewHas('spendRows', fn (array $rows): bool => ! $rows[0]['open'] && $rows[0]['campaigns'] === []);
 });
 

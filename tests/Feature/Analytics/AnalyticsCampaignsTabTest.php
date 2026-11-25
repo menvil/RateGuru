@@ -49,6 +49,22 @@ function analyticsCampaigns(array $query = []): array
 }
 
 /** The tree's rows as text: indented by level, the name, what is under it, the source, then each cell's figure with its line. */
+/**
+ * The tab's data with rows opened as clicks open them: each a campaign's key, with a creative for a creative's row.
+ *
+ * @param  list<array{0: string, 1?: string}>  $rows
+ */
+function analyticsCampaignsOpened(array $rows, array $query = []): array
+{
+    $page = Livewire::withQueryParams(['tab' => 'campaigns', ...$query])->test(GrowthAnalyticsPage::class)->call('load');
+
+    foreach ($rows as $row) {
+        $page->call('toggleCampaignRow', ...$row);
+    }
+
+    return $page->viewData('data');
+}
+
 function campaignRows(array $data): array
 {
     return array_map(fn (array $row): string => str_repeat('  ', $row['level']).$row['name'].' | '.($row['sub'] ?? '-').' | '.$row['source']['text'].' | '
@@ -100,11 +116,18 @@ function campaignFixture(Game $game, TrafficCampaign $campaign): Game
     return $blitz;
 }
 
-it('lists paid and tagged campaigns, the most people first, the biggest open down to the games its biggest creative was played on', function () {
+it('lists paid and tagged campaigns, the most people first, closed until clicked, then down to the games a creative was played on', function () {
     campaignFixture($this->game, $this->campaign);
     $exo = 'ExoClick tests · paid_ads';
+    $paid = 'paid:'.$this->campaign->id;
 
-    $data = analyticsCampaigns();
+    // Nothing opens by itself.
+    $closed = analyticsCampaigns();
+
+    expect(array_column($closed['rows'], 'name'))->toBe(['US popunder', 'spring'])
+        ->and(array_column($closed['rows'], 'open'))->toBe([false, false]);
+
+    $data = analyticsCampaignsOpened([[$paid], [$paid, 'banner-1']]);
 
     expect(campaignRows($data))->toBe([
         // Every click counts in the spend, its page run or not: 42 clicks, ten cents each; ten of them estimated.
@@ -135,12 +158,15 @@ it('leads a game’s row to the game on the Games tab, of the same days and devi
     $blitz = campaignFixture($this->game, $this->campaign);
     $blitz->forceFill(['status' => GameStatus::Archived])->save();
 
-    $games = collect(analyticsCampaigns(['period' => '90d', 'device' => 'mobile', 'source' => 'paid:'.$this->exo->id])['rows'])->where('kind', 'game')->values();
+    $paid = 'paid:'.$this->campaign->id;
+    $games = collect(analyticsCampaignsOpened([[$paid], [$paid, 'banner-1']], ['period' => '90d', 'device' => 'mobile', 'source' => 'paid:'.$this->exo->id])['rows'])->where('kind', 'game')->values();
 
     expect($games->pluck('url')->all())->toBe([GrowthAnalyticsPage::getUrl(['tab' => 'games', 'game' => $this->game->id, 'period' => '90d', 'device' => 'mobile']), null])
         ->and($games->pluck('sub')->all())->toBe(['Open game analytics', 'Archived']);
 
     Livewire::withQueryParams(['tab' => 'campaigns', 'period' => '90d'])->test(GrowthAnalyticsPage::class)->call('load')
+        ->call('toggleCampaignRow', $paid)
+        ->call('toggleCampaignRow', $paid, 'banner-1')
         ->assertSeeHtml('href="'.e(GrowthAnalyticsPage::getUrl(['tab' => 'games', 'game' => $this->game->id, 'period' => '90d'])).'"');
 });
 
@@ -156,7 +182,8 @@ it('counts in a campaign the spend none of its visits took, on a row of its own,
     $spendDay(null, '3.00');
     analyticsClick('crawler', $quiet, ['spend' => '0.30', 'opened_at' => null]);
 
-    $rows = collect(analyticsCampaigns()['rows']);
+    $paid = 'paid:'.$this->campaign->id;
+    $rows = collect(analyticsCampaignsOpened([[$paid], [$paid, 'banner-1']])['rows']);
     $idle = $rows->where('kind', 'idle')->values();
 
     expect($rows->first()['cells'][0]['value'])->toBe('$6.20')
@@ -169,7 +196,7 @@ it('counts in a campaign the spend none of its visits took, on a row of its own,
         ->and($rows->search(fn (array $row): bool => $row['kind'] === 'idle'))->toBe(5);
 
     // That spend has no device: a device chosen leaves it out, and says so — the crawler's click had one.
-    $mobile = analyticsCampaigns(['device' => 'mobile']);
+    $mobile = analyticsCampaignsOpened([[$paid]], ['device' => 'mobile']);
 
     expect($mobile['rows'][0]['cells'][0]['value'])->toBe('$4.20')
         ->and(collect($mobile['rows'])->where('kind', 'idle')->map(fn (array $row): string => $row['level'].' '.$row['cells'][0]['value'])->values()->all())->toBe(['0 $0.30'])
@@ -194,12 +221,13 @@ it('marks the creative with the best activation rate of those with enough visito
         }
     }
 
-    $best = fn (): array => collect(analyticsCampaigns()['rows'])->where('best', true)->pluck('name')->all();
+    $paid = 'paid:'.$this->campaign->id;
+    $best = fn (): array => collect(analyticsCampaignsOpened([[$paid]])['rows'])->where('best', true)->pluck('name')->all();
 
     // No creative is none, and too few visitors can't be the best however many activated.
     expect($best())->toBe(['b']);
 
-    Livewire::withQueryParams(['tab' => 'campaigns'])->test(GrowthAnalyticsPage::class)->call('load')->assertSee('Best activation rate');
+    Livewire::withQueryParams(['tab' => 'campaigns'])->test(GrowthAnalyticsPage::class)->call('load')->call('toggleCampaignRow', $paid)->assertSee('Best activation rate');
 
     // Only one creative with enough visitors: there is nothing to be best among.
     config(['analytics.best_creative_min_visitors' => 36]);
@@ -305,6 +333,8 @@ it('opens or closes any row, keeping only the latest few toggled, and opens and 
     $names = fn ($page): array => collect($page->viewData('data')['rows'])->map(fn (array $row): string => str_repeat('  ', $row['level']).$row['name'].($row['marked'] ? ' *' : ''))->all();
 
     $page = Livewire::withQueryParams(['tab' => 'campaigns'])->test(GrowthAnalyticsPage::class)->call('load')
+        ->call('toggleCampaignRow', $paid)
+        ->call('toggleCampaignRow', $paid, 'banner-1')
         ->call('toggleCampaignRow', $paid, 'banner-1')
         ->call('toggleCampaignRow', 'tag:spring');
 
@@ -315,7 +345,7 @@ it('opens or closes any row, keeping only the latest few toggled, and opens and 
 
     // What no row could name changes nothing.
     $page->call('toggleCampaignRow', 'nope')->call('toggleCampaignRow', $paid, "bad\x01creative")->call('toggleCampaignRow', $paid, ['banner-1']);
-    expect($page->get('toggled'))->toHaveCount(4);
+    expect($page->get('toggled'))->toHaveCount(2);
 
     foreach (range(1, CampaignsTab::MOST_TOGGLED + 2) as $n) {
         $page->call('toggleCampaignRow', 'tag:other-'.$n);
@@ -328,16 +358,16 @@ it('opens or closes any row, keeping only the latest few toggled, and opens and 
     $page->set('tab', 'overview')->assertSet('toggled', []);
     expect(fn () => $page->set('toggled', ['x']))->toThrow(Exception::class);
 
-    // The address's creative opens in place of the biggest, it and its campaign marked.
+    // The address's campaign opens, and the creative it names, both marked.
     $marked = Livewire::withQueryParams(['tab' => 'campaigns', 'campaign' => $paid, 'creative' => 'banner-2'])->test(GrowthAnalyticsPage::class)->call('load');
 
     expect($names($marked))->toBe(['US popunder *', '  banner-1', '  banner-2 *', '    Trust Your Taste'])
         ->and(collect($marked->viewData('data')['rows'])->where('kind', 'creative')->pluck('open')->all())->toBe([false, true]);
 
-    // Another campaign drops it; one the campaign doesn't have opens the biggest, only the campaign marked.
+    // Another campaign drops it; one the campaign doesn't have opens no creative, only the campaign marked.
     $marked->set('campaign', 'tag:spring')->assertSet('creative', '');
     expect($names(Livewire::withQueryParams(['tab' => 'campaigns', 'campaign' => $paid, 'creative' => 'banner-9'])->test(GrowthAnalyticsPage::class)->call('load')))
-        ->toBe(['US popunder *', '  banner-1', '    Trust Your Taste', '    60 Second Blitz', '  banner-2']);
+        ->toBe(['US popunder *', '  banner-1', '  banner-2']);
 
     // A network's creative id of digits alone, read by the address as a number, is a creative too.
     analyticsClick('numbered', $this->campaign, ['creative_key' => '6']);
@@ -373,10 +403,10 @@ it('lists, opens and marks the creative the address names past the first creativ
         ->and($named->firstWhere('name', 'c25'))->toBeNull()
         ->and($rest($named))->toBe(['Other creatives', '$0.20', '2']);
 
-    // A creative the campaign doesn't have opens the biggest, the smallest in the rest again.
+    // A creative the campaign doesn't have opens none, the smallest in the rest again.
     $missing = $creatives('c99');
 
-    expect($missing->whereStrict('open', true)->pluck('name')->all())->toBe(['c01'])
+    expect($missing->whereStrict('open', true)->pluck('name')->all())->toBe([])
         ->and($missing->firstWhere('name', 'c26'))->toBeNull()
         ->and($missing->whereStrict('marked', true)->all())->toBe([])
         ->and($rest($missing))->toBe(['Other creatives', '$0.10', '1']);

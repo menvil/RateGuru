@@ -18,6 +18,7 @@ it('creates media_variants table with required columns', function () {
         'byte_size',
         'width',
         'height',
+        'duration_ms',
         'checksum_sha256',
         'metadata',
         'created_at',

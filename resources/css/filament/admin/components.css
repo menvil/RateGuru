@@ -18509,7 +18509,10 @@
         content: '';
     }
 
-    /* The sources table: a row filters the whole page; the one chosen sits sunken. */
+    /*
+     * The sources table: a row filters the whole page. It counts every source whatever is chosen, so the source
+     * the page is narrowed to is lit, with a bar at its start, and the rest set back until pointed at.
+     */
     .rg-admin-analytics__sources {
         --rg-admin-table-columns: minmax(200px, 1.4fr) repeat(5, minmax(96px, 1fr)) minmax(150px, 1fr);
         --rg-admin-table-min-width: 960px;
@@ -18522,7 +18525,17 @@
 
     .rg-admin-analytics__source-row--selected,
     .rg-admin-analytics__source-row--selected:not(.rg-admin-table__row--head):hover {
-        background: var(--rg-admin-surface-sunken);
+        background: var(--rg-admin-status-info-bg);
+        box-shadow: inset 3px 0 0 var(--rg-admin-status-info-dot);
+    }
+
+    .rg-admin-analytics__sources-card--lit .rg-admin-analytics__source-row:not(.rg-admin-analytics__source-row--selected) {
+        opacity: 0.45;
+    }
+
+    .rg-admin-analytics__sources-card--lit .rg-admin-analytics__source-row:not(.rg-admin-analytics__source-row--selected):hover,
+    .rg-admin-analytics__sources-card--lit .rg-admin-analytics__source-row:not(.rg-admin-analytics__source-row--selected):focus-within {
+        opacity: 1;
     }
 
     .rg-admin-analytics__source-cell {

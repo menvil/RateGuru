@@ -633,8 +633,11 @@ owns**, and the Ubuntu 22.04 candidate package is the far older
   is `MISSING` with the action `install verified rclone v<pin>`; version
   drift (like the current staging v1.74.4), a wrong owner/group or mode, an
   unexpected path, or a binary that cannot report a version are `CONFLICT`
-  with the action `replace with verified rclone v<pin>`. An apt action for
-  rclone is never proposed.
+  with the action `replace with verified rclone v<pin>`. A directory (or a
+  link to one) standing at `/usr/bin/rclone` is a `CONFLICT` of its own:
+  `--apply` refuses before downloading anything, since `mv` would drop the
+  new binary inside it, and the operator moves it aside by hand. An apt
+  action for rclone is never proposed.
 - `--apply` converges drift through verification only: download the exact
   versioned release archive and its `SHA256SUMS` from the official
   `downloads.rclone.org` origin (HTTPS only), verify the clearsigned
@@ -661,6 +664,133 @@ current staging host reports exactly one unsatisfied item — the rclone
 version drift (installed v1.74.4, required pinned version) — and proposes
 the verified replacement, never `apt-get install rclone`. `--apply` then
 performs the signature- and checksum-verified atomic upgrade.
+
+### Managed external runtime: yt-dlp
+
+The media import downloads videos from the pages users link through yt-dlp.
+Its site support breaks whenever a site changes, so the Ubuntu 22.04 package
+(years behind) is no use, and the pin has to move every few weeks. yt-dlp is
+therefore a second managed external runtime under the same contract file and
+the same rules as rclone:
+
+- `versions.env` carries `YTDLP_VERSION` (a dated release such as
+  `2026.11.23`), `YTDLP_ARTIFACT=yt-dlp_linux` — the standalone executable,
+  which bundles its own Python, so the host's Python never matters —
+  `/usr/local/bin/yt-dlp`, `root:root`, mode `0755`, and the fingerprint of
+  the key yt-dlp's README names for its release signatures
+  (`AC0CBBE6848D6A873464AF4E57CF65933B5A7581`). The public key is committed
+  next to it as `yt-dlp-release-signing-key.asc`.
+- `--check`/`--verify` report it in the `EXTERNAL RUNTIME` section beside
+  rclone, with the same states: `PASS yt-dlp — <pin>, /usr/local/bin/yt-dlp,
+  root:root 0755`; `MISSING` when absent, with the action `install verified
+  yt-dlp <pin>`; `CONFLICT` for another version, owner, group or mode, a copy
+  elsewhere on the PATH, or a binary that cannot report a version, with the
+  action `replace with verified yt-dlp <pin>`. A directory or a link to one
+  at `/usr/local/bin/yt-dlp` is a `CONFLICT` that `--apply` refuses before
+  any download, exactly as for rclone.
+- `--apply` downloads `yt-dlp_linux`, `SHA2-256SUMS` and the detached
+  `SHA2-256SUMS.sig` from the official GitHub release over HTTPS, verifies the
+  signature with the committed key (accepted only after it matches the pinned
+  fingerprint), verifies the executable's checksum, confirms it reports
+  exactly the pinned version, and renames it over `/usr/local/bin/yt-dlp`
+  atomically. A failure at any step leaves the working binary as it was.
+  `yt-dlp -U` is never run.
+- On a compliant host `--apply` makes no network request for yt-dlp.
+
+Rehearsed in a disposable Ubuntu 22.04 amd64 container on top of the runtime
+`develop` installs: `--check` reported exactly one item, `MISSING yt-dlp`;
+`--apply` installed it through the real signature and checksum and passed
+`--verify`; a second `--apply` downloaded nothing. An older version and a
+`0700` mode were each reported as `CONFLICT` and repaired by `--apply`; a
+fingerprint off the pin made `--apply` refuse the key and leave the working
+binary untouched; a link to a directory at the binary's path was reported and
+refused with nothing written inside it. The installed yt-dlp found ffmpeg 4.4.2 by itself and
+extracted the video from an ordinary HTML5 page.
+
+**Moving the pin (the routine upgrade):**
+
+1. Change `YTDLP_VERSION` in `infrastructure/config/external-runtimes/versions.env`
+   in a reviewed PR. The key and its fingerprint stay unless yt-dlp rotates
+   its signing key, which is then a change of its own.
+2. After the merge, on each host: `install-bootstrap-runtime --check` shows
+   `CONFLICT yt-dlp — <old> installed, required <new>`; `--apply` replaces it
+   and ends with a passing `--verify`.
+
+**Existing host migration:** on a host prepared before yt-dlp joined the
+contract, `--check` reports exactly `MISSING yt-dlp`, and `--apply` installs
+it as above. Staging and production share one machine, so a single run
+serves both.
+
+### Managed external runtime: ffmpeg
+
+The media pipeline probes and transcodes uploaded video, and turns animated
+GIFs into video, with ffmpeg and ffprobe — tools that parse files users
+upload. Jammy's package is the 4.4 series, frozen in 2022 and in `universe`
+(best-effort security fixes), and a different version from the one CI and
+developers test with. ffmpeg is therefore the third managed external runtime,
+under the same contract file and rules as rclone and yt-dlp:
+
+- `versions.env` carries `FFMPEG_VERSION` (what the binaries print after
+  "ffmpeg version", e.g. `n8.1.3-27-g8dca1586f4-20261031`), `FFMPEG_RELEASE`
+  (a month-end autobuild of [BtbN/FFmpeg-Builds](https://github.com/BtbN/FFmpeg-Builds),
+  the Linux builds ffmpeg.org links to — that project keeps the last build of
+  each month for two years), `FFMPEG_ARTIFACT` (the `linux64-gpl` archive of a
+  release branch), `FFMPEG_SHA256`, `FFMPEG_BIN_DIR=/usr/local/bin`,
+  `root:root`, mode `0755`.
+- The builds are not signed. The trust anchor is the archive's SHA-256,
+  copied from that release's `checksums.sha256` into the reviewed contract:
+  `--apply` refuses any archive whose digest is not exactly the pinned one.
+- `--check`/`--verify` report the pair in `EXTERNAL RUNTIME`: `PASS ffmpeg —
+  <pin>, ffmpeg and ffprobe in /usr/local/bin`; `MISSING` when neither or one
+  of them is there; `CONFLICT` for another version, owner or mode, a binary
+  that cannot report a version, a directory where a binary belongs, or — on a
+  host prepared before — an ffmpeg elsewhere on `PATH` (Jammy's
+  `/usr/bin/ffmpeg`) with nothing in `/usr/local/bin`.
+- `--apply` downloads the archive over HTTPS, checks the digest, extracts only
+  `bin/ffmpeg` and `bin/ffprobe`, confirms both report exactly the pinned
+  version, stages both with final ownership and mode beside their
+  destinations, and only then renames each into place; any failure before
+  that leaves the installed pair untouched. A directory at either path is
+  refused before any download. On a compliant host there is no network
+  activity.
+- Jammy's `ffmpeg` package, on a host that has it, is never removed (no
+  package ever is): `/usr/bin/ffmpeg` stays, unused. `/usr/local/bin` comes
+  before `/usr/bin` on `PATH`, and the application looks in `/usr/local/bin`
+  first even where `PATH` is cleared, as in PHP-FPM
+  (`config('media.video.search_directories')`).
+- CI's PostgreSQL tests job installs the same archive from the same contract
+  values, refused unless the digest matches, so the tests run on the build the
+  hosts run.
+
+Rehearsed in a disposable Ubuntu 22.04 amd64 container that had been
+prepared with Jammy's ffmpeg 4.4.2, the way the live host was, and with
+`xz-utils` removed. The rehearsal went as follows:
+
+- `--check` reported exactly three items: `MISSING package:xz-utils`,
+  `MISSING tool:xz`, and `CONFLICT ffmpeg — found at /usr/bin/ffmpeg, but the
+  managed binaries belong in /usr/local/bin`.
+- `--apply` installed `xz-utils` (one `apt-get update`, one install). It then
+  downloaded the pinned archive, matched its digest, installed the pair and
+  passed `--verify`. A second `--apply` downloaded nothing.
+- `ffmpeg` then resolved to `/usr/local/bin` (8.1) ahead of the untouched
+  `/usr/bin/ffmpeg` (4.4.2).
+- An old `ffprobe` in the managed directory was reported as version drift
+  and replaced.
+- A digest off the pin made `--apply` refuse the archive, with both installed
+  binaries byte-identical and nothing staged left behind.
+- The 8.1 build encoded H.264/AAC, turned an animated GIF into an MP4, and
+  refused a playlist with "Format not on whitelist". The same build read
+  that playlist as HLS when the whitelist was left off.
+- CI's install step was run as written, in a fresh Ubuntu 24.04 container,
+  and installed the same build.
+
+**Moving the pin:** pick a later month-end autobuild, take the `linux64-gpl`
+archive of the release branch wanted, and change `FFMPEG_VERSION`,
+`FFMPEG_RELEASE`, `FFMPEG_ARTIFACT` and `FFMPEG_SHA256` together in one
+reviewed PR (the tests hold the version to the archive name and release
+date). After the merge, `install-bootstrap-runtime --check` on each host shows
+`CONFLICT ffmpeg — /usr/local/bin/ffmpeg reports <old>, required <new>`, and
+`--apply` replaces the pair; CI picks the new build up by itself.
 
 ### apt policy and idempotency
 
@@ -698,7 +828,9 @@ modules (composer.json requires `ext-exif`; queue workers use pcntl);
 SQLite is not installed (tests support it, the runtime contract is
 PostgreSQL); `openssh-server` is required because the deploy pipeline
 delivers artifacts over SSH; shellcheck/actionlint/wget are never runtime
-requirements.
+requirements; Jammy's `ffmpeg` package is not required — ffmpeg is a managed
+external runtime (see "Managed external runtime: ffmpeg") — and `xz-utils` is,
+to unpack that build: a minimal Ubuntu 22.04 image carries no `xz`.
 
 ### Verification depth
 

@@ -18,4 +18,15 @@ return [
         'webp_quality' => max(1, min(100, EnvironmentValue::integer(env('UPLOAD_IMAGE_WEBP_QUALITY'), 90))),
         'mimes' => ['jpg', 'jpeg', 'png', 'webp'],
     ],
+
+    // Videos and animated GIFs, as VideoIngestPolicy reads them: a clip of
+    // up to a minute and a half, 100 MB, a 4K picture either way up, and 60
+    // frames a second. Architectural limits, not per-environment knobs.
+    'videos' => [
+        'max_kilobytes' => 102_400,
+        'max_duration_seconds' => 90,
+        'max_width' => 3840,
+        'max_height' => 3840,
+        'max_frame_rate' => 60,
+    ],
 ];

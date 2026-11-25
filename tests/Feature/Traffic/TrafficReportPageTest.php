@@ -65,14 +65,18 @@ function siteClicks(TrafficSource $source, string $site, int $clicks, int $opene
     ]);
 }
 
-it('opens the ad networks to their sources at first, and a source to its campaigns when asked', function () {
+it('opens no row at first, the ad networks to their sources and a source to its campaigns when asked', function () {
     $campaign = TrafficCampaign::factory()->create(['source_id' => $this->source->id, 'name' => 'US popunder']);
     siteClicks($this->source, '40123', 3, 3, ['campaign_id' => $campaign->id]);
     TrafficVisit::factory()->unpaid(TrafficChannel::Search)->create(['game_id' => Game::factory(), 'arrived_at' => '2026-11-16 10:00:00', 'network_day' => '2026-11-16', 'opened_at' => now()]);
 
     $labels = fn ($page): array => collect($page->viewData('tree'))->pluck('label')->filter()->values()->all();
     $page = Livewire::test(TrafficSourcesPage::class)->call('load')
-        ->assertSeeInOrder(['Ad networks', 'PopAds main', 'Unpaid', '1 channel', 'costs nothing', 'Total']);
+        ->assertSeeInOrder(['Ad networks', 'Unpaid', '1 channel', 'costs nothing', 'Total']);
+
+    expect($labels($page))->toBe(['Ad networks', 'Unpaid']);
+
+    $page->call('toggleNode', 'type=network');
 
     // The campaign filter names every campaign; the tree names one only once its source is opened.
     expect($labels($page))->toBe(['Ad networks', 'PopAds main', 'Unpaid']);

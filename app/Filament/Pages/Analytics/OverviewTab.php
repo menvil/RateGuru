@@ -33,9 +33,12 @@ use App\Support\Traffic\Money\TrafficMoney;
  * hour, day or week with what happened on them.
  * Then, for the period and the device alone, whatever source and campaign
  * are chosen: the sources the most people came from, a click on one
- * filtering the whole page; what shared results brought; why the figures can
- * differ from an ad network's; and what RateGuru records. Nobody matching
- * the filter is said once, with nothing else drawn.
+ * filtering the whole page — while the page is narrowed, all of them still,
+ * the source it is narrowed to lit among the rest, in the last place when
+ * it is past them; what shared results
+ * brought; why the figures can differ from an ad network's; and what
+ * RateGuru records. Nobody matching the filter is said once, with nothing
+ * else drawn.
  */
 final class OverviewTab implements AnalyticsTab
 {
@@ -66,7 +69,10 @@ final class OverviewTab implements AnalyticsTab
         $previousFilter = $filter->previous();
         $previous = $previousFilter === null ? null : $this->visits->figures($previousFilter);
         $base = $filter->periodAndDevice();
-        $table = $this->visits->by($base, AnalyticsDimension::Source, (int) config('analytics.sources_top'));
+        // The source the page is narrowed to — the one chosen, or the one a paid campaign chosen came through — is listed,
+        // taking the last place when it is past the sources the most people came from, so its row can be lit among the rest.
+        $lit = $filter->sourceKey ?? $this->view->campaignSource($filter->campaignKey);
+        $table = $this->visits->by($base, AnalyticsDimension::Source, (int) config('analytics.sources_top'), keep: $lit === null ? [] : [['source_key' => $lit]]);
         $all = $filter->narrowsSource() ? $this->visits->figures($base) : $figures;
         $quality = $this->visits->quality($base);
 
@@ -81,16 +87,21 @@ final class OverviewTab implements AnalyticsTab
         }
         $names = $this->view->sourceNames([...array_map(fn (array $row): int|string|null => $row['keys']['source_key'], $table['rows']), $filter->sourceKey]);
         $scope = $this->scope($filter, $names, $this->view->campaignNames([$filter->campaignKey], withSource: $filter->sourceKey === null));
+        $sources = $this->sources($table, $all, $quality, $names, $lit, (string) $page->sort);
 
         return [
             'empty' => false,
             'kpis' => $this->kpis($figures, $previous, $period, $this->visits->attempts($filter)),
             'funnel' => ['note' => ($scope === '' ? '' : $scope.' · ').$period->label().'. Each step counts unique visitors, not attempts. Sign-ups, accounts and activations are shares of new visitors.', 'steps' => self::funnel($figures)],
             'chart' => $this->chart($filter, $scope),
-            'sources' => $this->sources($table, $all, $quality, $names, $filter->sourceKey, (string) $page->sort),
-            // The table counts every source, and says so while one is chosen: no filter is ever silently ignored.
-            'sourcesNote' => ($filter->narrowsSource() ? 'Every source, for the period and the device, whatever source or campaign is chosen. ' : '')
-                .'Click a source to filter the whole page. Start rate uses visitors; registration and activation use new visitors.',
+            'sources' => $sources,
+            // The table counts every source, and says so while a source or a campaign is chosen: no filter is ever silently ignored.
+            'sourcesTitle' => $filter->narrowsSource() ? 'All traffic sources' : 'Traffic sources',
+            'sourcesNote' => match (true) {
+                $sources['lit'] => 'Every source for the period and device, the chosen one lit to compare with the rest. ',
+                $filter->narrowsSource() => 'Every source for the period and device, whatever source or campaign is chosen. ',
+                default => '',
+            }.'Click a source to filter the whole page. Start rate uses visitors; registration and activation use new visitors.',
             'referral' => $this->referral($base, $table),
             'notes' => self::notes($quality),
             'tracking' => $this->tracking(),
@@ -223,7 +234,8 @@ final class OverviewTab implements AnalyticsTab
      * The sources table, of the period and the device alone: the sources the
      * most people came from, sorted as asked, each rate "—" below the
      * denominator a row needs; then everyone else's together, and the people
-     * of them all, each once.
+     * of them all, each once. The row of the source the page is narrowed to
+     * is lit (`selected`), and the table says whether one is (`lit`).
      *
      * @param  array{rows: list<array{keys: array<string, int|string|null>, figures: VisitorFigures, visits: int, tagged: int}>, rest: array{figures: VisitorFigures, visits: int, tagged: int}|null}  $table
      * @param  array{visitors: int, direct: int, paidClicks: int, crawlers: int, neverRan: int, spend: string, spendEstimated: string}  $quality
@@ -276,6 +288,7 @@ final class OverviewTab implements AnalyticsTab
 
         return [
             'rows' => $rows,
+            'lit' => in_array(true, array_column($rows, 'selected'), true),
             'minimum' => $minimum,
             'total' => [
                 'visitors' => self::count($all->visitors),
