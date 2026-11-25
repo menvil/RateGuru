@@ -5,6 +5,9 @@ namespace App\Support\Auth;
 use App\Data\Auth\SocialIdentity;
 use App\Enums\SocialProvider;
 use App\Exceptions\Auth\SocialAuthenticationException;
+use App\Support\Observability\DomainLogger;
+use GuzzleHttp\Exception\BadResponseException;
+use GuzzleHttp\Exception\TransferException;
 use Illuminate\Contracts\Session\Session;
 use Laravel\Socialite\Contracts\Factory as SocialiteFactory;
 use Laravel\Socialite\Contracts\Provider;
@@ -19,8 +22,11 @@ use Symfony\Component\HttpFoundation\RedirectResponse;
  * Keeps the provider setup in one spot — minimal scopes and fields, and OAuth
  * state bound to the session, never stateless — and translates the failures a
  * real round trip is expected to produce into SocialAuthenticationException.
- * Everything else (a network error, a provider suddenly answering with a
- * different payload) is left alone so it reaches the normal exception handler.
+ * A provider that fails to answer — down, overloaded, unreachable — is
+ * reported to Sentry and the log, so an outage that grows is seen, and the
+ * person is asked to try again instead of meeting an error page. Anything
+ * else (a provider suddenly answering with a different payload) is left alone
+ * so it reaches the normal exception handler.
  */
 final class SocialProviderGateway
 {
@@ -31,6 +37,7 @@ final class SocialProviderGateway
         private readonly SocialiteFactory $socialite,
         private readonly SocialIdentityNormalizer $normalizer,
         private readonly SocialProviderAvailability $availability,
+        private readonly DomainLogger $logger,
     ) {}
 
     /**
@@ -74,6 +81,15 @@ final class SocialProviderGateway
             $user = $this->driver($provider)->user();
         } catch (InvalidStateException) {
             throw SocialAuthenticationException::invalidState($provider);
+        } catch (TransferException $failure) {
+            // Reported, not swallowed: Sentry groups the same outage into one issue whose count shows it growing.
+            report($failure);
+            $this->logger->warning('auth.social.provider_failed', [
+                'provider' => $provider->value,
+                'http_status' => $failure instanceof BadResponseException ? $failure->getResponse()->getStatusCode() : null,
+            ]);
+
+            throw SocialAuthenticationException::providerFailed($provider);
         }
 
         return $this->normalizer->normalize($provider, $user);
