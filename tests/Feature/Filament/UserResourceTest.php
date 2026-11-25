@@ -1,6 +1,7 @@
 <?php
 
 use App\Actions\Moderation\LimitUserAction;
+use App\Enums\ReportStatus;
 use App\Enums\UserRole;
 use App\Enums\UserStatus;
 use App\Enums\VoteType;
@@ -15,6 +16,7 @@ use App\Models\CommentVote;
 use App\Models\ModerationLog;
 use App\Models\Post;
 use App\Models\PostVote;
+use App\Models\Report;
 use App\Models\User;
 use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Support\Facades\DB;
@@ -325,7 +327,7 @@ it('shows where the person stands: the decision behind their status, their accou
         ->and($page->viewData('options')['restore'])->toBeTrue();
 });
 
-it('counts the votes a person cast on posts and on comments', function () {
+it('counts a person\'s posts and comments, each beside the votes they cast on its kind, then the reports they filed and those on their content', function () {
     $this->actingAs(User::factory()->admin()->create());
     $person = User::factory()->create();
     foreach (Post::factory()->count(3)->create() as $post) {
@@ -333,12 +335,15 @@ it('counts the votes a person cast on posts and on comments', function () {
     }
     CommentVote::query()->create(['comment_id' => Comment::factory()->create()->id, 'user_id' => $person->id, 'type' => VoteType::Down]);
     PostVote::query()->create(['post_id' => Post::factory()->create()->id, 'user_id' => User::factory()->create()->id, 'type' => VoteType::Up]);
+    // Two reports they filed, one ignored; one on their own post, filed by someone else.
+    Report::factory()->create(['reporter_id' => $person->id]);
+    Report::factory()->create(['reporter_id' => $person->id, 'status' => ReportStatus::Ignored]);
+    Report::factory()->create(['target_id' => Post::factory()->create(['user_id' => $person->id])->id]);
 
     $page = Livewire::test(UserEditor::class, ['userId' => $person->id]);
 
-    expect($page->viewData('person')['postVotes'])->toBe('3')
-        ->and($page->viewData('person')['commentVotes'])->toBe('1');
-    $page->assertSeeInOrder(['Posts', 'Comments', 'Reports', 'Post votes', 'Comment votes']);
+    expect($page->viewData('person'))->toMatchArray(['posts' => '1', 'postVotes' => '3', 'comments' => '0', 'commentVotes' => '1', 'reportsFiled' => '2', 'reportsReceived' => '1']);
+    $page->assertSeeInOrder(['Posts', 'Post votes', 'Comments', 'Comment votes', 'Reports filed', 'Reports received']);
 });
 
 it('opens a person found by global search in their drawer, or the list where they are not the viewer\'s to edit', function () {

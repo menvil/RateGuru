@@ -9,6 +9,7 @@ use App\Models\CommentVote;
 use App\Models\ModerationLog;
 use App\Models\Post;
 use App\Models\PostVote;
+use App\Models\Report;
 use App\Models\SocialAccount;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Builder;
@@ -109,5 +110,11 @@ final class UserModerationProfileQuery
     public function commentVotes(User $person): int
     {
         return CommentVote::query()->where('user_id', $person->id)->count();
+    }
+
+    /** How many reports the person has filed on others' posts and comments, whatever became of them. */
+    public function reportsFiled(User $person): int
+    {
+        return Report::query()->where('reporter_id', $person->id)->count();
     }
 }
