@@ -2,12 +2,15 @@
 
 use App\Actions\Posts\FinalizePostMediaAction;
 use App\Enums\MediaStatus;
+use App\Enums\MediaTool;
 use App\Enums\MediaType;
 use App\Enums\MediaVariantName;
 use App\Enums\MediaVisibility;
 use App\Jobs\ProcessVideoAssetJob;
 use App\Models\MediaAsset;
+use App\Services\Media\Exceptions\MediaToolInterruptedException;
 use App\Services\Media\MediaToolResult;
+use App\Services\Media\MediaToolRunner;
 use App\Services\Media\VideoAssetProcessor;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Storage;
@@ -215,4 +218,21 @@ it('sends the job back to wait when another run holds the asset, rather than ack
     } finally {
         $held->release();
     }
+});
+
+it('leaves the asset waiting when a tool was interrupted, for the job to run it again', function () {
+    app()->instance(MediaToolRunner::class, new class implements MediaToolRunner
+    {
+        public function run(MediaTool $tool, array $arguments, int $timeoutSeconds): MediaToolResult
+        {
+            throw MediaToolInterruptedException::bySignal($tool);
+        }
+    });
+    $asset = processingVideoAsset('x', 'mp4');
+
+    expect(fn () => app(VideoAssetProcessor::class)->process($asset))
+        ->toThrow(MediaToolInterruptedException::class);
+
+    expect($asset->refresh()->status)->toBe(MediaStatus::Processing)
+        ->and($asset->processing_error)->toBeNull();
 });

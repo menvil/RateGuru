@@ -3,8 +3,10 @@
 namespace App\Services\Media;
 
 use App\Enums\MediaTool;
+use App\Services\Media\Exceptions\MediaToolInterruptedException;
 use App\Services\Media\Exceptions\MediaToolTimedOutException;
 use App\Services\Media\Exceptions\MediaToolUnavailableException;
+use Symfony\Component\Process\Exception\ProcessSignaledException;
 use Symfony\Component\Process\Exception\ProcessTimedOutException;
 use Symfony\Component\Process\Exception\RuntimeException as ProcessRuntimeException;
 use Symfony\Component\Process\ExecutableFinder;
@@ -24,6 +26,9 @@ use Symfony\Component\Process\Process;
  */
 final class ProcessMediaToolRunner implements MediaToolRunner
 {
+    /** What ffmpeg exits with when a signal (SIGTERM, SIGINT) stopped it. */
+    private const int FFMPEG_SIGNALLED_EXIT = 255;
+
     public function run(MediaTool $tool, array $arguments, int $timeoutSeconds): MediaToolResult
     {
         $binary = $this->resolve($tool);
@@ -36,8 +41,17 @@ final class ProcessMediaToolRunner implements MediaToolRunner
             $process->run();
         } catch (ProcessTimedOutException $exception) {
             throw MediaToolTimedOutException::after($tool, $timeoutSeconds, $exception);
+        } catch (ProcessSignaledException) {
+            // Killed by a signal: the run was cut short, and says nothing
+            // about the file.
+            throw MediaToolInterruptedException::bySignal($tool);
         } catch (ProcessRuntimeException $exception) {
             throw MediaToolUnavailableException::cannotStart($tool, $exception);
+        }
+
+        // ffmpeg catches the signal itself and exits 255, which says the same.
+        if ($tool === MediaTool::Ffmpeg && $process->getExitCode() === self::FFMPEG_SIGNALLED_EXIT) {
+            throw MediaToolInterruptedException::bySignal($tool);
         }
 
         return new MediaToolResult($process->getExitCode() ?? -1, $process->getOutput(), $process->getErrorOutput());
