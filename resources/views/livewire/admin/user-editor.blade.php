@@ -42,6 +42,15 @@
                 <dt class="rg-admin-stat__label">Reports</dt>
                 <dd class="rg-admin-stat__value">{{ $person['reports'] }}</dd>
             </div>
+            {{-- The votes they cast, up and down. --}}
+            <div class="rg-admin-stat">
+                <dt class="rg-admin-stat__label">Post votes</dt>
+                <dd class="rg-admin-stat__value">{{ $person['postVotes'] }}</dd>
+            </div>
+            <div class="rg-admin-stat">
+                <dt class="rg-admin-stat__label">Comment votes</dt>
+                <dd class="rg-admin-stat__value">{{ $person['commentVotes'] }}</dd>
+            </div>
         </dl>
 
         @if ($isPersona)

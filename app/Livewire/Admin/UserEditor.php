@@ -204,6 +204,8 @@ final class UserEditor extends Component
                 'confirmation' => self::confirmation($person),
                 'posts' => number_format(array_sum($posts)),
                 'comments' => number_format($profile->comments($person)),
+                'postVotes' => number_format($profile->postVotes($person)),
+                'commentVotes' => number_format($profile->commentVotes($person)),
                 'reports' => number_format(app(ModerationUsersQuery::class)->reportsOnContentOf($person)),
                 'since' => $decision === null
                     ? 'Since joining'

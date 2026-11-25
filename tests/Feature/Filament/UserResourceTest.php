@@ -3,14 +3,18 @@
 use App\Actions\Moderation\LimitUserAction;
 use App\Enums\UserRole;
 use App\Enums\UserStatus;
+use App\Enums\VoteType;
 use App\Filament\Resources\Posts\Pages\ListPosts;
 use App\Filament\Resources\Users\Pages\EditUser;
 use App\Filament\Resources\Users\Pages\ListUsers;
 use App\Filament\Resources\Users\UserResource;
 use App\Filament\Support\AdminNavigationGroup;
 use App\Livewire\Admin\UserEditor;
+use App\Models\Comment;
+use App\Models\CommentVote;
 use App\Models\ModerationLog;
 use App\Models\Post;
+use App\Models\PostVote;
 use App\Models\User;
 use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Support\Facades\DB;
@@ -319,6 +323,22 @@ it('shows where the person stands: the decision behind their status, their accou
         ->and($history[0])->toMatchArray(['icon' => 'shield-alert', 'title' => 'Limited by Daria Kovaleva', 'body' => 'Reason: Repeated vitamin promos.'])
         ->and(end($history)['title'])->toBe('Account created')
         ->and($page->viewData('options')['restore'])->toBeTrue();
+});
+
+it('counts the votes a person cast on posts and on comments', function () {
+    $this->actingAs(User::factory()->admin()->create());
+    $person = User::factory()->create();
+    foreach (Post::factory()->count(3)->create() as $post) {
+        PostVote::query()->create(['post_id' => $post->id, 'user_id' => $person->id, 'type' => VoteType::Up]);
+    }
+    CommentVote::query()->create(['comment_id' => Comment::factory()->create()->id, 'user_id' => $person->id, 'type' => VoteType::Down]);
+    PostVote::query()->create(['post_id' => Post::factory()->create()->id, 'user_id' => User::factory()->create()->id, 'type' => VoteType::Up]);
+
+    $page = Livewire::test(UserEditor::class, ['userId' => $person->id]);
+
+    expect($page->viewData('person')['postVotes'])->toBe('3')
+        ->and($page->viewData('person')['commentVotes'])->toBe('1');
+    $page->assertSeeInOrder(['Posts', 'Comments', 'Reports', 'Post votes', 'Comment votes']);
 });
 
 it('opens a person found by global search in their drawer, or the list where they are not the viewer\'s to edit', function () {

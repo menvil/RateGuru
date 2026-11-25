@@ -5,8 +5,10 @@ namespace App\Queries\Users;
 use App\Enums\ModerationActionType;
 use App\Enums\PostStatus;
 use App\Models\Comment;
+use App\Models\CommentVote;
 use App\Models\ModerationLog;
 use App\Models\Post;
+use App\Models\PostVote;
 use App\Models\SocialAccount;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Builder;
@@ -95,5 +97,17 @@ final class UserModerationProfileQuery
     public function comments(User $person): int
     {
         return Comment::query()->where('user_id', $person->id)->count();
+    }
+
+    /** How many votes the person has cast on posts, up and down. */
+    public function postVotes(User $person): int
+    {
+        return PostVote::query()->where('user_id', $person->id)->count();
+    }
+
+    /** How many votes the person has cast on comments, up and down. */
+    public function commentVotes(User $person): int
+    {
+        return CommentVote::query()->where('user_id', $person->id)->count();
     }
 }
