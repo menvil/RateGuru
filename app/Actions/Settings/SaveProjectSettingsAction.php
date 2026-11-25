@@ -67,6 +67,11 @@ final class SaveProjectSettingsAction
                 $settings['sign_in_providers'] = array_merge(is_array($row->sign_in_providers) ? $row->sign_in_providers : [], $settings['sign_in_providers']);
             }
 
+            if (is_array($settings['language_ranking'] ?? null)) {
+                // And a language ranking setting: the page sends the ones it changed, the others keep what is stored.
+                $settings['language_ranking'] = array_merge(is_array($row->language_ranking) ? $row->language_ranking : [], $settings['language_ranking']);
+            }
+
             $row->fill($settings)->save();
 
             return $row;

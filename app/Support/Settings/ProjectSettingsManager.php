@@ -3,6 +3,7 @@
 namespace App\Support\Settings;
 
 use App\Models\ProjectSettings;
+use App\Support\Languages\LanguageRankingSettings;
 
 /**
  * The project settings as the database holds them — the one source a running
@@ -59,6 +60,9 @@ class ProjectSettingsManager
             // published and previewed before anyone reaches it.
             'allow_games' => false,
         ],
+        // How the feed and the threads put the viewer's language first: LanguageRankingSettings::DEFAULTS, read
+        // under what the row holds as the flags are, so a key added later reaches every installation.
+        'language_ranking' => LanguageRankingSettings::DEFAULTS,
     ];
 
     private ?ResolvedProjectSettings $resolved = null;
@@ -79,6 +83,10 @@ class ProjectSettingsManager
                     $row->feature_flags ?? []
                 ),
                 'sign_in_providers' => $row->sign_in_providers ?? [],
+                'language_ranking' => array_merge(
+                    self::DEFAULTS['language_ranking'],
+                    is_array($row->language_ranking) ? $row->language_ranking : []
+                ),
                 // The row's pages only: a page or a language the row does not
                 // have is not borrowed from config.
                 'static_pages' => is_array($row->static_pages) ? $row->static_pages : [],

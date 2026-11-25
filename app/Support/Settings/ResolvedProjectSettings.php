@@ -3,6 +3,7 @@
 namespace App\Support\Settings;
 
 use App\Enums\SocialProvider;
+use App\Support\Languages\LanguageRankingSettings;
 use App\Support\Translations\TranslatableField;
 
 class ResolvedProjectSettings
@@ -134,6 +135,14 @@ class ResolvedProjectSettings
     public function featureFlag(string $key, bool $default = true): bool
     {
         return (bool) ($this->data['feature_flags'][$key] ?? $default);
+    }
+
+    /**
+     * How the feed and the threads put the viewer's language first.
+     */
+    public function languageRanking(): LanguageRankingSettings
+    {
+        return LanguageRankingSettings::fromArray(is_array($this->data['language_ranking'] ?? null) ? $this->data['language_ranking'] : []);
     }
 
     /**
