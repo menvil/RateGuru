@@ -1,0 +1,39 @@
+tests/Pest.php
+  s_1f43f39fbe0537::t_87584ca9066b70 120
+  s_1f43f39fbe0537::t_c7d2895034cb1b 197,1405,1407
+  s_1f43f39fbe0537::t_ccbb225e48c363 1365-1383
+  s_1f43f39fbe0537::t_c2507124d5afd4 1387-1404,1406,1408-1420
+infrastructure/scripts/prepare-public-https
+  s_1f43f39fbe0537::t_be37f4dc24ed44 438-444,450,459,461,463,469
+tests/Feature/Architecture/TargetAwareOperationsTest.php
+  s_1f43f39fbe0537::t_061717f5a71159 1266-1267
+infrastructure/scripts/install-bootstrap-services
+  s_1f43f39fbe0537::t_be37f4dc24ed44 1050-1051
+  s_1f43f39fbe0537::t_b0db81c04b193c 1071-1072,1074-1092,1094-1096,1109-1110,1114-1120,1122,1124,1173,1191,1194,1390-1397
+infrastructure/config/nginx/rateguru-staging
+  s_1f43f39fbe0537::t_be37f4dc24ed44 105-110
+tests/Feature/Architecture/PublicHttpsTest.php
+  s_1f43f39fbe0537::t_fcbe9464a43a1f 52-53
+tests/Feature/Architecture/InstallBootstrapServicesTest.php
+  s_1f43f39fbe0537::t_ffe72468e4ab5d 3,2547,2558,2575
+  s_1f43f39fbe0537::t_42b7cc23d5a3c7 2512-2534,2536-2545,2554-2557
+  s_1f43f39fbe0537::t_27dad6d8039e7a 2565-2569,2573-2574,2576-2580,2583-2585,2591,2598,2601,2605-2607,2609
+tests/Feature/Architecture/StagingAssetDeliveryTest.php
+  s_1f43f39fbe0537::t_fcbe9464a43a1f 35-43,47-48,65-73
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "fbb9e99447f278792f63743954751563c3ce8ded",
+  "prompts": {},
+  "sessions": {
+    "s_1f43f39fbe0537": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "526787d0-f443-4ad7-9610-cf9811fec895",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}

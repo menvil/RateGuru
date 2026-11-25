@@ -1,0 +1,36 @@
+infrastructure/scripts/install-bootstrap-services
+  s_1f43f39fbe0537::t_be37f4dc24ed44 1050-1051
+  s_1f43f39fbe0537::t_b0db81c04b193c 1067-1087,1089-1091,1096-1097,1099-1105,1107,1109,1158,1176,1179,1375-1382
+infrastructure/config/nginx/rateguru-staging
+  s_1f43f39fbe0537::t_be37f4dc24ed44 107-112
+tests/Feature/Architecture/TargetAwareOperationsTest.php
+  s_1f43f39fbe0537::t_061717f5a71159 1266-1267
+tests/Feature/Architecture/StagingAssetDeliveryTest.php
+  s_1f43f39fbe0537::t_fcbe9464a43a1f 35-43,45-46,50-58
+infrastructure/scripts/prepare-public-https
+  s_1f43f39fbe0537::t_be37f4dc24ed44 439-446
+tests/Feature/Architecture/InstallBootstrapServicesTest.php
+  s_1f43f39fbe0537::t_ffe72468e4ab5d 3,2548,2553,2568
+  s_1f43f39fbe0537::t_42b7cc23d5a3c7 2512-2534,2536-2545,2549-2552
+  s_1f43f39fbe0537::t_27dad6d8039e7a 2560-2564,2566-2567,2569-2573
+tests/Feature/Architecture/PublicHttpsTest.php
+  s_1f43f39fbe0537::t_fcbe9464a43a1f 52-53
+infrastructure/config/php-fpm/rateguru-staging.conf
+  s_1f43f39fbe0537::t_be37f4dc24ed44 30-31
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "1188acb0803a165cd48f14f7deda668ec4b63792",
+  "prompts": {},
+  "sessions": {
+    "s_1f43f39fbe0537": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "526787d0-f443-4ad7-9610-cf9811fec895",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
