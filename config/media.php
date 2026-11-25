@@ -121,4 +121,25 @@ return [
         ],
         'audit_run_retention' => max(1, EnvironmentValue::integer(env('MEDIA_AUDIT_RUN_RETENTION'), 30)),
     ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Video tools
+    |--------------------------------------------------------------------------
+    |
+    | ffmpeg and ffprobe come from Ubuntu's ffmpeg package, which
+    | install-bootstrap-runtime installs on every host, and are found on PATH
+    | (locally: `brew install ffmpeg`). Every run goes through
+    | MediaToolRunner — an argument list, never a shell line — and every
+    | input through FfmpegInput's whitelists. probe_timeout_seconds bounds
+    | one ffprobe read: reading a container's headers takes well under a
+    | second, so the bound only matters for a file built to stall it.
+    |
+    */
+
+    'video' => [
+        'ffmpeg_binary' => 'ffmpeg',
+        'ffprobe_binary' => 'ffprobe',
+        'probe_timeout_seconds' => 30,
+    ],
 ];

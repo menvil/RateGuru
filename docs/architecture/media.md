@@ -379,6 +379,50 @@ hardening, streaming byte caps) — that document owns the import-security
 details; this one only covers what happens to the bytes once they're
 already safely in hand.
 
+## Video probe and the ffmpeg tools
+
+Video and animated-GIF uploads are read with **ffprobe** and transcoded with
+**ffmpeg**, the host binaries Ubuntu's `ffmpeg` package supplies
+(`install-bootstrap-runtime` installs it; see `infrastructure/runbooks/bootstrap-host.md`).
+`config/media.php`'s `video` section names them, found on `PATH`.
+
+- **`MediaToolRunner`** (`ProcessMediaToolRunner`) is the only way either
+  tool runs: an argument list started directly by PHP, never a shell line;
+  the binary resolved before it runs, so a missing tool is
+  `MediaToolUnavailableException` rather than a shell's exit code; a timeout
+  per run (`MediaToolTimedOutException`); `LC_ALL=C`. A non-zero exit comes
+  back in the result for the caller to judge, and no message carries a path
+  or the tool's output.
+- **`FfmpegInput`** is the only way a file is handed to either tool:
+  `-protocol_whitelist file -format_whitelist <demuxers> -i file:<path>`.
+  The demuxers are those of the formats an upload may be — MP4/MOV (with
+  their 3GP relatives), Matroska/WebM and GIF. Both tools pick a demuxer by
+  the bytes, not the name, so a playlist saved as `.mp4` is read as a
+  playlist and its entries opened as further inputs. On the hosts' ffmpeg
+  4.4 that is not hypothetical: without the format whitelist, ffprobe reads
+  such a file as HLS and tries its first entry (`file:///etc/hosts` in the
+  container rehearsal), stopped only by the HLS demuxer's extension check;
+  with it, the file is refused as "Format not on whitelist" before any entry
+  is parsed.
+- **`VideoProbe`** runs `ffprobe -show_format -show_streams -of json` and
+  returns a `VideoProbeResult`: format, duration, the picture as shown
+  (width and height after the rotation a phone records — ffmpeg 4.4 reports
+  it as a `rotate` tag and a display matrix, later versions as the matrix),
+  frame rate, codecs and stream counts. A cover picture embedded in an MP4
+  (`attached_pic`) is not the video. A file ffprobe cannot read is
+  `VideoUnreadableException`.
+- **`VideoIngestPolicy`** (`config/uploads.php`'s `videos` section) refuses a
+  file over 100 MB before any tool opens it, then — from the probe — a
+  format off the list, a file with no video stream or no length, more than
+  90 seconds, a picture beyond 3840 on either side, or more than 60 frames a
+  second (a GIF's rate is left alone: converting it sets the rate). Extra
+  streams are allowed; transcoding keeps the first video and audio stream.
+  Every rejection is a `VideoIngestException`.
+
+None of this is wired to an upload yet: the transcoding job and the upload
+form arrive next. The `RATEGURU_REAL_FFMPEG=1` tests run the probe against the
+real tools; CI's PostgreSQL tests job installs Ubuntu's ffmpeg and sets it.
+
 ## Responsive media variants
 
 PR-05 generates five fixed variants from the master image, stores them as
