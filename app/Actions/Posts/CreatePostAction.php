@@ -2,6 +2,7 @@
 
 namespace App\Actions\Posts;
 
+use App\Actions\Languages\QueueLanguageCheckAction;
 use App\Actions\Moderation\MarkUserTrustedAction;
 use App\Actions\Traffic\RecordAccountBonusAction;
 use App\Data\Posts\CreatePostData;
@@ -17,10 +18,12 @@ use App\Models\MediaAsset;
 use App\Models\Post;
 use App\Models\RatingGroup;
 use App\Models\User;
+use App\Services\Languages\LocalLanguageDetector;
 use App\Services\Media\MediaStoreRequest;
 use App\Services\Media\StoredMediaCleaner;
 use App\Support\AbuseGuards\ActionRateLimiter;
 use App\Support\AbuseGuards\RateLimitKey;
+use App\Support\Languages\LanguageProfile;
 use App\Support\Media\ImageUploadStorer;
 use App\Support\Media\MediaAssetCreator;
 use App\Support\Observability\DomainLogger;
@@ -50,6 +53,8 @@ final class CreatePostAction
         private readonly RatingConfigurationManager $ratingConfiguration,
         private readonly MediaAssetCreator $mediaAssetCreator,
         private readonly StoredMediaCleaner $storedMediaCleaner,
+        private readonly LocalLanguageDetector $languageDetector,
+        private readonly QueueLanguageCheckAction $languageChecks,
     ) {}
 
     public function handle(User $user, CreatePostData $data): Post
@@ -82,8 +87,12 @@ final class CreatePostAction
             ? $this->imageUploadStorer->store($data->image, MediaStoreRequest::forPostImage($user->id), $data->imageSource)
             : null;
 
+        // The language of the title and description, told on this server before the transaction (CPU work); OpenAI
+        // reads them again in the background (languages:work).
+        $text = $this->languageDetector->read(trim($data->title."\n".($data->description ?? '')));
+
         try {
-            $post = DB::transaction(function () use ($user, $data, $categoryId, $authorAnswers, $storedImage) {
+            $post = DB::transaction(function () use ($user, $data, $categoryId, $authorAnswers, $storedImage, $text) {
                 // Lock order: Actor User first (docs/architecture/
                 // user-lifecycle.md). The policy pre-check above ran on a
                 // possibly stale instance — a sanction may have committed
@@ -115,6 +124,9 @@ final class CreatePostAction
                     ? $this->lockStoredPostImage($data->imageAssetId)
                     : ($storedImage !== null ? $this->mediaAssetCreator->create($storedImage, MediaKind::PostImage, $user)->id : null);
 
+                // Its language from what tells it so far: its text and its author's language (LanguageProfile).
+                $language = (new LanguageProfile)->text($text->language(), $text->weight())->author($lockedActor->locale);
+
                 $post = Post::create([
                     'user_id' => $user->id,
                     'title' => $data->title,
@@ -124,10 +136,14 @@ final class CreatePostAction
                     'status' => $status,
                     'published_at' => $publishedAt,
                     'image_asset_id' => $imageAssetId,
+                    'language' => $language->language(),
+                    'language_share' => $language->share(),
                     // Given dates are kept as given; none, and Eloquent stamps the post as ever.
                     ...($data->createdAt !== null ? ['created_at' => $data->createdAt] : []),
                     ...($data->updatedAt !== null ? ['updated_at' => $data->updatedAt] : []),
                 ]);
+
+                $this->languageChecks->forPost($post, $text);
 
                 if ($data->tagIds !== []) {
                     $post->tags()->sync($data->tagIds);

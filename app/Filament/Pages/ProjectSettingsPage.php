@@ -8,9 +8,11 @@ use App\Filament\Support\AdminNavigationGroup;
 use App\Filament\Support\ContentTranslationStatus;
 use App\Models\Post;
 use App\Models\ProjectSettings;
+use App\Queries\Languages\LanguageStatusQuery;
 use App\Queries\SocialProvidersInUseQuery;
 use App\Services\Settings\ProjectPresetStatusService;
 use App\Support\Auth\SocialProviderAvailability;
+use App\Support\Languages\LanguageRankingSettings;
 use App\Support\Settings\ProjectSettingsManager;
 use App\Support\Translations\ProjectContentSection;
 use App\Support\Translations\ProjectTranslationCatalog;
@@ -52,7 +54,25 @@ final class ProjectSettingsPage extends Page
         'defaults' => 'Defaults',
         'features' => 'Feature flags',
         'providers' => 'Sign-in providers',
+        'languages' => 'Language ranking',
         'pages' => 'Static pages',
+    ];
+
+    /** The language ranking's switches, in the order the tab shows them, and what each does. */
+    public const LANGUAGE_SWITCHES = [
+        'enabled' => ['Rank posts by language', 'The feed shows fresh posts in the visitor’s language first, then fresh English ones, then the rest. Off, every feed keeps its usual order.'],
+        'comments_first' => ['Comments in the visitor’s language first', 'Under each post, comments in the visitor’s language come before the others, in the chosen order. Only while ranking by language is on.'],
+        'ai_checks' => ['Check languages with OpenAI', 'A minute after a post or a comment is written, OpenAI reads its text again to tell its language more surely, through the Translation AI account. Off, the server’s own reading stands.'],
+    ];
+
+    /** The language ranking's numbers: label, help, least, most and what they count. */
+    public const LANGUAGE_NUMBERS = [
+        'guest_window_days' => ['Fresh window for guests', 'A post in a guest’s language counts as fresh, and goes first, for this many days.', 1, 30, 'days'],
+        'member_window_days' => ['Longest fresh window for members', 'A member’s posts count as fresh since their previous visit — at least a day, at most this many days.', 1, 30, 'days'],
+        'hit_every' => ['A strong post in another language every', 'In New and Hot on the home feed, one place in this many shows a post in another language that gathered many votes. 0 shows none.', 0, 50, 'places'],
+        'hit_top_percent' => ['How strong a post in another language has to be', 'Among this top percent of the week’s posts by the votes and comments gathered, with at least three net votes up.', 1, 50, '%'],
+        'hot_floor_percentile' => ['Hot: lift posts in the visitor’s language only above', 'In Hot, a post in the visitor’s language goes first only when its score is above this percentile of the last two days’ posts. 0 lifts every one; small languages have few posts to spare.', 0, 90, 'percentile'],
+        'ai_checks_per_day' => ['OpenAI checks per day', 'At most this many texts are sent to OpenAI a day (UTC). About $0.02 per 1,000.', 0, 100000, 'texts'],
     ];
 
     /** The site's identity and the names of what people post, in their tabs and order. */
@@ -173,6 +193,8 @@ final class ProjectSettingsPage extends Page
             $data['sign_in_providers'][$provider] = (bool) ($stored['sign_in_providers'][$provider] ?? true);
         }
 
+        $data['language_ranking'] = LanguageRankingSettings::fromArray(is_array($stored['language_ranking'] ?? null) ? $stored['language_ranking'] : [])->toArray();
+
         foreach (self::pageKeys() as $key) {
             $english = is_array($stored['static_pages'][$key][TranslatableField::REFERENCE_LOCALE] ?? null) ? $stored['static_pages'][$key][TranslatableField::REFERENCE_LOCALE] : [];
             $data['static_pages'][$key][TranslatableField::REFERENCE_LOCALE] = ['title' => $english['title'] ?? null, 'content' => $english['content'] ?? null];
@@ -270,6 +292,18 @@ final class ProjectSettingsPage extends Page
             $rules["data.sign_in_providers.{$provider}"] = ['required', 'boolean'];
         }
 
+        foreach (array_keys(self::LANGUAGE_SWITCHES) as $switch) {
+            $rules["data.language_ranking.{$switch}"] = ['required', 'boolean'];
+        }
+
+        foreach (self::LANGUAGE_NUMBERS as $number => [$label, , $least, $most]) {
+            $rules["data.language_ranking.{$number}"] = ['required', 'integer', "between:{$least},{$most}", ...($number === 'hit_every' ? ['not_in:1'] : [])];
+            $messages["data.language_ranking.{$number}.not_in"] = 'Enter 0 to show none, or a number from 2 to 50: a strong post at every place would leave no feed.';
+            $messages["data.language_ranking.{$number}.required"] = "Enter a whole number from {$least} to ".number_format($most).'.';
+            $messages["data.language_ranking.{$number}.integer"] = "Enter a whole number from {$least} to ".number_format($most).'.';
+            $messages["data.language_ranking.{$number}.between"] = "Enter a whole number from {$least} to ".number_format($most).'.';
+        }
+
         foreach (self::pageKeys() as $key) {
             foreach (['title', 'content'] as $field) {
                 [$limit] = $fields['static_pages'][$field];
@@ -285,6 +319,10 @@ final class ProjectSettingsPage extends Page
 
         foreach (['feature_flags', 'sign_in_providers'] as $switches) {
             $validated[$switches] = array_map(boolval(...), $validated[$switches]);
+        }
+
+        foreach ($validated['language_ranking'] as $key => $value) {
+            $validated['language_ranking'][$key] = array_key_exists($key, self::LANGUAGE_SWITCHES) ? (bool) $value : (int) $value;
         }
 
         foreach ([...array_keys(self::TEXT_FIELDS['identity']), ...array_keys(self::TEXT_FIELDS['labels'])] as $field) {
@@ -356,6 +394,25 @@ final class ProjectSettingsPage extends Page
             'providers' => $this->providers(),
             'published' => Post::query()->published()->count(),
             'confirmation' => $this->confirmation(),
+            // Read only on its own tab: it counts every published post.
+            'languageStatus' => ($this->tab === 'languages') ? $this->languageStatus() : null,
+        ];
+    }
+
+    /**
+     * How the languages of posts and comments look now, for the Language ranking tab.
+     *
+     * @return array{posts: array<string, int>, checks: array<string, int>, readings: array{agreed: int, compared: int}, authors: array{agreed: int, compared: int}}
+     */
+    private function languageStatus(): array
+    {
+        $status = app(LanguageStatusQuery::class);
+
+        return [
+            'posts' => $status->postsByLanguage(),
+            'checks' => $status->checks(),
+            'readings' => $status->readingsAgreed(),
+            'authors' => $status->textsInTheirAuthorsLanguage(),
         ];
     }
 

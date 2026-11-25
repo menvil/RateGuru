@@ -39,6 +39,12 @@ limit and the locked rows. Those parameters are the executor's alone: no form
 or screen passes them, and `tests/Unit/Actions/StudioTrustedParametersTest.php`
 checks it.
 
+A new post is also given its language — from its text, read on the server
+before the transaction, and its author's language — and a check of its text
+that OpenAI answers in the background; votes and comments later mark it to be
+worked out again, inside the one update they make of the post
+([language-ranking.md](language-ranking.md)).
+
 ## Author deletion vs moderation
 
 | | Author delete | Moderation hide |

@@ -2,6 +2,7 @@
 
 namespace App\Actions\Locale;
 
+use App\Actions\Languages\MarkAuthorPostsLanguageStaleAction;
 use App\Models\Concerns\LocksActorForWrite;
 use App\Models\User;
 use App\Support\Locale\LocaleManager;
@@ -47,7 +48,12 @@ class ChangeLocaleAction
                 return;
             }
 
+            $changed = $locked->locale !== $locale;
             $locked->forceFill(['locale' => $locale])->save();
+
+            if ($changed) {
+                app(MarkAuthorPostsLanguageStaleAction::class)->handle((int) $locked->id);
+            }
         });
 
         return $locale;

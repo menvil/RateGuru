@@ -15,6 +15,7 @@ use Illuminate\Support\Carbon;
  * @property CommentStatus $status
  * @property Carbon|null $deleted_at
  * @property Carbon|null $moderation_removed_at
+ * @property string|null $language
  * @property-read int $score
  */
 class Comment extends Model

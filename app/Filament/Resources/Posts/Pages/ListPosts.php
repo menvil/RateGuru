@@ -431,7 +431,9 @@ final class ListPosts extends Page
         return [
             'id' => (int) $post->id,
             'title' => $post->title,
-            'meta' => '#'.$post->id.($post->category !== null ? ' · '.$post->category->name : ''),
+            // The language the post was read as, and how surely — or none yet (docs/architecture/language-ranking.md).
+            'meta' => '#'.$post->id.($post->category !== null ? ' · '.$post->category->name : '')
+                .' · '.($post->language !== null ? $post->language.' '.round(100 * (float) $post->language_share).'%' : 'no language'),
             'thumbnail' => app(PostImagePresenter::class)->thumbnailUrl($post),
             'hasImage' => $post->imageAsset !== null,
             'url' => $url,

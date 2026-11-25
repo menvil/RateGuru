@@ -23,6 +23,7 @@
         in_array(\Illuminate\Support\Str::after($key, 'data.'), array_keys(ProjectSettingsPage::TEXT_FIELDS['labels']), true) => 'labels',
         str_starts_with($key, 'data.feature_flags.') => 'features',
         str_starts_with($key, 'data.sign_in_providers.') => 'providers',
+        str_starts_with($key, 'data.language_ranking.') => 'languages',
         default => 'defaults',
     })->unique()->values()->all();
 @endphp
@@ -92,6 +93,9 @@
                 @break
             @case('providers')
                 @include('filament.pages.project-settings.providers')
+                @break
+            @case('languages')
+                @include('filament.pages.project-settings.languages')
                 @break
             @default
                 @include('filament.pages.project-settings.pages')

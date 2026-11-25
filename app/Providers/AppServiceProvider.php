@@ -21,6 +21,8 @@ use App\Policies\TrafficSourcePolicy;
 use App\Queries\Analytics\AnalyticsRollupGate;
 use App\Queries\SocialProvidersInUseQuery;
 use App\Rules\ContainsNoNullCharacter;
+use App\Services\Languages\LocalLanguageDetector;
+use App\Services\Languages\OpenAiLanguageDetector;
 use App\Services\Media\FilesystemMediaStorage;
 use App\Services\Media\FilesystemMediaUrlResolver;
 use App\Services\Media\GdImageIngestor;
@@ -131,6 +133,16 @@ class AppServiceProvider extends ServiceProvider
             TrafficSetting::current()->geo_edition,
             $app->make(PublicIpClassifier::class),
             $app->make(DomainLogger::class),
+        ));
+
+        // The language of a text, told on this server when it is written: a
+        // singleton, so a process loads the detector's database once, and only
+        // when a post or a comment is written (docs/architecture/language-ranking.md).
+        $this->app->singleton(LocalLanguageDetector::class, fn (): LocalLanguageDetector => new LocalLanguageDetector(
+            array_keys((array) config('locales.supported')),
+        ));
+        $this->app->bind(OpenAiLanguageDetector::class, fn (): OpenAiLanguageDetector => new OpenAiLanguageDetector(
+            array_keys((array) config('locales.supported')),
         ));
 
         // Reads its settings on every call, so it holds nothing worth keeping

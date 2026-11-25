@@ -38,6 +38,8 @@ use SensitiveParameter;
  * @property Carbon|null $email_first_verified_at
  * @property string|null $email_canonical
  * @property string|null $session_generation
+ * @property Carbon|null $last_seen_at
+ * @property Carbon|null $previous_visit_at
  */
 #[Fillable(['name', 'display_name', 'username', 'email', 'locale', 'theme_preference', 'notify_followed_author_posts', 'avatar_asset_id', 'bio', 'profile_website_url', 'rating_activity_visibility', 'role', 'status', 'trust_level', 'password'])]
 #[Hidden(['password', 'remember_token', 'session_generation', 'email_canonical'])]
@@ -93,6 +95,8 @@ class User extends Authenticatable implements FilamentUser, HasLocalePreference,
             'email_verified_at' => 'datetime',
             'email_first_verified_at' => 'datetime',
             'anonymized_at' => 'datetime',
+            'last_seen_at' => 'datetime',
+            'previous_visit_at' => 'datetime',
             'password' => 'hashed',
             'role' => UserRole::class,
             'status' => UserStatus::class,
