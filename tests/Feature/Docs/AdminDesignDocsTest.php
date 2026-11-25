@@ -425,7 +425,7 @@ it('describes Project settings on v2: one draft saved from the top bar, the pres
 
     expect($contract)
         ->toContain('### Project settings')
-        ->toContain('Project settings (`ProjectSettingsPage`) is drawn entirely in Admin v2: one draft over six tabs')
+        ->toContain('Project settings (`ProjectSettingsPage`) is drawn entirely in Admin v2: one draft over seven tabs')
         ->toContain('Nothing here applies a preset: that is `php artisan rateguru:setup`.')
         ->toContain('The editors share one top bar (`filament.pages.editor.topbar`)')
         ->toContain('| Static page content |')

@@ -289,6 +289,8 @@ final class ListComments extends Page
         return [
             'id' => (int) $comment->id,
             'text' => $comment->body,
+            // The language it was read as, or none: a comment of only emoji or names tells none.
+            'language' => $comment->language,
             'thread' => $thread,
             'muted' => ! $visible,
             'readOnly' => match (true) {

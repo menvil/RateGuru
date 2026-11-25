@@ -42,7 +42,7 @@ it('draws the screen in Admin v2 at every width, the tabs scrolling inside their
         }))()
     JS))->toBe([
         'headings' => ['Project settings'],
-        'tabs' => ['Site identity', 'Object labels', 'Defaults', 'Feature flags', 'Sign-in providers', 'Static pages'],
+        'tabs' => ['Site identity', 'Object labels', 'Defaults', 'Feature flags', 'Sign-in providers', 'Language ranking', 'Static pages'],
         'selected' => 'Static pages',
         'pages' => ['About', 'Privacy', 'Terms', 'Contact'],
         'overflow' => false,

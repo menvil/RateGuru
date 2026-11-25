@@ -67,6 +67,26 @@ final readonly class LanguageRankingSettings
         );
     }
 
+    /**
+     * The settings as Project settings stores them, under DEFAULTS' keys.
+     *
+     * @return array{enabled: bool, guest_window_days: int, member_window_days: int, hit_every: int, hit_top_percent: int, hot_floor_percentile: int, comments_first: bool, ai_checks: bool, ai_checks_per_day: int}
+     */
+    public function toArray(): array
+    {
+        return [
+            'enabled' => $this->enabled,
+            'guest_window_days' => $this->guestWindowDays,
+            'member_window_days' => $this->memberWindowDays,
+            'hit_every' => $this->hitEvery,
+            'hit_top_percent' => $this->hitTopPercent,
+            'hot_floor_percentile' => $this->hotFloorPercentile,
+            'comments_first' => $this->commentsFirst,
+            'ai_checks' => $this->aiChecks,
+            'ai_checks_per_day' => $this->aiChecksPerDay,
+        ];
+    }
+
     /** Whether the threads put the viewer's language first: only while the feature is on. */
     public function ranksComments(): bool
     {
