@@ -1744,8 +1744,9 @@ editor — or the list on them where they are not the viewer's to edit.
   actions and dialogs are in the person's editor, the dialogs over it; Undo is the list's, which shows the change
   in its row and in the drawer.
 - **A person's editor (OVL-02, 680):** a row's Edit or username opens it, the address saying on whom
-  (`?user=12`); titled with the username, the name and when they joined under it, then stats Posts, Comments and
-  Reports (on their content).
+  (`?user=12`); titled with the username, the name and when they joined under it, then stats Posts, Post votes,
+  Comments, Comment votes (the votes they cast, up and down), Reports filed (by them) and Reports received (on
+  their content) — on a phone two to a row.
 - **The draft (NAV-02):** Profile — Name, Username (“Public as @name”), Email (a new address has to be confirmed
   again); Role & trust — Role as a segmented control (FRM-08) with what it allows, Trust as radio cards (FRM-09):
   Not trusted, Trusted; Password — a new one, shown or hidden, empty to keep the current one. The drawer's footer

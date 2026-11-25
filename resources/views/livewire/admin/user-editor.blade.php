@@ -30,17 +30,30 @@
 
     <form id="rg-admin-user-editor-form" class="rg-admin-editor-drawer" wire:submit="save" novalidate>
         <dl class="rg-admin-stats rg-admin-editor-drawer__stats">
+            {{-- What they wrote, each beside the votes they cast on its kind; then the reports they filed and those on their content. --}}
             <div class="rg-admin-stat">
                 <dt class="rg-admin-stat__label">Posts</dt>
                 <dd class="rg-admin-stat__value">{{ $person['posts'] }}</dd>
+            </div>
+            <div class="rg-admin-stat">
+                <dt class="rg-admin-stat__label">Post votes</dt>
+                <dd class="rg-admin-stat__value">{{ $person['postVotes'] }}</dd>
             </div>
             <div class="rg-admin-stat">
                 <dt class="rg-admin-stat__label">Comments</dt>
                 <dd class="rg-admin-stat__value">{{ $person['comments'] }}</dd>
             </div>
             <div class="rg-admin-stat">
-                <dt class="rg-admin-stat__label">Reports</dt>
-                <dd class="rg-admin-stat__value">{{ $person['reports'] }}</dd>
+                <dt class="rg-admin-stat__label">Comment votes</dt>
+                <dd class="rg-admin-stat__value">{{ $person['commentVotes'] }}</dd>
+            </div>
+            <div class="rg-admin-stat">
+                <dt class="rg-admin-stat__label">Reports filed</dt>
+                <dd class="rg-admin-stat__value">{{ $person['reportsFiled'] }}</dd>
+            </div>
+            <div class="rg-admin-stat">
+                <dt class="rg-admin-stat__label">Reports received</dt>
+                <dd class="rg-admin-stat__value">{{ $person['reportsReceived'] }}</dd>
             </div>
         </dl>
 

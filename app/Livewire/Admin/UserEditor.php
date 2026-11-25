@@ -204,7 +204,10 @@ final class UserEditor extends Component
                 'confirmation' => self::confirmation($person),
                 'posts' => number_format(array_sum($posts)),
                 'comments' => number_format($profile->comments($person)),
-                'reports' => number_format(app(ModerationUsersQuery::class)->reportsOnContentOf($person)),
+                'postVotes' => number_format($profile->postVotes($person)),
+                'commentVotes' => number_format($profile->commentVotes($person)),
+                'reportsFiled' => number_format($profile->reportsFiled($person)),
+                'reportsReceived' => number_format(app(ModerationUsersQuery::class)->reportsOnContentOf($person)),
                 'since' => $decision === null
                     ? 'Since joining'
                     : 'Since '.ModerationListFormat::when($decision->created_at).($decision->moderator !== null ? ' by '.$decision->moderator->name : ''),
