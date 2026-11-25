@@ -1,0 +1,31 @@
+tests/Feature/Languages/MemberVisitsTest.php
+  s_4b9dc6ab6b25d3::t_d594505f8e41d2 1-96
+app/Support/Languages/FreshWindow.php
+  s_4b9dc6ab6b25d3::t_98c797ff62a358 1-30
+tests/Unit/Support/Languages/FreshWindowTest.php
+  s_4b9dc6ab6b25d3::t_8e8e40eb1d314c 1-27
+app/Actions/Users/TouchMemberVisitAction.php
+  s_4b9dc6ab6b25d3::t_98c797ff62a358 1-52
+app/Http/Middleware/TrackMemberVisit.php
+  s_4b9dc6ab6b25d3::t_98c797ff62a358 1-47
+app/Actions/Profile/AnonymizeUserAccountAction.php
+  s_4b9dc6ab6b25d3::t_98c797ff62a358 98-99
+bootstrap/app.php
+  s_4b9dc6ab6b25d3::t_98c797ff62a358 11,53-55
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "7473a1be460e3aed24c7ccc9cbd64f293ba035c3",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
