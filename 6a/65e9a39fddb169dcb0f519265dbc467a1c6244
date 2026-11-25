@@ -1,0 +1,34 @@
+infrastructure/config/supervisor/rateguru-staging-queue.conf
+  s_1f43f39fbe0537::t_4bfcbe51da39b2 1-6,31-63
+infrastructure/runbooks/provision-target.md
+  ai_agent 335-367
+tests/Feature/Architecture/InstallBootstrapServicesTest.php
+  s_1f43f39fbe0537::t_42b7cc23d5a3c7 2511-2556
+tests/Feature/Architecture/ProvisionTargetTest.php
+  s_1f43f39fbe0537::t_597b08c46d3d93 225-229,488-490,492,496,498,503,581-588,625,629-641
+tests/Feature/Architecture/DeploymentTargetRegistryTest.php
+  s_1f43f39fbe0537::t_597b08c46d3d93 286-289,292-294
+infrastructure/runbooks/bootstrap-services.md
+  ai_agent 67
+infrastructure/scripts/install-bootstrap-services
+  s_1f43f39fbe0537::t_b0db81c04b193c 1067-1097,1099-1110,1155,1158,1176,1179,1375-1382
+  s_1f43f39fbe0537::t_597b08c46d3d93 1098
+tests/Feature/Architecture/TargetAwareOperationsTest.php
+  s_1f43f39fbe0537::t_597b08c46d3d93 1268-1271
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "6a65e9a39fddb169dcb0f519265dbc467a1c6244",
+  "prompts": {},
+  "sessions": {
+    "s_1f43f39fbe0537": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "526787d0-f443-4ad7-9610-cf9811fec895",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
