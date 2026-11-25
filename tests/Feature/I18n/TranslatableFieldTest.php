@@ -6,6 +6,7 @@ use App\Models\ProjectSettings;
 use App\Models\RatingGroup;
 use App\Models\RatingOption;
 use App\Models\Tag;
+use App\Support\Games\Snapshot\LocalizedText;
 use App\Support\Settings\PresetSettingsBuilder;
 use App\Support\Settings\ProjectSettingsManager;
 use App\Support\Translations\TranslatableField;
@@ -96,6 +97,25 @@ it('falls back when the language has no entry or nothing is stored at all', func
     'no translations' => [null],
     'not a map of languages' => ['Normal'],
 ]);
+
+it('serves no translation of a text whose English is blank, one left from before the English was cleared', function (string $blank) {
+    [$target] = twoTranslatedLocales();
+
+    expect(TranslatableField::resolve([$target => 'Какой он?'], $blank, $target))->toBe($blank);
+})->with(['empty' => '', 'spaces' => '  ']);
+
+it('reads a game version\'s frozen text with no English as no text in any language, whichever version froze it', function () {
+    [$target] = twoTranslatedLocales();
+    $cleared = LocalizedText::fromColumns(null, [$target => 'Какой он?']);
+
+    expect($cleared->in($target))->toBe('')
+        ->and($cleared->in(TranslatableField::REFERENCE_LOCALE))->toBe('')
+        // A text with English reads its translation, or its English where it has none.
+        ->and(LocalizedText::fromColumns('What is it like?', [$target => 'Какой он?'])->in($target))->toBe('Какой он?')
+        ->and(LocalizedText::fromColumns('What is it like?', null)->in($target))->toBe('What is it like?')
+        // As a version stored before the change reads it back.
+        ->and(LocalizedText::of([$target => 'Какой он?'])->in($target))->toBe('');
+});
 
 it('reads the current language when it is given none', function () {
     [$target, $other] = twoTranslatedLocales();

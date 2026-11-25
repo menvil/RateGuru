@@ -196,6 +196,10 @@ UpdateProjectTranslationAction (one transaction, the unit's row locked)
 - **Translation Center** marks an outdated row (English changed) and shows the English it was made from, counts
   the rows that need an update, and filters them with Needs update beside Missing only and All (`?mode=outdated`),
   in the browser like the other filters, and by game (`?game=`, `ProjectTranslationUnit::gameId()`).
+- **No English, no text.** A field whose English is blank needs no translation, and none left from before is served:
+  `TranslatableField::resolve()`, a static page's fields and a game version's `LocalizedText::in()` read it as empty
+  in every language. The translation stays stored, so English written again brings it back, outdated if a record of
+  older English exists.
 - **Game versions warn before freezing.** A version freezes every translation as stored, outdated ones included, so
   Versions counts, per offered language, the texts it would freeze missing or outdated
   (`VersionTranslationCoverageQuery`, over `ProjectTranslationCatalog::unitsOfVersion()`) and warns, linking to

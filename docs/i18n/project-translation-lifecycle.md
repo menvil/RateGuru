@@ -111,7 +111,10 @@ published from them, and warns before publishing when the texts it would
 freeze are missing a translation, or have one made from older English, in a
 language the project offers.
 
-A field whose English is blank needs no translation. English is complete
+A field whose English is blank needs no translation, and shows none: a
+translation left from before its English was cleared stays stored, but no
+visitor is served it in any language — on the site, on a static page or in a
+game version, whichever version froze it. English is complete
 through the base columns. A translation is any non-blank string — presence
 only; nothing judges quality, and nothing compares it with the repository.
 Content an administrator created counts exactly like preset content. Inactive
