@@ -110,6 +110,19 @@ final class AnalyticsView
     }
 
     /**
+     * The key of the paid source a paid campaign came through; none for a
+     * campaign named by its tag, which visits of any source may carry, and
+     * none for no campaign.
+     */
+    public function campaignSource(?string $campaignKey): ?string
+    {
+        $campaignId = $campaignKey === null ? null : CampaignKey::paidCampaignId($campaignKey);
+        $sourceId = $campaignId === null ? null : TrafficCampaign::query()->whereKey($campaignId)->value('source_id');
+
+        return is_numeric($sourceId) ? AnalyticsSource::paid((int) $sourceId) : null;
+    }
+
+    /**
      * The names of the paid sources among the keys given, by id: what a paid
      * source's key reads as.
      *

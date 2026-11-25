@@ -125,9 +125,16 @@ reads the visitors each version was given.
   basis** says how each was recognised (a tagged link, the referrer, or both, or
   a paid source's own link). A registration rate well below the table's is
   marked. Click a row to filter the whole page by it, click again to clear it.
-  It counts every source, for the period and the device, and says so while a
-  source or a campaign is chosen.
+  It counts every source, for the period and the device, whatever source or
+  campaign is chosen: while one is, the card is titled **All traffic sources**,
+  and the source the page is narrowed to — the one chosen, or the one a paid
+  campaign chosen came through — is lit, the other rows set back, so it reads
+  against the rest. A source past the ten biggest takes the last place, the
+  tenth moving into "Other referrals". A campaign named by its tag may come by
+  any source, so none is lit for it.
   **Sort** by visitors or a rate.
+  Campaigns and their creatives are on the **Campaigns** tab, narrowed to the
+  same source.
 - **Referral performance**: share clicks on game results, results shared, the
   visits that came through a shared result, and how far those visitors went. A
   share click doesn't prove the link was posted.

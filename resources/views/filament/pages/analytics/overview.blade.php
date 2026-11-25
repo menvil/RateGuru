@@ -144,7 +144,7 @@
         </x-admin.ui.card>
     </div>
 
-    <x-admin.ui.card title="Traffic sources" :description="$data['sourcesNote']" flush class="rg-admin-analytics__sources-card" data-testid="analytics-sources">
+    <x-admin.ui.card :title="$data['sourcesTitle']" :description="$data['sourcesNote']" flush @class(['rg-admin-analytics__sources-card', 'rg-admin-analytics__sources-card--lit' => $data['sources']['lit']]) data-testid="analytics-sources">
         <x-slot:aside>
             <x-admin.ui.segmented label="Sort" compact :options="GrowthAnalyticsPage::SORTS" :value="$this->sort" wire:model.live="sort" class="rg-admin-analytics__sort" />
         </x-slot:aside>
