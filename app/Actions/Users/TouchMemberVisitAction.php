@@ -31,7 +31,14 @@ final class TouchMemberVisitAction
 
             if ($started > 0) {
                 $this->remember($user, $seen, $now);
+
+                return;
             }
+
+            // Another request started the visit first: the rest of this one reads the visit it started.
+            $winner = User::query()->whereKey($user->id)->first(['id', 'last_seen_at', 'previous_visit_at']);
+            $user->forceFill(['last_seen_at' => $winner?->last_seen_at, 'previous_visit_at' => $winner?->previous_visit_at])
+                ->syncOriginalAttributes(['previous_visit_at', 'last_seen_at']);
 
             return;
         }

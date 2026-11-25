@@ -18,6 +18,8 @@ it('keeps only the words that tell a language', function (string $text, string $
     'an apostrophe and a hyphen inside words' => ["it's a well-known c'est", "it's a well-known c'est"],
     'marks inside a word' => ['बहुत सुंदर तस्वीर', 'बहुत सुंदर तस्वीर'],
     'nothing language-bearing' => ['😍 10/10 ok!!! @max.k', ''],
+    'a link without a scheme' => ['example.com/private/SecretAbc', ''],
+    'a bare domain inside a sentence' => ['Мой сайт anna-photo.de, заходите', 'Мой сайт заходите'],
 ]);
 
 it('counts the letters of a text', function () {

@@ -297,7 +297,8 @@ final class ProjectSettingsPage extends Page
         }
 
         foreach (self::LANGUAGE_NUMBERS as $number => [$label, , $least, $most]) {
-            $rules["data.language_ranking.{$number}"] = ['required', 'integer', "between:{$least},{$most}"];
+            $rules["data.language_ranking.{$number}"] = ['required', 'integer', "between:{$least},{$most}", ...($number === 'hit_every' ? ['not_in:1'] : [])];
+            $messages["data.language_ranking.{$number}.not_in"] = 'Enter 0 to show none, or a number from 2 to 50: a strong post at every place would leave no feed.';
             $messages["data.language_ranking.{$number}.required"] = "Enter a whole number from {$least} to ".number_format($most).'.';
             $messages["data.language_ranking.{$number}.integer"] = "Enter a whole number from {$least} to ".number_format($most).'.';
             $messages["data.language_ranking.{$number}.between"] = "Enter a whole number from {$least} to ".number_format($most).'.';

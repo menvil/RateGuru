@@ -42,6 +42,15 @@ it('saves what changed, leaving the rest as stored', function () {
     expect(ProjectSettings::query()->find(1)->language_ranking)->toBe(['guest_window_days' => 3, 'enabled' => true, 'hit_every' => 5]);
 });
 
+it('refuses a strong post at every place', function () {
+    ProjectSettings::factory()->create();
+
+    Livewire::test(ProjectSettingsPage::class)
+        ->set('data.language_ranking.hit_every', 1)
+        ->call('save')
+        ->assertHasErrors(['data.language_ranking.hit_every' => 'not_in']);
+});
+
 it('refuses a number out of its range, naming the tab', function () {
     ProjectSettings::factory()->create();
 

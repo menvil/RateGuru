@@ -90,14 +90,15 @@ time:
    takes an account or a comment after the post. A vote that lands meanwhile waits for the post and marks it again.
 2. **Then texts written before languages were kept** are read on this server, up to 500 a run, posts first and the
    newest first (`LanguageCheckQueue::readOlderTexts`): a comment given the language read, each check queued for
-   OpenAI behind the texts written now, and the post marked stale. An installation fills its older posts and comments
+   OpenAI behind the texts written now, and the post marked stale — in one transaction, post first, skipped if
+   another run read the text meanwhile. An installation fills its older posts and comments
    in on its own after the release that brings languages; nobody runs anything.
 3. **Then the checks of new texts are asked of OpenAI** (`LanguageCheckQueue`): first attempts in batches of forty,
    texts written now before a backfill's, the newest first; a check that failed is retried alone, so a text OpenAI
-   will not read no longer takes a batch down with it. An answer is written only if its claim still stands, with the
-   comment locked before its check — the order every comment writer keeps — and the post marked stale afterwards in a
-   statement of its own. A run that finds OpenAI unreachable stops asking until the next one; a claim left behind by
-   a run that died is taken up again after ten minutes. Nothing is asked while the setting is off, without the
+   will not read no longer takes a batch down with it. An answer is written only if its claim still stands, in one
+   transaction with the post marked stale: post, comment, check — the order every comment writer keeps — so no answer
+   is ever kept without its post being marked. A run that finds OpenAI unreachable stops asking until the next one; a
+   claim left behind by a run that died is taken up again after ten minutes, or given up after its last attempt. Nothing is asked while the setting is off, without the
    Translation AI key, or once the day's limit (3,000 checks by default, UTC) is reached.
 
 **`languages:backfill`** — not needed, since `languages:work` takes the older texts up on its own: it reads all of
@@ -147,8 +148,9 @@ Hits show at every 10th place (a setting; every place is not allowed) of New and
 feed; never in Top — a post of the last two days is weaker than all-time neighbours — nor with a filter.
 `FeedQuery::paginateWithHits` puts a page together by place, since how far into the feed a page starts depends on how
 many hits came before it: the hits sit at places every, 2 × every… and the rest of the feed, without them, around them.
-A hit that would sit past the end of a short feed is not placed and stays where its own order puts it, and one hidden
-since the feed was opened is dropped, so no post shows twice and none is left out.
+A hit that would sit past the end of a short feed is not placed and stays where its own order puts it, so no post
+shows twice and none is left out. The places are those of the list the feed was opened with: a hit hidden since
+leaves its place empty rather than letting the others move up, so later pages still start where earlier ones ended.
 
 ## Comments
 

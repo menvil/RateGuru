@@ -95,6 +95,7 @@ final readonly class LanguageRankingSettings
 
     private static function within(mixed $value, int $least, int $most): int
     {
-        return max($least, min($most, is_numeric($value) ? (int) $value : $least));
+        // Held to the range before it becomes a whole number: a huge float would overflow the cast.
+        return is_numeric($value) ? (int) max($least, min($most, (float) $value)) : $least;
     }
 }

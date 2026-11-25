@@ -171,6 +171,19 @@ it('takes up a claim a run left behind', function () {
     expect($check->fresh()->status)->toBe(ContentLanguageCheckStatus::Done);
 });
 
+it('gives up a claim a run left behind after its last attempt, the local answer standing', function () {
+    $check = pendingCheck(['comment_id' => Comment::factory()->create(['post_id' => postAlreadyRead()->id])->id]);
+    $check->forceFill(['status' => ContentLanguageCheckStatus::Sending, 'attempts' => 3, 'claimed_at' => now()->subMinutes(30)])->save();
+    // The post's own skipped check aside, this is the only one: nothing is sent.
+    Http::fake();
+
+    $this->artisan('languages:work')->assertSuccessful();
+
+    expect($check->fresh()->status)->toBe(ContentLanguageCheckStatus::Failed)
+        ->and($check->fresh()->language())->toBe('bg');
+    Http::assertNothingSent();
+});
+
 it('runs every minute in a process of its own, a stuck run lapsing within minutes', function () {
     $events = collect(app(Schedule::class)->events())
         ->filter(fn ($event) => str_contains($event->command ?? '', 'languages:work'))

@@ -101,3 +101,15 @@ it('ignores signals with no language', function () {
     expect($profile->language())->toBe('fr')
         ->and($profile->share())->toBe(1.0);
 });
+
+it('counts exactly half as a majority, however the votes were scaled to reach it', function () {
+    $profile = (new LanguageProfile)->author('pl');
+
+    foreach (range(1, 20) as $vote) {
+        $profile->vote('ru');
+    }
+
+    // pl 2, ru 6 capped to 2: half each, the first by code taken.
+    expect($profile->language())->toBe('pl')
+        ->and($profile->share())->toBe(0.5);
+});

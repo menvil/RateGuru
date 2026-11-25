@@ -74,6 +74,17 @@ it('ignores an answer for a text it was not asked about, or with a language outs
         ->toBe([1 => ['language' => null, 'confidence' => 1.0], 3 => ['language' => 'fr', 'confidence' => 1.0]]);
 });
 
+it('takes an answer only for an id exactly as it was sent', function () {
+    Http::fake(['api.openai.test/*' => Http::response(openAiLanguages([
+        ['id' => '7.9', 'language' => 'de', 'confidence' => 1],
+        ['id' => ' 7', 'language' => 'de', 'confidence' => 1],
+        ['id' => '07', 'language' => 'de', 'confidence' => 1],
+        ['id' => '8', 'language' => 'fr', 'confidence' => 1],
+    ]))]);
+
+    expect(app(OpenAiLanguageDetector::class)->detect([7 => 'a', 8 => 'b']))->toBe([8 => ['language' => 'fr', 'confidence' => 1.0]]);
+});
+
 it('fails a batch as unavailable when OpenAI cannot be reached or is overloaded', function (Closure $response) {
     Http::fake(['api.openai.test/*' => $response]);
 

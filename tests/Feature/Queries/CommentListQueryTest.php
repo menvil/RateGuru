@@ -105,14 +105,15 @@ it('lists at most a bounded page of a thread, however many are asked for', funct
 it('puts comments in the viewer\'s language first, each group in the chosen order', function () {
     $post = Post::factory()->published()->create();
     $english = Comment::factory()->for($post)->create(['language' => 'en', 'upvotes_count' => 30, 'created_at' => now()->subMinutes(5)]);
-    $russian = Comment::factory()->for($post)->create(['language' => 'ru', 'upvotes_count' => 2, 'created_at' => now()->subMinutes(4)]);
-    $betterRussian = Comment::factory()->for($post)->create(['language' => 'ru', 'upvotes_count' => 9, 'created_at' => now()->subMinutes(3)]);
+    // The better liked of the two Russian comments is the older, so Top and Newest order them differently.
+    $russian = Comment::factory()->for($post)->create(['language' => 'ru', 'upvotes_count' => 2, 'created_at' => now()->subMinutes(3)]);
+    $betterRussian = Comment::factory()->for($post)->create(['language' => 'ru', 'upvotes_count' => 9, 'created_at' => now()->subMinutes(4)]);
     $emoji = Comment::factory()->for($post)->create(['language' => null, 'upvotes_count' => 50, 'created_at' => now()->subMinutes(2)]);
 
     expect(app(CommentListQuery::class)->get($post->id, 'top', 10, 'ru')->pluck('id')->all())
         ->toBe([$betterRussian->id, $russian->id, $emoji->id, $english->id])
         ->and(app(CommentListQuery::class)->get($post->id, 'newest', 10, 'ru')->pluck('id')->all())
-        ->toBe([$betterRussian->id, $russian->id, $emoji->id, $english->id])
+        ->toBe([$russian->id, $betterRussian->id, $emoji->id, $english->id])
         ->and(app(CommentListQuery::class)->get($post->id, 'top', 10)->pluck('id')->all())
         ->toBe([$emoji->id, $english->id, $betterRussian->id, $russian->id]);
 });

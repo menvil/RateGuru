@@ -355,12 +355,17 @@ it('leaves a hit that would sit past the end of a short feed where its own order
         ->and($paginator->total())->toBe(6);
 });
 
-it('gives a hit gone since the feed opened its place to the feed', function () {
+it('leaves the place of a hit hidden since the feed opened empty, no post moving up across pages', function () {
     $feed = collect(range(1, 12))->map(fn (int $i) => feedPost('ru', $i))->pluck('id');
     $gone = feedPost('de', 40, ['status' => PostStatus::Hidden]);
+    $languages = new FeedLanguageOrder('ru', null, CarbonImmutable::now()->subDays(7));
+    $shown = [];
 
-    Paginator::currentPageResolver(fn () => 1);
-    $paginator = app(FeedQuery::class)->paginateWithHits('newest', new FeedLanguageOrder('ru', null, CarbonImmutable::now()->subDays(7)), [$gone->id], 4, 12);
+    foreach ([1, 2] as $page) {
+        Paginator::currentPageResolver(fn () => $page);
+        $shown[$page] = collect(app(FeedQuery::class)->paginateWithHits('newest', $languages, [$gone->id], 4, 12)->items())->pluck('id')->all();
+    }
 
-    expect(collect($paginator->items())->pluck('id')->all())->toBe($feed->all());
+    expect($shown[1])->toHaveCount(11)
+        ->and([...$shown[1], ...$shown[2]])->toBe($feed->all());
 });

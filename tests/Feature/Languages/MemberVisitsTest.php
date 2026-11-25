@@ -65,7 +65,10 @@ it('starts a visit once when two requests race to start it', function () {
     app(TouchMemberVisitAction::class)->handle($first, CarbonImmutable::now());
     app(TouchMemberVisitAction::class)->handle($second, CarbonImmutable::now()->addSecond());
 
-    expect($member->fresh()->previous_visit_at->toDateTimeString())->toBe('2026-11-23 12:00:00');
+    expect($member->fresh()->previous_visit_at->toDateTimeString())->toBe('2026-11-23 12:00:00')
+        // The request that lost reads the visit the other one started.
+        ->and($second->previous_visit_at->toDateTimeString())->toBe('2026-11-23 12:00:00')
+        ->and($second->last_seen_at->toDateTimeString())->toBe('2026-11-25 12:00:00');
 });
 
 it('gives the rest of the request the visit it is on', function () {

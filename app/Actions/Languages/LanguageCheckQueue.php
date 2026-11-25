@@ -55,9 +55,16 @@ final class LanguageCheckQueue
 
         foreach ($posts as $post) {
             $text = $this->detector->read(trim($post->title."\n".($post->description ?? '')));
-            DB::transaction(fn () => $this->checks->forPost($post, $text, ContentLanguageCheckPriority::Backfill));
-            $this->markPostStaleById((int) $post->id);
-            $read++;
+            // The post first, then its check — and none if another run read it meanwhile.
+            $read += (int) DB::transaction(function () use ($post, $text): bool {
+                if (! $this->lockPostAndMarkStale((int) $post->id) || ContentLanguageCheck::query()->where('post_id', $post->id)->exists()) {
+                    return false;
+                }
+
+                $this->checks->forPost($post, $text, ContentLanguageCheckPriority::Backfill);
+
+                return true;
+            });
         }
 
         $comments = Comment::withTrashed()
@@ -68,24 +75,37 @@ final class LanguageCheckQueue
 
         foreach ($comments as $comment) {
             $text = $this->detector->read((string) $comment->body);
-            DB::transaction(function () use ($comment, $text): void {
+            // Post, comment, check: the order every comment writer keeps — and nothing if another run read it meanwhile.
+            $read += (int) DB::transaction(function () use ($comment, $text): bool {
+                if (! $this->lockPostAndMarkStale((int) $comment->post_id)
+                    || Comment::withTrashed()->whereKey($comment->id)->lockForUpdate()->first() === null
+                    || ContentLanguageCheck::query()->where('comment_id', $comment->id)->exists()) {
+                    return false;
+                }
+
                 Comment::withoutTimestamps(fn () => Comment::withTrashed()->whereKey($comment->id)->update(['language' => $text->language()]));
                 $this->checks->forComment($comment, $text, ContentLanguageCheckPriority::Backfill);
+
+                return true;
             });
-            $this->markPostStaleById((int) $comment->post_id);
-            $read++;
         }
 
         return $read;
     }
 
-    /** Claims a run left behind, put back in the queue. */
+    /**
+     * Claims a run left behind: put back in the queue, or — after their last attempt — given up, the local
+     * detector's answer standing, so a text that brings a run down never comes round again.
+     */
     public function reclaimAbandoned(): void
     {
-        ContentLanguageCheck::query()
+        $now = CarbonImmutable::now();
+        $abandoned = fn () => ContentLanguageCheck::query()
             ->where('status', ContentLanguageCheckStatus::Sending)
-            ->where('claimed_at', '<', CarbonImmutable::now()->subMinutes(self::CLAIM_MINUTES))
-            ->update(['status' => ContentLanguageCheckStatus::Pending]);
+            ->where('claimed_at', '<', $now->subMinutes(self::CLAIM_MINUTES));
+
+        $abandoned()->where('attempts', '>=', self::ATTEMPTS)->update(['status' => ContentLanguageCheckStatus::Failed, 'finished_at' => $now]);
+        $abandoned()->update(['status' => ContentLanguageCheckStatus::Pending]);
     }
 
     /** How many checks were sent to OpenAI today (UTC), against the daily limit. */
@@ -150,13 +170,19 @@ final class LanguageCheckQueue
     }
 
     /**
-     * OpenAI's answer, written back if the claim still stands: on the check, and on the comment it read. Locks the
-     * comment before its check — the order every comment writer keeps — and never the post; the post's language
-     * is marked to be worked out again in a statement of its own, once this commits.
+     * OpenAI's answer, written back if the claim still stands: on the check, on the comment it read, and the post
+     * marked for its language to be worked out again — all in one transaction, so no answer is ever kept without its
+     * post being marked. Post, comment, check: the order every comment writer keeps; the post is updated once.
      */
     public function settle(ContentLanguageCheck $claimed, ?string $language, float $confidence): void
     {
-        $settled = DB::transaction(function () use ($claimed, $language, $confidence): bool {
+        DB::transaction(function () use ($claimed, $language, $confidence): void {
+            $postId = $claimed->post_id ?? Comment::withTrashed()->whereKey($claimed->comment_id)->value('post_id');
+
+            if ($postId === null || ! $this->lockPostAndMarkStale((int) $postId)) {
+                return;
+            }
+
             if ($claimed->comment_id !== null) {
                 Comment::withTrashed()->whereKey($claimed->comment_id)->lockForUpdate()->first();
             }
@@ -169,7 +195,7 @@ final class LanguageCheckQueue
                 ->first();
 
             if ($check === null) {
-                return false;
+                return;
             }
 
             $check->forceFill([
@@ -182,13 +208,7 @@ final class LanguageCheckQueue
             if ($check->comment_id !== null) {
                 Comment::withoutTimestamps(fn () => Comment::withTrashed()->whereKey($check->comment_id)->update(['language' => $language]));
             }
-
-            return true;
         });
-
-        if ($settled) {
-            $this->markPostStale($claimed);
-        }
     }
 
     /**
@@ -213,18 +233,18 @@ final class LanguageCheckQueue
         }
     }
 
-    private function markPostStale(ContentLanguageCheck $check): void
+    /**
+     * Inside the caller's transaction: the post locked first, as every writer of its text's rows locks it, and marked
+     * for its language to be worked out again — its one update in that transaction. False for a post gone.
+     */
+    private function lockPostAndMarkStale(int $postId): bool
     {
-        $postId = $check->post_id ?? Comment::withTrashed()->whereKey($check->comment_id)->value('post_id');
-
-        if ($postId !== null) {
-            $this->markPostStaleById((int) $postId);
+        if (Post::withTrashed()->whereKey($postId)->lockForUpdate()->first() === null) {
+            return false;
         }
-    }
 
-    /** In a statement of its own: never a second update of the post in someone's transaction. */
-    private function markPostStaleById(int $postId): void
-    {
         Post::withoutTimestamps(fn () => Post::withTrashed()->whereKey($postId)->update(['language_stale_at' => CarbonImmutable::now()]));
+
+        return true;
     }
 }

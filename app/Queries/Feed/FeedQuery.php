@@ -156,7 +156,9 @@ final class FeedQuery implements RawSqlPersistenceBoundary, StablePaginationBoun
      *
      * The page is put together by place, not paged by the database: how far into the feed a page starts depends on
      * how many hits came before it. A hit that would sit past the end of a short feed is not placed and stays in
-     * the feed where its own order puts it, so no post is shown twice or left out. The total counts both.
+     * the feed where its own order puts it, so no post is shown twice or left out. The places are those of the list
+     * the feed was opened with: a hit hidden since leaves its place empty rather than letting the others move up,
+     * so the pages after it still start where the ones before them ended. The total counts both.
      *
      * @param  list<int>  $hitIds  best first (hitCandidates), fixed for as long as the feed is looked through
      */
@@ -165,9 +167,6 @@ final class FeedQuery implements RawSqlPersistenceBoundary, StablePaginationBoun
         $perPage = $this->normalizePerPage($perPage);
         $page = max(1, Paginator::resolveCurrentPage('page'));
         $every = max(2, $every);
-        // A hit hidden or deleted since the feed was opened is placed no more.
-        $published = Post::query()->published()->whereIn('id', $hitIds)->pluck('id')->map(fn ($id): int => (int) $id)->all();
-        $hitIds = array_values(array_filter($hitIds, fn (int $id): bool => in_array($id, $published, true)));
 
         $withoutHits = $this->query(sort: $sort, languages: $languages)->whereNotIn('posts.id', $hitIds)->reorder()->count();
         // Hit k sits at place k × every, after k × every − k posts of the feed: only as many as the feed can carry.
@@ -193,10 +192,13 @@ final class FeedQuery implements RawSqlPersistenceBoundary, StablePaginationBoun
         $next = 0;
 
         for ($place = $start; $place < $start + $perPage; $place++) {
-            $hit = isset($slots[$place]) ? $hits->get($slots[$place]) : null;
+            if (isset($slots[$place])) {
+                // A hit hidden since the feed was opened leaves its place empty.
+                $hit = $hits->get($slots[$place]);
 
-            if ($hit instanceof Post) {
-                $items[] = $hit;
+                if ($hit instanceof Post) {
+                    $items[] = $hit;
+                }
 
                 continue;
             }

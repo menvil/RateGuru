@@ -21,12 +21,19 @@ final class LanguageStatusQuery
      */
     public function postsByLanguage(): array
     {
-        return Post::query()->published()->pluck('language')
-            ->map(fn (?string $language): string => $language ?? 'none')
-            ->countBy()
-            ->sortKeys()
-            ->sortDesc()
-            ->all();
+        // Counted by the database, a language at a time: there are no more than the site's languages and `none`.
+        $counts = [];
+
+        foreach (Post::query()->published()->distinct()->pluck('language') as $language) {
+            $counts[$language ?? 'none'] = Post::query()->published()
+                ->when($language === null, fn ($query) => $query->whereNull('language'), fn ($query) => $query->where('language', $language))
+                ->count();
+        }
+
+        ksort($counts);
+        arsort($counts);
+
+        return $counts;
     }
 
     /**

@@ -20,7 +20,8 @@ final class TextCleaner
 
     public static function clean(string $text): string
     {
-        $text = preg_replace('~https?://\S+|www\.\S+|\S+@\S+\.\S+|[@#][\p{L}\p{M}\p{N}_.]+~iu', ' ', $text) ?? '';
+        // Links — with a scheme, www. or as a bare domain and path — addresses, @handles and #tags: never sent on.
+        $text = preg_replace('~https?://\S+|www\.\S+|\S+@\S+\.\S+|(?<![\p{L}\p{N}])[\p{L}\p{N}-]+(?:\.[\p{L}\p{N}-]+)*\.[a-z]{2,}(?:/\S*)?|[@#][\p{L}\p{M}\p{N}_.]+~iu', ' ', $text) ?? '';
 
         if (preg_match_all("~[\p{L}\p{M}]+(?:['’-][\p{L}\p{M}]+)*~u", $text, $matches) === false) {
             return '';

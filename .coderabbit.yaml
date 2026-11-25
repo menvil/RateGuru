@@ -62,8 +62,8 @@ reviews:
         never works out a post's language in its own transaction: it only sets
         language_stale_at inside the one update it already makes of the post.
         WorkOutPostLanguageAction locks the post first and reads every signal
-        without a lock. An OpenAI answer is written with the comment locked
-        before its check, the post marked afterwards in a statement of its own.
+        without a lock. An OpenAI answer is written in one transaction that
+        locks the post, then the comment, then the check, and marks the post.
         No HTTP inside a database transaction; only a text's words
         (TextCleaner) are sent, and never a provider's response in a log.
     - path: "tools/phpstan/**/*.php"

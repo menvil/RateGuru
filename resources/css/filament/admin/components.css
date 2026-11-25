@@ -5379,7 +5379,7 @@
     /* Language ranking's numbers: each a number stepper with its own label and hint, as many to a row as fit. */
     .rg-admin-settings__numbers {
         display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+        grid-template-columns: repeat(auto-fill, minmax(min(280px, 100%), 1fr));
         gap: var(--rg-admin-space-6);
         padding: var(--rg-admin-space-5);
     }

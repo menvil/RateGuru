@@ -91,7 +91,7 @@ final class LanguageProfile
     {
         [$language, $share] = $this->leader();
 
-        return $share >= self::MAJORITY ? $language : null;
+        return self::holdsMajority($share) ? $language : null;
     }
 
     /** The share of the weight the post's language holds, or null when it has none. */
@@ -99,7 +99,7 @@ final class LanguageProfile
     {
         [, $share] = $this->leader();
 
-        return $share >= self::MAJORITY ? round($share, 3) : null;
+        return self::holdsMajority($share) ? round($share, 3) : null;
     }
 
     /** @return array{0: string|null, 1: float} */
@@ -123,6 +123,15 @@ final class LanguageProfile
         $language = array_keys($totals, max($totals), true)[0];
 
         return [(string) $language, $totals[$language] / $sum];
+    }
+
+    /**
+     * Half or more — exactly half included. Rounded to nine places first, so the sums and the votes' scaling cannot
+     * leave an exact half a hair short; the weights are tenths, so nothing truly below half rounds up to it.
+     */
+    private static function holdsMajority(float $share): bool
+    {
+        return round($share, 9) >= self::MAJORITY;
     }
 
     private function add(string $language, float $weight): void

@@ -112,3 +112,9 @@ it('never puts a strong post at every place, from every second one on', function
     expect(LanguageRankingSettings::fromArray(['hit_every' => 1])->hitEvery)->toBe(2)
         ->and(LanguageRankingSettings::fromArray(['hit_every' => 0])->hitEvery)->toBe(0);
 });
+
+it('holds a fractional or huge number to the range before it becomes whole', function () {
+    expect(LanguageRankingSettings::fromArray(['hit_every' => 1e20])->hitEvery)->toBe(50)
+        ->and(LanguageRankingSettings::fromArray(['guest_window_days' => '2.9'])->guestWindowDays)->toBe(2)
+        ->and(LanguageRankingSettings::fromArray(['ai_checks_per_day' => -1e20])->aiChecksPerDay)->toBe(0);
+});

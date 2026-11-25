@@ -10,6 +10,9 @@ use App\Data\Posts\CreatePostData;
 use App\Enums\UserRole;
 use App\Enums\UserStatus;
 use App\Enums\VoteType;
+use App\Exceptions\Comments\CannotCommentException;
+use App\Exceptions\Posts\CannotCreatePostException;
+use App\Exceptions\Votes\CannotVoteException;
 use App\Models\Post;
 use App\Models\User;
 use Carbon\CarbonImmutable;
@@ -21,7 +24,6 @@ use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Facade;
 use Illuminate\Support\Facades\Hash;
-use Throwable;
 
 /**
  * A month of a multilingual site, to look at the feed with the viewer's language first
@@ -178,8 +180,9 @@ class LanguageDemoSeeder extends Seeder
                     'comment' => $post->id === null ? null : $this->comment($post, $at),
                     'vote' => $post->id === null ? null : $this->vote($post, $at),
                 };
-            } catch (Throwable) {
-                // Refused as the site refuses it — a rate limit, say: left out.
+            } catch (CannotCreatePostException|CannotCommentException|CannotVoteException) {
+                // Refused as the site refuses it — a rate limit, say: left out. Anything else stops the run: start
+                // again from a fresh database (migrate:fresh), as a run stopped half way leaves half a month.
             }
         }
     }

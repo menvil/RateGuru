@@ -161,7 +161,9 @@ final class OpenAiLanguageDetector
         $answers = [];
 
         foreach ($decoded['results'] as $result) {
-            $id = is_array($result) && is_numeric($result['id'] ?? null) ? (int) $result['id'] : null;
+            // Only the id exactly as it was sent ("7", never "7.9", " 7" or "07") answers a text.
+            $raw = is_array($result) ? ($result['id'] ?? null) : null;
+            $id = is_string($raw) && ctype_digit($raw) && (string) (int) $raw === $raw ? (int) $raw : null;
 
             if ($id === null || ! in_array($id, $ids, true) || ! is_string($result['language'] ?? null)) {
                 continue;
