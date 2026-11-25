@@ -124,6 +124,34 @@ site's own pages have visits, takes a minute or two and is not called by
 `DatabaseSeeder`. Each visit is kept or undone whole, but a run stopped
 halfway leaves half a history: start again from `migrate:fresh`.
 
+## Demo multilingual site
+
+To look at the feed and the threads with the viewer's language first
+(`docs/architecture/language-ranking.md`), play a month of a multilingual
+site, best into a database of its own:
+
+```bash
+DB_DATABASE=rateguru2_lang php artisan migrate:fresh --seed
+DB_DATABASE=rateguru2_lang php artisan db:seed --class=LanguageDemoSeeder
+```
+
+`LanguageDemoSeeder` adds 300 members who write in a dozen languages —
+English the most, Russian next, a long tail after — each account holding its
+language, a browser's guess at it, English instead now and then, or none at
+all. Over thirty days they post about ten posts a day in their own language,
+with a picture made for each, and comment and vote, mostly among their own;
+some titles and comments tell no language ("wow 😍", names). The texts come
+from `database/seeders/data/language-demo-texts.json`. Every post, comment and
+vote goes through the action the site uses, the clock set back to its moment,
+so each text gets its language as it would on the site and its check waits
+for OpenAI; at the end each post's language is worked out and the hot scores
+brought up to date. `BusyLanguageDemoSeeder` plays a hundred posts a day among
+1,000 members and takes several minutes. Then switch on Project settings →
+Language ranking → Rank posts by language, and sign in as `langdemo1@demo.test`
+… `langdemo300@demo.test` (password `password`), or switch the language in the
+header as a guest. Neither seeder is called by `DatabaseSeeder`; run again,
+they add nothing.
+
 ## Demo accounts
 
 Admin:
