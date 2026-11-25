@@ -18,27 +18,6 @@ beforeEach(function () {
     Http::preventStrayRequests();
 });
 
-/**
- * What the embed widget's endpoint returns for a post with one photo,
- * trimmed to the fields the adapter reads.
- *
- * @param  array<string, mixed>  $overrides
- */
-function xSyndicatedPost(array $overrides = []): string
-{
-    return json_encode(array_replace([
-        '__typename' => 'Tweet',
-        'id_str' => '440322224407314432',
-        'text' => "If only Bradley's arm was longer. Best photo ever. #oscars http://t.co/C9U5NOtGap",
-        'user' => ['name' => 'The Ellen Show', 'screen_name' => 'TheEllenShow'],
-        'mediaDetails' => [[
-            'type' => 'photo',
-            'indices' => [59, 81],
-            'media_url_https' => 'https://pbs.twimg.com/media/BhxWutnCEAAtEQ6.jpg',
-        ]],
-    ], $overrides), JSON_THROW_ON_ERROR);
-}
-
 it('imports the first picture of a post on X at its large size, with the post text and its author', function () {
     Http::fake(['cdn.syndication.twimg.com/*' => Http::response(xSyndicatedPost(), 200, ['Content-Type' => 'application/json'])]);
 

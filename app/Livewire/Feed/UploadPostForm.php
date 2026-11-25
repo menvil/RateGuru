@@ -127,6 +127,9 @@ final class UploadPostForm extends Component
         // either way.
         $importedTempFile = null;
         $videoUrl = null;
+        // The post's source when the author named none: never written into the
+        // form, so a failed submission leaves the field as the author left it.
+        $linkSource = null;
 
         // A link field emptied is no link: the picture is then simply missing.
         if (filled($this->importedImageUrl) && $this->image === null && ! $this->video instanceof UploadedFile) {
@@ -163,7 +166,11 @@ final class UploadPostForm extends Component
                 if ($provider !== 'direct_image') {
                     $preview = app(ImportFromUrlAction::class)->handle($this->importedImageUrl);
                     $videoUrl = $preview->videoUrl;
-                    $imageUrl = $videoUrl === null ? $preview->imageUrl : null;
+                    // A link that names no file and is no known site's post may
+                    // still be a picture's (an image CDN's, "copy image
+                    // address"): with nothing else to take, it is tried as
+                    // one, as it always was.
+                    $imageUrl = $videoUrl === null ? ($preview->imageUrl ?? ($provider === 'open_graph' ? $this->importedImageUrl : null)) : null;
 
                     if ($videoUrl === null && $imageUrl === null) {
                         $this->submitError = __('import.errors.unsupported');
@@ -175,7 +182,7 @@ final class UploadPostForm extends Component
                     // author named a source — without its query, which may
                     // carry a token or tracking, never meant to be public.
                     if (blank($this->sourceUrl) && in_array($provider, ['x', 'instagram', 'facebook', 'pinterest'], true)) {
-                        $this->sourceUrl = strtok($this->importedImageUrl, '?#') ?: null;
+                        $linkSource = strtok($this->importedImageUrl, '?#') ?: null;
                     }
                 }
 
@@ -213,7 +220,7 @@ final class UploadPostForm extends Component
                 $post = $createPostAction->handle(auth()->user(), new CreatePostData(
                     title: $this->title,
                     description: $this->description,
-                    sourceUrl: $this->sourceUrl,
+                    sourceUrl: filled($this->sourceUrl) ? $this->sourceUrl : $linkSource,
                     tagIds: $this->tagIds,
                     image: $this->video instanceof UploadedFile || $videoUrl !== null ? null : $this->image,
                     imageSource: $imageSource,

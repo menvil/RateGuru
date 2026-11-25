@@ -540,13 +540,15 @@ tags. A post is read for what it carries (`ImportFromUrlAction`): X's
 syndication data gives the video or GIF a post leads with (the highest MP4
 bitrate no larger than 1080 on its short side); otherwise its picture is
 fetched at once, as a picture link is. A video file's link (`direct_video`:
-`.mp4`, `.m4v`, `.mov`, `.webm`, `.gif`) is fetched in nothing at all while
-posting.
+`.mp4`, `.m4v`, `.mov`, `.webm`, `.gif`) fetches nothing at all while
+posting. A link that names no file and gives nothing to take is tried as a
+picture's, as it always was. Instagram gives a post's photo; its videos wait
+for the yt-dlp import.
 
 ```text
 UploadPostForm -> CreatePostData::videoUrl -> CreatePostAction
-  asset Processing, private, at the place its original will be stored,
-  metadata.import.url; the post a Draft; the per-author limit counts it
+  asset Processing, private, under a reserved path, metadata.import.url;
+  the post a Draft; the per-author and import limits count it
   -> ImportVideoAssetJob (media queue)
        SafeImportHttpClient::download(): every hop validated and pinned, the
        body streamed to a file, never past the upload limit
@@ -554,8 +556,9 @@ UploadPostForm -> CreatePostData::videoUrl -> CreatePostAction
        VideoUploadStorer::storeFile(): ffprobe and the policy on what arrived
        -> the asset as any upload's, metadata.import.downloaded_at
        -> ProcessVideoAssetJob, and from there as any video
-     a link that cannot be fetched, or a file refused: the asset fails at
-     once and the author is told; a host problem is retried once
+     a file refused, or a link still failing on the second try: the asset
+     fails and the author is told; a redelivered job that finds the file
+     downloaded hands it on to processing
 ```
 
 The link is kept as the post's source when the author named none. Until it

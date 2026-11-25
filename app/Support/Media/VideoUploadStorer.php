@@ -57,6 +57,7 @@ final class VideoUploadStorer
     public function storeFile(string $local, string $originalFilename, int $ownerUserId, ?int $bytes = null): StoredVideo
     {
         $policy = VideoIngestPolicy::fromConfig();
+        clearstatcache(true, $local);
         $bytes ??= (int) @filesize($local);
 
         $policy->assertWithinByteLimit($bytes);

@@ -93,8 +93,9 @@ final class MediaAssetCreator
 
     /**
      * The asset of a video or GIF to be downloaded from $url: it waits in
-     * Processing, private, at the place its original will be stored, until
-     * ImportVideoAssetJob has fetched the file, and then as any upload.
+     * Processing, private, under a reserved path of its own (no file is ever
+     * there), until ImportVideoAssetJob has stored the file it fetched as an
+     * upload's original and pointed the asset at it.
      */
     public function createAwaitingDownload(User $owner, string $url): MediaAsset
     {

@@ -9,6 +9,7 @@ use App\Enums\MediaStatus;
 use App\Enums\MediaType;
 use App\Enums\PostStatus;
 use App\Exceptions\Abuse\RateLimitExceededException;
+use App\Exceptions\Import\ImportFetchException;
 use App\Exceptions\Import\UnsafeImportUrlException;
 use App\Exceptions\Posts\CannotCreatePostException;
 use App\Jobs\ImportVideoAssetJob;
@@ -117,7 +118,10 @@ it('fails the post\'s media and tells the author when the link cannot be fetched
     app()->instance(ImportHttpTransport::class, new ScriptedImportHttpTransport([$script()]));
     bindRecordingMediaToolRunner([$probe()]);
 
-    (new ImportVideoAssetJob((int) $post->image_asset_id))->handle(app(SafeImportHttpClient::class), app(VideoUploadStorer::class), app(FinalizePostMediaAction::class));
+    // Its last attempt: a link still failing is given up on.
+    $job = (new ImportVideoAssetJob((int) $post->image_asset_id))->withFakeQueueInteractions();
+    $job->job->attempts = 2;
+    $job->handle(app(SafeImportHttpClient::class), app(VideoUploadStorer::class), app(FinalizePostMediaAction::class));
 
     expect(MediaAsset::query()->findOrFail($post->image_asset_id)->status)->toBe(MediaStatus::Failed)
         ->and($post->refresh()->status)->toBe(PostStatus::Draft);
@@ -203,4 +207,32 @@ it('limits the videos one author may have downloaded in an hour', function () {
 
     expect(fn () => app(CreatePostAction::class)->handle($author, new CreatePostData(title: 'Three', videoUrl: 'https://videos.example/c.mp4')))
         ->toThrow(RateLimitExceededException::class);
+});
+
+it('tries a link that would not answer once more before giving it up', function () {
+    $post = app(CreatePostAction::class)->handle(User::factory()->create(), new CreatePostData(title: 'From a link', videoUrl: 'https://videos.example/clip.mp4'));
+    app()->instance(ImportHttpTransport::class, new ScriptedImportHttpTransport([new ImportTransportResponse(503, [], '')]));
+
+    expect(fn () => (new ImportVideoAssetJob((int) $post->image_asset_id))->handle(app(SafeImportHttpClient::class), app(VideoUploadStorer::class), app(FinalizePostMediaAction::class)))
+        ->toThrow(ImportFetchException::class);
+
+    expect(MediaAsset::query()->findOrFail($post->image_asset_id)->status)->toBe(MediaStatus::Processing);
+    Notification::assertNothingSent();
+});
+
+it('hands a video downloaded already on to processing when its job comes again, and fails one whose last attempt failed', function () {
+    $post = app(CreatePostAction::class)->handle(User::factory()->create(), new CreatePostData(title: 'From a link', videoUrl: 'https://videos.example/clip.mp4'));
+    $asset = MediaAsset::query()->findOrFail($post->image_asset_id);
+    $asset->forceFill(['metadata' => ['import' => ['url' => 'https://videos.example/clip.mp4', 'downloaded_at' => now()->toIso8601ZuluString()]]])->save();
+    app()->instance(ImportHttpTransport::class, new ScriptedImportHttpTransport([]));
+
+    (new ImportVideoAssetJob($asset->id))->handle(app(SafeImportHttpClient::class), app(VideoUploadStorer::class), app(FinalizePostMediaAction::class));
+
+    Queue::assertPushed(ProcessVideoAssetJob::class, fn (ProcessVideoAssetJob $job): bool => $job->mediaAssetId === $asset->id);
+
+    $other = app(CreatePostAction::class)->handle(User::factory()->create(), new CreatePostData(title: 'Another', videoUrl: 'https://videos.example/other.mp4'));
+    (new ImportVideoAssetJob((int) $other->image_asset_id))->failed(new RuntimeException('worker died'));
+
+    expect(MediaAsset::query()->findOrFail($other->image_asset_id)->status)->toBe(MediaStatus::Failed);
+    Notification::assertSentTo($other->user, VideoPostProcessedNotification::class);
 });

@@ -54,7 +54,16 @@ final class ImportVideoAssetJob implements RunsOnMediaQueue, ShouldQueue
         $asset = MediaAsset::query()->find($this->mediaAssetId);
         $url = $asset?->metadata['import']['url'] ?? null;
 
-        if ($asset === null || $asset->status !== MediaStatus::Processing || ! is_string($url) || isset($asset->metadata['import']['downloaded_at'])) {
+        if ($asset === null || $asset->status !== MediaStatus::Processing || ! is_string($url)) {
+            return;
+        }
+
+        // Downloaded already — a run that stopped before handing it on, or a
+        // redelivery: hand it on now. Processing it twice is safe; the
+        // processor holds its own lock and settles an asset once.
+        if (isset($asset->metadata['import']['downloaded_at'])) {
+            ProcessVideoAssetJob::dispatch((int) $asset->id);
+
             return;
         }
 
@@ -64,14 +73,25 @@ final class ImportVideoAssetJob implements RunsOnMediaQueue, ShouldQueue
             $client->download($url, VideoIngestPolicy::fromConfig()->maxBytes, $file);
 
             $stored = $storer->storeFile($file, (string) $asset->original_filename, (int) $asset->owner_user_id);
-        } catch (ImportFetchException|UnsafeImportUrlException|VideoIngestException $exception) {
-            // The link's or the file's fault, not the host's: final.
+        } catch (ImportFetchException $exception) {
+            // The other site may answer next time (a timeout, a 5xx): one more
+            // try, then the link is given up on.
+            if ($this->attempts() < $this->tries) {
+                throw $exception;
+            }
+
+            Log::warning('ImportVideoAssetJob: video not downloaded.', ['media_asset_id' => $asset->id, 'exception_class' => $exception::class]);
+            $this->failImport($asset, $finalize, 'The video could not be downloaded.');
+
+            return;
+        } catch (UnsafeImportUrlException|VideoIngestException $exception) {
+            // The link's or the file's fault: final.
             Log::warning('ImportVideoAssetJob: video not imported.', [
                 'media_asset_id' => $asset->id,
                 'exception_class' => $exception::class,
             ]);
 
-            $this->fail($asset, $finalize, $exception instanceof VideoIngestException
+            $this->failImport($asset, $finalize, $exception instanceof VideoIngestException
                 ? $exception->getMessage()
                 : 'The video could not be downloaded.');
 
@@ -148,11 +168,11 @@ final class ImportVideoAssetJob implements RunsOnMediaQueue, ShouldQueue
         $asset = MediaAsset::query()->find($this->mediaAssetId);
 
         if ($asset !== null && $asset->status === MediaStatus::Processing) {
-            $this->fail($asset, app(FinalizePostMediaAction::class), 'The video could not be downloaded.');
+            $this->failImport($asset, app(FinalizePostMediaAction::class), 'The video could not be downloaded.');
         }
     }
 
-    private function fail(MediaAsset $asset, FinalizePostMediaAction $finalize, string $reason): void
+    private function failImport(MediaAsset $asset, FinalizePostMediaAction $finalize, string $reason): void
     {
         $changed = MediaAsset::query()
             ->whereKey($asset->id)

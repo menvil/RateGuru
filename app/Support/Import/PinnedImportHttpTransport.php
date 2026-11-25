@@ -191,6 +191,10 @@ final class PinnedImportHttpTransport implements ImportHttpTransport
         }
 
         $body = $sink === null ? $response->body() : '';
+        if ($sink !== null) {
+            clearstatcache(true, $sink);
+        }
+
         $received = $sink === null ? strlen($body) : (int) @filesize($sink);
 
         if ($received > $policy->maxBytes) {

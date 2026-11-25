@@ -36,13 +36,12 @@ beforeEach(function () {
 /** X's answer for a post that leads with a video, or with a photo. */
 function xPostCarrying(string $type): string
 {
-    $media = $type === 'video'
+    return xSyndicatedPost(['id_str' => '7', 'mediaDetails' => [$type === 'video'
         ? ['type' => 'video', 'indices' => [0, 0], 'media_url_https' => 'https://pbs.twimg.com/ext_tw_video_thumb/1/pu/img/thumb.jpg', 'video_info' => ['variants' => [
             ['content_type' => 'video/mp4', 'bitrate' => 2176000, 'url' => 'https://video.twimg.com/ext_tw_video/1/pu/vid/avc1/720x1280/b.mp4'],
         ]]]
-        : ['type' => 'photo', 'indices' => [0, 0], 'media_url_https' => 'https://pbs.twimg.com/media/Photo1.jpg'];
-
-    return json_encode(['__typename' => 'Tweet', 'id_str' => '7', 'text' => 'A post', 'user' => ['name' => 'Someone', 'screen_name' => 'someone'], 'mediaDetails' => [$media]], JSON_THROW_ON_ERROR);
+        : ['type' => 'photo', 'indices' => [0, 0], 'media_url_https' => 'https://pbs.twimg.com/media/Photo1.jpg'],
+    ]]);
 }
 
 it('takes the video a post on X leads with: a draft that downloads it, its link kept as the source', function () {
@@ -101,7 +100,7 @@ it('takes a direct link to a video file, and fetches nothing while posting', fun
 });
 
 it('says a link with nothing to take cannot be imported', function () {
-    Http::fake(['cdn.syndication.twimg.com/*' => Http::response(json_encode(['__typename' => 'Tweet', 'id_str' => '8', 'text' => 'Words only', 'user' => ['name' => 'Someone', 'screen_name' => 'someone'], 'mediaDetails' => []]), 200)]);
+    Http::fake(['cdn.syndication.twimg.com/*' => Http::response(xSyndicatedPost(['id_str' => '8', 'mediaDetails' => []]), 200)]);
 
     Livewire::actingAs(User::factory()->create())
         ->test(UploadPostForm::class)
@@ -150,6 +149,27 @@ it('names no source for a link to a file or a page that is not a social post', f
         ->set('importedImageUrl', 'https://videos.example/clip.mp4')
         ->call('submit')
         ->assertHasNoErrors();
+
+    expect(Post::query()->sole()->source_url)->toBeNull();
+});
+
+it('tries a link to no file and no known site\'s post as a picture\'s, as it always did', function () {
+    bindFakeHostResolver(['images.example' => ['93.184.216.41']]);
+    // The page answers with no Open Graph tags: nothing else to take.
+    Http::fake(['images.example/*' => Http::response('<html><head></head><body></body></html>', 200, ['Content-Type' => 'text/html'])]);
+    $this->mock(StoreImportedImageAction::class, function ($mock): void {
+        $mock->shouldReceive('download')->once()->with('https://images.example/photo/123?w=1200')
+            ->andReturn(UploadedFile::fake()->image('photo.jpg', 800, 600));
+        $mock->shouldReceive('cleanup')->once();
+    });
+
+    Livewire::actingAs(User::factory()->create())
+        ->test(UploadPostForm::class)
+        ->set('title', 'An image CDN link')
+        ->set('importedImageUrl', 'https://images.example/photo/123?w=1200')
+        ->call('submit')
+        ->assertHasNoErrors()
+        ->assertSet('submitError', null);
 
     expect(Post::query()->sole()->source_url)->toBeNull();
 });
