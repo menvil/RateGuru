@@ -1,0 +1,25 @@
+docs/architecture/language-ranking.md
+  s_4b9dc6ab6b25d3::t_f388923fb2eb04 1-180
+docs/architecture/post-lifecycle.md
+  s_4b9dc6ab6b25d3::t_b758c2029ad575 42-47
+docs/architecture/comment-lifecycle.md
+  s_4b9dc6ab6b25d3::t_b758c2029ad575 68-71
+tests/Feature/Filament/ProjectSettingsPageTest.php
+  s_4b9dc6ab6b25d3::t_b758c2029ad575 15
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "a335ed3a9f6cfaf1fbbe43472710be7c29006562",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
