@@ -1,0 +1,51 @@
+app/Filament/Pages/LanguagesPage.php
+  ai_agent 57
+  s_4b9dc6ab6b25d3::t_ee5944cb98c898 9,12,116-120
+  s_4b9dc6ab6b25d3::t_781b137747f88f 411,530-531,560-580
+app/Filament/Resources/Categories/Pages/ManageCategories.php
+  s_4b9dc6ab6b25d3::t_1f54648909f60a 257
+tests/Feature/I18n/OutdatedTranslationsShownTest.php
+  s_4b9dc6ab6b25d3::t_93fe93b36f2ce7 1-59
+app/Queries/Translations/OutdatedProjectTranslationsQuery.php
+  s_4b9dc6ab6b25d3::t_9e6182351b4faf 1-64
+resources/views/filament/pages/languages/row.blade.php
+  s_4b9dc6ab6b25d3::t_ee5944cb98c898 119-124
+resources/views/filament/pages/categories.blade.php
+  s_4b9dc6ab6b25d3::t_781b137747f88f 45
+app/Filament/Support/ContentTranslationStatus.php
+  s_4b9dc6ab6b25d3::t_1f54648909f60a 6,30-33,78-99
+app/Support/Translations/ProjectTranslationCatalog.php
+  s_4b9dc6ab6b25d3::t_9e6182351b4faf 364-379,383-399
+resources/css/filament/admin/components.css
+  s_4b9dc6ab6b25d3::t_f248e1843a1cdf 8981-8990
+app/Filament/Resources/RatingGroups/Pages/ManageRatingGroups.php
+  s_4b9dc6ab6b25d3::t_1f54648909f60a 182
+app/Filament/Resources/Tags/Pages/ManageTags.php
+  s_4b9dc6ab6b25d3::t_1f54648909f60a 226
+resources/views/filament/pages/languages.blade.php
+  s_4b9dc6ab6b25d3::t_ee5944cb98c898 45-50
+app/Queries/Translations/ProjectTranslationSourcesQuery.php
+  s_4b9dc6ab6b25d3::t_9e6182351b4faf 52-54,57,60,70
+resources/views/filament/pages/tags.blade.php
+  s_4b9dc6ab6b25d3::t_781b137747f88f 45
+resources/views/filament/pages/rating-groups.blade.php
+  s_4b9dc6ab6b25d3::t_781b137747f88f 31
+resources/views/filament/pages/translations/outdated-stat.blade.php
+  s_4b9dc6ab6b25d3::t_1f54648909f60a 1-16
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "6681479c31f8d5633125d414400c4ca4bc51e594",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}

@@ -1,0 +1,36 @@
+app/Support/Translations/EnglishChange.php
+  s_4b9dc6ab6b25d3::t_70cd550ff9edb4 1-170
+tests/Feature/Filament/TranslationCenterPageTest.php
+  s_4b9dc6ab6b25d3::t_aaffbcf739db35 381-385
+  s_4b9dc6ab6b25d3::t_5bfb7e9393bae8 410-423,426-428,430-431
+  s_4b9dc6ab6b25d3::t_d7d6d42d278e8b 424-425,429
+tests/Unit/Support/Translations/EnglishChangeTest.php
+  s_4b9dc6ab6b25d3::t_1ce67a6905c1a0 1-25,27-57,59
+  s_4b9dc6ab6b25d3::t_9fdd5b62ad6156 26
+  s_4b9dc6ab6b25d3::t_981c7342553547 58
+tests/Browser/AdminTranslationCenterOutdatedBrowserTest.php
+  s_4b9dc6ab6b25d3::t_d63b7773bfd8f2 43,77
+resources/css/filament/admin/components.css
+  s_4b9dc6ab6b25d3::t_a3bc6a895ca66f 9597-9650
+resources/views/filament/pages/translation-center/row.blade.php
+  s_4b9dc6ab6b25d3::t_a3bc6a895ca66f 85-86,88-90,92-94,96-103
+  s_4b9dc6ab6b25d3::t_981c7342553547 91
+app/Filament/Pages/TranslationCenterPage.php
+  s_4b9dc6ab6b25d3::t_a3bc6a895ca66f 21,581-582
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "a2e80b0c233050de939d92f372ad26c3951ad8da",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
