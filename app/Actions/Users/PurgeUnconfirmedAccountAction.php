@@ -246,6 +246,8 @@ final class PurgeUnconfirmedAccountAction
         $post->forceFill([
             'comments_count' => Comment::query()->where('post_id', $post->id)->where('status', CommentStatus::Visible)->count(),
             'reports_count' => Report::query()->where('target_type', Post::class)->where('target_id', $post->id)->count(),
+            // Its votes and comments count towards its language, worked out again in the background.
+            'language_stale_at' => now(),
         ]);
 
         $this->postScore->saveWithCounts($post);

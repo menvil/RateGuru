@@ -108,6 +108,13 @@ final class VotePostAction
             // the counts and the score in one update of the post, which
             // never locks its author after it.
             $this->recalculatePostCounters->fill($post->refresh());
+
+            if ($lockedActor->locale !== null) {
+                // A voter's language counts, weakly, towards the post's: worked out again in the background
+                // (languages:work), marked in this one update of the post.
+                $post->forceFill(['language_stale_at' => now()]);
+            }
+
             $this->recalculatePostScore->saveWithCounts($post);
 
             return $existingVote === null;

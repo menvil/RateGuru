@@ -5,6 +5,7 @@ namespace App\Services\Languages;
 use App\Support\Languages\DetectedLanguage;
 use App\Support\Languages\LanguageCodes;
 use App\Support\Languages\TextCleaner;
+use App\Support\Languages\TextLanguage;
 use Nitotm\Eld\EldDataFile;
 use Nitotm\Eld\EldMode;
 use Nitotm\Eld\EldScheme;
@@ -27,6 +28,14 @@ final class LocalLanguageDetector
      * @param  list<string>  $installed  the site's language codes
      */
     public function __construct(private readonly array $installed) {}
+
+    /**
+     * What a text tells of its language as it is written: done before the writer's transaction, being CPU work.
+     */
+    public function read(string $text): TextLanguage
+    {
+        return new TextLanguage($this->detect($text), TextCleaner::clean($text) !== '');
+    }
 
     /**
      * The language of a raw text and how much it counts, or null when the text tells none.

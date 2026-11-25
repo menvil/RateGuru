@@ -2,6 +2,7 @@
 
 namespace App\Actions\Users;
 
+use App\Actions\Languages\MarkAuthorPostsLanguageStaleAction;
 use App\Models\User;
 use App\Support\Locale\LocaleManager;
 use InvalidArgumentException;
@@ -17,6 +18,11 @@ final class UpdateUserLocaleAction
             throw new InvalidArgumentException("Locale [{$locale}] is not offered by this project.");
         }
 
+        $changed = $user->locale !== $locale;
         $user->update(['locale' => $locale]);
+
+        if ($changed) {
+            app(MarkAuthorPostsLanguageStaleAction::class)->handle((int) $user->id);
+        }
     }
 }

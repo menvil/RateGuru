@@ -27,7 +27,9 @@ trait RefreshesPostCommentsCount
             ->where('status', CommentStatus::Visible)
             ->count();
 
-        $lockedPost->forceFill(['comments_count' => $count]);
+        // A post's comments count towards its language: it is worked out again in the background (languages:work),
+        // marked here in the one update this write makes of the post.
+        $lockedPost->forceFill(['comments_count' => $count, 'language_stale_at' => now()]);
 
         // The hot score counts comments, so it moves with the count — when a
         // comment is added, deleted, hidden or restored alike, under the
