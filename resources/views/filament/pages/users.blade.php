@@ -7,7 +7,6 @@
      * sideways and every column stays (TBL-01). A person is edited in the
      * drawer over the list (UserEditor).
      */
-    $columns = '--rg-admin-table-columns: minmax(200px, 1fr) 220px 240px 110px 140px 150px 70px 80px 110px; --rg-admin-table-min-width: 1320px';
     $total = $paginator->total();
 @endphp
 
@@ -73,17 +72,21 @@
             </div>
 
             @if ($rows !== [])
-                <div class="rg-admin-table__scroll">
-                    <div class="rg-admin-table__grid" role="table" aria-label="Users" style="{{ $columns }}">
+                <div class="rg-admin-table__scroll rg-admin-users__table">
+                    <div class="rg-admin-table__grid rg-admin-users__grid" role="table" aria-label="Users">
                         <div class="rg-admin-table__row rg-admin-table__row--head" role="row">
                             <div class="rg-admin-table__cell" role="columnheader">Username</div>
                             <div class="rg-admin-table__cell" role="columnheader">Email</div>
-                            <div class="rg-admin-table__cell" role="columnheader">Location</div>
-                            <div class="rg-admin-table__cell" role="columnheader">Role</div>
+                            <div class="rg-admin-table__cell rg-admin-users__col--location" role="columnheader">Location</div>
+                            <div class="rg-admin-table__cell rg-admin-users__col--role" role="columnheader">Role</div>
                             <div class="rg-admin-table__cell" role="columnheader">Status</div>
-                            <div class="rg-admin-table__cell" role="columnheader">Trust</div>
-                            <div class="rg-admin-table__cell rg-admin-table__cell--numeric" role="columnheader">Posts</div>
-                            <div class="rg-admin-table__cell" role="columnheader">Reports</div>
+                            <div class="rg-admin-table__cell rg-admin-users__col--trust" role="columnheader">Trust</div>
+                            <div class="rg-admin-table__cell rg-admin-table__cell--numeric rg-admin-users__col--posts" role="columnheader">Posts</div>
+                            <div class="rg-admin-table__cell rg-admin-table__cell--numeric rg-admin-users__col--post-votes" role="columnheader">Post votes</div>
+                            <div class="rg-admin-table__cell rg-admin-table__cell--numeric rg-admin-users__col--comments" role="columnheader">Comments</div>
+                            <div class="rg-admin-table__cell rg-admin-table__cell--numeric rg-admin-users__col--comment-votes" role="columnheader">Comment votes</div>
+                            <div class="rg-admin-table__cell rg-admin-table__cell--numeric rg-admin-users__col--reports-filed" role="columnheader">Reports filed</div>
+                            <div class="rg-admin-table__cell" role="columnheader">Reports received</div>
                             <div class="rg-admin-table__cell rg-admin-table__cell--end" role="columnheader">Actions</div>
                         </div>
 

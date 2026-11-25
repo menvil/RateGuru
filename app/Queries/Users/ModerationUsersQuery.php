@@ -8,7 +8,9 @@ use App\Contracts\Persistence\StablePaginationBoundary;
 use App\Enums\UserRole;
 use App\Enums\UserStatus;
 use App\Models\Comment;
+use App\Models\CommentVote;
 use App\Models\Post;
+use App\Models\PostVote;
 use App\Models\Report;
 use App\Models\TrafficVisit;
 use App\Models\User;
@@ -34,9 +36,10 @@ final class ModerationUsersQuery implements RawSqlPersistenceBoundary, StablePag
     public const PER_PAGE = 25;
 
     /**
-     * A page of one list, with each person's posts and the reports on their
-     * posts and comments, and — for an account made before it kept where it
-     * was made from — the place of the visit its sign-up was credited to.
+     * A page of one list, with each person's posts and comments, the votes
+     * they cast on each, the reports they filed and those on their posts and
+     * comments, and — for an account made before it kept where it was made
+     * from — the place of the visit its sign-up was credited to.
      *
      * @return LengthAwarePaginator<int, User>
      */
@@ -49,9 +52,12 @@ final class ModerationUsersQuery implements RawSqlPersistenceBoundary, StablePag
             ->limit(1);
 
         return $this->narrowed($tab, $search, $role, $suspicious)
-            ->withCount('posts')
+            ->withCount(['posts', 'comments'])
             ->addSelect([
                 'users.*',
+                'post_votes_count' => PostVote::query()->selectRaw('count(*)')->whereColumn('post_votes.user_id', 'users.id'),
+                'comment_votes_count' => CommentVote::query()->selectRaw('count(*)')->whereColumn('comment_votes.user_id', 'users.id'),
+                'reports_filed_count' => Report::query()->selectRaw('count(*)')->whereColumn('reports.reporter_id', 'users.id'),
                 'reports_on_content' => $this->reportsOnContent(),
                 'credited_visit_country' => $credited('country'),
                 'credited_visit_city' => $credited('city'),

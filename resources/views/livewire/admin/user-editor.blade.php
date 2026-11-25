@@ -200,7 +200,7 @@
                 </div>
                 {{-- Where they signed up and last visited from, by the IP address; the address itself only while it is kept. --}}
                 @foreach ([['map-pin', 'Signed up from', $person['signupPlace'], 'signup'], ['history', 'Last visit', $person['visitPlace'], 'visit']] as [$icon, $label, $place, $key])
-                    <div class="rg-admin-detail-row" data-testid="user-editor-place-{{ $key }}">
+                    <div class="rg-admin-detail-row rg-admin-user__place-row" data-testid="user-editor-place-{{ $key }}">
                         <x-admin.ui.icon :name="$icon" class="rg-admin-detail-row__icon" />
                         <dt class="rg-admin-detail-row__label">{{ $label }}</dt>
                         <dd class="rg-admin-detail-row__value">

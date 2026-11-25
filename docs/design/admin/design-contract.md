@@ -1730,8 +1730,10 @@ editor — or the list on them where they are not the viewer's to edit.
   and when they joined, to the minute; the email address (“Removed on deletion” for a deleted account), with “Not
   confirmed” under an address nobody confirmed (never a persona’s); Location — the flag, city and country the
   account was made from, and under it “Last visit: …” with its day when the latest visit started somewhere else; the
-  role, staff as an outline badge; the status (STS-01); trust as a two-step bar and its word (Trusted, Not trusted); posts; the
-  reports on their posts and comments (STS-02); Edit and the row menu.
+  role, staff as an outline badge; the status (STS-01); trust as a two-step bar and its word (Trusted, Not trusted); posts,
+  post votes, comments, comment votes and reports filed; the reports on their posts and comments (STS-02, “Reports
+  received”); Edit and the row menu. As the card narrows the less needed columns give way — reports filed, role,
+  comment votes, trust, post votes, comments, posts, then Location — before the card scrolls sideways.
 - **Row menu (TBL-04):** the person, their status and trust as its caption; Edit user, View posts (the Posts list
   on them), then Mark trusted, Restore access, Limit, Shadowban and Ban as their status allows — each unavailable
   one kept with why: “This is your account”, “Administrators can’t be sanctioned”, “Administrators only”, “Already

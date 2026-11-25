@@ -348,6 +348,11 @@ it('counts a person\'s posts and comments, each beside the votes they cast on it
 
     expect($page->viewData('person'))->toMatchArray(['posts' => '1', 'postVotes' => '3', 'comments' => '0', 'commentVotes' => '1', 'reportsFiled' => '2', 'reportsReceived' => '1']);
     $page->assertSeeInOrder(['Posts', 'Post votes', 'Comments', 'Comment votes', 'Reports filed', 'Reports received']);
+
+    // The list counts the same, each person's row on its own.
+    $list = Livewire::test(ListUsers::class)->assertSeeInOrder(['Posts', 'Post votes', 'Comments', 'Comment votes', 'Reports filed', 'Reports received']);
+
+    expect(listedRow($list, $person))->toMatchArray(['posts' => 1, 'postVotes' => 3, 'comments' => 0, 'commentVotes' => 1, 'reportsFiled' => 2, 'reports' => 1]);
 });
 
 it('shows where a person signed up and last visited from, each address while kept and the other accounts sharing it', function () {

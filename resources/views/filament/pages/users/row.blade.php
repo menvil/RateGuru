@@ -4,8 +4,10 @@
      * in the drawer for whoever may edit it — name and when they joined; the email
      * address; where they signed up from, and their latest visit when it
      * started somewhere else; the role, staff as an outline badge; the status (STS-01);
-     * whether they are trusted; their posts; the reports on their content
-     * (STS-02). Edit is inline; the moderation actions are in the row menu
+     * whether they are trusted; their posts, the votes they cast on posts,
+     * their comments, the votes they cast on comments and the reports they
+     * filed; the reports on their content (STS-02). The less needed columns
+     * give way as the card narrows (.rg-admin-users__grid). Edit is inline; the moderation actions are in the row menu
      * (TBL-04), each unavailable one with its reason. The editor links are
      * addresses too: a click with a modifier key is left to the browser, to
      * open them in a new tab.
@@ -38,7 +40,7 @@
         </div>
     </div>
 
-    <div class="rg-admin-table__cell" role="cell" data-testid="user-row-location">
+    <div class="rg-admin-table__cell rg-admin-users__col--location" role="cell" data-testid="user-row-location">
         <div class="rg-admin-table__stack">
             <span class="rg-admin-table__ellipsis" title="{{ $row['location'] }}{{ $row['locationFromVisits'] ? ' · from the visits recorded' : '' }}">{{ $row['location'] }}</span>
             @if ($row['lastVisit'] !== null)
@@ -47,7 +49,7 @@
         </div>
     </div>
 
-    <div class="rg-admin-table__cell" role="cell">
+    <div class="rg-admin-table__cell rg-admin-users__col--role" role="cell">
         @if ($row['staff'])
             <x-admin.ui.badge tone="outline">{{ $row['role'] }}</x-admin.ui.badge>
         @else
@@ -59,14 +61,17 @@
         <x-admin.ui.badge :tone="$row['status']['tone']" :dot="$row['status']['dot']">{{ $row['status']['label'] }}</x-admin.ui.badge>
     </div>
 
-    <div class="rg-admin-table__cell" role="cell">
+    <div class="rg-admin-table__cell rg-admin-users__col--trust" role="cell">
         <span @class(['rg-admin-users__trust', 'rg-admin-users__trust--trusted' => $row['trust'] === 'Trusted'])>
             <span class="rg-admin-users__trust-bar" aria-hidden="true"><span></span><span></span></span>
             {{ $row['trust'] }}
         </span>
     </div>
 
-    <div class="rg-admin-table__cell rg-admin-table__cell--numeric" role="cell">{{ number_format($row['posts']) }}</div>
+    {{-- What they wrote, each beside the votes they cast on its kind, and the reports they filed. --}}
+    @foreach (['posts' => 'posts', 'postVotes' => 'post-votes', 'comments' => 'comments', 'commentVotes' => 'comment-votes', 'reportsFiled' => 'reports-filed'] as $count => $column)
+        <div class="rg-admin-table__cell rg-admin-table__cell--numeric rg-admin-users__col--{{ $column }}" role="cell" data-testid="user-row-{{ $column }}">{{ number_format($row[$count]) }}</div>
+    @endforeach
 
     <div class="rg-admin-table__cell" role="cell">
         @if ($row['reports'] > 0)
