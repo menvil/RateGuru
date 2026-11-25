@@ -19,9 +19,7 @@
             x-on:dropdown-opened.window="if ($event.detail !== menuId) menuOpen = false"
             class="relative rounded-rgCard border border-rg-border bg-rg-card p-3 sm:p-4 lg:p-5"
         >
-            @include('livewire.feed.post-drawer-close')
-
-            <section class="flex min-w-0 items-start gap-3 pe-10" data-testid="post-drawer-meta">
+            <section class="flex min-w-0 items-start gap-3" data-testid="post-drawer-meta">
                 @if($post->user?->public_username)
                     <a href="{{ route('profile.show', $post->user->public_username) }}" wire:navigate class="shrink-0 rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent">
                         <x-ui.avatar :src="$post->user?->resolved_avatar_url" :srcset="$post->user?->resolved_avatar_srcset" :name="$post->user->resolved_display_name" size="lg" />
@@ -47,15 +45,18 @@
                     </div>
                 </div>
 
-                @if($canSeeFollowButton)
-                    <div class="ms-auto shrink-0" data-testid="post-drawer-follow" wire:click.stop>
-                        <livewire:follows.follow-button :author="$post->user" variant="compact" :key="'post-drawer-follow-'.$post->id" />
-                    </div>
-                @endif
+                {{-- Follow and the close button on one line, at the end of the author's row. --}}
+                <div class="ms-auto flex shrink-0 items-center gap-2">
+                    @if($canSeeFollowButton)
+                        <div data-testid="post-drawer-follow" wire:click.stop>
+                            <livewire:follows.follow-button :author="$post->user" variant="compact" :key="'post-drawer-follow-'.$post->id" />
+                        </div>
+                    @endif
+                    @include('livewire.feed.post-drawer-close', ['inline' => true])
+                </div>
             </section>
 
-            {{-- Its room at the end follows the title's own direction, so it starts where the description does. --}}
-            <h2 id="post-drawer-title" data-testid="post-drawer-title" {{ \App\Support\Locale\WrittenText::dir($post->title) }} class="mt-4 pe-10 text-[22px] font-bold tracking-normal text-rg-text">{{ $post->title }}</h2>
+            <h2 id="post-drawer-title" data-testid="post-drawer-title" {{ \App\Support\Locale\WrittenText::dir($post->title) }} class="mt-4 text-[22px] font-bold tracking-normal text-rg-text">{{ $post->title }}</h2>
 
             @if($post->description)
                 <p {{ \App\Support\Locale\WrittenText::dir($post->description) }} class="mt-3 break-words text-sm leading-relaxed text-rg-muted">{{ $post->description }}</p>
