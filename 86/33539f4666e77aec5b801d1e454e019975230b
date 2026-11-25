@@ -1,0 +1,37 @@
+app/Support/Media/VideoUploadStorer.php
+  s_1f43f39fbe0537::t_39d09ebd1930a3 59
+tests/Pest.php
+  s_1f43f39fbe0537::t_723ebb6f8cdf84 1401-1419
+tests/Feature/Livewire/UploadPostFormLinkTest.php
+  s_1f43f39fbe0537::t_723ebb6f8cdf84 39,43-44,103,155-172
+app/Livewire/Feed/UploadPostForm.php
+  s_1f43f39fbe0537::t_39d09ebd1930a3 130-132,170,185,223
+  s_1f43f39fbe0537::t_66819dd2dc01db 169,171-173
+app/Support/Media/MediaAssetCreator.php
+  s_1f43f39fbe0537::t_39d09ebd1930a3 96-98
+docs/architecture/media.md
+  s_1f43f39fbe0537::t_39d09ebd1930a3 538-541,545-546,554-556
+app/Jobs/ImportVideoAssetJob.php
+  s_1f43f39fbe0537::t_39d09ebd1930a3 57-66,76-88,94,171,175
+tests/Feature/Import/VideoImportTest.php
+  s_1f43f39fbe0537::t_723ebb6f8cdf84 121-124,211-216,218-237
+  s_1f43f39fbe0537::t_c3dd9bbfff12b8 12,217
+app/Support/Import/PinnedImportHttpTransport.php
+  s_1f43f39fbe0537::t_39d09ebd1930a3 194-197
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "8633539f4666e77aec5b801d1e454e019975230b",
+  "prompts": {},
+  "sessions": {
+    "s_1f43f39fbe0537": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "526787d0-f443-4ad7-9610-cf9811fec895",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}

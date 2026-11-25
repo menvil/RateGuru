@@ -1,0 +1,162 @@
+lang/fi/ui.php
+  s_1f43f39fbe0537::t_35508fe88c648d 271
+lang/lt/ui.php
+  s_1f43f39fbe0537::t_958b438e219e60 273
+lang/it/ui.php
+  s_1f43f39fbe0537::t_958b438e219e60 271
+app/Data/Posts/CreatePostData.php
+  s_1f43f39fbe0537::t_9052c98335d700 31-33
+lang/et/ui.php
+  s_1f43f39fbe0537::t_958b438e219e60 271
+app/Enums/ImportProvider.php
+  s_1f43f39fbe0537::t_0fc1ba1095ff1d 8
+app/Actions/Posts/CreatePostAction.php
+  s_1f43f39fbe0537::t_baa3c6d7d476aa 14,70,100,117,129,135,137,147,202,218,220-223
+app/Support/Import/SafeImportHttpClient.php
+  s_1f43f39fbe0537::t_9ff8e7731929af 36-60,67
+lang/is/ui.php
+  s_1f43f39fbe0537::t_958b438e219e60 271
+tests/Feature/Import/XPostImportAdapterTest.php
+  s_1f43f39fbe0537::t_6d3955be9af95a 15,136-167
+lang/el/ui.php
+  s_1f43f39fbe0537::t_958b438e219e60 271
+app/Livewire/Feed/UploadPostForm.php
+  s_1f43f39fbe0537::t_3442a695470846 6,14,27,72-74,127,144-174,178-181,200,205,299
+lang/id/ui.php
+  s_1f43f39fbe0537::t_958b438e219e60 271
+lang/cnr/ui.php
+  s_1f43f39fbe0537::t_958b438e219e60 271
+lang/hu/ui.php
+  s_1f43f39fbe0537::t_958b438e219e60 271
+lang/sv/ui.php
+  s_1f43f39fbe0537::t_958b438e219e60 271
+lang/bs/ui.php
+  s_1f43f39fbe0537::t_958b438e219e60 271
+lang/ja/ui.php
+  s_1f43f39fbe0537::t_958b438e219e60 271
+tests/Pest.php
+  s_1f43f39fbe0537::t_ddc9f29cb8670f 487-504
+lang/ro/ui.php
+  s_1f43f39fbe0537::t_958b438e219e60 271
+app/Support/Import/PinnedImportHttpTransport.php
+  s_1f43f39fbe0537::t_9ff8e7731929af 56-69,139,189-190,192
+app/Support/Media/MediaAssetCreator.php
+  s_1f43f39fbe0537::t_faf602d808ce9f 118-119
+  s_1f43f39fbe0537::t_9052c98335d700 11-12,93-117
+app/Support/Media/VideoUploadStorer.php
+  s_1f43f39fbe0537::t_9052c98335d700 48-55,77
+  s_1f43f39fbe0537::t_35508fe88c648d 47,56,59
+lang/ru/ui.php
+  s_1f43f39fbe0537::t_958b438e219e60 275
+lang/tr/ui.php
+  s_1f43f39fbe0537::t_958b438e219e60 271
+lang/cs/ui.php
+  s_1f43f39fbe0537::t_958b438e219e60 271
+app/Actions/Import/ImportFromUrlAction.php
+  s_1f43f39fbe0537::t_2a999a89203c5b 55-67,89
+lang/fil/ui.php
+  s_1f43f39fbe0537::t_958b438e219e60 271
+lang/vi/ui.php
+  s_1f43f39fbe0537::t_958b438e219e60 271
+lang/bn/ui.php
+  s_1f43f39fbe0537::t_958b438e219e60 271
+lang/sq/ui.php
+  s_1f43f39fbe0537::t_958b438e219e60 271
+lang/ms/ui.php
+  s_1f43f39fbe0537::t_958b438e219e60 271
+app/Support/Import/ImportProviderDetector.php
+  s_1f43f39fbe0537::t_2a999a89203c5b 7-10,39-40
+  s_1f43f39fbe0537::t_faf602d808ce9f 41-42
+lang/he/ui.php
+  s_1f43f39fbe0537::t_958b438e219e60 278
+lang/de/ui.php
+  s_1f43f39fbe0537::t_958b438e219e60 271
+lang/fr/ui.php
+  s_1f43f39fbe0537::t_958b438e219e60 271
+lang/es/ui.php
+  s_1f43f39fbe0537::t_958b438e219e60 271
+app/Support/Import/ImportPreview.php
+  s_1f43f39fbe0537::t_0fc1ba1095ff1d 17-19
+lang/sk/ui.php
+  s_1f43f39fbe0537::t_958b438e219e60 271
+lang/bg/ui.php
+  s_1f43f39fbe0537::t_958b438e219e60 271
+lang/sl/ui.php
+  s_1f43f39fbe0537::t_958b438e219e60 271
+lang/zh/ui.php
+  s_1f43f39fbe0537::t_958b438e219e60 271
+tests/Feature/Import/VideoImportTest.php
+  s_1f43f39fbe0537::t_9c4d7eb3722e6a 5,11-12,19,24,76,101,119,136,139-145
+  s_1f43f39fbe0537::t_6d3955be9af95a 1-4,6-10,13-18,20-23,25-75,77-100,102-118,120-135,137-138,146
+app/Support/Import/ImportHttpTransport.php
+  s_1f43f39fbe0537::t_9ff8e7731929af 24-32
+app/Support/Import/Adapters/XPostImportAdapter.php
+  s_1f43f39fbe0537::t_faf602d808ce9f 232
+  s_1f43f39fbe0537::t_2a999a89203c5b 62,190-231
+lang/da/ui.php
+  s_1f43f39fbe0537::t_958b438e219e60 271
+lang/nl/ui.php
+  s_1f43f39fbe0537::t_958b438e219e60 271
+lang/pl/ui.php
+  s_1f43f39fbe0537::t_958b438e219e60 271
+lang/pt/ui.php
+  s_1f43f39fbe0537::t_958b438e219e60 271
+lang/th/ui.php
+  s_1f43f39fbe0537::t_958b438e219e60 271
+tests/Unit/Actions/StudioTrustedParametersTest.php
+  s_1f43f39fbe0537::t_ddc9f29cb8670f 205-206,219-221
+config/import.php
+  s_1f43f39fbe0537::t_0fc1ba1095ff1d 14-16
+app/Services/Media/MediaAuditService.php
+  s_1f43f39fbe0537::t_7e9f09702826cf 102-106,108
+lang/nb/ui.php
+  s_1f43f39fbe0537::t_958b438e219e60 271
+app/Jobs/ImportVideoAssetJob.php
+  s_1f43f39fbe0537::t_7e9f09702826cf 1-132
+lang/ur/ui.php
+  s_1f43f39fbe0537::t_958b438e219e60 279
+lang/lv/ui.php
+  s_1f43f39fbe0537::t_958b438e219e60 274
+tests/Feature/Livewire/UploadPostFormLinkTest.php
+  s_1f43f39fbe0537::t_4c1fb0d82f4362 1-120
+lang/en/ui.php
+  s_1f43f39fbe0537::t_958b438e219e60 271
+lang/sr/ui.php
+  s_1f43f39fbe0537::t_958b438e219e60 271
+docs/architecture/media.md
+  s_1f43f39fbe0537::t_9c4d7eb3722e6a 530-560
+lang/hr/ui.php
+  s_1f43f39fbe0537::t_958b438e219e60 271
+lang/mk/ui.php
+  s_1f43f39fbe0537::t_958b438e219e60 271
+resources/views/livewire/feed/upload-post-form.blade.php
+  s_1f43f39fbe0537::t_958b438e219e60 266,270-271,273
+tests/Feature/Import/DnsRebindingRegressionTest.php
+  s_1f43f39fbe0537::t_432c519dd318aa 79-86
+tests/Feature/Livewire/UploadPostFormTest.php
+  s_1f43f39fbe0537::t_35508fe88c648d 475-476
+lang/hi/ui.php
+  s_1f43f39fbe0537::t_958b438e219e60 271
+lang/ka/ui.php
+  s_1f43f39fbe0537::t_958b438e219e60 271
+lang/uk/ui.php
+  s_1f43f39fbe0537::t_958b438e219e60 271
+lang/ar/ui.php
+  s_1f43f39fbe0537::t_958b438e219e60 281
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "7fc7619b5f501bbe64c8adda8aa6970f7835ffa3",
+  "prompts": {},
+  "sessions": {
+    "s_1f43f39fbe0537": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "526787d0-f443-4ad7-9610-cf9811fec895",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
