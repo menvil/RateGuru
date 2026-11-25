@@ -17,15 +17,26 @@ use Throwable;
  * default connection's retry window, so it runs where the window outlasts its
  * timeout. A refused file is final inside the processor; what reaches the
  * queue as a failure is a host problem (storage, a stalled tool), retried
- * once a minute later, then left Failed for the author to upload again.
+ * once a minute later, then left Failed for the author to upload again. A
+ * job that finds another run holding the asset is released to come back.
  */
 final class ProcessVideoAssetJob implements RunsOnMediaQueue, ShouldQueue
 {
     use Queueable;
 
-    public int $tries = 2;
+    /**
+     * Attempts in all, counting the times the job found another run holding
+     * the asset and came back later; maxExceptions keeps a real failure to a
+     * single retry.
+     */
+    public int $tries = 5;
+
+    public int $maxExceptions = 2;
 
     public array $backoff = [60];
+
+    /** How long a job that found the asset busy waits before trying again. */
+    public const int BUSY_RETRY_SECONDS = 120;
 
     /**
      * Inside the media connection's retry window (960 s) with a margin; every
@@ -50,7 +61,12 @@ final class ProcessVideoAssetJob implements RunsOnMediaQueue, ShouldQueue
             return;
         }
 
-        $processor->process($asset);
+        if (! $processor->process($asset)) {
+            // Another run holds the asset. Come back later rather than
+            // acknowledge a job whose asset still waits: if that run dies, its
+            // lock expires before this one returns.
+            $this->release(self::BUSY_RETRY_SECONDS);
+        }
     }
 
     /**

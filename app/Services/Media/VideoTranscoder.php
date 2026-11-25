@@ -98,6 +98,8 @@ final class VideoTranscoder
             '-hide_banner',
             '-loglevel', 'error',
             '-y',
+            // The scale filter takes every core unless told otherwise.
+            '-filter_threads', (string) self::THREADS,
             '-threads', (string) self::THREADS,
             ...$arguments,
         ], max(1, (int) config('media.video.transcode_timeout_seconds')));

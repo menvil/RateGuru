@@ -39,6 +39,9 @@ final class VideoAssetProcessor
 {
     private const string MASTER_MIME = 'video/mp4';
 
+    /** Past ProcessVideoAssetJob's 900 s timeout, short of the media connection's 960 s retry window. */
+    public const int LOCK_SECONDS = 930;
+
     public function __construct(
         private readonly VideoProbe $probe,
         private readonly VideoTranscoder $transcoder,
@@ -48,10 +51,15 @@ final class VideoAssetProcessor
         private readonly ImageOrientationClassifier $orientation,
     ) {}
 
-    public function process(MediaAsset $asset): void
+    /**
+     * Whether the asset is now settled — false only when another run holds it
+     * right now, so the caller tries again later rather than acknowledging a
+     * job while the asset still waits.
+     */
+    public function process(MediaAsset $asset): bool
     {
         if ($asset->trashed() || $asset->status !== MediaStatus::Processing || $asset->media_type === MediaType::Image) {
-            return;
+            return true;
         }
 
         // One run per asset at a time: a retry racing the first attempt would
@@ -59,7 +67,7 @@ final class VideoAssetProcessor
         $lock = $this->lock("media-video-process:{$asset->id}");
 
         if (! $lock->get()) {
-            return;
+            return false;
         }
 
         $work = sys_get_temp_dir().'/rateguru-video-'.Str::uuid()->toString();
@@ -81,6 +89,8 @@ final class VideoAssetProcessor
             exec('rm -rf '.escapeshellarg($work));
             $lock->release();
         }
+
+        return true;
     }
 
     private function run(MediaAsset $asset, string $work): void
@@ -205,8 +215,9 @@ final class VideoAssetProcessor
 
     /**
      * The database store, as MediaVariantWriter's own lock: one mutex for
-     * every process on every server. Held no longer than ProcessVideoAssetJob
-     * may run, plus a margin, so a crashed worker cannot hold it for good.
+     * every process on every server. It expires a little after the job's
+     * timeout and before the media connection's retry window, so a job
+     * redelivered after its worker crashed always finds it free.
      */
     private function lock(string $key): Lock
     {
@@ -216,6 +227,6 @@ final class VideoAssetProcessor
             throw new RuntimeException('The "database" cache store does not support locks.');
         }
 
-        return $store->lock($key, 960);
+        return $store->lock($key, self::LOCK_SECONDS);
     }
 }

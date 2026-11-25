@@ -25,7 +25,7 @@ it('encodes the master as H.264/AAC MP4 at the picture as shown, through the inp
         ->and($runner->calls[0]['tool'])->toBe(MediaTool::Ffmpeg)
         ->and($runner->calls[0]['timeout'])->toBe(321)
         ->and($runner->calls[0]['arguments'])->toBe([
-            '-nostdin', '-hide_banner', '-loglevel', 'error', '-y', '-threads', '2',
+            '-nostdin', '-hide_banner', '-loglevel', 'error', '-y', '-filter_threads', '2', '-threads', '2',
             ...FfmpegInput::arguments('/work/original'),
             '-map', '0:v:0',
             '-map', '0:a:0',
@@ -70,7 +70,7 @@ it('takes the poster a tenth of the way in, at most three seconds, seeking on th
         app(VideoTranscoder::class)->poster('/work/master.mp4', $durationMs, '/work/poster.png');
 
         expect($runner->calls[0]['arguments'])->toBe([
-            '-nostdin', '-hide_banner', '-loglevel', 'error', '-y', '-threads', '2',
+            '-nostdin', '-hide_banner', '-loglevel', 'error', '-y', '-filter_threads', '2', '-threads', '2',
             '-ss', $at,
             ...FfmpegInput::arguments('/work/master.mp4'),
             '-frames:v', '1', '-an', '-c:v', 'png', '-f', 'image2', '/work/poster.png',

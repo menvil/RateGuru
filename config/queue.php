@@ -46,6 +46,18 @@ return [
             'after_commit' => false,
         ],
 
+        // The database counterpart of redis-media below, for a deployment
+        // that queues in the database: the same table, a queue of its own and
+        // a retry window that outlasts a transcode.
+        'database-media' => [
+            'driver' => 'database',
+            'connection' => env('DB_QUEUE_CONNECTION'),
+            'table' => env('DB_QUEUE_TABLE', 'jobs'),
+            'queue' => env('DB_QUEUE', 'default').'-media',
+            'retry_after' => 960,
+            'after_commit' => false,
+        ],
+
         'beanstalkd' => [
             'driver' => 'beanstalkd',
             'host' => env('BEANSTALKD_QUEUE_HOST', 'localhost'),

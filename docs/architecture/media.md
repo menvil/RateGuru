@@ -450,7 +450,7 @@ the original (private disk, media/originals/Y/m/<uuid>.<ext>), asset Processing
 - **Encoding** (`VideoTranscoder`, `VideoRendition`): libx264 `veryfast`,
   CRF 23 (24 for 480) under a bitrate cap (5000/2500/1200 kbit/s), AAC
   128/128/96 kbit/s stereo, a keyframe every two seconds, `+faststart`, two
-  threads, `-map_metadata -1` (a phone recording's location never reaches the
+  threads (codecs and filters), `-map_metadata -1` (a phone recording's location never reaches the
   output). The rotation a phone records is applied to the pixels, so width and
   height are the picture as shown. Sizes are scaled down to the rendition's
   short side, never up, to even numbers. An animation (a GIF) has no sound.
@@ -463,7 +463,10 @@ the original (private disk, media/originals/Y/m/<uuid>.<ext>), asset Processing
   before anything else, because the asset's disk and path move to the master
   partway through; a retry reads the same original and rewrites the same
   master path (named after the original). One run per asset at a time (a
-  `database` cache lock).
+  `database` cache lock that expires at 930 s, past the job's timeout and
+  before the media connection's retry window); a job that finds another run
+  holding the asset is released to come back two minutes later instead of
+  being acknowledged while the asset still waits.
 - **Failures:** a file the policy or ffmpeg refuses (`VideoIngestException`)
   leaves the asset `Failed` with a safe reason and is not retried; anything
   else (storage, a stalled tool) is thrown, retried once a minute later, and
@@ -473,8 +476,8 @@ the original (private disk, media/originals/Y/m/<uuid>.<ext>), asset Processing
   connection's 90-second `retry_after`, so on Redis `ProcessVideoAssetJob`
   goes to `redis-media` (`App\Support\Media\MediaQueue`): its own queue,
   `<target queue>-media`, and a 960-second retry window over the job's
-  900-second timeout. Elsewhere (sync, database) it runs on the default
-  connection. `RunsOnMediaQueue` marks such jobs, and
+  900-second timeout; a database queue goes to `database-media`, its
+  counterpart. Sync (development, tests) runs it inline. `RunsOnMediaQueue` marks such jobs, and
   `QueuedWorkRetryWindowTest` holds them to that connection's window.
 - **Variants from files:** `MediaVariantWriter::writeFile()` stores a file a
   tool produced (`ProducedMediaFile`) under the same lock, path and failure

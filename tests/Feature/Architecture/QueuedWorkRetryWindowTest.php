@@ -3,6 +3,7 @@
 use App\Jobs\ProcessVideoAssetJob;
 use App\Jobs\RunMediaAuditJob;
 use App\Jobs\RunsOnMediaQueue;
+use App\Services\Media\VideoAssetProcessor;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Tests\Fixtures\QueuedWork\InheritedQueuedTask;
 
@@ -145,9 +146,23 @@ it('sends media jobs to a connection of their own on Redis, with a queue and a r
     config(['queue.default' => 'redis']);
     expect((new ProcessVideoAssetJob(1))->connection)->toBe('redis-media');
 
-    // Off Redis (sync in development and tests) they run as everything else does.
+    // A database queue redelivers the same way, so it has its own media
+    // connection too.
+    config(['queue.default' => 'database']);
+    expect((new ProcessVideoAssetJob(1))->connection)->toBe('database-media')
+        ->and(config('queue.connections.database-media.retry_after'))->toBeGreaterThan((new ProcessVideoAssetJob(1))->timeout + 10)
+        ->and(config('queue.connections.database-media.queue'))->toBe(config('queue.connections.database.queue').'-media');
+
+    // Off a redelivering queue (sync in development and tests) they run as
+    // everything else does.
     config(['queue.default' => 'sync']);
     expect((new ProcessVideoAssetJob(1))->connection)->toBe('sync');
+
+    // The processing lock outlives the job and expires before a redelivery,
+    // so a job redelivered after its worker crashed always finds it free.
+    expect(VideoAssetProcessor::LOCK_SECONDS)->toBeGreaterThan((new ProcessVideoAssetJob(1))->timeout)
+        ->toBeLessThan((int) config('queue.connections.redis-media.retry_after'))
+        ->toBeLessThan((int) config('queue.connections.database-media.retry_after'));
 });
 
 it('rejects a timeout that is missing, disables itself or runs past the window, and accepts one at the edge', function () use ($outsideTheWindow) {

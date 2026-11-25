@@ -8,6 +8,7 @@ use App\Jobs\ProcessVideoAssetJob;
 use App\Models\MediaAsset;
 use App\Services\Media\MediaToolResult;
 use App\Services\Media\VideoAssetProcessor;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
@@ -195,4 +196,22 @@ it('skips an asset that no longer exists', function () {
     (new ProcessVideoAssetJob(999_999))->handle(app(VideoAssetProcessor::class));
 
     expect($runner->calls)->toBe([]);
+});
+
+it('sends the job back to wait when another run holds the asset, rather than acknowledging it while the asset still waits', function () {
+    $runner = bindRecordingMediaToolRunner();
+    $asset = processingVideoAsset('x', 'mp4');
+    $held = Cache::store('database')->getStore()->lock("media-video-process:{$asset->id}", 60);
+    expect($held->get())->toBeTrue();
+
+    try {
+        $job = (new ProcessVideoAssetJob($asset->id))->withFakeQueueInteractions();
+        $job->handle(app(VideoAssetProcessor::class));
+
+        $job->assertReleased(ProcessVideoAssetJob::BUSY_RETRY_SECONDS);
+        expect($runner->calls)->toBe([])
+            ->and($asset->refresh()->status)->toBe(MediaStatus::Processing);
+    } finally {
+        $held->release();
+    }
 });
