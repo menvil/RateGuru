@@ -282,6 +282,20 @@ function bootstrapRuntimeFixtureYtDlpVersion(array $options): string
  *
  * @param  array<string, mixed>  $options
  */
+function bootstrapRuntimeYtDlpServedArtifact(array $options): string
+{
+    if ($options['ytdlpTamperedRelease'] ?? false) {
+        // Someone else's executable claiming the pinned version: only the
+        // signature over SHA2-256SUMS can tell it from the real one.
+        return "#!/bin/bash\n# TAMPERED\n[[ \"$1\" == \"--version\" ]] && printf '%s\\n' '".bootstrapRuntimeFixtureYtDlpVersion($options)."'\n";
+    }
+
+    return bootstrapRuntimeYtDlpArtifactContent($options);
+}
+
+/**
+ * @param  array<string, mixed>  $options
+ */
 function bootstrapRuntimeYtDlpArtifactContent(array $options): string
 {
     $reported = $options['ytdlpDownloadedVersion'] ?? bootstrapRuntimeFixtureYtDlpVersion($options);
@@ -536,11 +550,20 @@ function bootstrapRuntimeWriteYtDlpFixture(string $scratch, array $options): voi
 
     // A row for another artifact of the same release proves the digest is
     // picked by exact artifact name.
-    $digest = $options['ytdlpSumsDigest'] ?? hash('sha256', bootstrapRuntimeYtDlpArtifactContent($options));
-    file_put_contents($scratch.'/fs/ytdlp-sums.txt', implode("\n", [
+    $sums = fn (string $digest): string => implode("\n", [
         str_repeat('0', 64).'  yt-dlp_linux_aarch64',
         "{$digest}  yt-dlp_linux",
-    ])."\n");
+    ])."\n";
+    $signed = $sums($options['ytdlpSumsDigest'] ?? hash('sha256', bootstrapRuntimeYtDlpArtifactContent($options)));
+
+    // The signature covers the SHA2-256SUMS the release published. A tampered
+    // release serves another executable with a SHA2-256SUMS rewritten to
+    // match it, under the published signature.
+    file_put_contents($scratch.'/fs/ytdlp-signed-digest.txt', hash('sha256', $signed));
+    file_put_contents(
+        $scratch.'/fs/ytdlp-sums.txt',
+        ($options['ytdlpTamperedRelease'] ?? false) ? $sums(hash('sha256', bootstrapRuntimeYtDlpServedArtifact($options))) : $signed,
+    );
 
     $installedState = $options['ytdlpInstalled'] ?? 'compliant';
 
@@ -820,7 +843,7 @@ function bootstrapRuntimeWriteMutationStubs(string $scratch, array $options): vo
         fi
         if [[ "${url}" == *"github.com/yt-dlp/yt-dlp/releases/download/"* ]]; then
             if [[ "${url}" == *SHA2-256SUMS.sig ]]; then
-                printf 'DETACHED-SIGNATURE-BY:%s\n' "${STUB_YTDLP_SIGNER}" > "${out}"
+                printf 'DETACHED-SIGNATURE-BY:%s:%s\n' "${STUB_YTDLP_SIGNER}" "$(<"${STUB_YTDLP_SIGNED_DIGEST_FILE}")" > "${out}"
                 exit 0
             fi
             if [[ "${url}" == *SHA2-256SUMS ]]; then
@@ -894,8 +917,8 @@ function bootstrapRuntimeWriteMutationStubs(string $scratch, array $options): vo
             exit 0
         fi
         # --verify SIG DATA models a detached signature: it holds only when
-        # the keyring is the yt-dlp signing-key marker and the signature
-        # claims the release signer.
+        # the keyring is the yt-dlp signing-key marker, the signature claims
+        # the release signer, and it covers exactly these DATA bytes.
         if [[ " $* " == *" --verify "* ]]; then
             keyring=""
             prev=""
@@ -906,10 +929,12 @@ function bootstrapRuntimeWriteMutationStubs(string $scratch, array $options): vo
                 prev="${arg}"
             done
             sig="${@: -2:1}"
+            data="${!#}"
             if [[ ! -f "${keyring}" || "$(<"${keyring}")" != *YTDLP-SIGNING-KEY* ]]; then
                 exit 2
             fi
-            [[ "$(<"${sig}")" == "DETACHED-SIGNATURE-BY:YTDLP-RELEASE" ]] || exit 1
+            covered="$(PATH="${STUB_REAL_PATH}" sha256sum "${data}" | PATH="${STUB_REAL_PATH}" awk '{ print $1 }')"
+            [[ "$(<"${sig}")" == "DETACHED-SIGNATURE-BY:YTDLP-RELEASE:${covered}" ]] || exit 1
             exit 0
         fi
         if [[ " $* " == *" --show-keys "* ]]; then
@@ -1011,6 +1036,9 @@ function bootstrapRuntimeWriteMutationStubs(string $scratch, array $options): vo
  *   ytdlpBadSignature: bool — the detached signature claims an unknown signer
  *   fprYtDlp:        fingerprint the gpg stub reports for the yt-dlp key
  *   ytdlpDownloadedVersion: version the downloaded executable reports
+ *   ytdlpTamperedRelease: bool — another executable is served with a
+ *                    SHA2-256SUMS rewritten to match it, under the published
+ *                    signature
  *
  * @param  array<string, mixed>  $options
  * @return array<string, string>
@@ -1071,8 +1099,9 @@ function bootstrapRuntimeFixture(string $scratch, array $options = []): array
         'STUB_UNZIP_DIR_NAME' => 'rclone-v'.bootstrapRuntimeFixtureRcloneVersion($options).'-linux-amd64',
         'STUB_EXTRACTED_RCLONE_VERSION' => $options['rcloneExtractedVersion'] ?? 'v'.bootstrapRuntimeFixtureRcloneVersion($options),
         'STUB_FPR_YTDLP' => $options['fprYtDlp'] ?? bootstrapRuntimeYtDlpFingerprint(),
-        'STUB_YTDLP_ARTIFACT_CONTENT' => bootstrapRuntimeYtDlpArtifactContent($options),
+        'STUB_YTDLP_ARTIFACT_CONTENT' => bootstrapRuntimeYtDlpServedArtifact($options),
         'STUB_YTDLP_SUMS_FILE' => $scratch.'/fs/ytdlp-sums.txt',
+        'STUB_YTDLP_SIGNED_DIGEST_FILE' => $scratch.'/fs/ytdlp-signed-digest.txt',
         'STUB_YTDLP_SIGNER' => ($options['ytdlpBadSignature'] ?? false) ? 'UNKNOWN-KEY' : 'YTDLP-RELEASE',
     ];
 
@@ -3014,12 +3043,16 @@ it('replaces an outdated yt-dlp once the pin moves', function () {
 
 it('flags a wrongly owned, wrongly permissioned, misplaced or version-less yt-dlp as CONFLICT', function () {
     $binary = fn (string $scratch): string => $scratch.'/fs/usr-local-bin/yt-dlp';
+    // Never the account running the tests, so the case holds under root too.
+    $otherOwner = bootstrapRuntimeCurrentUser() === 'root' ? 'nobody' : 'root';
 
     foreach ([
-        'owner' => [['ytdlpOwner' => 'root', 'ytdlpGroup' => 'root'], fn (string $scratch): string => sprintf(
-            'CONFLICT yt-dlp — owned by %s:%s, required root:root',
+        'owner' => [['ytdlpOwner' => $otherOwner, 'ytdlpGroup' => $otherOwner], fn (string $scratch): string => sprintf(
+            'CONFLICT yt-dlp — owned by %s:%s, required %s:%s',
             bootstrapRuntimeCurrentUser(),
             bootstrapRuntimeCurrentGroup(),
+            $otherOwner,
+            $otherOwner,
         )],
         'mode' => [['ytdlpFileMode' => '0700'], fn (): string => 'CONFLICT yt-dlp — mode 700, required 0755'],
         'version-less' => [['ytdlpInstalled' => 'broken'], fn (string $scratch): string => 'CONFLICT yt-dlp — '.$binary($scratch).' cannot report a version'],
@@ -3054,6 +3087,7 @@ it('leaves the working yt-dlp untouched, naming the step, when the download, sig
     foreach ([
         'download failure' => [['curlFailPattern' => 'github.com/yt-dlp'], 'cannot download'],
         'signature by another key' => [['ytdlpBadSignature' => true], 'SHA2-256SUMS signature verification failed'],
+        'executable and sums replaced under the published signature' => [['ytdlpTamperedRelease' => true], 'SHA2-256SUMS signature verification failed'],
         'signing key off the pin' => [['fprYtDlp' => str_repeat('DEADBEEF', 5)], 'does not match the pinned fingerprint '.bootstrapRuntimeYtDlpFingerprint()],
         'checksum mismatch' => [['ytdlpSumsDigest' => hash('sha256', 'not-the-executable')], 'checksum mismatch for yt-dlp_linux'],
         'download reports another version' => [['ytdlpDownloadedVersion' => '2026.01.01'], "downloaded executable reports 2026.01.01, expected {$version}"],
@@ -3071,6 +3105,38 @@ it('leaves the working yt-dlp untouched, naming the step, when the download, sig
             expect($output)->toContain('ERROR: yt-dlp:')->toContain($message);
             expect((string) file_get_contents($binary))->toBe($binaryBefore, "{$case}: the working binary was modified");
             expect(glob($binary.'.*') ?: [])->toBe([], "{$case}: a staged candidate was left behind");
+        } finally {
+            bootstrapRuntimeCleanup($scratch);
+        }
+    }
+});
+
+it('refuses to install rclone or yt-dlp over a directory standing where the binary belongs', function () {
+    foreach ([
+        'rclone' => [['rcloneInstalled' => 'absent'], '/fs/usr-bin/rclone'],
+        'yt-dlp' => [['ytdlpInstalled' => 'absent'], '/fs/usr-local-bin/yt-dlp'],
+    ] as $tool => [$options, $relative]) {
+        $scratch = bootstrapRuntimeScratchDir();
+
+        try {
+            $env = bootstrapRuntimeFixture($scratch, $options);
+            // A link to a directory counts the same: mv would follow it.
+            expect(mkdir($scratch.'/fs/elsewhere', 0o755))->toBeTrue();
+            symlink($scratch.'/fs/elsewhere', $scratch.$relative);
+
+            [$exit, $output] = bootstrapRuntimeRun(['--check'], $env);
+
+            expect($exit)->toBe(1, $tool);
+            expect($output)->toContain("CONFLICT {$tool} — {$scratch}{$relative} is a directory, not the binary")
+                ->toContain('-> apply: move it aside by hand, then re-run --apply');
+
+            [$exit, $output] = bootstrapRuntimeRun(['--apply'], $env);
+
+            expect($exit)->toBe(1, $tool);
+            expect($output)->toContain("ERROR: {$tool}: {$scratch}{$relative} is a directory — refusing to install over it");
+            // Refused before any download, and nothing was dropped inside.
+            expect(is_file($scratch.'/log/curl.log'))->toBeFalse("{$tool}: downloaded before refusing");
+            expect(glob($scratch.'/fs/elsewhere/*') ?: [])->toBe([], "{$tool}: a file was dropped inside the directory");
         } finally {
             bootstrapRuntimeCleanup($scratch);
         }

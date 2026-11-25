@@ -767,8 +767,8 @@ rclone_reported_version() {
 
 # rclone_state — classifies the installed binary against the pinned
 # contract. Prints exactly one of:
-#   compliant | absent | foreign:<path> | no-stat | owner:<o>:<g> |
-#   mode:<m> | no-version | version:<v>
+#   compliant | absent | foreign:<path> | not-file | no-stat |
+#   owner:<o>:<g> | mode:<m> | no-version | version:<v>
 # Checked in contract order: path, owner/group, mode, version. dpkg
 # ownership is deliberately never consulted — an operator-installed
 # standalone binary that matches the contract is fully compliant.
@@ -782,6 +782,14 @@ rclone_state() {
         else
             printf 'absent\n'
         fi
+
+        return 0
+    fi
+
+    # A directory (or a link to one) where the binary belongs is never
+    # replaced: mv would drop the new binary inside it.
+    if [[ -d "${RCLONE_BINARY_PATH}" ]]; then
+        printf 'not-file\n'
 
         return 0
     fi
@@ -838,8 +846,8 @@ ytdlp_reported_version() {
 # ytdlp_state — classifies the installed yt-dlp against the pinned contract,
 # in the same terms and the same order as rclone_state: path, owner/group,
 # mode, version. Prints exactly one of:
-#   compliant | absent | foreign:<path> | no-stat | owner:<o>:<g> |
-#   mode:<m> | no-version | version:<v>
+#   compliant | absent | foreign:<path> | not-file | no-stat |
+#   owner:<o>:<g> | mode:<m> | no-version | version:<v>
 ytdlp_state() {
     if [[ ! -e "${YTDLP_BINARY_PATH}" ]]; then
         local found
@@ -850,6 +858,14 @@ ytdlp_state() {
         else
             printf 'absent\n'
         fi
+
+        return 0
+    fi
+
+    # A directory (or a link to one) where the binary belongs is never
+    # replaced: mv would drop the new binary inside it.
+    if [[ -d "${YTDLP_BINARY_PATH}" ]]; then
+        printf 'not-file\n'
 
         return 0
     fi
@@ -1023,6 +1039,10 @@ report_rclone_runtime() {
             item CONFLICT "rclone" "found at ${state#foreign:}, but the managed binary path is ${RCLONE_BINARY_PATH}" \
                 "install verified rclone v${RCLONE_VERSION} at ${RCLONE_BINARY_PATH} (the unexpected copy is never touched)"
             ;;
+        not-file)
+            item CONFLICT "rclone" "${RCLONE_BINARY_PATH} is a directory, not the binary" \
+                "move it aside by hand, then re-run --apply"
+            ;;
         no-stat)
             item CONFLICT "rclone" "cannot stat ${RCLONE_BINARY_PATH}" \
                 "investigate the binary manually, then re-run --apply"
@@ -1071,6 +1091,10 @@ report_ytdlp_runtime() {
         foreign:*)
             item CONFLICT "yt-dlp" "found at ${state#foreign:}, but the managed binary path is ${YTDLP_BINARY_PATH}" \
                 "install verified yt-dlp ${YTDLP_VERSION} at ${YTDLP_BINARY_PATH} (the unexpected copy is never touched)"
+            ;;
+        not-file)
+            item CONFLICT "yt-dlp" "${YTDLP_BINARY_PATH} is a directory, not the binary" \
+                "move it aside by hand, then re-run --apply"
             ;;
         no-stat)
             item CONFLICT "yt-dlp" "cannot stat ${YTDLP_BINARY_PATH}" \
@@ -1670,6 +1694,9 @@ reconcile_rclone() {
         return 0
     fi
 
+    [[ "${state}" != not-file ]] \
+        || fail "rclone: ${RCLONE_BINARY_PATH} is a directory — refusing to install over it; move it aside by hand"
+
     action "rclone requires reconciliation (state: ${state}) — installing verified v${RCLONE_VERSION}"
 
     tool_available "${CURL_BIN}" \
@@ -1817,6 +1844,9 @@ reconcile_ytdlp() {
 
         return 0
     fi
+
+    [[ "${state}" != not-file ]] \
+        || fail "yt-dlp: ${YTDLP_BINARY_PATH} is a directory — refusing to install over it; move it aside by hand"
 
     action "yt-dlp requires reconciliation (state: ${state}) — installing verified ${YTDLP_VERSION}"
 

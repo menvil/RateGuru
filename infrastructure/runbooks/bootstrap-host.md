@@ -633,8 +633,11 @@ owns**, and the Ubuntu 22.04 candidate package is the far older
   is `MISSING` with the action `install verified rclone v<pin>`; version
   drift (like the current staging v1.74.4), a wrong owner/group or mode, an
   unexpected path, or a binary that cannot report a version are `CONFLICT`
-  with the action `replace with verified rclone v<pin>`. An apt action for
-  rclone is never proposed.
+  with the action `replace with verified rclone v<pin>`. A directory (or a
+  link to one) standing at `/usr/bin/rclone` is a `CONFLICT` of its own:
+  `--apply` refuses before downloading anything, since `mv` would drop the
+  new binary inside it, and the operator moves it aside by hand. An apt
+  action for rclone is never proposed.
 - `--apply` converges drift through verification only: download the exact
   versioned release archive and its `SHA256SUMS` from the official
   `downloads.rclone.org` origin (HTTPS only), verify the clearsigned
@@ -682,7 +685,9 @@ the same rules as rclone:
   root:root 0755`; `MISSING` when absent, with the action `install verified
   yt-dlp <pin>`; `CONFLICT` for another version, owner, group or mode, a copy
   elsewhere on the PATH, or a binary that cannot report a version, with the
-  action `replace with verified yt-dlp <pin>`.
+  action `replace with verified yt-dlp <pin>`. A directory or a link to one
+  at `/usr/local/bin/yt-dlp` is a `CONFLICT` that `--apply` refuses before
+  any download, exactly as for rclone.
 - `--apply` downloads `yt-dlp_linux`, `SHA2-256SUMS` and the detached
   `SHA2-256SUMS.sig` from the official GitHub release over HTTPS, verifies the
   signature with the committed key (accepted only after it matches the pinned
@@ -698,7 +703,8 @@ Rehearsed in a disposable Ubuntu 22.04 amd64 container on top of the runtime
 `--verify`; a second `--apply` downloaded nothing. An older version and a
 `0700` mode were each reported as `CONFLICT` and repaired by `--apply`; a
 fingerprint off the pin made `--apply` refuse the key and leave the working
-binary untouched. The installed yt-dlp found ffmpeg 4.4.2 by itself and
+binary untouched; a link to a directory at the binary's path was reported and
+refused with nothing written inside it. The installed yt-dlp found ffmpeg 4.4.2 by itself and
 extracted the video from an ordinary HTML5 page.
 
 **Moving the pin (the routine upgrade):**
