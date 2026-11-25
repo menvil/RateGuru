@@ -94,6 +94,10 @@ return [
         'purge_lock' => [
             'ttl_seconds' => max(1, EnvironmentValue::integer(env('MEDIA_PURGE_LOCK_TTL_SECONDS'), 60)),
         ],
+        // How long a video's original is kept after it was processed, and
+        // the files of one that failed: long enough to look into a complaint
+        // or a failure, then gone (media:sweep-videos).
+        'video_original_retention_days' => 7,
     ],
 
     /*

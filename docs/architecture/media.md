@@ -1039,6 +1039,30 @@ default mode is scheduled — never `--orphans`, never `--force`. Physical-
 orphan deletion stays a deliberate, human-triggered `--orphans --force`
 operation, on purpose.
 
+### Video files
+
+A video upload leaves more files behind than a photo: its original on the
+private disk (`media.disks.private`, `media/originals/…`), recorded in
+`metadata.original` once processing moves the asset to its public master;
+the master under `media/post-videos/`; its renditions and poster variants.
+`media:sweep-videos` (`VideoMediaSweeper`, hourly, never overlapping)
+settles them:
+
+| What | When | What happens |
+|---|---|---|
+| A processed video's original | `media.lifecycle.video_original_retention_days` (7) after `metadata.processed_at` | the file is deleted; `metadata.original` gives way to `original_deleted_at` |
+| A failed upload's files — original, any master and variants written before it failed | the same period after it failed | the files and variant rows go; the row stays, `metadata.files_removed_at` set, since the draft post that holds it still points at it |
+| An upload still Processing past `uploads.videos.processing_window_minutes` | each run | its job was lost: it fails, unless the processor's own lock shows a run working on it now, and its author is told (`FinalizePostMediaAction::failed`) |
+
+The rest of the lifecycle knows about video files too:
+
+- `MediaLifecycleService::purge()` deletes a video's kept original with its
+  master and variants (`VideoOriginal`).
+- `MediaOrphanScanner` also scans the private disk's originals, and counts a
+  processed video's kept original as known.
+- Media Diagnostics shows the videos stuck processing past their window, and
+  lists `ProcessVideoAssetJob` among the failed media jobs.
+
 ## Media observability and admin diagnostics
 
 **One audit implementation, reached three ways.** `MediaAuditService::run()`

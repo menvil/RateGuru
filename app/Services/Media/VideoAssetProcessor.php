@@ -135,7 +135,13 @@ final class VideoAssetProcessor
 
         $this->storePosterVariants($asset, $master, $masterProbe, $work);
 
-        $asset->forceFill(['status' => MediaStatus::Ready, 'processing_error' => null])->save();
+        // When: media:sweep-videos deletes the original a retention period
+        // after it.
+        $asset->forceFill([
+            'status' => MediaStatus::Ready,
+            'processing_error' => null,
+            'metadata' => [...($asset->metadata ?? []), 'processed_at' => now()->toIso8601ZuluString()],
+        ])->save();
     }
 
     /**

@@ -7,6 +7,8 @@ use App\Enums\MediaAuditIssueType;
 use App\Enums\MediaAuditRunStatus;
 use App\Enums\MediaHealthStatus;
 use App\Enums\MediaPurgeOutcome;
+use App\Enums\MediaStatus;
+use App\Enums\MediaType;
 use App\Filament\Support\AdminNavigationGroup;
 use App\Filament\Support\ListPageNumber;
 use App\Filament\Support\ModerationListFormat;
@@ -396,11 +398,18 @@ final class MediaDiagnosticsPage extends Page
     }
 
     /**
-     * @return array{total_assets: int, total_variants: int, tracked_storage_bytes: int}
+     * @return array{total_assets: int, total_variants: int, tracked_storage_bytes: int, stuck_videos: int}
      */
     public function totals(): array
     {
         return [
+            // Video uploads still processing past every retry their job could
+            // make: media:sweep-videos fails them within the hour.
+            'stuck_videos' => MediaAsset::query()
+                ->whereIn('media_type', [MediaType::Video, MediaType::Animation])
+                ->where('status', MediaStatus::Processing)
+                ->where('created_at', '<=', now()->subMinutes((int) config('uploads.videos.processing_window_minutes')))
+                ->count(),
             'total_assets' => MediaAsset::withTrashed()->count(),
             'total_variants' => MediaVariant::query()->count(),
             'tracked_storage_bytes' => (int) MediaAsset::withTrashed()->sum('byte_size')
@@ -510,7 +519,7 @@ final class MediaDiagnosticsPage extends Page
      * The overview's figures, each with a note; the ones that count issues
      * narrow the list to them.
      *
-     * @param  array{total_assets: int, total_variants: int, tracked_storage_bytes: int}  $totals
+     * @param  array{total_assets: int, total_variants: int, tracked_storage_bytes: int, stuck_videos: int}  $totals
      * @param  array{severity: array<string, int>, type: array<string, int>}  $counts
      * @param  list<FailedMediaJobRecord>  $jobs
      * @return list<array{label: string, value: string, note: string, badge: ?array{label: string, tone: string}, filter: ?array{severity: string, type: string}}>
@@ -531,6 +540,7 @@ final class MediaDiagnosticsPage extends Page
             ['label' => 'Active unreferenced', 'value' => number_format((int) $run?->active_unreferenced_assets), 'note' => 'Candidates for release', 'badge' => null, 'filter' => $type(MediaAuditIssueType::ActiveUnreferencedAsset)],
             ['label' => 'Purgeable assets', 'value' => number_format((int) $run?->purgeable_assets), 'note' => 'Past their grace period', 'badge' => null, 'filter' => $type(MediaAuditIssueType::PurgeableAsset)],
             ['label' => 'Physical orphan candidates', 'value' => number_format((int) $run?->physical_orphan_candidates), 'note' => 'Files with no record', 'badge' => null, 'filter' => $type(MediaAuditIssueType::PhysicalOrphanCandidate)],
+            ['label' => 'Videos stuck processing', 'value' => number_format($totals['stuck_videos']), 'note' => 'Past every retry; failed within the hour', 'badge' => $totals['stuck_videos'] > 0 ? ['label' => 'Warning', 'tone' => 'warning'] : null, 'filter' => null],
             ['label' => 'Failed media jobs', 'value' => number_format(count($jobs)), 'note' => $jobs !== [] ? 'Last failure '.ModerationListFormat::when($jobs[0]->failedAt) : 'Queue healthy', 'badge' => $jobs !== [] ? ['label' => 'Failed', 'tone' => 'danger'] : null, 'filter' => null],
         ];
     }

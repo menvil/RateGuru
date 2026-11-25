@@ -3,6 +3,7 @@
 namespace App\Services\Media;
 
 use App\Jobs\GenerateMediaVariantsJob;
+use App\Jobs\ProcessVideoAssetJob;
 use App\Jobs\RunMediaAuditJob;
 use App\Models\FailedJob;
 use App\Services\Media\Exceptions\MediaAuditAlreadyRunningException;
@@ -49,6 +50,7 @@ final class FailedMediaJobReader
     private const array KNOWN_MEDIA_JOB_CLASSES = [
         GenerateMediaVariantsJob::class,
         RunMediaAuditJob::class,
+        ProcessVideoAssetJob::class,
     ];
 
     /**
