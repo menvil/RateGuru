@@ -7,6 +7,7 @@ use App\Actions\Users\RecordMemberPlaceAction;
 use App\Models\ProjectSettings;
 use App\Models\User;
 use App\Support\Privacy\IpAddressHash;
+use App\Support\Settings\ProjectSettingsManager;
 use Carbon\CarbonImmutable;
 
 /*
@@ -138,3 +139,29 @@ it('forgets the addresses kept once Project settings stop keeping them, by the p
 
     expect(memberPlaces($member))->toMatchArray(['signup_ip' => null, 'signup_ip_hash' => $hash, 'signup_country' => 'GB', 'signup_city' => 'London', 'visit_ip' => null, 'visit_ip_hash' => $hash]);
 })->with(['switched off on the page' => 'page', 'a preset applied' => 'preset']);
+
+it('never lets a visit that started earlier replace one written since, when two finish in either order', function () {
+    $member = User::factory()->create();
+    $places = app(RecordMemberPlaceAction::class);
+
+    $places->visitStarted($member, PLACE_MILTON_IP, CarbonImmutable::parse('2026-11-26 09:05:00'));
+    // A visit that started first, its write finishing last.
+    $places->visitStarted(User::query()->findOrFail($member->id), PLACE_LONDON_IP, CarbonImmutable::parse('2026-11-26 09:00:00'));
+
+    expect(memberPlaces($member))->toMatchArray(['visit_city' => 'Milton'])
+        ->and($member->fresh()->visit_started_at->toDateTimeString())->toBe('2026-11-26 09:05:00');
+});
+
+it('keeps no address read as kept once the settings stop keeping them before it is written', function () {
+    ProjectSettings::factory()->create(['feature_flags' => ['keep_ip_addresses' => true]]);
+    $member = User::factory()->create();
+    // The request read the settings while addresses were kept…
+    expect(app(ProjectSettingsManager::class)->featureEnabled('keep_ip_addresses'))->toBeTrue();
+
+    // …and a save switching keeping them off commits before its write.
+    ProjectSettings::query()->update(['feature_flags' => ['keep_ip_addresses' => false]]);
+
+    app(RecordMemberPlaceAction::class)->visitStarted($member, PLACE_LONDON_IP, CarbonImmutable::now());
+
+    expect(memberPlaces($member))->toMatchArray(['visit_ip' => null, 'visit_ip_hash' => IpAddressHash::of(PLACE_LONDON_IP, (string) config('app.key')), 'visit_city' => 'London']);
+});

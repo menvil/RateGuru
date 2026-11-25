@@ -373,6 +373,28 @@ class User extends Authenticatable implements FilamentUser, HasLocalePreference,
         return $this->hasMany(Comment::class);
     }
 
+    /** @return HasMany<PostVote, $this> */
+    public function postVotes(): HasMany
+    {
+        return $this->hasMany(PostVote::class);
+    }
+
+    /** @return HasMany<CommentVote, $this> */
+    public function commentVotes(): HasMany
+    {
+        return $this->hasMany(CommentVote::class);
+    }
+
+    /**
+     * The reports the person filed on others' posts, comments and accounts.
+     *
+     * @return HasMany<Report, $this>
+     */
+    public function filedReports(): HasMany
+    {
+        return $this->hasMany(Report::class, 'reporter_id');
+    }
+
     /** @return HasMany<PostSave, $this> */
     public function postSaves(): HasMany
     {

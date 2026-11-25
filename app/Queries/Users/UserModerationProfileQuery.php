@@ -152,14 +152,15 @@ final class UserModerationProfileQuery
     }
 
     /**
-     * The first placed visit a query finds, as a place known from the visits: no address of it is kept.
+     * The first visit a query finds, as a place known from the visits — Unknown where the visit was not placed, as
+     * an account keeps a visit from an address the IP database doesn't know: no address of it is kept.
      *
      * @param  Builder<TrafficVisit>  $visits
      * @return ?array{country: ?string, city: ?string, ip: null, hash: null, at: ?CarbonInterface, fromVisits: true}
      */
     private function visitPlace(Builder $visits): ?array
     {
-        $visit = $visits->whereNotNull('country')->first(['id', 'country', 'city', 'arrived_at']);
+        $visit = $visits->first(['id', 'country', 'city', 'arrived_at']);
 
         return $visit === null ? null : ['country' => $visit->country, 'city' => $visit->city, 'ip' => null, 'hash' => null, 'at' => $visit->arrived_at, 'fromVisits' => true];
     }

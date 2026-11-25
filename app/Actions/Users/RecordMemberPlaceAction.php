@@ -2,11 +2,14 @@
 
 namespace App\Actions\Users;
 
+use App\Models\ProjectSettings;
 use App\Models\User;
 use App\Support\Geo\GeoLookup;
 use App\Support\Privacy\IpAddressHash;
 use App\Support\Settings\ProjectSettingsManager;
 use Carbon\CarbonImmutable;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Facades\DB;
 
 /**
  * Where a member is, by the address of the request: when the account is made, where it was made from, and each
@@ -14,8 +17,8 @@ use Carbon\CarbonImmutable;
  * and when. The country and city the local IP database places the address in, a one-way hash of it that finds
  * the accounts sharing an address, and the address itself only while Project settings keep IP addresses.
  *
- * One statement on the member's row, outside any transaction and without a lock or a new updated_at: the latest
- * write is the latest place.
+ * One statement on the member's row, without a new updated_at, never over a later visit — and, while an address is
+ * kept, in step with a save of the settings that stops keeping them, so none read as kept is left behind.
  */
 final class RecordMemberPlaceAction
 {
@@ -80,9 +83,20 @@ final class RecordMemberPlaceAction
     /** @param  array<string, mixed>  $values */
     private function write(User $user, array $values): void
     {
-        // Never onto an account anonymised meanwhile — a deletion committed between the visit starting and this
-        // write: its places went with it, and nothing would clear them again.
-        $written = User::withoutTimestamps(fn (): int => User::query()->whereKey($user->id)->whereNull('anonymized_at')->update($values));
+        $written = ($values['signup_ip'] ?? $values['visit_ip'] ?? null) !== null
+            ? DB::transaction(function () use ($user, &$values): int {
+                // An address is written in step with a save of the settings that stops keeping addresses: read under
+                // a shared lock, the settings row waits for such a save to commit, and such a save waits for this
+                // write to commit and then forgets the address with the others (ForgetKeptIpAddressesAction).
+                $row = ProjectSettings::query()->whereKey(1)->sharedLock()->first();
+
+                if (! ($row instanceof ProjectSettings && ForgetKeptIpAddressesAction::kept($row))) {
+                    $values = array_replace($values, array_fill_keys(array_intersect(['signup_ip', 'visit_ip'], array_keys($values)), null));
+                }
+
+                return $this->update($user, $values);
+            })
+            : $this->update($user, $values);
 
         if ($written === 0) {
             return;
@@ -90,5 +104,20 @@ final class RecordMemberPlaceAction
 
         // The rest of the request reads the member as written, and a later save never writes it again.
         $user->forceFill($values)->syncOriginalAttributes(array_keys($values));
+    }
+
+    /** @param  array<string, mixed>  $values */
+    private function update(User $user, array $values): int
+    {
+        // Never onto an account anonymised meanwhile — a deletion committed between the visit starting and this
+        // write: its places went with it, and nothing would clear them again.
+        $query = User::query()->whereKey($user->id)->whereNull('anonymized_at');
+
+        // Nor over a later visit: two visits starting at once can finish writing in either order.
+        if (isset($values['visit_started_at'])) {
+            $query->where(fn (Builder $stored) => $stored->whereNull('visit_started_at')->orWhere('visit_started_at', '<=', $values['visit_started_at']));
+        }
+
+        return User::withoutTimestamps(fn (): int => $query->update($values));
     }
 }

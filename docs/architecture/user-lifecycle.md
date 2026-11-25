@@ -548,5 +548,7 @@ account made before places were kept reads them from the visits recorded — the
 visit its sign-up was credited to, the latest visit of a browser of theirs —
 marked as such, or Unknown. Anonymisation nulls every one of these columns,
 and a deleted account reads nothing back from its visits; a visit that starts
-while the account is being deleted never writes onto it. None of them is ever
-serialised (`User` hides the addresses and hashes).
+while the account is being deleted never writes onto it. The addresses and
+their hashes (`signup_ip`, `signup_ip_hash`, `visit_ip`, `visit_ip_hash`) are
+never serialised — `User` hides them; the countries, cities and when the latest
+visit started are, like the rest of the account.

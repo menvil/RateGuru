@@ -6087,6 +6087,9 @@
         min-width: 0;
         line-height: 20px;
         text-align: right;
+        /* The row's value keeps to one line; a visit's time and place wraps in a narrow drawer instead. */
+        white-space: normal;
+        overflow-wrap: anywhere;
     }
 
     .rg-admin-user__ip {

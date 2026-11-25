@@ -424,6 +424,11 @@ it('shows where an account made before places were kept signed up and last visit
         ->and($view['lastSeen'])->toBe('Not seen yet')
         ->and(listedRow(Livewire::test(ListUsers::class), $person))->toMatchArray(['location' => '🇩🇪 Berlin, Germany', 'locationFromVisits' => true, 'lastVisit' => null]);
 
+    // A later visit from an address the IP database doesn't know is still the latest: Unknown, at its own time.
+    TrafficVisit::factory()->unpaid()->create(['visitor_hash' => $signup->visitor_hash, 'country' => null, 'city' => null, 'arrived_at' => '2026-11-24 21:00:00']);
+
+    expect(Livewire::test(UserEditor::class, ['userId' => $person->id])->viewData('person')['visitPlace'])->toMatchArray(['where' => 'Unknown', 'when' => '24 Nov 2026, 21:00', 'fromVisits' => true]);
+
     // Nothing recorded at all: unknown.
     $nobody = User::factory()->create();
 
