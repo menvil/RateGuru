@@ -121,7 +121,21 @@ Feature flags are stored in `feature_flags` JSON column:
 | `allow_user_uploads` | true | Whether members can create posts: the upload button, and the upload form itself |
 | `allow_guest_viewing` | true | Whether guests can see the content: off, the feed, posts, share links and profiles ask to sign in (the legal and contact pages stay open) |
 | `guest_actions_open_sign_up` | false | A guest's vote, rating or comment vote opens the sign-up form instead of sign-in, for a browser no account has signed up or signed in with — to try which brings more accounts; the registration funnel shows what opened the dialog and what came of it |
+| `keep_ip_addresses` | false | Keeps the IP address each member signed up from and the one their latest visit started from, shown to admins in the person's editor (Admin → Users). Off, only the country, the city and a one-way hash of the address are kept — enough to count the accounts sharing an address. **Update the privacy page first** (below) |
 | `content_studio_verified_adults` | false | An administrator's confirmation that everyone in Content Studio's photos is a verified adult; lets its texts and discussions flirt with the people shown (`docs/architecture/studio-personas.md`). Applying a preset switches it off |
+
+### Before keeping IP addresses
+
+The privacy texts suggested so far (`docs/admin/traffic-sources.md`) end with
+"we don't keep your IP address". Before switching `keep_ip_addresses` on,
+change that on the privacy page (Project settings → Static pages), for example:
+"When you sign up, and each time you come back, we keep the IP address you came
+from and the country and city it points to, to protect the site from fake and
+duplicate accounts. Only our administrators see it, and it is deleted with your
+account." Even off, the site keeps the country and city of where an account was
+made and last visited from, and a one-way hash of the address that can't be
+turned back into it — worth a sentence too: "We keep the country and city you
+signed up and last visited from, worked out from your IP address."
 
 ### Security warning for feature flags
 

@@ -10,8 +10,10 @@ use App\Enums\UserStatus;
 use App\Models\Comment;
 use App\Models\Post;
 use App\Models\Report;
+use App\Models\TrafficVisit;
 use App\Models\User;
 use App\Support\Database\LikePattern;
+use App\Support\Privacy\IpAddressHash;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\SoftDeletingScope;
@@ -20,7 +22,9 @@ use Illuminate\Database\Eloquent\SoftDeletingScope;
  * The people moderation lists, a tab at a time: by status, or the trusted
  * ones, narrowed to a role, to the suspicious — the dashboard's Suspicious
  * users: shadowbanned, or with reported posts or comments — and by a search
- * over the username, the name and the email address. Newest accounts first.
+ * over the username, the name and the email address, or for an IP address
+ * (or its hash) the accounts that signed up or last visited from it. Newest
+ * accounts first.
  */
 final class ModerationUsersQuery implements RawSqlPersistenceBoundary, StablePaginationBoundary
 {
@@ -31,15 +35,27 @@ final class ModerationUsersQuery implements RawSqlPersistenceBoundary, StablePag
 
     /**
      * A page of one list, with each person's posts and the reports on their
-     * posts and comments.
+     * posts and comments, and — for an account made before it kept where it
+     * was made from — the place of the visit its sign-up was credited to.
      *
      * @return LengthAwarePaginator<int, User>
      */
     public function paginate(string $tab, string $search, ?UserRole $role, bool $suspicious, int $page): LengthAwarePaginator
     {
+        $credited = fn (string $column): Builder => TrafficVisit::query()
+            ->select("traffic_visits.{$column}")
+            ->join('account_attributions', 'account_attributions.credited_visit_id', '=', 'traffic_visits.id')
+            ->whereColumn('account_attributions.user_id', 'users.id')
+            ->limit(1);
+
         return $this->narrowed($tab, $search, $role, $suspicious)
             ->withCount('posts')
-            ->addSelect(['users.*', 'reports_on_content' => $this->reportsOnContent()])
+            ->addSelect([
+                'users.*',
+                'reports_on_content' => $this->reportsOnContent(),
+                'credited_visit_country' => $credited('country'),
+                'credited_visit_city' => $credited('city'),
+            ])
             // Accounts made at the same moment keep their place across pages.
             ->orderByDesc('users.created_at')
             ->orderByDesc('users.id')
@@ -124,7 +140,11 @@ final class ModerationUsersQuery implements RawSqlPersistenceBoundary, StablePag
                 ->orWhereHas('comments', fn (Builder $comments) => $comments->withoutGlobalScope(SoftDeletingScope::class)->where('reports_count', '>', 0)));
         }
 
-        if ($search !== '') {
+        $address = IpAddressHash::fromSearch($search, (string) config('app.key'));
+
+        if ($address !== null) {
+            $query->where(fn (Builder $shared) => $shared->where('users.signup_ip_hash', $address)->orWhere('users.visit_ip_hash', $address));
+        } elseif ($search !== '') {
             $pattern = LikePattern::containing($search);
 
             $query->where(fn (Builder $matching) => $matching

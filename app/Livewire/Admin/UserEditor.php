@@ -20,6 +20,7 @@ use App\Models\User;
 use App\Queries\Users\ModerationUsersQuery;
 use App\Queries\Users\UnconfirmedAccountsQuery;
 use App\Queries\Users\UserModerationProfileQuery;
+use Carbon\CarbonInterface;
 use Illuminate\Contracts\View\View;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
@@ -193,6 +194,7 @@ final class UserEditor extends Component
         $decision = $profile->statusDecision($person);
         $providers = $profile->providers($person);
         $locale = $person->locale !== null ? config("locales.supported.{$person->locale}.native") : null;
+        $places = $profile->places($person);
 
         return view('livewire.admin.user-editor', [
             'person' => [
@@ -217,6 +219,9 @@ final class UserEditor extends Component
                     ...array_map(fn (string $provider): ?string => SocialProvider::tryFrom($provider)?->label(), $providers),
                 ])) ?: 'None',
                 'language' => is_string($locale) ? $locale : 'Not chosen',
+                'signupPlace' => self::place($places['signup']),
+                'visitPlace' => self::place($places['visit']),
+                'lastSeen' => $person->last_seen_at?->format('d M Y, H:i') ?? 'Not seen yet',
                 'postsBreakdown' => implode(' · ', array_filter([
                     $posts['published'] > 0 ? number_format($posts['published']).' published' : null,
                     $posts['pending'] > 0 ? number_format($posts['pending']).' pending' : null,
@@ -404,6 +409,31 @@ final class UserEditor extends Component
      * did and signed up with it, when the cleanup of unconfirmed accounts
      * removes them.
      */
+    /**
+     * A place as a row of Account shows it: where, and when for a visit; then the address while it is kept, how
+     * many other accounts share it with the way to them, or that it is known only from the visits recorded.
+     *
+     * @param  ?array{country: ?string, city: ?string, ip: ?string, hash: ?string, at: ?CarbonInterface, fromVisits: bool, others: int}  $place
+     * @return array{where: string, when: ?string, ip: ?string, others: ?string, othersUrl: ?string, fromVisits: bool}
+     */
+    private static function place(?array $place): array
+    {
+        if ($place === null) {
+            return ['where' => 'Unknown', 'when' => null, 'ip' => null, 'others' => null, 'othersUrl' => null, 'fromVisits' => false];
+        }
+
+        $search = $place['ip'] ?? $place['hash'];
+
+        return [
+            'where' => ModerationListFormat::place($place['country'], $place['city']),
+            'when' => $place['at']?->format('d M Y, H:i'),
+            'ip' => $place['ip'],
+            'others' => $place['others'] > 0 ? Str::plural('other account', $place['others'], prependCount: true).' from this IP' : null,
+            'othersUrl' => $place['others'] > 0 && $search !== null ? ListUsers::getUrl(['q' => $search]) : null,
+            'fromVisits' => $place['fromVisits'],
+        ];
+    }
+
     private static function confirmation(User $person): string
     {
         if ($person->isTombstoned()) {

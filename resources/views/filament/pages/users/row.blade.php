@@ -2,7 +2,8 @@
     /*
      * One person (TBL-01): their avatar, username — which opens their editor
      * in the drawer for whoever may edit it — name and when they joined; the email
-     * address; the role, staff as an outline badge; the status (STS-01);
+     * address; where they signed up from, and their latest visit when it
+     * started somewhere else; the role, staff as an outline badge; the status (STS-01);
      * whether they are trusted; their posts; the reports on their content
      * (STS-02). Edit is inline; the moderation actions are in the row menu
      * (TBL-04), each unavailable one with its reason. The editor links are
@@ -33,6 +34,15 @@
             <span class="rg-admin-table__ellipsis" title="{{ $row['email'] }}">{{ $row['email'] }}</span>
             @if ($row['unconfirmed'])
                 <span class="rg-admin-table__meta rg-admin-table__meta--small" data-testid="user-row-unconfirmed">Not confirmed</span>
+            @endif
+        </div>
+    </div>
+
+    <div class="rg-admin-table__cell" role="cell" data-testid="user-row-location">
+        <div class="rg-admin-table__stack">
+            <span class="rg-admin-table__ellipsis" title="{{ $row['location'] }}{{ $row['locationFromVisits'] ? ' · from the visits recorded' : '' }}">{{ $row['location'] }}</span>
+            @if ($row['lastVisit'] !== null)
+                <span class="rg-admin-table__meta rg-admin-table__meta--small rg-admin-table__ellipsis" title="{{ $row['lastVisit'] }}">{{ $row['lastVisit'] }}</span>
             @endif
         </div>
     </div>

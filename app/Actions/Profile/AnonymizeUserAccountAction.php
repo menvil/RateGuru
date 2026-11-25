@@ -97,6 +97,16 @@ final class AnonymizeUserAccountAction
                 'anonymized_at' => now(),
                 'last_seen_at' => null,
                 'previous_visit_at' => null,
+                // Where they signed up and visited from, and the addresses.
+                'signup_ip' => null,
+                'signup_ip_hash' => null,
+                'signup_country' => null,
+                'signup_city' => null,
+                'visit_started_at' => null,
+                'visit_ip' => null,
+                'visit_ip_hash' => null,
+                'visit_country' => null,
+                'visit_city' => null,
             ])->save();
 
             // Private/social account state. Community contribution (posts,

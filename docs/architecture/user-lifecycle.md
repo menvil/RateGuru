@@ -220,8 +220,10 @@ row. `AnonymizeUserAccountAction` turns it into an irreversible tombstone:
 - PII is replaced: `name = "Deleted user"`, unique non-identifying
   `username` (`deleted_{id}_{random}`) and non-routable `email`
   (`deleted-{id}-{uuid}@deleted.invalid`), everything else personal is
-  nulled; credentials are scrambled (random password, cleared
-  remember token / verification / reset tokens / sessions).
+  nulled — where the account signed up and last visited from included
+  (the places, their IP hashes and any IP address kept, below); credentials
+  are scrambled (random password, cleared remember token / verification /
+  reset tokens / sessions).
 - A deleted former admin/moderator is demoted to an ordinary `User` role —
   no privileged tombstones.
 - Every capability fails closed, including `canUpdateProfile` and
@@ -510,3 +512,33 @@ Delivered by the completed series, kept here as history only:
 FK cascade hardening (PR-C), comment tombstones (PR-D), post retention /
 hard purge (PR-E), moderation lifecycle (PR-F), moderation content
 retention (PR-G).
+
+## Where a member signs up and visits from
+
+Each account keeps where it was made from and where its latest visit started
+(`RecordMemberPlaceAction`), by the request's address: the country and city the
+local IP database places it in (`docs/architecture/geo.md`) and a one-way hash
+of the address (`IpAddressHash`, HMAC-SHA-256 under the application key — the
+same hash a recorded visit keeps), which finds the accounts that share an
+address without the address itself. The address is kept beside them only while
+the `keep_ip_addresses` feature flag is on — off by default, since the privacy
+page has to say so first (`docs/admin/project-settings.md`).
+
+- **Signed up from** — `signup_*`, written once, when `Registered` fires: an
+  email sign-up, or a first sign-in with Google or Facebook.
+- **Last visit** — `visit_started_at` and `visit_*`, written whenever a visit
+  starts: on `Login` (a password, Google or Facebook, or the remember-me cookie
+  bringing the member back once their session ran out) and when
+  `TouchMemberVisitAction` starts a new visit after more than an hour away — so
+  a member who stays signed in for weeks still moves it each day they come back.
+- **Last seen** — `last_seen_at`, any page, at most every few minutes a session.
+
+The editor of a person (Admin → Users) shows all three, each address while it is
+kept, and how many other accounts signed up or last visited from it, with the
+way to them: the list's search takes an IP address, or the hash the link
+carries while the address is not kept. The list shows where each person signed
+up from and, under it, their latest visit when it started somewhere else. An
+account made before places were kept reads them from the visits recorded — the
+visit its sign-up was credited to, the latest visit of a browser of theirs —
+marked as such, or Unknown. Anonymisation nulls every one of these columns;
+none of them is ever serialised (`User` hides the addresses and hashes).

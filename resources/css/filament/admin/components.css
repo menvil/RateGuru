@@ -5968,6 +5968,20 @@
         line-height: var(--rg-admin-leading-micro);
     }
 
+    /* Where a person signed up and last visited from: the place, then the address and who shares it under it. */
+    .rg-admin-user__place {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+        gap: 2px;
+        min-width: 0;
+        text-align: right;
+    }
+
+    .rg-admin-user__ip {
+        font-family: var(--rg-admin-font-mono);
+    }
+
     .rg-admin-user__title-row {
         display: flex;
         align-items: center;

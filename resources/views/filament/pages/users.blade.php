@@ -7,7 +7,7 @@
      * sideways and every column stays (TBL-01). A person is edited in the
      * drawer over the list (UserEditor).
      */
-    $columns = '--rg-admin-table-columns: minmax(200px, 1fr) 220px 110px 140px 150px 70px 80px 110px; --rg-admin-table-min-width: 1080px';
+    $columns = '--rg-admin-table-columns: minmax(200px, 1fr) 220px 200px 110px 140px 150px 70px 80px 110px; --rg-admin-table-min-width: 1280px';
     $total = $paginator->total();
 @endphp
 
@@ -44,7 +44,7 @@
             <div class="rg-admin-toolbar">
                 <x-admin.ui.search-field
                     class="rg-admin-toolbar__search"
-                    placeholder="Search username, name or email"
+                    placeholder="Search username, name, email or IP"
                     name="q"
                     id="rg-admin-users-search"
                     :value="$q"
@@ -78,6 +78,7 @@
                         <div class="rg-admin-table__row rg-admin-table__row--head" role="row">
                             <div class="rg-admin-table__cell" role="columnheader">Username</div>
                             <div class="rg-admin-table__cell" role="columnheader">Email</div>
+                            <div class="rg-admin-table__cell" role="columnheader">Location</div>
                             <div class="rg-admin-table__cell" role="columnheader">Role</div>
                             <div class="rg-admin-table__cell" role="columnheader">Status</div>
                             <div class="rg-admin-table__cell" role="columnheader">Trust</div>

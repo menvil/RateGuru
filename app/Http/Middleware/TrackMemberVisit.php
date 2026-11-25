@@ -34,7 +34,7 @@ final class TrackMemberVisit
                 $touched = $request->session()->get(self::SESSION_KEY);
 
                 if (! is_int($touched) || $now->getTimestamp() - $touched >= self::EVERY_SECONDS) {
-                    $this->visits->handle($user, $now);
+                    $this->visits->handle($user, $now, $request->ip());
                     $request->session()->put(self::SESSION_KEY, $now->getTimestamp());
                 }
             }

@@ -38,7 +38,7 @@ it('draws the list in Admin v2 at every width, the table scrolling inside its ca
         })()
     JS))->toBe([
         'headings' => ['Users'],
-        'columns' => ['Username', 'Email', 'Role', 'Status', 'Trust', 'Posts', 'Reports', 'Actions'],
+        'columns' => ['Username', 'Email', 'Location', 'Role', 'Status', 'Trust', 'Posts', 'Reports', 'Actions'],
         'scrollsWhenNarrower' => true,
         'overflow' => false,
     ]);

@@ -211,6 +211,7 @@ final class ListUsers extends Page
             'initials' => ModerationListFormat::initials((string) ($person->username ?? $person->name)),
             'meta' => ($deleted ? 'Deleted account' : (string) $person->name).($person->created_at !== null ? ' · joined '.$person->created_at->format('d M Y, H:i') : ''),
             'email' => $deleted ? 'Removed on deletion' : (string) $person->email,
+            ...self::location($person),
             // A Persona's address is synthetic and never confirmed; nobody else's goes unsaid.
             'unconfirmed' => ! $deleted && $person->role !== UserRole::Persona && $person->email_verified_at === null,
             'role' => (string) $person->role?->label(),
@@ -223,6 +224,27 @@ final class ListUsers extends Page
             'postsUrl' => $person->username !== null ? ListPosts::getUrl(['status' => 'all', 'q' => $person->username]) : null,
             'deleted' => $deleted,
             'options' => $options,
+        ];
+    }
+
+    /**
+     * Where the person signed up from, as their account keeps it or else as the visit their sign-up was credited
+     * to shows it; and where their latest visit started from, when that was somewhere else.
+     *
+     * @return array{location: string, locationFromVisits: bool, lastVisit: ?string}
+     */
+    private static function location(User $person): array
+    {
+        $kept = $person->signup_ip_hash !== null || $person->signup_country !== null;
+        $country = $kept ? $person->signup_country : $person->getAttribute('credited_visit_country');
+        $city = $kept ? $person->signup_city : $person->getAttribute('credited_visit_city');
+        $elsewhere = $person->visit_started_at !== null && $person->visit_country !== null
+            && ($person->visit_country !== $country || $person->visit_city !== $city);
+
+        return [
+            'location' => ModerationListFormat::place(is_string($country) ? $country : null, is_string($city) ? $city : null),
+            'locationFromVisits' => ! $kept && is_string($country),
+            'lastVisit' => $elsewhere ? 'Last visit: '.ModerationListFormat::place($person->visit_country, $person->visit_city).' · '.$person->visit_started_at->format('d M') : null,
         ];
     }
 

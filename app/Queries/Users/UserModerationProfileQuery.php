@@ -4,6 +4,8 @@ namespace App\Queries\Users;
 
 use App\Enums\ModerationActionType;
 use App\Enums\PostStatus;
+use App\Models\AccountAttribution;
+use App\Models\AccountBrowser;
 use App\Models\Comment;
 use App\Models\CommentVote;
 use App\Models\ModerationLog;
@@ -11,7 +13,9 @@ use App\Models\Post;
 use App\Models\PostVote;
 use App\Models\Report;
 use App\Models\SocialAccount;
+use App\Models\TrafficVisit;
 use App\Models\User;
+use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\SoftDeletingScope;
@@ -110,6 +114,53 @@ final class UserModerationProfileQuery
     public function commentVotes(User $person): int
     {
         return CommentVote::query()->where('user_id', $person->id)->count();
+    }
+
+    /**
+     * Where the person signed up from and where their latest visit started, as their account keeps them; for an
+     * account made before it kept them, as the visits recorded show — the visit the sign-up was credited to, and
+     * the latest visit of a browser of theirs. Each with how many other accounts share its address.
+     *
+     * @return array{signup: ?array{country: ?string, city: ?string, ip: ?string, hash: ?string, at: ?CarbonInterface, fromVisits: bool, others: int}, visit: ?array{country: ?string, city: ?string, ip: ?string, hash: ?string, at: ?CarbonInterface, fromVisits: bool, others: int}}
+     */
+    public function places(User $person): array
+    {
+        $signup = $person->signup_ip_hash !== null || $person->signup_country !== null
+            ? ['country' => $person->signup_country, 'city' => $person->signup_city, 'ip' => $person->signup_ip, 'hash' => $person->signup_ip_hash, 'at' => $person->created_at, 'fromVisits' => false]
+            : $this->visitPlace(TrafficVisit::query()->whereKey(AccountAttribution::query()->where('user_id', $person->id)->value('credited_visit_id')));
+        $visit = $person->visit_started_at !== null
+            ? ['country' => $person->visit_country, 'city' => $person->visit_city, 'ip' => $person->visit_ip, 'hash' => $person->visit_ip_hash, 'at' => $person->visit_started_at, 'fromVisits' => false]
+            : $this->visitPlace(TrafficVisit::query()
+                ->whereIn('visitor_hash', AccountBrowser::query()->where('user_id', $person->id)->select('visitor_hash'))
+                ->orderByDesc('arrived_at')
+                ->orderByDesc('id'));
+
+        return [
+            'signup' => $signup === null ? null : [...$signup, 'others' => $this->sharing($person, $signup['hash'])],
+            'visit' => $visit === null ? null : [...$visit, 'others' => $this->sharing($person, $visit['hash'])],
+        ];
+    }
+
+    /**
+     * The first placed visit a query finds, as a place known from the visits: no address of it is kept.
+     *
+     * @param  Builder<TrafficVisit>  $visits
+     * @return ?array{country: ?string, city: ?string, ip: null, hash: null, at: ?CarbonInterface, fromVisits: true}
+     */
+    private function visitPlace(Builder $visits): ?array
+    {
+        $visit = $visits->whereNotNull('country')->first(['id', 'country', 'city', 'arrived_at']);
+
+        return $visit === null ? null : ['country' => $visit->country, 'city' => $visit->city, 'ip' => null, 'hash' => null, 'at' => $visit->arrived_at, 'fromVisits' => true];
+    }
+
+    /** How many other accounts signed up or last visited from the address of a hash. */
+    private function sharing(User $person, ?string $hash): int
+    {
+        return $hash === null ? 0 : User::query()
+            ->whereKeyNot($person->id)
+            ->where(fn (Builder $shared) => $shared->where('signup_ip_hash', $hash)->orWhere('visit_ip_hash', $hash))
+            ->count();
     }
 
     /** How many reports the person has filed on others' posts and comments, whatever became of them. */

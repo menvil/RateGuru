@@ -5,6 +5,7 @@ namespace App\Filament\Support;
 use App\Actions\Moderation\MarkUserTrustedAction;
 use App\Enums\UserStatus;
 use App\Models\User;
+use App\Support\Geo\Countries;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Str;
 
@@ -73,6 +74,16 @@ final class ModerationListFormat
     }
 
     /** The first two letters of a name, for an avatar: “luna.the.husky” is LU. */
+    /** Where a person was, by the IP database: the flag, then the city and the country, or the country alone; Unknown without one. */
+    public static function place(?string $country, ?string $city): string
+    {
+        if ($country === null || ! Countries::has($country)) {
+            return 'Unknown';
+        }
+
+        return Countries::flag($country).' '.($city === null || $city === '' ? '' : $city.', ').Countries::name($country);
+    }
+
     public static function initials(string $name): string
     {
         return Str::upper(Str::substr((string) preg_replace('/[^\pL]/u', '', $name), 0, 2));
