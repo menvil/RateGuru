@@ -104,15 +104,36 @@ it('reads a clip filmed sideways as the portrait picture it shows', function () 
         ->and($probe->rotation)->toBeIn([90, 270]);
 });
 
-it('refuses a playlist saved under a video name, and a file that is no video at all', function () {
+it('refuses a playlist that ffprobe would otherwise read as video, because of the format whitelist alone', function () {
     $this->dir = requireRealFfmpeg();
-    file_put_contents($this->dir.'/playlist.mp4', "#EXTM3U\n#EXT-X-TARGETDURATION:1\n#EXTINF:1,\nfile:///etc/hosts\n#EXT-X-ENDLIST\n");
-    file_put_contents($this->dir.'/notes.mp4', "just some text\n");
 
-    foreach (['playlist.mp4', 'notes.mp4'] as $name) {
+    // A playlist whose one entry is a real local video segment: nothing about
+    // it is broken, so only the demuxer whitelist can be what refuses it.
+    makeWithRealFfmpeg(['-f', 'lavfi', '-i', 'testsrc=duration=1:size=320x240:rate=25', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-f', 'mpegts', $this->dir.'/segment0.ts']);
+    $playlist = "#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:1\n#EXT-X-MEDIA-SEQUENCE:0\n#EXTINF:1.0,\nsegment0.ts\n#EXT-X-ENDLIST\n";
+    file_put_contents($this->dir.'/playlist.m3u8', $playlist);
+    file_put_contents($this->dir.'/playlist.mp4', $playlist);
+
+    // The control: the same ffprobe, the same protocol whitelist, no demuxer
+    // whitelist — it reads the playlist as HLS and opens its segment.
+    $control = new Process(['ffprobe', '-v', 'error', '-protocol_whitelist', 'file', '-show_entries', 'format=format_name:stream=codec_name', '-of', 'csv=p=0', 'file:'.$this->dir.'/playlist.m3u8'], null, null, null, 60);
+    $control->run();
+
+    expect($control->getExitCode())->toBe(0, $control->getErrorOutput())
+        ->and($control->getOutput())->toContain('h264')->toContain('hls');
+
+    // VideoProbe refuses it, under its own name and under a video's.
+    foreach (['playlist.m3u8', 'playlist.mp4'] as $name) {
         expect(fn () => app(VideoProbe::class)->probe($this->dir.'/'.$name))
             ->toThrow(VideoUnreadableException::class, null, $name);
     }
+});
+
+it('refuses a file that is no video at all', function () {
+    $this->dir = requireRealFfmpeg();
+    file_put_contents($this->dir.'/notes.mp4', "just some text\n");
+
+    expect(fn () => app(VideoProbe::class)->probe($this->dir.'/notes.mp4'))->toThrow(VideoUnreadableException::class);
 });
 
 it('runs in the PostgreSQL tests job, against Ubuntu\'s ffmpeg', function () {
