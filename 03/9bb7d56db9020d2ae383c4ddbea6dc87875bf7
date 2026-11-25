@@ -1,0 +1,71 @@
+tests/Feature/Services/Media/MediaLifecycleServicePurgeTest.php
+  s_1f43f39fbe0537::t_61f9f907b1bba0 50-59
+app/Services/Media/MediaVariantWriter.php
+  s_1f43f39fbe0537::t_8e6229f41ef1df 5,8,65-70,72,74-121,124,129,132,136,140-141
+docs/architecture/media.md
+  s_1f43f39fbe0537::t_87584ca9066b70 432-486
+tests/Pest.php
+  s_1f43f39fbe0537::t_c2507124d5afd4 1387-1404,1406,1408-1420
+  s_1f43f39fbe0537::t_87584ca9066b70 120
+  s_1f43f39fbe0537::t_ccbb225e48c363 1365-1383
+  s_1f43f39fbe0537::t_c7d2895034cb1b 197,1405,1407
+app/Services/Media/Exceptions/VideoUnreadableException.php
+  s_1f43f39fbe0537::t_f53f6b3bbe7ccc 12-16
+app/Services/Media/FilesystemMediaStorage.php
+  s_1f43f39fbe0537::t_43df0fbfc961a6 76-120
+app/Services/Media/VideoRendition.php
+  s_1f43f39fbe0537::t_f53f6b3bbe7ccc 1-57
+app/Services/Media/VideoTranscoder.php
+  s_1f43f39fbe0537::t_039c01f60800e1 60-61
+  s_1f43f39fbe0537::t_f53f6b3bbe7ccc 1-59,62-109
+app/Jobs/ProcessVideoAssetJob.php
+  s_1f43f39fbe0537::t_e63d16c11f9fe9 1-73
+tests/Feature/Services/Media/MediaVariantGeneratorTest.php
+  s_1f43f39fbe0537::t_61f9f907b1bba0 88-97
+config/media.php
+  s_1f43f39fbe0537::t_f53f6b3bbe7ccc 35-38,156-159
+app/Models/MediaAsset.php
+  s_1f43f39fbe0537::t_4815d3e365acfb 26
+app/Enums/MediaVariantName.php
+  s_1f43f39fbe0537::t_8e6229f41ef1df 13-16
+tests/Feature/Services/Media/MediaVariantWriterTest.php
+  s_1f43f39fbe0537::t_f4ebc63bfe4461 10,308-335
+app/Jobs/RunsOnMediaQueue.php
+  s_1f43f39fbe0537::t_be59ad91eb5be8 1-10
+config/queue.php
+  s_1f43f39fbe0537::t_be59ad91eb5be8 78-91
+tests/Feature/Services/Media/VideoTranscoderTest.php
+  s_1f43f39fbe0537::t_dfb6104f938176 1-7,9-12,14-90
+  s_1f43f39fbe0537::t_ccbb225e48c363 8,13
+tests/Feature/Services/Media/FilesystemMediaStorageTest.php
+  s_1f43f39fbe0537::t_f4ebc63bfe4461 392-423
+app/Support/Media/MediaQueue.php
+  s_1f43f39fbe0537::t_be59ad91eb5be8 1-22
+app/Services/Media/MediaStorage.php
+  s_1f43f39fbe0537::t_43df0fbfc961a6 28-45
+tests/Feature/Architecture/QueuedWorkRetryWindowTest.php
+  s_1f43f39fbe0537::t_e0722c41561467 3,5,132-150
+  s_1f43f39fbe0537::t_d59eb4d356ee0f 128-129,131
+app/Services/Media/ProducedMediaFile.php
+  s_1f43f39fbe0537::t_8e6229f41ef1df 1-20
+app/Services/Media/VideoAssetProcessor.php
+  s_1f43f39fbe0537::t_2a6be59c87530f 1-221
+tests/Feature/Services/Media/VideoAssetProcessorTest.php
+  s_1f43f39fbe0537::t_f9ce7ef39c4fbe 1-198
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "039bb7d56db9020d2ae383c4ddbea6dc87875bf7",
+  "prompts": {},
+  "sessions": {
+    "s_1f43f39fbe0537": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "526787d0-f443-4ad7-9610-cf9811fec895",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
