@@ -11,6 +11,9 @@
     'testid' => null,
     'imageTestid' => null,
     'loading' => null,
+    // A PostVideo: the post plays it in place of the picture, which becomes
+    // its poster.
+    'video' => null,
 ])
 
 @php
@@ -42,7 +45,60 @@
     $fetchPriority = $loading === null ? 'high' : null;
 @endphp
 
-@if($imageUrl)
+@if($video)
+    {{-- Muted until asked: a feed must never start making noise on its own. It plays while
+         most of it is on screen and pauses when scrolled away (rgPostVideo); with reduced
+         motion it waits for a tap. The post page and the viewer add the browser's controls. --}}
+    <div
+        {{ $attributes->class([$containerClasses, 'relative']) }}
+        x-data="rgPostVideo()"
+        x-on:rg-video-sound.window="if ($event.detail !== $root) quiet()"
+        data-testid="post-video"
+    >
+        <video
+            x-ref="video"
+            src="{{ $video->src }}"
+            @if($video->poster ?? $imageUrl) poster="{{ $video->poster ?? $imageUrl }}" @endif
+            @if($video->width) width="{{ $video->width }}" @endif
+            @if($video->height) height="{{ $video->height }}" @endif
+            muted
+            playsinline
+            loop
+            preload="{{ $loading === null ? 'auto' : 'metadata' }}"
+            @if(in_array($context, ['standalone', 'fullscreen'], true)) controls @else x-on:click.stop="toggle()" @endif
+            aria-label="{{ $altText }}"
+            @if($imageTestid) data-testid="{{ $imageTestid }}" @endif
+            class="{{ $imageClasses }}"
+        ></video>
+
+        @if($video->hasAudio && ! in_array($context, ['standalone', 'fullscreen'], true))
+            <button
+                type="button"
+                x-on:click.stop="toggleSound()"
+                x-bind:aria-pressed="(! muted).toString()"
+                x-bind:aria-label="muted ? @js(__('ui.post.video_sound_on')) : @js(__('ui.post.video_sound_off'))"
+                aria-label="{{ __('ui.post.video_sound_on') }}"
+                data-testid="post-video-sound"
+                class="absolute bottom-2 end-2 grid size-9 place-items-center rounded-rgPill bg-black/55 text-white backdrop-blur-sm transition hover:bg-black/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent"
+            >
+                <x-ui.icon name="volume-off" class="size-4" x-show="muted" />
+                <x-ui.icon name="volume" class="size-4" x-show="! muted" x-cloak />
+            </button>
+        @endif
+
+        @if($openFullscreen)
+            <button
+                type="button"
+                x-on:click.stop="pause(); {{ $openFullscreen }}"
+                @if($testid) data-testid="{{ $testid }}" @endif
+                aria-label="{{ __('ui.post.video_open') }}"
+                class="absolute top-2 end-2 grid size-9 place-items-center rounded-rgPill bg-black/55 text-white backdrop-blur-sm transition hover:bg-black/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent"
+            >
+                <x-ui.icon name="expand" class="size-4" />
+            </button>
+        @endif
+    </div>
+@elseif($imageUrl)
     <div {{ $attributes->class([$containerClasses]) }}>
         @if($openFullscreen)
             <button

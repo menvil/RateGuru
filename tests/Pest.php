@@ -38,6 +38,7 @@ use App\Enums\GameFlowStepType;
 use App\Enums\GameStatus;
 use App\Enums\MediaResizeMode;
 use App\Enums\MediaTool;
+use App\Enums\MediaType;
 use App\Enums\MediaVariantName;
 use App\Enums\ReportStatus;
 use App\Enums\StudioActionStatus;
@@ -9103,6 +9104,38 @@ function postWithVariants(array $variantDimensionsByName): Post
 
     return Post::factory()->published()->create(['image_asset_id' => $asset->id])
         ->load('imageAsset.variants');
+}
+
+/**
+ * A published video post whose asset is its MP4 master (on disk), with these
+ * variants — poster image variants, video renditions — each on disk too.
+ * $attributes override the asset's (media_type, has_audio, status, ...).
+ */
+function videoPostWithPosterVariants(array $attributes = [], MediaVariantName ...$names): Post
+{
+    $asset = MediaAsset::factory()->postImage()->dimensions(1080, 1920)->create($attributes + [
+        'media_type' => MediaType::Video,
+        'mime_type' => 'video/mp4',
+        'extension' => 'mp4',
+        'has_audio' => true,
+        'duration_ms' => 15_000,
+        'path' => 'media/post-videos/2026/11/'.Str::uuid().'.mp4',
+    ]);
+    Storage::disk('public')->put($asset->path, 'mp4');
+
+    foreach ($names as $name) {
+        $video = in_array($name, [MediaVariantName::Video720, MediaVariantName::Video480], true);
+        // A rendition has no image specification to be made from.
+        $variant = ($video ? MediaVariant::factory() : MediaVariant::factory()->named($name))->create([
+            'media_asset_id' => $asset->id,
+            'width' => $name === MediaVariantName::Video480 ? 480 : ($video ? 720 : 640),
+            'height' => $name === MediaVariantName::Video480 ? 852 : ($video ? 1280 : 1138),
+            ...($video ? ['name' => $name, 'mime_type' => 'video/mp4', 'extension' => 'mp4', 'path' => preg_replace('/\.mp4$/', '', $asset->path).'/'.$name->value.'.mp4'] : []),
+        ]);
+        Storage::disk('public')->put($variant->path, $video ? 'mp4' : 'webp');
+    }
+
+    return Post::factory()->published()->create(['image_asset_id' => $asset->id])->load('imageAsset.variants');
 }
 
 /** The public URL of one of a postWithVariants() post's variants. */

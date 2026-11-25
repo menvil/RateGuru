@@ -72,6 +72,7 @@
                 @if($post->public_image_url)
                     @php
                         $drawerImage = $postImagePresenter->responsive($post, \App\Enums\PostImageContext::Drawer);
+                        $drawerImageVideo = $postImagePresenter->video($post, \App\Enums\PostImageContext::Drawer);
                     @endphp
                     <x-media.post-image
                         :post="$post"
@@ -80,6 +81,7 @@
                         :sizes="$drawerImage?->sizes"
                         :width="$drawerImage?->width"
                         :height="$drawerImage?->height"
+                        :video="$drawerImageVideo"
                         context="drawer"
                         open-fullscreen="imageOpen = true"
                         testid="post-drawer-image-open"
@@ -187,6 +189,7 @@
             @if($post->public_image_url)
                 @php
                     $fullscreenImage = $postImagePresenter->responsive($post, \App\Enums\PostImageContext::Fullscreen);
+                    $fullscreenImageVideo = $postImagePresenter->video($post, \App\Enums\PostImageContext::Fullscreen);
                 @endphp
                 <x-ui.modal :title="$post->title" title-dir="auto" state="imageOpen" size="fullscreen" below-header close-on-escape>
                     <x-media.post-image
@@ -196,6 +199,7 @@
                         :sizes="$fullscreenImage?->sizes"
                         :width="$fullscreenImage?->width"
                         :height="$fullscreenImage?->height"
+                        :video="$fullscreenImageVideo"
                         context="fullscreen"
                         image-testid="post-fullscreen-image"
                         loading="lazy"

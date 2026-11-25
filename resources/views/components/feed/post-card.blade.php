@@ -87,6 +87,7 @@
         @if($post->public_image_url)
             @php
                 $feedImage = $postImagePresenter->responsive($post, \App\Enums\PostImageContext::Feed);
+                $feedImageVideo = $postImagePresenter->video($post, \App\Enums\PostImageContext::Feed);
             @endphp
             <div class="mt-3">
                 <x-media.post-image
@@ -96,6 +97,7 @@
                     :sizes="$feedImage?->sizes"
                     :width="$feedImage?->width"
                     :height="$feedImage?->height"
+                    :video="$feedImageVideo"
                     context="feed"
                     open-fullscreen="imageOpen = true"
                     testid="post-card-image-open"
@@ -243,6 +245,7 @@
             @if($post->public_image_url)
                 @php
                     $fullscreenImage = $postImagePresenter->responsive($post, \App\Enums\PostImageContext::Fullscreen);
+                    $fullscreenImageVideo = $postImagePresenter->video($post, \App\Enums\PostImageContext::Fullscreen);
                 @endphp
                 <x-ui.modal :title="$post->title" title-dir="auto" state="imageOpen" size="fullscreen" below-header close-on-escape>
                     <x-media.post-image
@@ -252,6 +255,7 @@
                         :sizes="$fullscreenImage?->sizes"
                         :width="$fullscreenImage?->width"
                         :height="$fullscreenImage?->height"
+                        :video="$fullscreenImageVideo"
                         context="fullscreen"
                         image-testid="post-card-fullscreen-image"
                         loading="lazy"

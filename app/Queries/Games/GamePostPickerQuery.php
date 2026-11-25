@@ -5,6 +5,7 @@ namespace App\Queries\Games;
 use App\Contracts\Persistence\RawSqlPersistenceBoundary;
 use App\Contracts\Persistence\StablePaginationBoundary;
 use App\Enums\MediaStatus;
+use App\Enums\MediaType;
 use App\Models\Post;
 use App\Support\Database\LikePattern;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
@@ -30,7 +31,8 @@ final class GamePostPickerQuery implements RawSqlPersistenceBoundary, StablePagi
         $query = Post::query()
             ->published()
             ->whereNotNull('posts.image_asset_id')
-            ->whereHas('imageAsset', fn (Builder $asset) => $asset->where('status', MediaStatus::Ready))
+            // A photo: a game round shows a still picture, never a video's poster.
+            ->whereHas('imageAsset', fn (Builder $asset) => $asset->where('status', MediaStatus::Ready)->where('media_type', MediaType::Image))
             ->when($except !== [], fn (Builder $query) => $query->whereNotIn('posts.id', $except))
             ->with(['user', 'imageAsset.variants']);
 

@@ -101,6 +101,7 @@
             @if($post->public_image_url)
                 @php
                     $standaloneImage = $postImagePresenter->responsive($post, \App\Enums\PostImageContext::Standalone);
+                    $standaloneImageVideo = $postImagePresenter->video($post, \App\Enums\PostImageContext::Standalone);
                 @endphp
                 <x-media.post-image
                     :post="$post"
@@ -109,6 +110,7 @@
                     :sizes="$standaloneImage?->sizes"
                     :width="$standaloneImage?->width"
                     :height="$standaloneImage?->height"
+                    :video="$standaloneImageVideo"
                     context="standalone"
                     open-fullscreen="imageOpen = true"
                     testid="post-show-image-open"
@@ -248,6 +250,7 @@
             @if($post->public_image_url)
                 @php
                     $fullscreenImage = $postImagePresenter->responsive($post, \App\Enums\PostImageContext::Fullscreen);
+                    $fullscreenImageVideo = $postImagePresenter->video($post, \App\Enums\PostImageContext::Fullscreen);
                 @endphp
                 <x-ui.modal :title="$post->title" title-dir="auto" state="imageOpen" size="fullscreen" below-header close-on-escape>
                     <x-media.post-image
@@ -257,6 +260,7 @@
                         :sizes="$fullscreenImage?->sizes"
                         :width="$fullscreenImage?->width"
                         :height="$fullscreenImage?->height"
+                        :video="$fullscreenImageVideo"
                         context="fullscreen"
                         image-testid="post-fullscreen-image"
                         loading="lazy"

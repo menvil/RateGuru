@@ -17,7 +17,11 @@
         x-trap.inert.noscroll="! closing"
     >
         <div class="rg-admin-viewer__image">
-            <img src="{{ $viewer['url'] }}" alt="{{ $viewer['title'] }}" />
+            @if ($viewer['video'])
+                <video src="{{ $viewer['url'] }}" poster="{{ $viewer['poster'] }}" controls muted playsinline preload="metadata" aria-label="{{ $viewer['title'] }}"></video>
+            @else
+                <img src="{{ $viewer['url'] }}" alt="{{ $viewer['title'] }}" />
+            @endif
         </div>
         <div class="rg-admin-viewer__footer">
             <div class="rg-admin-viewer__text">

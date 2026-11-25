@@ -11,6 +11,8 @@ use App\Enums\GameProfileIcon;
 use App\Enums\GameRoundMode;
 use App\Enums\GameVersionStatus;
 use App\Enums\ImageOrientation;
+use App\Enums\MediaStatus;
+use App\Enums\MediaType;
 use App\Enums\PostStatus;
 use App\Exceptions\Games\CannotManageGameException;
 use App\Filament\Resources\Games\Concerns\InteractsWithGameEditor;
@@ -358,6 +360,13 @@ final class EditGameContent extends Page
 
         if ($post === null) {
             $this->toast('That post is no longer published.', 'error');
+
+            return;
+        }
+
+        // What the picker offers, held here too: a round needs a photo.
+        if ($post->imageAsset?->status !== MediaStatus::Ready || $post->imageAsset->media_type !== MediaType::Image) {
+            $this->toast('A game round needs a post with a photo.', 'error');
 
             return;
         }
