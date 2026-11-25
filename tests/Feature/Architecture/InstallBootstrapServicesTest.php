@@ -1,5 +1,6 @@
 <?php
 
+use App\Jobs\ProcessVideoAssetJob;
 use Illuminate\Support\Facades\File;
 
 /**
@@ -2507,6 +2508,104 @@ it('renders a queue program that is safe for supervisord to load before the firs
         bsvcCleanup($scratch);
     }
 })->group('bsvc-provisioning');
+
+it('renders the target program as a group of the default worker and a media worker that outlasts a transcode', function () {
+    $scratch = bsvcScratchDir();
+
+    try {
+        $rendered = bsvcRenderTarget($scratch, preActivationRegistryPath(), 'tits-guru');
+        $supervisor = $rendered['SUPERVISOR'];
+        $registry = json_decode(File::get(base_path('infrastructure/config/deployment-targets.json')), true, 512, JSON_THROW_ON_ERROR);
+        $program = $registry['targets']['tits-guru']['supervisor']['program'];
+        $queue = $registry['targets']['tits-guru']['supervisor']['queue'];
+        $logs = '/home/www/rateguru/production/tits-guru/shared/storage/logs';
+
+        // One group under the registry's program name, so every operation that
+        // addresses the program as <program>:* covers both workers.
+        expect($supervisor)
+            ->toContain("[group:{$program}]\nprograms={$program}-default,{$program}-media\n")
+            ->not->toContain("[program:{$program}]");
+
+        $sections = preg_split('/^(?=\[)/m', $supervisor);
+        $default = collect($sections)->first(fn (string $section): bool => str_starts_with($section, "[program:{$program}-default]"));
+        $media = collect($sections)->first(fn (string $section): bool => str_starts_with($section, "[program:{$program}-media]"));
+
+        expect($default)->toBeString()
+            ->toContain("exec /usr/bin/php8.5 artisan queue:work redis --queue={$queue} --sleep=3 --tries=3 --timeout=120 ")
+            ->toContain("stopasgroup=true\nkillasgroup=true\nstopwaitsecs=130\n")
+            ->toContain("stdout_logfile={$logs}/queue-worker.log\n");
+
+        // The media worker: the redis-media connection (retry_after 960) and
+        // its own queue, a timeout inside that window, a lower CPU priority,
+        // and the same PRE_DEPLOY guard and restart policy as the default one.
+        $retryAfter = (int) config('queue.connections.redis-media.retry_after');
+        preg_match('/--timeout=(\d+) /', (string) $media, $timeout);
+
+        expect($media)->toBeString()
+            ->toContain("exec /usr/bin/nice -n 10 /usr/bin/php8.5 artisan queue:work redis-media --queue={$queue}-media ")
+            ->toContain('--max-time=3600 --max-jobs=50 --memory=512')
+            ->toContain('[ ! -d /home/www/rateguru/production/tits-guru/current ]')
+            // On a release without the connection it waits, RUNNING, for one.
+            ->toContain('while ! grep -qs redis-media /home/www/rateguru/production/tits-guru/current/config/queue.php; do sleep 60; done; cd /home/www/rateguru/production/tits-guru/current && exec ')
+            // A stop reaches PHP alone, so ffmpeg is never told to quit
+            // halfway and the file never reads as refused; after a minute
+            // both are killed and the job runs again.
+            ->toContain("stopasgroup=false\nkillasgroup=true\nstopwaitsecs=60\n")
+            ->toContain("autorestart=unexpected\nexitcodes=99\n")
+            ->toContain("user={$registry['targets']['tits-guru']['runtime_user']}\n")
+            ->toContain("stdout_logfile={$logs}/media-worker.log\n")
+            ->and((int) $timeout[1])->toBeLessThanOrEqual($retryAfter - 10)
+            ->and((int) $timeout[1])->toBeGreaterThanOrEqual((new ProcessVideoAssetJob(1))->timeout);
+    } finally {
+        bsvcCleanup($scratch);
+    }
+})->group('bsvc-provisioning');
+
+it('renders a pool that takes a 100 MB video upload, and keeps the internal vhost at its own limit', function () {
+    $scratch = bsvcScratchDir();
+
+    try {
+        $rendered = bsvcRenderTarget($scratch, preActivationRegistryPath(), 'tits-guru');
+
+        // Only the public vhost's upload endpoint takes the larger body; the
+        // internal one serves health checks.
+        expect($rendered['NGINX'])->toContain("    client_max_body_size 64m;\n");
+        expect($rendered['FPM'])
+            ->toContain("php_admin_value[upload_max_filesize] = 128M\n")
+            ->toContain('php_admin_value[post_max_size] = 128M');
+        expect(128 * 1024)->toBeGreaterThan((int) config('uploads.videos.max_kilobytes'));
+    } finally {
+        bsvcCleanup($scratch);
+    }
+})->group('bsvc-provisioning');
+
+it('refuses a committed Supervisor config that lacks the media worker, before any mutation', function () {
+    $scratch = bsvcScratchDir();
+
+    try {
+        $env = bsvcFixture($scratch);
+        $repo = $scratch.'/repo';
+        @mkdir($repo, 0o755, true);
+        exec('cp -R '.escapeshellarg(base_path('infrastructure')).' '.escapeshellarg($repo.'/infrastructure').' 2>&1', $out, $code);
+        expect($code)->toBe(0, implode("\n", $out));
+
+        // The single program it used to be: no group, no media worker.
+        $conf = $repo.'/infrastructure/config/supervisor/rateguru-staging-queue.conf';
+        $sections = preg_split('/^(?=\[)/m', File::get($conf));
+        $default = collect($sections)->first(fn (string $section): bool => str_starts_with($section, '[program:rateguru-staging-queue-default]'));
+        expect($default)->toBeString();
+        File::put($conf, str_replace('[program:rateguru-staging-queue-default]', '[program:rateguru-staging-queue]', $default));
+
+        $before = bsvcTreeSnapshot($scratch.'/fs');
+        [$exit, $output] = bsvcRun(['--apply'], $env, $repo.'/infrastructure/scripts/install-bootstrap-services');
+
+        expect($exit)->toBe(1, $output)
+            ->and($output)->toContain('does not declare the group [group:rateguru-staging-queue] of rateguru-staging-queue-default and rateguru-staging-queue-media')
+            ->and(bsvcTreeSnapshot($scratch.'/fs'))->toBe($before);
+    } finally {
+        bsvcCleanup($scratch);
+    }
+});
 
 it('never renders a public hostname, a TLS listener or a certificate path', function () {
     $scratch = bsvcScratchDir();

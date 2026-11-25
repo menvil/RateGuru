@@ -2346,7 +2346,8 @@ reconcile_php_security_floor() {
 # its configuration passes php-fpm -t (one that fails leaves it as it is and
 # fails the run; the next run tries again), then each supervisor program still
 # running the replaced binary restarts: supervisor stops it the way it always
-# does, so a queue worker finishes its job first. PHP-FPM not running is not
+# does, so a queue worker gets its stopwaitsecs to finish its job — the media
+# worker a minute, after which its job runs again. PHP-FPM not running is not
 # started here; install-bootstrap-services starts it as a base service.
 finish_php_upgrade() {
     local version="$1" program
