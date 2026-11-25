@@ -2532,7 +2532,7 @@ it('renders the target program as a group of the default worker and a media work
 
         expect($default)->toBeString()
             ->toContain("exec /usr/bin/php8.5 artisan queue:work redis --queue={$queue} --sleep=3 --tries=3 --timeout=120 ")
-            ->toContain("stopwaitsecs=130\n")
+            ->toContain("stopasgroup=true\nkillasgroup=true\nstopwaitsecs=130\n")
             ->toContain("stdout_logfile={$logs}/queue-worker.log\n");
 
         // The media worker: the redis-media connection (retry_after 960) and
@@ -2543,9 +2543,14 @@ it('renders the target program as a group of the default worker and a media work
 
         expect($media)->toBeString()
             ->toContain("exec /usr/bin/nice -n 10 /usr/bin/php8.5 artisan queue:work redis-media --queue={$queue}-media ")
-            ->toContain('--tries=2 ')
-            ->toContain('--memory=512')
+            ->toContain('--max-time=3600 --max-jobs=50 --memory=512')
             ->toContain('[ ! -d /home/www/rateguru/production/tits-guru/current ]')
+            // On a release without the connection it waits, RUNNING, for one.
+            ->toContain('while ! grep -qs redis-media /home/www/rateguru/production/tits-guru/current/config/queue.php; do sleep 60; done; cd /home/www/rateguru/production/tits-guru/current && exec ')
+            // A stop reaches PHP alone, so ffmpeg is never told to quit
+            // halfway and the file never reads as refused; after a minute
+            // both are killed and the job runs again.
+            ->toContain("stopasgroup=false\nkillasgroup=true\nstopwaitsecs=60\n")
             ->toContain("autorestart=unexpected\nexitcodes=99\n")
             ->toContain("user={$registry['targets']['tits-guru']['runtime_user']}\n")
             ->toContain("stdout_logfile={$logs}/media-worker.log\n")
@@ -2556,13 +2561,15 @@ it('renders the target program as a group of the default worker and a media work
     }
 })->group('bsvc-provisioning');
 
-it('renders a pool and an internal vhost that accept a 100 MB video upload', function () {
+it('renders a pool that takes a 100 MB video upload, and keeps the internal vhost at its own limit', function () {
     $scratch = bsvcScratchDir();
 
     try {
         $rendered = bsvcRenderTarget($scratch, preActivationRegistryPath(), 'tits-guru');
 
-        expect($rendered['NGINX'])->toContain("    client_max_body_size 128m;\n");
+        // Only the public vhost's upload endpoint takes the larger body; the
+        // internal one serves health checks.
+        expect($rendered['NGINX'])->toContain("    client_max_body_size 64m;\n");
         expect($rendered['FPM'])
             ->toContain("php_admin_value[upload_max_filesize] = 128M\n")
             ->toContain('php_admin_value[post_max_size] = 128M');
@@ -2571,6 +2578,34 @@ it('renders a pool and an internal vhost that accept a 100 MB video upload', fun
         bsvcCleanup($scratch);
     }
 })->group('bsvc-provisioning');
+
+it('refuses a committed Supervisor config that lacks the media worker, before any mutation', function () {
+    $scratch = bsvcScratchDir();
+
+    try {
+        $env = bsvcFixture($scratch);
+        $repo = $scratch.'/repo';
+        @mkdir($repo, 0o755, true);
+        exec('cp -R '.escapeshellarg(base_path('infrastructure')).' '.escapeshellarg($repo.'/infrastructure').' 2>&1', $out, $code);
+        expect($code)->toBe(0, implode("\n", $out));
+
+        // The single program it used to be: no group, no media worker.
+        $conf = $repo.'/infrastructure/config/supervisor/rateguru-staging-queue.conf';
+        $sections = preg_split('/^(?=\[)/m', File::get($conf));
+        $default = collect($sections)->first(fn (string $section): bool => str_starts_with($section, '[program:rateguru-staging-queue-default]'));
+        expect($default)->toBeString();
+        File::put($conf, str_replace('[program:rateguru-staging-queue-default]', '[program:rateguru-staging-queue]', $default));
+
+        $before = bsvcTreeSnapshot($scratch.'/fs');
+        [$exit, $output] = bsvcRun(['--apply'], $env, $repo.'/infrastructure/scripts/install-bootstrap-services');
+
+        expect($exit)->toBe(1, $output)
+            ->and($output)->toContain('does not declare the group [group:rateguru-staging-queue] of rateguru-staging-queue-default and rateguru-staging-queue-media')
+            ->and(bsvcTreeSnapshot($scratch.'/fs'))->toBe($before);
+    } finally {
+        bsvcCleanup($scratch);
+    }
+});
 
 it('never renders a public hostname, a TLS listener or a certificate path', function () {
     $scratch = bsvcScratchDir();

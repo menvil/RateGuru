@@ -43,7 +43,8 @@ beforeEach(function () {
 
 it('is never retried, and stops well before Redis could hand it to another worker', function () {
     $job = new GenerateProjectTranslationChunkJob('batch', 'c1');
-    preg_match('/--timeout=(\d+)/', (string) file_get_contents(base_path('infrastructure/config/supervisor/rateguru-staging-queue.conf')), $worker);
+    // The default queue's worker: the media worker beside it runs longer jobs.
+    preg_match('/queue:work redis --queue=\S+ .*?--timeout=(\d+)/', (string) file_get_contents(base_path('infrastructure/config/supervisor/rateguru-staging-queue.conf')), $worker);
     // The Redis queue's retry_after as the repository ships it — what the targets run with — rather
     // than whatever this test environment happens to configure; and as configured here as well.
     preg_match("/EnvironmentValue::integer\(env\('REDIS_QUEUE_RETRY_AFTER'\), (\d+)\)/", (string) file_get_contents(config_path('queue.php')), $shipped);

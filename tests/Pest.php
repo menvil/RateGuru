@@ -11758,11 +11758,15 @@ function bsvcCleanup(string $dir): void
  * @param  array<string, string>  $env
  * @return array{0: int, 1: string}
  */
-function bsvcRun(array $arguments, array $env): array
+/**
+ * Runs the installer — the shipped one, or the copy at $script, for a test
+ * that needs the committed sources beside it changed.
+ */
+function bsvcRun(array $arguments, array $env, ?string $script = null): array
 {
     $descriptors = [1 => ['pipe', 'w'], 2 => ['redirect', 1]];
     $process = proc_open(
-        array_merge(['bash', bsvcScript()], $arguments),
+        array_merge(['bash', $script ?? bsvcScript()], $arguments),
         $descriptors,
         $pipes,
         null,

@@ -51,8 +51,11 @@ it('renders public-active through the target\'s own release and PHP-FPM pool, ne
         ->toContain("    location / {\n        return 301 https://\$host\$request_uri;\n    }")
         // A 100 MB video upload fits, and post media is cached for a week and
         // served as files only, never handed to PHP.
-        ->toContain("    client_max_body_size 128m;\n")
-        ->toContain("    location ^~ /storage/media/ {\n        add_header Cache-Control \"public, max-age=604800\";\n\n        try_files \$uri =404;\n    }\n")
+        ->toContain("    client_max_body_size 64m;\n")
+        ->toContain("    location ^~ /storage/media/ {\n        add_header Cache-Control \"public, max-age=604800\";\n")
+        ->toContain("        location ~ /\\. {\n            deny all;\n        }\n\n        try_files \$uri =404;\n    }\n")
+        ->toContain("    location ~ ^/livewire(-[0-9a-f]+)?/upload-file\$ {\n        client_max_body_size 128m;\n")
+        ->toContain("        fastcgi_param SCRIPT_FILENAME \$realpath_root/index.php;\n")
         ->not->toContain($target['staging-main']['application_root'])
         ->not->toContain($target['staging-main']['php_fpm']['socket'])
         ->not->toContain('default_server')

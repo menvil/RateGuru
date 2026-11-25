@@ -338,8 +338,8 @@ The registry's `supervisor.program` names a **group** of two programs, each
 with the contract above:
 
 ```
-[program:<program>-default]   queue:work redis       --queue=<queue>       --tries=3 --timeout=120  stopwaitsecs=130  queue-worker.log
-[program:<program>-media]     nice -n 10 queue:work redis-media --queue=<queue>-media --tries=2 --timeout=900 --max-jobs=50 --memory=512  stopwaitsecs=60  media-worker.log
+[program:<program>-default]   queue:work redis       --queue=<queue>       --tries=3 --timeout=120  stopasgroup=true   stopwaitsecs=130  queue-worker.log
+[program:<program>-media]     nice -n 10 queue:work redis-media --queue=<queue>-media --timeout=900 --max-jobs=50 --memory=512  stopasgroup=false  stopwaitsecs=60  media-worker.log
 
 [group:<program>]
 programs=<program>-default,<program>-media
@@ -347,21 +347,36 @@ programs=<program>-default,<program>-media
 
 The media worker runs the long media jobs (video transcoding). Its connection,
 `redis-media`, has a 960 s `retry_after` that outlasts their 900 s timeout. It
-runs at a lower CPU priority, so a transcode never crowds out the site. Its
-`stopwaitsecs` is short on purpose: a stop (restore, recovery) kills a
-transcode rather than waiting it out, and the job runs again once the retry
-window passes. Deployments never stop it. They signal `queue:restart`, which
-lets the running job finish.
+runs at a lower CPU priority, so a transcode never crowds out the site.
+
+**Stopping it.** A stop (restore, recovery, a PHP upgrade's restart, an
+installer `update` after a configuration change, the stop after a failed first
+activation) signals the PHP worker alone (`stopasgroup=false`). ffmpeg, its
+child, is never told to quit halfway: it would exit non-zero, and the file
+would read as refused. The worker stops after its job; past `stopwaitsecs`
+both are killed together (`killasgroup=true`), and the job runs again once
+the retry window passes. A successful deployment never stops it: it signals
+`queue:restart`, which lets the running job finish.
+
+**On an older release.** In front of the worker, the command waits until the
+release in `current/` defines the `redis-media` connection
+(`grep -qs redis-media current/config/queue.php`, every 60 s). Meanwhile the
+program is RUNNING and starts nothing. A rollback below the release that
+added the connection, a restore or recovery aligned to one, or installing the
+group before that release is deployed therefore changes nothing for the
+checks that want every worker RUNNING; the worker starts within a minute of a
+release that has the connection.
 
 Every operation already addresses the worker as `<program>:*` (status, start,
 stop) and `supervisorctl update <program>`, so it covers both workers. On a
 host that still runs the single-program file, `update <program>` replaces it
-with the group by itself. The default worker gets up to its `stopwaitsecs` to
-finish its job, and then both workers start.
+with the group by itself: the default worker gets its `stopwaitsecs` to finish
+its job, then both workers start. The installer's own rollback restores the
+previous file, for every target it installed.
 
-Install the group only once the release running on every target defines the
-`redis-media` connection. A worker started against code without it exits
-immediately and ends `FATAL`, and the install's queue check then fails.
+A deploy or rollback treats the group as running only when every process in
+it is RUNNING, as it treated the single program. A media worker stuck in
+FATAL for some other reason therefore makes the group read as stopped.
 
 `environment_class=staging` keeps its committed program, with the same two
 workers and group, in the older `directory=<root>/current` shape. That target has a release, and

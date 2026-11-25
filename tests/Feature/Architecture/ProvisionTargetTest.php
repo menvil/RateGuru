@@ -628,8 +628,11 @@ it('runs the real worker as soon as a release exists, and restarts it on its ord
 
         // The media worker: the redis-media connection and its own queue,
         // with a timeout that fits that connection's retry window, at a lower
-        // CPU priority so a transcode never crowds out the site.
+        // CPU priority so a transcode never crowds out the site. The release
+        // defines that connection, so it starts at once.
         file_put_contents($scratch.'/log/queue-worker.log', '');
+        @mkdir($root.'/releases/20260101120000/config', 0o755, true);
+        file_put_contents($root.'/releases/20260101120000/config/queue.php', "<?php return ['connections' => ['redis-media' => []]];\n");
         $media = provisionQueueCommand($config, $fs, $phpStub, 1);
         exec('STUB_LOG='.escapeshellarg($scratch.'/log').' bash -c '.escapeshellarg($media).' 2>&1', $mediaOutput, $mediaCode);
 
@@ -652,6 +655,40 @@ it('runs the real worker as soon as a release exists, and restarts it on its ord
 
         // A host restart starts it again by itself.
         expect($config)->toContain("autostart=true\n");
+    } finally {
+        provisionCleanup($scratch);
+    }
+});
+
+it('keeps the media worker waiting, RUNNING, on a release older than the redis-media connection', function () {
+    $scratch = provisionScratchDir();
+
+    try {
+        provisionDemoShopProvisioned($scratch);
+        $fs = $scratch.'/fs';
+        $root = $fs.'/home/www/rateguru/production/demo-shop';
+        $config = (string) file_get_contents($fs.'/etc/supervisor/conf.d/rateguru-demo-shop-queue.conf');
+
+        // A release from before the media queue: a rollback target, or the
+        // release a host runs when the group is installed.
+        @mkdir($root.'/releases/20260101120000/config', 0o755, true);
+        file_put_contents($root.'/releases/20260101120000/config/queue.php', "<?php return ['connections' => ['redis' => []]];\n");
+        symlink($root.'/releases/20260101120000', $root.'/current');
+
+        $phpStub = $scratch.'/bin/php-queue-probe';
+        provisionWriteStub($phpStub, <<<'STUB'
+            #!/bin/bash
+            printf 'php %s\\n' "$*" >> "${STUB_LOG}/queue-worker.log"
+            exit 0
+            STUB);
+
+        $media = provisionQueueCommand($config, $fs, $phpStub, 1);
+        exec('STUB_LOG='.escapeshellarg($scratch.'/log').' timeout 4 bash -c '.escapeshellarg($media).' 2>&1', $output, $code);
+
+        // Still running when timeout stopped it (124), and Laravel never
+        // started: the checks that want every worker RUNNING see it RUNNING.
+        expect($code)->toBe(124, implode("\n", $output))
+            ->and(provisionLog($scratch, 'queue-worker.log'))->toBe('');
     } finally {
         provisionCleanup($scratch);
     }

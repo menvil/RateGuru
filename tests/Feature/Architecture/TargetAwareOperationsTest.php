@@ -1265,9 +1265,8 @@ it('leaves every other operational script and workflow byte-identical to develop
         'infrastructure/config/php-fpm/rateguru-production.conf',
         // The staging vhost, pool and Supervisor program have left this list
         // too. Video brought larger uploads, cached post media and a media
-        // worker beside the default one. StagingAssetDeliveryTest,
-        // InstallBootstrapServicesTest and DeploymentTargetRegistryTest
-        // assert what they must declare.
+        // worker beside the default one. StagingAssetDeliveryTest and
+        // DeploymentTargetRegistryTest assert what they must declare.
         'infrastructure/config/cron/rateguru-staging-scheduler',
         // Both workflow files, and the target registry itself, are
         // deliberately excluded here: a later slice (the infrastructure CLI

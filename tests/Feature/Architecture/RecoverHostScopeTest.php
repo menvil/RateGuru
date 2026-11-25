@@ -700,7 +700,10 @@ it('leaves every accepted operational surface it does not extend untouched', fun
         // well: a target's activation changes both. That the cron is exactly
         // the registry's render is BackupCronPerimeterTest's, and no recovery
         // path writes the registry — asserted by RecoverWorkflowsTest.
-        'infrastructure/config/supervisor/rateguru-staging-queue.conf',
+        // The staging Supervisor program is not here: it became a group of the
+        // default and media workers, which every restore and recovery path
+        // already addresses as <program>:*. DeploymentTargetRegistryTest
+        // asserts what it declares.
         'infrastructure/config/cron/rateguru-staging-scheduler',
     ] as $untouched) {
         expect($changed)->not->toContain($untouched);
