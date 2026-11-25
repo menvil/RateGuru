@@ -19,6 +19,9 @@ final class SocialAccountConnectedNotification extends Notification implements S
 {
     use Queueable;
 
+    /** Inside the Redis queue's retry window, like every class the application queues. */
+    public int $timeout = 80;
+
     public function __construct(
         public readonly SocialProvider $provider,
         public readonly ?string $providerEmail,

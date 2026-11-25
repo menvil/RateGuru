@@ -24,7 +24,13 @@ final class GenerateMediaVariantsJob implements ShouldQueue
 
     public array $backoff = [10, 60, 300];
 
-    public int $timeout = 120;
+    /**
+     * Inside the Redis queue's retry window with a margin, like every class
+     * the application queues: a run still going when `retry_after` passes is
+     * handed to another worker as if its own had died. Every variant of the
+     * largest master the ingest accepts is made in a few seconds.
+     */
+    public int $timeout = 80;
 
     public function __construct(
         public readonly int $mediaAssetId,
