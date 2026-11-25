@@ -5,6 +5,8 @@ namespace App\Support\Translations;
 use App\Enums\GameStatus;
 use App\Models\Category;
 use App\Models\Game;
+use App\Models\GameContentSet;
+use App\Models\GameFlow;
 use App\Models\GameFlowStep;
 use App\Models\GameResultProfile;
 use App\Models\GameRound;
@@ -163,6 +165,32 @@ final class ProjectTranslationCatalog
                 ->flatMap(fn (GameResultProfile $profile): array => $this->gameResultProfileUnits($profile))->all(),
             ...$this->gameFlowSteps()->get()
                 ->sortBy(fn (GameFlowStep $step): array => [(int) $step->flow->game_id, (int) $step->flow->position, (int) $step->flow_id, (int) $step->position, (int) $step->id])
+                ->flatMap(fn (GameFlowStep $step): array => $this->gameFlowStepUnits($step))->all(),
+        ];
+    }
+
+    /**
+     * The units a version published from this content set and flow would
+     * freeze (VersionSnapshotBuilder): the game's title and description, the
+     * set's rounds, options and results, and the texts of the flow's steps —
+     * as they are now, in the order the catalog lists them, from one query per
+     * kind of content. None for a set or flow the catalog does not list, such
+     * as an archived one.
+     *
+     * @return list<ProjectTranslationUnit>
+     */
+    public function unitsOfVersion(Game $game, GameContentSet $set, GameFlow $flow): array
+    {
+        return [
+            ...$this->games()->whereKey($game->id)->get()->flatMap(fn (Game $listed): array => $this->gameUnits($listed))->all(),
+            ...$this->gameRounds()->where('content_set_id', $set->id)->orderBy('position')->orderBy('id')->get()
+                ->flatMap(fn (GameRound $round): array => $this->gameRoundUnits($round))->all(),
+            ...$this->gameRoundOptions()->whereHas('round', fn (Builder $round) => $round->where('content_set_id', $set->id))->get()
+                ->sortBy(fn (GameRoundOption $option): array => [(int) $option->round->position, (int) $option->round_id, (int) $option->position])
+                ->flatMap(fn (GameRoundOption $option): array => $this->gameRoundOptionUnits($option))->all(),
+            ...$this->gameResultProfiles()->where('content_set_id', $set->id)->orderBy('position')->orderBy('id')->get()
+                ->flatMap(fn (GameResultProfile $profile): array => $this->gameResultProfileUnits($profile))->all(),
+            ...$this->gameFlowSteps()->where('flow_id', $flow->id)->orderBy('position')->orderBy('id')->get()
                 ->flatMap(fn (GameFlowStep $step): array => $this->gameFlowStepUnits($step))->all(),
         ];
     }

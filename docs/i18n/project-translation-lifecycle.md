@@ -107,7 +107,9 @@ A game is translated before and after it is published alike, but players
 read a game from its published version, which keeps the translations it was
 published with: a translation reaches them with the next version. Versions
 says when a set or flow, or a translation of it, changed after the version
-published from them.
+published from them, and warns before publishing when the texts it would
+freeze are missing a translation, or have one made from older English, in a
+language the project offers.
 
 A field whose English is blank needs no translation. English is complete
 through the base columns. A translation is any non-blank string — presence

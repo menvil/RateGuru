@@ -43,6 +43,7 @@
             order: [],
             query: '',
             section: '',
+            game: '',
             mode: 'all',
             linked: null,
             context: null,
@@ -97,10 +98,12 @@
 
                 this.query = (params.get('q') ?? '').trim().slice(0, config.queryLimit)
                 this.section = config.sections.includes(section) ? section : ''
+                this.game = config.games.includes(params.get('game') ?? '') ? params.get('game') : ''
                 this.mode = config.modes.includes(mode) ? mode : 'all'
 
                 this.$watch('query', () => this.remember())
                 this.$watch('section', () => this.remember())
+                this.$watch('game', () => this.remember())
                 this.$watch('mode', () => this.remember())
                 this.$nextTick(() => {
                     this.remember()
@@ -142,6 +145,9 @@
             },
             missingIn(section) {
                 return this.order.filter((id) => this.units[id].section === section && this.units[id].stored === '').length
+            },
+            missingInGame(game) {
+                return this.order.filter((id) => this.units[id].game === game && this.units[id].stored === '').length
             },
             figure(number) {
                 return Number(number).toLocaleString('en-US')
@@ -260,6 +266,10 @@
                     return false
                 }
 
+                if (this.game !== '' && unit.game !== this.game) {
+                    return false
+                }
+
                 // A draft stays in Missing only until it is saved.
                 if (this.mode === 'missing' && unit.stored !== '' && ! this.isDirty(id)) {
                     return false
@@ -284,6 +294,7 @@
             clearFilters() {
                 this.query = ''
                 this.section = ''
+                this.game = ''
                 this.mode = 'all'
                 this.$nextTick(() => document.getElementById('rg-admin-translation-search')?.focus())
             },
@@ -293,6 +304,7 @@
 
                 query === '' ? url.searchParams.delete('q') : url.searchParams.set('q', query)
                 this.section === '' ? url.searchParams.delete('section') : url.searchParams.set('section', this.section)
+                this.game === '' ? url.searchParams.delete('game') : url.searchParams.set('game', this.game)
                 this.mode === 'all' ? url.searchParams.delete('mode') : url.searchParams.set('mode', this.mode)
                 // A link to one item is followed once, not again on every reload or language.
                 url.searchParams.delete('unit')
@@ -315,6 +327,10 @@
 
                     if (this.section !== this.units[id].section) {
                         this.section = ''
+                    }
+
+                    if (this.game !== this.units[id].game) {
+                        this.game = ''
                     }
                 }
 

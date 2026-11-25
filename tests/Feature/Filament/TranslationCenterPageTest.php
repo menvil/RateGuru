@@ -6,6 +6,8 @@ use App\Filament\Pages\TranslationCenterPage;
 use App\Filament\Resources\Categories\Pages\ManageCategories;
 use App\Filament\Resources\Tags\Pages\ManageTags;
 use App\Models\Category;
+use App\Models\GameRound;
+use App\Models\GameRoundOption;
 use App\Models\ProjectSettings;
 use App\Models\RatingGroup;
 use App\Models\RatingOption;
@@ -431,6 +433,32 @@ it('offers Needs update beside Missing only and All, from the URL as well', func
         ->toContain('aria-checked="true" tabindex="0" x-bind:aria-checked="selected === \'outdated\'')
         // Filtered in the browser: the rows wait for it to apply the mode.
         ->and(livewireDom($page)->query("//*[@role='table'][@x-cloak]")->length)->toBe(1);
+});
+
+it('narrows to one game\'s texts by a Game filter, from the URL as well, and offers it only while games are listed', function () {
+    [$target] = twoTranslatedLocales();
+
+    expect(translationCenter($target)->viewData('games'))->toBe([['value' => '', 'label' => 'All games', 'trigger' => 'All']]);
+
+    $kittens = publishableGameDraft(1);
+    $other = publishableGameDraft(1);
+    $kittens['game']->update(['title' => 'Kittens or puppies']);
+    GameRoundOption::query()->whereIn('round_id', GameRound::query()->where('content_set_id', $kittens['set']->id)->select('id'))->update(['label' => 'This one']);
+    $page = translationCenter($target, ['game' => (string) $kittens['game']->id]);
+    $units = collect($page->viewData('client')['units']);
+
+    expect(array_column($page->viewData('games'), 'label'))->toContain('All games', 'Kittens or puppies')->toHaveCount(3)
+        ->and($page->viewData('filters')['game'])->toBe((string) $kittens['game']->id)
+        ->and($page->viewData('client')['games'])->toBe([(string) $kittens['game']->id, (string) $other['game']->id])
+        // Every text of the game carries it — its own, its rounds', options', results' and flow's — and nothing else does.
+        ->and($units->where('game', (string) $kittens['game']->id)->pluck('section')->unique()->sort()->values()->all())
+        ->toBe(['game_flow_steps', 'game_result_profiles', 'game_round_options', 'game_rounds', 'games'])
+        ->and($units->where('section', 'project_settings')->pluck('game')->unique()->values()->all())->toBe([''])
+        ->and(livewireFragment($page, "//*[@id='rg-admin-translation-game']/ancestor-or-self::*[@x-model='game'][1]"))->not->toBeNull();
+
+    // A game the page lists no text of reads as every game.
+    expect(translationCenter($target, ['game' => '999999'])->viewData('filters')['game'])->toBe('')
+        ->and(translationCenter($target, ['game' => 'kittens'])->viewData('filters')['game'])->toBe('');
 });
 
 it('counts outdated translations into Generate missing, and says so', function () {

@@ -501,3 +501,15 @@ own: title and description, rounds, options, results and flow step texts are
 `{field}` plus `{field}_translations` columns, and Translation Center lists
 them for games that are not archived (`docs/i18n/project-translation-lifecycle.md`).
 Players read the translations frozen into their version.
+
+The editors write English only and keep each row's id, so a translation stays
+on its text, and one made from English since changed reads as outdated in
+Translation Center (`docs/architecture/translation-engine.md`). Publishing
+freezes translations as they are stored, outdated ones included, so Versions
+warns first: `VersionTranslationCoverageQuery` counts, per language the project
+offers besides English, the texts the version would freeze
+(`ProjectTranslationCatalog::unitsOfVersion()`, the same list
+`VersionSnapshotBuilder` freezes) that are missing or outdated, and the notice
+links to Translation Center narrowed to the game (`?game=`). It is never a
+readiness line: a missing translation falls back to English, and a version that
+must replace an unplayable one can't wait for translations.

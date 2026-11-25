@@ -6,6 +6,7 @@ use App\Actions\Games\ChangeGameVersionAction;
 use App\Actions\Games\PublishGameVersionAction;
 use App\Enums\GameAudience;
 use App\Exceptions\Games\CannotManageGameException;
+use App\Filament\Pages\TranslationCenterPage;
 use App\Filament\Resources\Games\Concerns\InteractsWithGameEditor;
 use App\Filament\Resources\Games\GameFormat;
 use App\Filament\Resources\Games\GameResource;
@@ -18,6 +19,7 @@ use App\Queries\Games\GameDraftQuery;
 use App\Queries\Games\GameFlowFactsQuery;
 use App\Queries\Games\GameTrafficQuery;
 use App\Queries\Games\GameUnpublishedChangesQuery;
+use App\Queries\Games\VersionTranslationCoverageQuery;
 use App\Support\Games\Drafts\ContentSetReport;
 use App\Support\Games\Flow\GameFlowValidator;
 use App\Support\Games\Publishing\GamePublishReadiness;
@@ -175,6 +177,11 @@ final class GameVersions extends Page
         $readiness = $chosenSet !== null && $chosenFlow !== null
             ? GamePublishReadiness::of($game, $chosenSet, $chosenFlow, $gameIds, app(GameFlowFactsQuery::class)->for($chosenFlow->steps->map(fn (GameFlowStep $step) => $step->draft())->values()->all()))
             : null;
+        // What the version would freeze untranslated, or translated from older English: a warning, never a hold.
+        $chosenSetModel = $sets->firstWhere('id', $this->publishSetId);
+        $translationGaps = $chosenSetModel instanceof GameContentSet && $chosenFlow instanceof GameFlow
+            ? app(VersionTranslationCoverageQuery::class)->gaps($game, $chosenSetModel, $chosenFlow)
+            : [];
         $latestFromPair = $versions->first(fn (GameVersion $version): bool => (int) $version->content_set_id === $this->publishSetId && (int) $version->flow_id === $this->publishFlowId);
         $changedSince = $latestFromPair === null ? null : app(GameUnpublishedChangesQuery::class)->sinceVersion($game, $latestFromPair, $this->publishSetId, $this->publishFlowId);
         $inTraffic = array_values(array_unique(array_merge(array_keys($shares['anonymous']), array_keys($shares['authenticated']), array_keys($splits))));
@@ -199,6 +206,12 @@ final class GameVersions extends Page
                 'valid' => GameFlowValidator::issues($flow->steps->map(fn (GameFlowStep $step) => $step->draft())->values()->all(), $flow->goal) === [],
             ])->all(),
             'readiness' => $readiness,
+            'translationGaps' => array_map(fn (array $gap): array => [
+                ...$gap,
+                'missingUrl' => $gap['missing'] > 0 ? TranslationCenterPage::getUrl(['locale' => $gap['locale'], 'game' => $game->id, 'mode' => 'missing']) : null,
+                'outdatedUrl' => $gap['outdated'] > 0 ? TranslationCenterPage::getUrl(['locale' => $gap['locale'], 'game' => $game->id, 'mode' => 'outdated']) : null,
+            ], $translationGaps),
+            'canTranslate' => TranslationCenterPage::canAccess(),
             'changedSince' => $latestFromPair !== null && $changedSince !== null ? ['version' => $latestFromPair->label(), 'named' => $changedSince->named(), 'count' => $changedSince->count(), 'groups' => $changedSince->hasMore() ? $changedSince->groups : []] : null,
             'duplicateOf' => $latestFromPair !== null && $changedSince === null ? $latestFromPair->label() : null,
             'takeOvers' => $versions->filter(fn (GameVersion $version): bool => in_array((int) $version->id, $inTraffic, true))->map(fn (GameVersion $version): array => ['id' => (int) $version->id, 'label' => $version->label()])->values()->all(),

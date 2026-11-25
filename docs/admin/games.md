@@ -114,6 +114,19 @@ own texts — title, description, questions, captions, results and flow screens 
 are translated in **Translation Center**, like the rest of the project's
 content. Players see a translation once a version is published after it.
 
+- **Translate before you publish.** A version keeps the translations it was
+  published with: one made afterwards, or a fix to one, reaches players only
+  with the next version. Where a translation is missing, players read English.
+- **When you change an English text,** its translations stay as they were and
+  Translation Center marks them **Needs update** (English changed). Players of
+  that language read the old wording until the translation is updated and a
+  new version published.
+- **Versions warns before publishing** when a text of the version isn't
+  translated, or needs an update, in a language the site offers: a line per
+  language, such as "Russian: 3 missing · 1 needs an update". Each figure opens
+  Translation Center on just this game's texts. It is a warning only: you can
+  still publish, for example to replace a version that stopped working.
+
 ## Analytics
 
 The Analytics tab shows, per audience and over today, yesterday, the last 7,

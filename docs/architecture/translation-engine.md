@@ -195,7 +195,11 @@ UpdateProjectTranslationAction (one transaction, the unit's row locked)
   visitors see, until it is saved again — changed, or as it is — which records the English it stands beside now.
 - **Translation Center** marks an outdated row (English changed) and shows the English it was made from, counts
   the rows that need an update, and filters them with Needs update beside Missing only and All (`?mode=outdated`),
-  in the browser like the other filters.
+  in the browser like the other filters, and by game (`?game=`, `ProjectTranslationUnit::gameId()`).
+- **Game versions warn before freezing.** A version freezes every translation as stored, outdated ones included, so
+  Versions counts, per offered language, the texts it would freeze missing or outdated
+  (`VersionTranslationCoverageQuery`, over `ProjectTranslationCatalog::unitsOfVersion()`) and warns, linking to
+  Translation Center narrowed to the game. It never holds a version back.
 - **Generate missing takes outdated translations too.** `StartProjectTranslationGenerationAction` plans every
   missing and every outdated unit; the chunk job sends an item only while its unit is still missing or still
   outdated; and `SaveProjectTranslationGenerationAction` replaces a stored translation only while it is still

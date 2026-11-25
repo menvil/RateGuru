@@ -1,5 +1,8 @@
 <?php
 
+use App\Support\Translations\ProjectTranslationCatalog;
+use App\Support\Translations\ProjectTranslationUnit;
+
 /*
  * Translation Center in a real browser: the Admin v2 layout at each width, the
  * target language combobox, the filters that never ask the server, and a link
@@ -418,6 +421,29 @@ it('searches the English text, the keys and the translations, and filters by sec
     expect(translationScreen($page)['stats'][0])->toContain((string) $total)
         ->and(livewireUpdatesSinceWatching($page))->toBe(['fetches' => 0, 'requests' => 0, 'sameDocument' => true])
         ->and(in_array($tag, translationScreen($page)['rows'], true))->toBeFalse();
+
+    $page->assertNoJavaScriptErrors();
+});
+
+it('narrows to one game\'s texts by the Game filter, opened from the URL, and back to every game', function () {
+    $kittens = publishableGameDraft(1);
+    $other = publishableGameDraft(1);
+    $kittens['game']->update(['title' => 'Kittens or puppies']);
+    $unitsOf = fn (array $draft): array => array_values(array_map(
+        fn (ProjectTranslationUnit $unit): string => $unit->id,
+        array_filter(app(ProjectTranslationCatalog::class)->units(), fn (ProjectTranslationUnit $unit): bool => $unit->gameId() === (int) $draft['game']->id && $unit->requiresTranslation()),
+    ));
+
+    $page = visitTranslationCenter("/admin/translation-center?locale={$this->target}&game={$kittens['game']->id}", 1440, 900);
+
+    expect(translationScreen($page))->toMatchArray(['rows' => $unitsOf($kittens), 'search' => "?locale={$this->target}&game={$kittens['game']->id}"]);
+
+    $page->click('#rg-admin-translation-game');
+    waitForScript($page, "getComputedStyle(document.getElementById('rg-admin-translation-game-menu')).display !== 'none'");
+    $page->click('#rg-admin-translation-game-menu [role=menuitemradio]:has-text("All games")');
+
+    eventually(fn () => expect(translationScreen($page)['search'])->toBe("?locale={$this->target}")
+        ->and(translationScreen($page)['rows'])->toContain(...$unitsOf($kittens), ...$unitsOf($other)));
 
     $page->assertNoJavaScriptErrors();
 });

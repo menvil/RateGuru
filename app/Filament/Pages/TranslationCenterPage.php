@@ -492,7 +492,10 @@ final class TranslationCenterPage extends Page
         $reports = app(ProjectTranslationCompleteness::class)->reportsFor($units, array_keys($targets));
         $report = $reports[$locale];
         $rows = $this->rows($units, $locale, app(ProjectTranslationSourcesQuery::class)->forLocale($locale));
+        $games = $this->gameOptions($rows);
         $filters = self::requestedFilters();
+        // A game the page lists no text of reads as every game, as the browser reads it.
+        $filters['game'] = in_array($filters['game'], array_column($games, 'value'), true) ? $filters['game'] : '';
 
         return [
             'target' => $targets[$locale],
@@ -505,6 +508,7 @@ final class TranslationCenterPage extends Page
                 'percentage' => $report->percentage(),
             ],
             'sections' => $this->sectionOptions($rows),
+            'games' => $games,
             'rows' => $rows,
             'filters' => $filters,
             'client' => [
@@ -512,6 +516,7 @@ final class TranslationCenterPage extends Page
                 'label' => $targets[$locale]['label'],
                 'targets' => array_map(fn (array $target): string => $target['label'], $targets),
                 'sections' => array_map(fn (ProjectContentSection $section): string => $section->value, ProjectContentSection::cases()),
+                'games' => array_values(array_filter(array_column($games, 'value'), fn (string $game): bool => $game !== '')),
                 'modes' => self::MODES,
                 'queryLimit' => self::QUERY_LIMIT,
                 // The administrator's background generation for this language, read once with the page.
@@ -521,6 +526,7 @@ final class TranslationCenterPage extends Page
                     'dom' => $row['dom'],
                     'name' => $row['name'],
                     'section' => $row['sectionValue'],
+                    'game' => $row['game'],
                     'max' => $row['max'],
                     'multiline' => $row['multiline'],
                     'placeholders' => $row['placeholders'],
@@ -556,6 +562,8 @@ final class TranslationCenterPage extends Page
                 'dom' => "rg-admin-tr-{$index}",
                 'section' => $unit->section->label(),
                 'sectionValue' => $unit->section->value,
+                // The game a game's text belongs to, as the game filter names it; empty for anything else.
+                'game' => (string) ($unit->gameId() ?? ''),
                 'entity' => $unit->label,
                 'field' => $unit->fieldLabel(),
                 'name' => self::name($unit),
@@ -637,6 +645,40 @@ final class TranslationCenterPage extends Page
     }
 
     /**
+     * The game filter: every game, then each game whose texts the page lists,
+     * by its title in the catalog's order, with how many of its texts are
+     * missing — counted again in the browser as translations are saved. Just
+     * the first when no game's text is listed.
+     *
+     * @param  list<array<string, mixed>>  $rows
+     * @return list<array<string, mixed>>
+     */
+    private function gameOptions(array $rows): array
+    {
+        $options = [['value' => '', 'label' => 'All games', 'trigger' => 'All']];
+        $titles = [];
+
+        foreach ($rows as $row) {
+            if ($row['sectionValue'] === ProjectContentSection::Games->value && $row['game'] !== '') {
+                $titles[$row['game']] ??= (string) $row['entity'];
+            }
+        }
+
+        foreach ($titles as $game => $title) {
+            $missing = count(array_filter($rows, fn (array $row): bool => $row['game'] === (string) $game && $row['stored'] === ''));
+
+            $options[] = [
+                'value' => (string) $game,
+                'label' => $title,
+                'count' => "{$missing} missing",
+                'liveCount' => "missingInGame('{$game}') + ' missing'",
+            ];
+        }
+
+        return $options;
+    }
+
+    /**
      * The section filter: all sections, then each section in its own order
      * with how many of its units are missing — counted again in the browser as
      * translations are saved.
@@ -667,18 +709,20 @@ final class TranslationCenterPage extends Page
      * before the browser takes over: a Livewire round trip has no query string
      * of its own, and the browser keeps the URL current from then on.
      *
-     * @return array{query: string, section: string, mode: string, unit: ?string}
+     * @return array{query: string, section: string, game: string, mode: string, unit: ?string}
      */
     private static function requestedFilters(): array
     {
         $query = request()->query('q');
         $section = request()->query('section');
+        $game = request()->query('game');
         $mode = request()->query('mode');
         $unit = request()->query('unit');
 
         return [
             'query' => is_string($query) ? Str::limit(trim($query), self::QUERY_LIMIT, '') : '',
             'section' => is_string($section) && ProjectContentSection::tryFrom($section) !== null ? $section : '',
+            'game' => is_string($game) && ctype_digit($game) ? $game : '',
             'mode' => in_array($mode, self::MODES, true) ? $mode : 'all',
             'unit' => is_string($unit) ? $unit : null,
         ];

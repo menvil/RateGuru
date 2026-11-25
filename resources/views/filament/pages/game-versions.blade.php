@@ -54,6 +54,30 @@
                             @endforeach
                         </ul>
                     @endif
+                    @if ($translationGaps !== [])
+                        {{-- A warning, never a hold: a missing translation falls back to English, and an urgent version can't wait for one. --}}
+                        <x-admin.ui.inline-notice tone="warning" data-testid="game-versions-translations">
+                            <p class="rg-admin-games__translations-lead">Not every text this version freezes is translated. Players read English where a translation is missing, and the old wording where one needs an update, until a later version.</p>
+                            <ul class="rg-admin-games__translation-gaps">
+                                @foreach ($translationGaps as $gap)
+                                    <li>
+                                        <span class="rg-admin-games__translation-language">{{ $gap['language'] }}:</span>
+                                        @foreach (array_filter([
+                                            $gap['missing'] > 0 ? ['text' => $gap['missing'].' missing', 'url' => $gap['missingUrl']] : null,
+                                            $gap['outdated'] > 0 ? ['text' => $gap['outdated'].' '.($gap['outdated'] === 1 ? 'needs' : 'need').' an update', 'url' => $gap['outdatedUrl']] : null,
+                                        ]) as $part)
+                                            @if (! $loop->first) · @endif
+                                            @if ($canTranslate)
+                                                <a class="rg-admin-link" href="{{ $part['url'] }}">{{ $part['text'] }}</a>
+                                            @else
+                                                {{ $part['text'] }}
+                                            @endif
+                                        @endforeach
+                                    </li>
+                                @endforeach
+                            </ul>
+                        </x-admin.ui.inline-notice>
+                    @endif
                     @if ($changedSince !== null)
                         <p class="rg-admin-games__note" data-testid="game-versions-changed">This set or flow, or a translation of it, changed after {{ $changedSince['version'] }} was published from them: {{ $changedSince['named'] }}.</p>
                         @if ($changedSince['groups'] !== [])
@@ -145,6 +169,9 @@
     @if ($confirmingPublish)
         <x-admin.ui.confirm-dialog id="rg-admin-game-publish" icon="layers" :title="'Publish '.$nextLabel.'?'" x-on:dismiss="$wire.closePublish()">
             <p>The content set and flow are frozen into {{ $nextLabel }}, with the crowd’s votes as they stand now. {{ $takeOver !== '' ? 'It takes over the chosen version’s traffic at once.' : 'Visitors get it only once it has a share in Traffic.' }}</p>
+            @if ($translationGaps !== [])
+                <p data-testid="game-publish-translations">Not translated in full: {{ implode(', ', array_column($translationGaps, 'language')) }}. A translation made after publishing reaches players with the next version.</p>
+            @endif
             <x-slot:actions>
                 <x-admin.ui.button x-on:click="dismiss()" autofocus>Cancel</x-admin.ui.button>
                 <x-admin.ui.button variant="primary" wire:click="publish" wire:loading.attr="disabled">Publish {{ $nextLabel }}</x-admin.ui.button>

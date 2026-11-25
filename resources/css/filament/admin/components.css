@@ -11501,6 +11501,23 @@
         color: var(--rg-admin-text-tertiary);
     }
 
+    /* Versions: the texts a version would freeze untranslated, a line per language with the way to translate them. */
+    .rg-admin-games__translations-lead {
+        margin: 0 0 var(--rg-admin-space-1);
+    }
+
+    .rg-admin-games__translation-gaps {
+        display: grid;
+        gap: var(--rg-admin-space-1);
+        margin: 0;
+        padding: 0;
+        list-style: none;
+    }
+
+    .rg-admin-games__translation-language {
+        font-weight: var(--rg-admin-weight-medium);
+    }
+
     .rg-admin-games__cover {
         display: flex;
         flex-wrap: wrap;

@@ -143,6 +143,15 @@
                             :value="$filters['section']"
                             x-model="section"
                         />
+                        @if (count($games) > 1)
+                            <x-admin.ui.filter-dropdown
+                                id="rg-admin-translation-game"
+                                label="Game"
+                                :options="$games"
+                                :value="$filters['game']"
+                                x-model="game"
+                            />
+                        @endif
                         <x-admin.ui.segmented
                             label="Show"
                             :options="['missing' => 'Missing only', 'outdated' => 'Needs update', 'all' => 'All']"
