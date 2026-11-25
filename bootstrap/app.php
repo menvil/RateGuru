@@ -8,6 +8,7 @@ use App\Http\Middleware\EnsureAccountIsNotTombstoned;
 use App\Http\Middleware\EnsureSessionGenerationIsCurrent;
 use App\Http\Middleware\RecordAccountReturn;
 use App\Http\Middleware\SetLocale;
+use App\Http\Middleware\TrackMemberVisit;
 use App\Support\Auth\TurnstileVerifier;
 use App\Support\Observability\ExceptionContextBuilder;
 use Illuminate\Foundation\Application;
@@ -49,6 +50,9 @@ return Application::configure(basePath: dirname(__DIR__))
             CaptureTrafficArrival::class,
             // A new account coming back on another day is worth more for it.
             RecordAccountReturn::class,
+            // When a member was last seen: where their previous visit ended,
+            // which the feed counts fresh posts in their language from.
+            TrackMemberVisit::class,
         ]);
         // Ahead of route model binding, which runs earlier in the group: a post
         // that is not there is found missing while the bindings resolve, and its

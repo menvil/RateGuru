@@ -95,6 +95,8 @@ final class AnonymizeUserAccountAction
                 'status' => UserStatus::Deleted,
                 'avatar_asset_id' => null,
                 'anonymized_at' => now(),
+                'last_seen_at' => null,
+                'previous_visit_at' => null,
             ])->save();
 
             // Private/social account state. Community contribution (posts,
