@@ -7,9 +7,14 @@ use App\Enums\UserRole;
 use App\Enums\UserStatus;
 use App\Models\SocialAccount;
 use App\Models\User;
+use GuzzleHttp\Exception\ConnectException;
+use GuzzleHttp\Exception\ServerException;
+use GuzzleHttp\Psr7\Request as GuzzleRequest;
+use GuzzleHttp\Psr7\Response as GuzzleResponse;
 use Illuminate\Auth\Events\Registered;
 use Illuminate\Auth\Notifications\VerifyEmail;
 use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Str;
 use Laravel\Socialite\Facades\Socialite;
@@ -333,6 +338,24 @@ it('returns to login with a generic message when the OAuth state is invalid or e
     $response->assertSessionHasErrors(['social' => trans('auth.social.expired', ['provider' => 'Facebook'])]);
     $this->assertGuest();
 });
+
+it('asks to try again when the provider fails to answer, reporting the failure', function (string $failure) {
+    Exceptions::fake();
+    $request = new GuzzleRequest('GET', 'https://www.googleapis.com/oauth2/v3/userinfo');
+    Socialite::fake('google', fn () => throw ($failure === ServerException::class
+        ? new ServerException('Service Unavailable', $request, new GuzzleResponse(503))
+        : new ConnectException('Connection timed out', $request)));
+
+    $response = $this->get(socialCallbackUrl('google'));
+
+    $response->assertRedirect(route('login'));
+    $response->assertSessionHasErrors(['social' => trans('auth.social.failed', ['provider' => 'Google'])]);
+    $this->assertGuest();
+    Exceptions::assertReported($failure);
+})->with([
+    'a server error' => [ServerException::class],
+    'no connection' => [ConnectException::class],
+]);
 
 it('renders the generic message on the login page without leaking anything else', function () {
     Socialite::fake('google', fakeSocialiteUser(['email' => null]));

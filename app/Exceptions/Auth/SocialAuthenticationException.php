@@ -12,8 +12,9 @@ use RuntimeException;
  * Every case maps to a generic translated message: no lifecycle status, no
  * internal id, no provider payload ever reaches the login page. Anything that
  * is not one of these named cases is deliberately NOT wrapped, so programming
- * and infrastructure errors keep reaching the normal exception handler and
- * Sentry instead of turning into a quiet "could not sign you in".
+ * errors keep reaching the normal exception handler. A provider that fails to
+ * answer (providerFailed) is the one infrastructure error turned into a
+ * message, and only after it was reported to Sentry and the log.
  */
 class SocialAuthenticationException extends RuntimeException
 {
@@ -45,6 +46,15 @@ class SocialAuthenticationException extends RuntimeException
     public static function providerRejected(SocialProvider $provider): self
     {
         return new self("{$provider->label()} did not complete the sign-in.", 'auth.social.failed', $provider);
+    }
+
+    /**
+     * The provider failed to answer the round trip — down, overloaded or unreachable. The person is asked to try
+     * again; the failure itself has already been reported (SocialProviderGateway), never swallowed.
+     */
+    public static function providerFailed(SocialProvider $provider): self
+    {
+        return new self("{$provider->label()} failed to answer the sign-in.", 'auth.social.failed', $provider);
     }
 
     /** The OAuth state did not match the session: expired, replayed or forged. */
