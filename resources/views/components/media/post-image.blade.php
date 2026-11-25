@@ -46,36 +46,50 @@
 @endphp
 
 @if($video)
-    {{-- Muted until asked: a feed must never start making noise on its own. It plays while
-         most of it is on screen and pauses when scrolled away (rgPostVideo); with reduced
-         motion it waits for a tap. The post page and the viewer add the browser's controls. --}}
+    @php
+        // An eager video (the first in a feed, the post page's) has its file
+        // and poster from the start; any other — the rest of a feed, a closed
+        // viewer's — gets them from rgPostVideo once it comes near the screen.
+        $videoPoster = $video->poster ?? $imageUrl;
+        $eagerVideo = $loading === null;
+        $withControls = in_array($context, ['standalone', 'fullscreen'], true);
+    @endphp
+    {{-- Muted until asked: a feed must never start making noise on its own. --}}
     <div
-        {{ $attributes->class([$containerClasses, 'relative']) }}
-        x-data="rgPostVideo()"
+        {{ $attributes->class([$containerClasses]) }}
+        x-data="rgPostVideo({ src: @js($video->src), poster: @js($videoPoster) })"
         x-on:rg-video-sound.window="if ($event.detail !== $root) quiet()"
+        x-on:rg-video-playing.window="if ($event.detail !== $root) pause()"
         data-testid="post-video"
     >
+        {{-- As wide as the picture, so its buttons sit on it, not beside a tall clip. --}}
+        <div class="relative inline-flex max-w-full">
         <video
             x-ref="video"
-            src="{{ $video->src }}"
-            @if($video->poster ?? $imageUrl) poster="{{ $video->poster ?? $imageUrl }}" @endif
+            @if($eagerVideo) src="{{ $video->src }}" @if($videoPoster) poster="{{ $videoPoster }}" @endif @endif
             @if($video->width) width="{{ $video->width }}" @endif
             @if($video->height) height="{{ $video->height }}" @endif
             muted
             playsinline
             loop
-            preload="{{ $loading === null ? 'auto' : 'metadata' }}"
-            @if(in_array($context, ['standalone', 'fullscreen'], true)) controls @else x-on:click.stop="toggle()" @endif
+            preload="{{ $eagerVideo ? 'metadata' : 'none' }}"
+            @if($withControls)
+                controls
+            @else
+                tabindex="0"
+                x-on:click.stop="toggle()"
+                x-on:keydown.enter.prevent.stop="toggle()"
+                x-on:keydown.space.prevent.stop="toggle()"
+            @endif
             aria-label="{{ $altText }}"
             @if($imageTestid) data-testid="{{ $imageTestid }}" @endif
-            class="{{ $imageClasses }}"
+            class="{{ $imageClasses }} focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent"
         ></video>
 
-        @if($video->hasAudio && ! in_array($context, ['standalone', 'fullscreen'], true))
+        @if($video->hasAudio && ! $withControls)
             <button
                 type="button"
                 x-on:click.stop="toggleSound()"
-                x-bind:aria-pressed="(! muted).toString()"
                 x-bind:aria-label="muted ? @js(__('ui.post.video_sound_on')) : @js(__('ui.post.video_sound_off'))"
                 aria-label="{{ __('ui.post.video_sound_on') }}"
                 data-testid="post-video-sound"
@@ -97,6 +111,7 @@
                 <x-ui.icon name="expand" class="size-4" />
             </button>
         @endif
+        </div>
     </div>
 @elseif($imageUrl)
     <div {{ $attributes->class([$containerClasses]) }}>

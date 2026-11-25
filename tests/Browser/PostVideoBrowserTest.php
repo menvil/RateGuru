@@ -24,41 +24,37 @@ function feedVideoStates(mixed $page): array
     JS);
 }
 
-it('plays a video by itself, muted, and turns one video\'s sound on and every other one\'s off', function () {
+it('plays one video at a time by itself, muted, and turns one video\'s sound on and every other one\'s off', function () {
     Post::factory()->published()->create(['title' => 'First Clip', 'image_asset_id' => ImageFixtures::writeVideo()->id]);
     Post::factory()->published()->create(['title' => 'Second Clip', 'image_asset_id' => ImageFixtures::writeVideo()->id]);
 
     // Tall enough for both cards to be well on screen.
     $page = visit(route('feed'))->resize(1440, 2400)->assertSee('First Clip');
-    $page->wait(2);
+    $feedVideo = fn (int $index): string => "Array.from(document.querySelectorAll('[data-testid=\"post-card-image-open\"]')).map((b) => b.closest('[data-testid=\"post-video\"]').querySelector('video'))[{$index}]";
+    $playing = "Array.from(document.querySelectorAll('[data-testid=\"post-card-image-open\"]')).filter((b) => ! b.closest('[data-testid=\"post-video\"]').querySelector('video').paused).length";
 
-    $states = feedVideoStates($page);
-
-    expect($states)->toHaveCount(2)
-        ->and(array_column($states, 'muted'))->toBe([true, true])
-        ->and(array_column($states, 'playing'))->toContain(true);
+    // One plays at a time, muted.
+    waitForScript($page, $playing, 1);
+    expect(array_column(feedVideoStates($page), 'muted'))->toBe([true, true]);
 
     $page->script('document.querySelectorAll(\'[data-testid="post-video-sound"]\')[0].click()');
-    $page->wait(0.5);
-
+    waitForScript($page, $feedVideo(0).'.muted', false);
     expect(array_column(feedVideoStates($page), 'muted'))->toBe([false, true]);
 
     $page->script('document.querySelectorAll(\'[data-testid="post-video-sound"]\')[1].click()');
-    $page->wait(0.5);
-
-    expect(array_column(feedVideoStates($page), 'muted'))->toBe([true, false]);
+    waitForScript($page, $feedVideo(1).'.muted', false);
+    waitForScript($page, $feedVideo(0).'.muted');
 });
 
 it('pauses a video scrolled out of view', function () {
     Post::factory()->published()->create(['title' => 'Scrolled Clip', 'image_asset_id' => ImageFixtures::writeVideo()->id]);
 
     $page = visit(route('feed'))->resize(1440, 1600)->assertSee('Scrolled Clip');
-    $page->wait(2);
+    $video = "document.querySelector('[data-testid=\"post-video\"] video')";
 
-    expect(feedVideoStates($page)[0]['playing'])->toBeTrue();
+    waitForScript($page, "! {$video}.paused");
 
     $page->script('document.querySelector(\'[data-testid="post-video"]\').style.marginTop = "5000px"; window.scrollTo(0, 0);');
-    $page->wait(1);
 
-    expect(feedVideoStates($page)[0]['playing'])->toBeFalse();
+    waitForScript($page, "{$video}.paused");
 });

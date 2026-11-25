@@ -994,7 +994,7 @@ final class EditGameContent extends Page
         $minVotes = (int) ($this->scoring['crowd_min_votes'] ?? config('games.crowd.min_votes'));
 
         return [
-            ...$this->pickablePosts($except, $minVotes),
+            ...$this->pickablePosts($except, $minVotes, photosOnly: true),
             'title' => 'Choose a post for '.strtolower(VersusRoundCheck::optionName((int) $slot)),
             'note' => 'A crowd pick needs both posts to have at least '.number_format($minVotes).' site votes.',
         ];

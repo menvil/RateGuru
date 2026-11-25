@@ -76,11 +76,12 @@ it('pages through posts of equal votes without moving or repeating any', functio
         ->and([...$first, ...$second])->toBe($posts->sortByDesc('id')->pluck('id')->values()->all());
 });
 
-it('never offers a video or animation: a round shows a photo', function () {
+it('offers only photos for a round, and videos too for a post a flow step links to', function () {
     Storage::fake('public');
     $photo = Post::factory()->published()->withImage()->create();
-    videoPostWithPosterVariants([], MediaVariantName::PostFeed640);
-    videoPostWithPosterVariants(['media_type' => MediaType::Animation], MediaVariantName::PostFeed640);
+    $video = videoPostWithPosterVariants([], MediaVariantName::PostFeed640);
+    $animation = videoPostWithPosterVariants(['media_type' => MediaType::Animation], MediaVariantName::PostFeed640);
 
-    expect(pickerPage())->toBe([$photo->id]);
+    expect(app(GamePostPickerQuery::class)->paginate('', [], 1, photosOnly: true)->pluck('id')->all())->toBe([$photo->id])
+        ->and(pickerPage())->toEqualCanonicalizing([$photo->id, $video->id, $animation->id]);
 });

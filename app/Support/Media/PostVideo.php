@@ -11,11 +11,9 @@ final readonly class PostVideo
 {
     public function __construct(
         public string $src,
-        public string $mimeType,
         public ?string $poster,
         public ?int $width,
         public ?int $height,
         public bool $hasAudio,
-        public ?int $durationMs,
     ) {}
 }

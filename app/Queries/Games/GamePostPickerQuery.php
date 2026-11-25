@@ -26,13 +26,15 @@ final class GamePostPickerQuery implements RawSqlPersistenceBoundary, StablePagi
      * @param  list<int>  $except  posts not to offer, such as the round's other option
      * @return LengthAwarePaginator<int, Post>
      */
-    public function paginate(string $search, array $except, int $page): LengthAwarePaginator
+    public function paginate(string $search, array $except, int $page, bool $photosOnly = false): LengthAwarePaginator
     {
         $query = Post::query()
             ->published()
             ->whereNotNull('posts.image_asset_id')
-            // A photo: a game round shows a still picture, never a video's poster.
-            ->whereHas('imageAsset', fn (Builder $asset) => $asset->where('status', MediaStatus::Ready)->where('media_type', MediaType::Image))
+            // A round shows a still picture, never a video's poster; a post a
+            // flow step links to may be a video ($photosOnly false).
+            ->whereHas('imageAsset', fn (Builder $asset) => $asset->where('status', MediaStatus::Ready)
+                ->when($photosOnly, fn (Builder $photo) => $photo->where('media_type', MediaType::Image)))
             ->when($except !== [], fn (Builder $query) => $query->whereNotIn('posts.id', $except))
             ->with(['user', 'imageAsset.variants']);
 

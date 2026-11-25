@@ -170,23 +170,27 @@ final class PostImagePresenter
             return null;
         }
 
+        // The 720 rendition; a master of 720 or less on its short side is
+        // that size already, and has no 720 rendition; only a larger master
+        // without one falls back to 480.
         $chosen = null;
+        $masterShortSide = $asset->width !== null && $asset->height !== null ? min($asset->width, $asset->height) : null;
 
         if ($asset->relationLoaded('variants') && $context !== PostImageContext::Fullscreen) {
-            $chosen = $this->firstExisting(
-                $asset->variants->keyBy(fn (MediaVariant $variant): string => $variant->name->value),
-                [MediaVariantName::Video720, MediaVariantName::Video480],
-            );
+            $variants = $asset->variants->keyBy(fn (MediaVariant $variant): string => $variant->name->value);
+            $chosen = $this->firstExisting($variants, [MediaVariantName::Video720]);
+
+            if ($chosen === null && ($masterShortSide === null || $masterShortSide > 720)) {
+                $chosen = $this->firstExisting($variants, [MediaVariantName::Video480]);
+            }
         }
 
         return new PostVideo(
             src: $chosen === null ? $masterUrl : $this->resolver->publicUrl(new MediaLocation($chosen->disk, $chosen->path), $asset->visibility),
-            mimeType: 'video/mp4',
-            poster: $this->responsiveAsset($asset, $context)?->src,
+            poster: $this->posterUrl($asset, $context),
             width: $chosen->width ?? $asset->width,
             height: $chosen->height ?? $asset->height,
             hasAudio: (bool) $asset->has_audio,
-            durationMs: $asset->duration_ms,
         );
     }
 
@@ -376,6 +380,28 @@ final class PostImagePresenter
         return $smallest === null
             ? $fallback
             : $this->resolver->publicUrl(new MediaLocation($smallest->disk, $smallest->path), $asset->visibility);
+    }
+
+    /**
+     * The still a video shows before it plays. A poster has no srcset, so it
+     * is the large one the place can use — the 1280 feed size on a feed card,
+     * not the 640 a picture's srcset would start from.
+     */
+    private function posterUrl(MediaAsset $asset, PostImageContext $context): ?string
+    {
+        if (! $asset->relationLoaded('variants')) {
+            return null;
+        }
+
+        $chosen = $this->firstExisting(
+            $asset->variants->keyBy(fn (MediaVariant $variant): string => $variant->name->value),
+            match ($context) {
+                PostImageContext::Feed, PostImageContext::Drawer => [MediaVariantName::PostFeed1280, MediaVariantName::PostDetail1920, MediaVariantName::PostFeed640],
+                PostImageContext::Standalone, PostImageContext::Fullscreen => [MediaVariantName::PostDetail1920, MediaVariantName::PostFeed1280, MediaVariantName::PostFeed640],
+            },
+        );
+
+        return $chosen === null ? null : $this->resolver->publicUrl(new MediaLocation($chosen->disk, $chosen->path), $asset->visibility);
     }
 
     /**
