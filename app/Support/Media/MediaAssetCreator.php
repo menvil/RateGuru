@@ -4,6 +4,7 @@ namespace App\Support\Media;
 
 use App\Enums\MediaKind;
 use App\Enums\MediaStatus;
+use App\Enums\MediaType;
 use App\Enums\MediaVisibility;
 use App\Models\MediaAsset;
 use App\Models\User;
@@ -30,6 +31,11 @@ final class MediaAssetCreator
         return MediaAsset::create([
             'owner_user_id' => $owner?->id,
             'kind' => $kind,
+            // Every file stored through here passed the image ingest; a
+            // still image has no duration and no sound.
+            'media_type' => MediaType::Image,
+            'duration_ms' => null,
+            'has_audio' => false,
             'disk' => $stored->disk,
             'path' => $stored->path,
             'original_filename' => $stored->originalFilename,
