@@ -80,7 +80,13 @@ final class RecordMemberPlaceAction
     /** @param  array<string, mixed>  $values */
     private function write(User $user, array $values): void
     {
-        User::withoutTimestamps(fn (): int => User::query()->whereKey($user->id)->update($values));
+        // Never onto an account anonymised meanwhile — a deletion committed between the visit starting and this
+        // write: its places went with it, and nothing would clear them again.
+        $written = User::withoutTimestamps(fn (): int => User::query()->whereKey($user->id)->whereNull('anonymized_at')->update($values));
+
+        if ($written === 0) {
+            return;
+        }
 
         // The rest of the request reads the member as written, and a later save never writes it again.
         $user->forceFill($values)->syncOriginalAttributes(array_keys($values));

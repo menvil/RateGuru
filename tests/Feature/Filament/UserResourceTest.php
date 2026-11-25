@@ -18,10 +18,12 @@ use App\Models\CommentVote;
 use App\Models\ModerationLog;
 use App\Models\Post;
 use App\Models\PostVote;
+use App\Models\ProjectSettings;
 use App\Models\Report;
 use App\Models\TrafficVisit;
 use App\Models\User;
 use App\Support\Privacy\IpAddressHash;
+use App\Support\Settings\ProjectSettingsManager;
 use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
@@ -357,6 +359,7 @@ it('counts a person\'s posts and comments, each beside the votes they cast on it
 
 it('shows where a person signed up and last visited from, each address while kept and the other accounts sharing it', function () {
     $this->actingAs(User::factory()->admin()->create());
+    ProjectSettings::factory()->create(['feature_flags' => ['keep_ip_addresses' => true]]);
     $key = (string) config('app.key');
     $london = IpAddressHash::of('81.2.69.142', $key);
     $milton = IpAddressHash::of('216.160.83.56', $key);
@@ -373,9 +376,10 @@ it('shows where a person signed up and last visited from, each address while kep
 
     expect($view['signupPlace'])->toBe([
         'where' => '🇬🇧 London, United Kingdom', 'when' => $person->created_at->format('d M Y, H:i'), 'ip' => '81.2.69.142',
-        'others' => '2 other accounts from this IP', 'othersUrl' => ListUsers::getUrl(['q' => '81.2.69.142']), 'fromVisits' => false,
+        // The way to the others goes by the address's hash, never the address: a link lands in histories and logs.
+        'others' => '2 other accounts from this IP', 'othersUrl' => ListUsers::getUrl(['q' => $london]), 'fromVisits' => false,
     ])
-        // The address not kept: the way to the others goes by its hash.
+        // The address not kept: none shown.
         ->and($view['visitPlace'])->toBe([
             'where' => '🇺🇸 Milton, United States', 'when' => '26 Nov 2026, 09:12', 'ip' => null,
             'others' => '1 other account from this IP', 'othersUrl' => ListUsers::getUrl(['q' => $milton]), 'fromVisits' => false,
@@ -386,8 +390,21 @@ it('shows where a person signed up and last visited from, each address while kep
     $listed = fn (string $search): array => array_column(Livewire::withQueryParams(['q' => $search])->test(ListUsers::class)->viewData('rows'), 'id');
 
     expect($listed('81.2.69.142'))->toHaveCount(3)->toContain($person->id)
+        ->and($listed($london))->toHaveCount(3)->toContain($person->id)
         ->and($listed($milton))->toHaveCount(2)->toContain($person->id)
         ->and($listed('10.0.0.1'))->toBe([]);
+
+    // An IPv6 address finds its account however it is spelled: the hash is of one spelling.
+    $sixth = User::factory()->create(['visit_ip_hash' => IpAddressHash::of('2a02:6b8::1', $key)]);
+
+    expect($listed('2A02:06B8:0:0:0:0:0:1'))->toBe([$sixth->id]);
+
+    // While Project settings keep no address, none is shown, whatever an account still holds.
+    ProjectSettings::query()->update(['feature_flags' => ['keep_ip_addresses' => false]]);
+    app(ProjectSettingsManager::class)->flush();
+
+    expect(Livewire::test(UserEditor::class, ['userId' => $person->id])->viewData('person')['signupPlace'])
+        ->toMatchArray(['ip' => null, 'others' => '2 other accounts from this IP', 'othersUrl' => ListUsers::getUrl(['q' => $london])]);
 });
 
 it('shows where an account made before places were kept signed up and last visited from, by the visits recorded', function () {
@@ -412,6 +429,12 @@ it('shows where an account made before places were kept signed up and last visit
 
     expect(Livewire::test(UserEditor::class, ['userId' => $nobody->id])->viewData('person')['signupPlace']['where'])->toBe('Unknown')
         ->and(listedRow(Livewire::test(ListUsers::class), $nobody))->toMatchArray(['location' => 'Unknown', 'locationFromVisits' => false]);
+
+    // A deleted account's places went with it: the visit its sign-up was credited to is never read back.
+    $deleted = User::factory()->tombstoned()->create();
+    AccountAttribution::factory()->create(['user_id' => $deleted->id, 'visitor_hash' => null, 'credited_visit_id' => $signup->id]);
+
+    expect(listedRow(Livewire::withQueryParams(['status' => 'deleted'])->test(ListUsers::class), $deleted))->toMatchArray(['location' => 'Unknown', 'locationFromVisits' => false]);
 });
 
 it('lists where each person signed up from, and their latest visit when it started somewhere else', function () {

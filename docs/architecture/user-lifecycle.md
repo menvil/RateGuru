@@ -522,7 +522,12 @@ of the address (`IpAddressHash`, HMAC-SHA-256 under the application key — the
 same hash a recorded visit keeps), which finds the accounts that share an
 address without the address itself. The address is kept beside them only while
 the `keep_ip_addresses` feature flag is on — off by default, since the privacy
-page has to say so first (`docs/admin/project-settings.md`).
+page has to say so first (`docs/admin/project-settings.md`). A save of the
+settings that switches it off, the page's or a preset's, forgets the addresses
+kept so far (`ForgetKeptIpAddressesAction`), and while it is off none is shown.
+The hash is of the address in one spelling (an IPv6 address lower-case and
+compressed), so an address pasted into the search in another spelling still
+finds its accounts.
 
 - **Signed up from** — `signup_*`, written once, when `Registered` fires: an
   email sign-up, or a first sign-in with Google or Facebook.
@@ -536,9 +541,12 @@ page has to say so first (`docs/admin/project-settings.md`).
 The editor of a person (Admin → Users) shows all three, each address while it is
 kept, and how many other accounts signed up or last visited from it, with the
 way to them: the list's search takes an IP address, or the hash the link
-carries while the address is not kept. The list shows where each person signed
+carries — always the hash, never the address, which would land in browser
+histories and server logs. The list shows where each person signed
 up from and, under it, their latest visit when it started somewhere else. An
 account made before places were kept reads them from the visits recorded — the
 visit its sign-up was credited to, the latest visit of a browser of theirs —
-marked as such, or Unknown. Anonymisation nulls every one of these columns;
-none of them is ever serialised (`User` hides the addresses and hashes).
+marked as such, or Unknown. Anonymisation nulls every one of these columns,
+and a deleted account reads nothing back from its visits; a visit that starts
+while the account is being deleted never writes onto it. None of them is ever
+serialised (`User` hides the addresses and hashes).

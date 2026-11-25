@@ -1,6 +1,9 @@
 <?php
 
 use App\Actions\Profile\AnonymizeUserAccountAction;
+use App\Actions\Settings\ApplyProjectPresetAction;
+use App\Actions\Settings\SaveProjectSettingsAction;
+use App\Actions\Users\RecordMemberPlaceAction;
 use App\Models\ProjectSettings;
 use App\Models\User;
 use App\Support\Privacy\IpAddressHash;
@@ -107,3 +110,31 @@ it('forgets where an anonymised account signed up and visited from', function ()
 
     expect(array_filter(memberPlaces($member), fn (mixed $value): bool => $value !== null))->toBe([]);
 });
+
+it('never writes a place onto an account anonymised while its visit was starting', function () {
+    $member = User::factory()->create();
+    // The account is deleted between the visit starting and its place being written.
+    app(AnonymizeUserAccountAction::class)->execute(User::query()->findOrFail($member->id));
+
+    app(RecordMemberPlaceAction::class)->visitStarted($member, PLACE_MILTON_IP, CarbonImmutable::now());
+
+    expect(array_filter(memberPlaces($member), fn (mixed $value): bool => $value !== null))->toBe([]);
+});
+
+it('forgets the addresses kept once Project settings stop keeping them, by the page or a preset, and keeps the rest', function (string $by) {
+    ProjectSettings::factory()->create(['feature_flags' => ['keep_ip_addresses' => true]]);
+    $hash = IpAddressHash::of(PLACE_LONDON_IP, (string) config('app.key'));
+    $member = User::factory()->create(['signup_ip' => PLACE_LONDON_IP, 'signup_ip_hash' => $hash, 'signup_country' => 'GB', 'signup_city' => 'London', 'visit_ip' => PLACE_LONDON_IP, 'visit_ip_hash' => $hash]);
+
+    // Saved with keeping still on: nothing forgotten.
+    app(SaveProjectSettingsAction::class)->handle(['feature_flags' => ['keep_ip_addresses' => true]]);
+
+    expect(memberPlaces($member)['signup_ip'])->toBe(PLACE_LONDON_IP);
+
+    match ($by) {
+        'page' => app(SaveProjectSettingsAction::class)->handle(['feature_flags' => ['keep_ip_addresses' => false]]),
+        'preset' => app(ApplyProjectPresetAction::class)->handle('generic', force: true),
+    };
+
+    expect(memberPlaces($member))->toMatchArray(['signup_ip' => null, 'signup_ip_hash' => $hash, 'signup_country' => 'GB', 'signup_city' => 'London', 'visit_ip' => null, 'visit_ip_hash' => $hash]);
+})->with(['switched off on the page' => 'page', 'a preset applied' => 'preset']);

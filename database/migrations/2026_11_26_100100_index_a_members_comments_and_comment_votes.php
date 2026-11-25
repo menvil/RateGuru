@@ -25,6 +25,12 @@ return new class extends Migration
             return;
         }
 
+        if (DB::getDriverName() === 'pgsql') {
+            // Building an index holds writes to its table: give up rather than queue every comment and vote behind a
+            // long-running writer while a release migrates.
+            DB::statement("set local lock_timeout = '5s'");
+        }
+
         foreach (self::INDEXES as $table => $indexes) {
             Schema::table($table, function (Blueprint $table) use ($indexes) {
                 foreach ($indexes as $name => $columns) {

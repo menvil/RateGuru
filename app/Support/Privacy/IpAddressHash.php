@@ -11,7 +11,7 @@ final class IpAddressHash
 {
     public static function of(string $ip, string $key): string
     {
-        return hash_hmac('sha256', $ip, $key);
+        return hash_hmac('sha256', self::canonical($ip), $key);
     }
 
     /**
@@ -27,5 +27,18 @@ final class IpAddressHash
             preg_match('/^[0-9a-f]{64}$/', $search) === 1 => $search,
             default => null,
         };
+    }
+
+    /**
+     * An address in one spelling, so every way of writing it hashes alike: an IPv6 address lower-case and
+     * compressed (`2A02:06B8:0:0:0:0:0:1` is `2a02:6b8::1`), as the server hands a request's address over.
+     * Anything that is no address stays as given.
+     */
+    private static function canonical(string $ip): string
+    {
+        $packed = filter_var($ip, FILTER_VALIDATE_IP) === false ? false : inet_pton($ip);
+        $spelled = $packed === false ? false : inet_ntop($packed);
+
+        return $spelled === false ? $ip : $spelled;
     }
 }

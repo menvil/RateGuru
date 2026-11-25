@@ -121,7 +121,7 @@ Feature flags are stored in `feature_flags` JSON column:
 | `allow_user_uploads` | true | Whether members can create posts: the upload button, and the upload form itself |
 | `allow_guest_viewing` | true | Whether guests can see the content: off, the feed, posts, share links and profiles ask to sign in (the legal and contact pages stay open) |
 | `guest_actions_open_sign_up` | false | A guest's vote, rating or comment vote opens the sign-up form instead of sign-in, for a browser no account has signed up or signed in with — to try which brings more accounts; the registration funnel shows what opened the dialog and what came of it |
-| `keep_ip_addresses` | false | Keeps the IP address each member signed up from and the one their latest visit started from, shown to admins in the person's editor (Admin → Users). Off, only the country, the city and a one-way hash of the address are kept — enough to count the accounts sharing an address. **Update the privacy page first** (below) |
+| `keep_ip_addresses` | false | Keeps the IP address each member signed up from and the one their latest visit started from, shown to admins in the person's editor (Admin → Users). Off, only the country, the city and a one-way hash of the address are kept — enough to count the accounts sharing an address. Switching it off, or applying a preset, forgets the addresses kept so far. **Update the privacy page first** (below) |
 | `content_studio_verified_adults` | false | An administrator's confirmation that everyone in Content Studio's photos is a verified adult; lets its texts and discussions flirt with the people shown (`docs/architecture/studio-personas.md`). Applying a preset switches it off |
 
 ### Before keeping IP addresses

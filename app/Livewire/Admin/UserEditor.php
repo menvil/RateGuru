@@ -405,13 +405,10 @@ final class UserEditor extends Component
     }
 
     /**
-     * Whether the person confirmed their address, and when; for one who never
-     * did and signed up with it, when the cleanup of unconfirmed accounts
-     * removes them.
-     */
-    /**
      * A place as a row of Account shows it: where, and when for a visit; then the address while it is kept, how
-     * many other accounts share it with the way to them, or that it is known only from the visits recorded.
+     * many other accounts share it with the way to them, or that it is known only from the visits recorded. The way
+     * to the others searches the address's hash, never the address: an address in a link would land in browser
+     * histories and server logs.
      *
      * @param  ?array{country: ?string, city: ?string, ip: ?string, hash: ?string, at: ?CarbonInterface, fromVisits: bool, others: int}  $place
      * @return array{where: string, when: ?string, ip: ?string, others: ?string, othersUrl: ?string, fromVisits: bool}
@@ -422,18 +419,21 @@ final class UserEditor extends Component
             return ['where' => 'Unknown', 'when' => null, 'ip' => null, 'others' => null, 'othersUrl' => null, 'fromVisits' => false];
         }
 
-        $search = $place['ip'] ?? $place['hash'];
-
         return [
             'where' => ModerationListFormat::place($place['country'], $place['city']),
             'when' => $place['at']?->format('d M Y, H:i'),
             'ip' => $place['ip'],
             'others' => $place['others'] > 0 ? Str::plural('other account', $place['others'], prependCount: true).' from this IP' : null,
-            'othersUrl' => $place['others'] > 0 && $search !== null ? ListUsers::getUrl(['q' => $search]) : null,
+            'othersUrl' => $place['others'] > 0 && $place['hash'] !== null ? ListUsers::getUrl(['q' => $place['hash']]) : null,
             'fromVisits' => $place['fromVisits'],
         ];
     }
 
+    /**
+     * Whether the person confirmed their address, and when; for one who never
+     * did and signed up with it, when the cleanup of unconfirmed accounts
+     * removes them.
+     */
     private static function confirmation(User $person): string
     {
         if ($person->isTombstoned()) {

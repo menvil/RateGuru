@@ -233,21 +233,23 @@ final class ListUsers extends Page
 
     /**
      * Where the person signed up from, as their account keeps it or else as the visit their sign-up was credited
-     * to shows it; and where their latest visit started from, when that was somewhere else.
+     * to shows it; and where their latest visit started from, when that was somewhere else. A deleted account's
+     * places went with it: none is read back from the visit it was credited to.
      *
      * @return array{location: string, locationFromVisits: bool, lastVisit: ?string, lastVisitTitle: ?string}
      */
     private static function location(User $person): array
     {
         $kept = $person->signup_ip_hash !== null || $person->signup_country !== null;
-        $country = $kept ? $person->signup_country : $person->getAttribute('credited_visit_country');
-        $city = $kept ? $person->signup_city : $person->getAttribute('credited_visit_city');
+        $fromVisits = ! $kept && ! $person->isTombstoned();
+        $country = $kept ? $person->signup_country : ($fromVisits ? $person->getAttribute('credited_visit_country') : null);
+        $city = $kept ? $person->signup_city : ($fromVisits ? $person->getAttribute('credited_visit_city') : null);
         $elsewhere = $person->visit_started_at !== null && $person->visit_country !== null
             && ($person->visit_country !== $country || $person->visit_city !== $city);
 
         return [
             'location' => ModerationListFormat::place(is_string($country) ? $country : null, is_string($city) ? $city : null),
-            'locationFromVisits' => ! $kept && is_string($country),
+            'locationFromVisits' => $fromVisits && is_string($country),
             'lastVisit' => $elsewhere ? 'Last visit: '.ModerationListFormat::place($person->visit_country, $person->visit_city, short: true).' · '.$person->visit_started_at->format('d M') : null,
             'lastVisitTitle' => $elsewhere ? 'Last visit: '.ModerationListFormat::place($person->visit_country, $person->visit_city).' · '.$person->visit_started_at->format('d M Y, H:i') : null,
         ];
