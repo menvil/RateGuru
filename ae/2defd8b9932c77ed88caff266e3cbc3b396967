@@ -1,0 +1,40 @@
+app/Filament/Pages/Analytics/CampaignsTab.php
+  s_4b9dc6ab6b25d3::t_966700256623f4 411,414,435
+  s_4b9dc6ab6b25d3::t_ea853ce4c75ed6 63-66,409,430
+tests/Feature/Traffic/TrafficSourcesPageTest.php
+  s_4b9dc6ab6b25d3::t_df9fc41306060e 1136,1148,1151,1154-1155
+tests/Feature/Traffic/TrafficReachByCountryTest.php
+  s_4b9dc6ab6b25d3::t_a93d96cf35ae60 240-241
+app/Filament/Pages/GrowthAnalyticsPage.php
+  s_4b9dc6ab6b25d3::t_e6f88c770cad28 267
+tests/Browser/AdminAnalyticsCampaignsBrowserTest.php
+  s_4b9dc6ab6b25d3::t_1fa908fc1a50aa 53-59,61-62,65,82,85-91,108-109,131
+tests/Feature/Analytics/AnalyticsCampaignsTabTest.php
+  s_4b9dc6ab6b25d3::t_19d15259657a6d 52-67,119,122,124-130,161-162,168-169,185-186,199,224-225,230,336-337,348,361,367,370,406,409
+tests/Feature/Traffic/TrafficReportPageTest.php
+  s_4b9dc6ab6b25d3::t_df9fc41306060e 68,75-79
+tests/Feature/Analytics/AnalyticsGeographyTabTest.php
+  s_4b9dc6ab6b25d3::t_549546c02043f9 78-80,84,92-97,100,114-123,134,137-139,142,146,164,206,221,292,316-317,334
+app/Filament/Pages/Analytics/GeographyTab.php
+  s_4b9dc6ab6b25d3::t_e6f88c770cad28 24-27,55,58,81,83,106
+app/Filament/Pages/TrafficSourcesPage.php
+  s_4b9dc6ab6b25d3::t_2de0ccce11d202 131-132
+tests/Browser/AdminAnalyticsGeographyBrowserTest.php
+  s_4b9dc6ab6b25d3::t_aea9b2748f91a5 54,77,80-88,97,106
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "ae2defd8b9932c77ed88caff266e3cbc3b396967",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}

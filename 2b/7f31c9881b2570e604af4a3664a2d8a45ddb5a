@@ -1,0 +1,31 @@
+resources/views/livewire/admin/user-editor.blade.php
+  s_4b9dc6ab6b25d3::t_f4814e7a3735d7 33,38-41,47-48,51-52,55-56
+app/Queries/Users/UserModerationProfileQuery.php
+  s_4b9dc6ab6b25d3::t_f4814e7a3735d7 114-118
+  s_4b9dc6ab6b25d3::t_aab6a304a88fd3 12
+tests/Feature/Filament/UserResourceTest.php
+  s_4b9dc6ab6b25d3::t_aab6a304a88fd3 4,19,338,340-341
+  s_4b9dc6ab6b25d3::t_29a3ca99280a01 330,339,345-346
+app/Livewire/Admin/UserEditor.php
+  s_4b9dc6ab6b25d3::t_f4814e7a3735d7 209-210
+docs/design/admin/design-contract.md
+  s_4b9dc6ab6b25d3::t_75922dd0a4c5ca 1745-1747
+resources/css/filament/admin/components.css
+  s_4b9dc6ab6b25d3::t_f4814e7a3735d7 6106-6111,6113-6115,6120-6151
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "2b7f31c9881b2570e604af4a3664a2d8a45ddb5a",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
