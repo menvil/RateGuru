@@ -60,10 +60,10 @@ use Illuminate\Database\Eloquent\Collection;
  * accounts has had its days to activate; and what each visitor, account and
  * activated user cost. A campaign without spend is Unpaid. The creative of a
  * campaign with the best activation rate of those with enough visitors is
- * marked. The campaign the most people came through and its biggest
- * creative open to begin with — the creative the address names instead,
- * listed even past the first ones and marked with its campaign — and any
- * row can be opened or closed. Every
+ * marked. Nothing is open to begin with but what the address chooses: the
+ * campaign of the filter, and the creative a tracking link names, listed even
+ * past the first ones and marked with its campaign. Any row can be opened or
+ * closed. Every
  * filter of the page applies to the tree; the paid sources read the period
  * and device. Nobody matching the filters is said once, with nothing else
  * drawn.
@@ -406,12 +406,12 @@ final class CampaignsTab implements AnalyticsTab
         $sorts = $hasSpend ? self::SORTS : array_diff_key(self::SORTS, ['cost' => true]);
         $sort = array_key_exists((string) $page->csort, $sorts) ? (string) $page->csort : 'visitors';
 
-        // The campaign the most people came through opens to begin with, and its biggest creative — or the one the address names.
+        // Only what the address chooses opens to begin with: the campaign of the filter and the creative it names.
         $marked = $filter->campaignKey !== null && $page->creative !== '' ? $page->creative : null;
-        $firstCampaign = $keys[0] ?? null;
+        $chosenCampaign = $filter->campaignKey;
         $toggled = array_flip(array_filter($page->toggled, 'is_string'));
         $isOpen = fn (string $node, bool $first): bool => $first xor array_key_exists($node, $toggled);
-        $open = array_values(array_filter($keys, fn (string $key): bool => $isOpen(self::node($key), $key === $firstCampaign)));
+        $open = array_values(array_filter($keys, fn (string $key): bool => $isOpen(self::node($key), $key === $chosenCampaign)));
 
         $creatives = [];
 
@@ -427,12 +427,12 @@ final class CampaignsTab implements AnalyticsTab
             $creativeSpend[(string) $group['keys']['campaign_key']][CampaignKey::creative(self::text($group['keys']['creative_key']))] = ['spend' => $group['spend'], 'estimated' => $group['estimated']];
         }
 
-        // Which creatives are open: the biggest of the first campaign, or the one the address names, and those toggled.
+        // Which creatives are open: the one the address names, and those toggled.
         $openCreatives = [];
 
         foreach ($creatives as $key => $split) {
             $names = array_map(fn (array $row): string => CampaignKey::creative(self::text($row['keys']['creative_key'])), $split['rows']);
-            $defaultCreative = $key !== $firstCampaign ? null : ($marked !== null && in_array($marked, $names, true) ? $marked : ($names[0] ?? null));
+            $defaultCreative = $key === $chosenCampaign && $marked !== null && in_array($marked, $names, true) ? $marked : null;
 
             foreach ($split['rows'] as $row) {
                 $creative = CampaignKey::creative(self::text($row['keys']['creative_key']));
