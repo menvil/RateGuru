@@ -111,6 +111,15 @@ published from them, and warns before publishing when the texts it would
 freeze are missing a translation, or have one made from older English, in a
 language the project offers.
 
+**When the English changes.** Every saved translation keeps the English it was
+made from (`docs/architecture/translation-engine.md`). Once that English
+changes, the translation still shows, but it needs an update: Translation
+Center marks it **English changed**, shows what changed sentence by sentence,
+and lists it under **Needs update**; Languages and the Categories, Tags and
+Rating groups screens count it beside what is missing. The figures on
+completeness below count presence only, so an outdated translation counts as
+translated there.
+
 A field whose English is blank needs no translation, and shows none: a
 translation left from before its English was cleared stays stored, but no
 visitor is served it in any language — on the site, on a static page or in a

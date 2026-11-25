@@ -755,8 +755,18 @@ settings (`manage-project-settings`), the boundary Languages uses.
   Typing in a generated suggestion makes it an ordinary edit, saved as typed and left out of Save all generated;
   saving it lets the server's copy go. Discard and Discard generated let suggestions go on the server too; if
   the server cannot be told, the draft stays.
-- **Not in this step.** No review states and no translation history; source fingerprints exist only to keep a
-  generated suggestion from outliving the English it was made from, and go with it.
+- **Not in this step.** No review states and no translation history. A source fingerprint is kept with every
+  saved translation (`project_translation_sources`): it keeps a generated suggestion from outliving the English it
+  was made from, and tells an outdated translation — one made from English since changed — apart.
+- **English changed.** An outdated row has the warning badge “English changed · update”, the note “Made from older
+  English. Visitors see it until you save.”, Update with AI, and Save without an edit. Under the English, “Changed
+  since it was translated”: each changed sentence whole, the words taken out struck through (danger tones), the
+  words put in marked (success tones), every changed word of an edit marked; a long text — more than two sentences —
+  lists the first six, counts the rest, says “A long text: read the whole translation again, since a change can
+  alter the sentences around it.” and keeps the old English in full behind “The old English in full”.
+- **Elsewhere.** Languages shows “n to update” under a language's missing count, linking to Needs update in that
+  language, and “To update” in its header; Categories, Tags and Rating groups show “Translations to update” beside
+  their figures while any of their texts' translations need one, linking to Needs update on the section.
 
 **Translation field states (DOM-01)** — they must never look alike:
 
