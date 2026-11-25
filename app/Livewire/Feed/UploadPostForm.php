@@ -39,6 +39,7 @@ use App\Support\Rating\RatingConfigurationManager;
 use App\Support\Settings\ProjectSettingsManager;
 use Carbon\CarbonImmutable;
 use Illuminate\Contracts\Cache\Lock;
+use Illuminate\Contracts\Cache\LockProvider;
 use Illuminate\Contracts\View\View;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Http\UploadedFile;
@@ -48,6 +49,7 @@ use Livewire\Attributes\On;
 use Livewire\Component;
 use Livewire\Features\SupportFileUploads\TemporaryUploadedFile;
 use Livewire\WithFileUploads;
+use RuntimeException;
 
 final class UploadPostForm extends Component
 {
@@ -178,7 +180,16 @@ final class UploadPostForm extends Component
                 // take — an Instagram photo post — goes on as any link.
                 // A link to a video file goes to the plain download, whatever
                 // site serves it.
-                $pageVideo = in_array($provider, ['direct_image', 'direct_video'], true) ? null : $this->pageVideo($this->importedImageUrl);
+                $extractor = in_array($provider, ['direct_image', 'direct_video'], true) ? null : app(YtDlpSites::class)->extractorFor($this->importedImageUrl);
+                $pageVideo = $extractor === null ? null : $this->pageVideo($this->importedImageUrl);
+
+                // A site where every page is a video: none found is a failure,
+                // never the page's poster frame posted in its place.
+                if ($extractor !== null && $pageVideo === null && ! in_array($extractor, (array) config('import.ytdlp.photo_fallback', []), true)) {
+                    $this->submitError = __('import.errors.fetch_failed');
+
+                    return;
+                }
 
                 if ($pageVideo !== null) {
                     $maxSeconds = (int) config('uploads.videos.max_duration_seconds');
@@ -193,12 +204,6 @@ final class UploadPostForm extends Component
 
                     if ($pageVideo->durationSeconds > $maxSeconds) {
                         $this->submitError = __('ui.upload.error_video_too_long', ['seconds' => $maxSeconds]);
-
-                        return;
-                    }
-
-                    if ($pageVideo->approximateBytes !== null && $pageVideo->approximateBytes > (int) config('uploads.videos.max_kilobytes') * 1024) {
-                        $this->submitError = __('ui.upload.error_video_too_large', ['megabytes' => intdiv((int) config('uploads.videos.max_kilobytes'), 1024)]);
 
                         return;
                     }
@@ -368,7 +373,7 @@ final class UploadPostForm extends Component
         // A probe holds a web worker while the author waits: one per author,
         // and only as many on the host at once as import.ytdlp.probe_slots,
         // so a few accounts cannot take every worker the site has.
-        $author = Cache::store('database')->getStore()->lock('ytdlp-probe:user:'.auth()->id(), 30);
+        $author = self::probeLock('ytdlp-probe:user:'.auth()->id());
         $slot = $author->get() ? $this->probeSlot() : null;
 
         if ($slot === null) {
@@ -392,10 +397,8 @@ final class UploadPostForm extends Component
     /** A free one of the host's probe slots, held, or null when all are taken. */
     private function probeSlot(): ?Lock
     {
-        $store = Cache::store('database')->getStore();
-
         for ($slot = 1; $slot <= max(1, (int) config('import.ytdlp.probe_slots')); $slot++) {
-            $lock = $store->lock("ytdlp-probe:slot:{$slot}", 30);
+            $lock = self::probeLock("ytdlp-probe:slot:{$slot}");
 
             if ($lock->get()) {
                 return $lock;
@@ -403,6 +406,18 @@ final class UploadPostForm extends Component
         }
 
         return null;
+    }
+
+    /** A lock on the database store, which every web worker on every host shares. */
+    private static function probeLock(string $key): Lock
+    {
+        $store = Cache::store('database')->getStore();
+
+        if (! $store instanceof LockProvider) {
+            throw new RuntimeException('The "database" cache store does not support locks.');
+        }
+
+        return $store->lock($key, 30);
     }
 
     /**

@@ -45,7 +45,8 @@ function ytDlpVideoJson(array $changes = []): string
         'title' => 'A loop',
         'duration' => 12.4,
         'filesize_approx' => 4_000_000,
-        'formats' => [['format_id' => 'hd', 'vcodec' => 'avc1', 'ext' => 'mp4']],
+        // As RedGifs gives them: MP4s with no codec named at all.
+        'formats' => [['format_id' => 'sd', 'ext' => 'mp4', 'url' => 'https://media.redgifs.com/a-mobile.mp4'], ['format_id' => 'hd', 'ext' => 'mp4', 'url' => 'https://media.redgifs.com/a.mp4']],
     ]);
 }
 
@@ -223,4 +224,42 @@ it('refuses a page\'s video whose length the site does not say, and leaves a vid
 
     expect($runner->calls)->toBe([])
         ->and(MediaAsset::query()->sole()->metadata['import']['url'])->toBe('https://media.redgifs.com/AFile.mp4');
+});
+
+it('takes a page\'s video whose codec yt-dlp was not told — Coub\'s null, RedGifs\' none at all — and refuses only an explicit none', function () {
+    ytDlpStandIn(ytDlpVideoJson(['extractor_key' => 'Coub', 'formats' => [['format_id' => 'html5', 'vcodec' => null, 'ext' => 'mp4']]]));
+    expect(app(YtDlp::class)->probe('https://coub.com/view/1'))->not->toBeNull();
+
+    ytDlpStandIn(ytDlpVideoJson(['formats' => [['format_id' => 'img', 'vcodec' => 'none', 'acodec' => 'none']]]));
+    expect(app(YtDlp::class)->probe('https://www.redgifs.com/watch/aloop'))->toBeNull();
+});
+
+it('says a video-only site\'s page gave nothing, rather than posting its poster, and takes an Instagram photo post\'s photo', function () {
+    ytDlpStandIn(null);
+
+    Livewire::actingAs(User::factory()->create())
+        ->test(UploadPostForm::class)
+        ->set('title', 'Broken extractor')
+        ->set('importedImageUrl', 'https://www.redgifs.com/watch/aloop')
+        ->call('submit')
+        ->assertSet('submitError', __('import.errors.fetch_failed'));
+
+    expect(Post::query()->count())->toBe(0);
+
+    // Instagram: no video on a photo post, so its photo is taken instead.
+    Http::fake(['www.instagram.com/*' => Http::response('<html><img class="EmbeddedMediaImage" src="https://www.instagram.com/photo.jpg" srcset="https://www.instagram.com/photo.jpg 1080w"></html>', 200, ['Content-Type' => 'text/html'])]);
+    $this->mock(App\Actions\Import\StoreImportedImageAction::class, function ($mock): void {
+        $mock->shouldReceive('download')->once()->andReturn(Illuminate\Http\UploadedFile::fake()->image('photo.jpg', 800, 600));
+        $mock->shouldReceive('cleanup')->once();
+    });
+
+    Livewire::actingAs(User::factory()->create())
+        ->test(UploadPostForm::class)
+        ->set('title', 'An Instagram photo')
+        ->set('importedImageUrl', 'https://www.instagram.com/p/ABC123/')
+        ->call('submit')
+        ->assertHasNoErrors()
+        ->assertSet('submitError', null);
+
+    Queue::assertNotPushed(ImportVideoAssetJob::class);
 });

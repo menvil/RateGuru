@@ -32,6 +32,11 @@ return [
             'coub.com' => 'Coub',
             'instagram.com' => 'Instagram',
         ],
+        // The sites whose pages may hold a photo instead: when yt-dlp finds
+        // no video there, the page's photo is taken. On the others every page
+        // is a video, so finding none is a failure, said as one — never a
+        // poster frame posted in its place.
+        'photo_fallback' => ['Instagram'],
     ],
     'max_redirects' => 3,
 

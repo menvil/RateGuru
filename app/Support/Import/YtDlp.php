@@ -130,15 +130,23 @@ final class YtDlp
         return $found === null ? [] : ['--ffmpeg-location', $found];
     }
 
-    /** @param  array<string, mixed>  $info */
+    /**
+     * yt-dlp's own reading: a codec it was not told is unknown — there may
+     * well be a picture — and only an explicit 'none' means there is none.
+     * RedGifs and YouPorn give their MP4s no codec at all, Coub gives null.
+     *
+     * @param  array<string, mixed>  $info
+     */
     private static function hasVideo(array $info): bool
     {
-        if (is_string($info['vcodec'] ?? null)) {
-            return $info['vcodec'] !== 'none';
+        $formats = is_array($info['formats'] ?? null) ? array_filter($info['formats'], 'is_array') : [];
+
+        if ($formats === []) {
+            return ($info['vcodec'] ?? null) !== 'none' && (isset($info['url']) || isset($info['requested_formats']));
         }
 
-        foreach (is_array($info['formats'] ?? null) ? $info['formats'] : [] as $format) {
-            if (is_array($format) && ($format['vcodec'] ?? 'none') !== 'none') {
+        foreach ($formats as $format) {
+            if (($format['vcodec'] ?? null) !== 'none') {
                 return true;
             }
         }
