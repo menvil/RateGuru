@@ -1,0 +1,33 @@
+app/Support/Import/SafeImportHttpClient.php
+  s_1f43f39fbe0537::t_bbf4127f33fadb 47-52,59-76
+app/Actions/Posts/CreatePostAction.php
+  s_1f43f39fbe0537::t_bbf4127f33fadb 85-93
+app/Livewire/Feed/UploadPostForm.php
+  s_1f43f39fbe0537::t_bbf4127f33fadb 26-27,153-163,174-178,192-194
+app/Services/Media/VideoAssetProcessor.php
+  s_1f43f39fbe0537::t_35c12ec98e9c8c 83,233-243
+config/rate_limits.php
+  s_1f43f39fbe0537::t_bbf4127f33fadb 11-23
+app/Jobs/ImportVideoAssetJob.php
+  s_1f43f39fbe0537::t_35c12ec98e9c8c 20,61,100-105,111-137
+app/Support/Import/PinnedImportHttpTransport.php
+  s_1f43f39fbe0537::t_bbf4127f33fadb 148-151
+tests/Feature/Import/VideoImportTest.php
+  ai_agent 11,148-205
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "69bae0b3cda9f4a2558d7d2c914c6f9a0c638850",
+  "prompts": {},
+  "sessions": {
+    "s_1f43f39fbe0537": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "526787d0-f443-4ad7-9610-cf9811fec895",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
