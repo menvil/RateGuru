@@ -1,0 +1,158 @@
+<?php
+
+use App\Services\Media\Exceptions\VideoUnreadableException;
+use App\Services\Media\VideoIngestPolicy;
+use App\Services\Media\VideoProbe;
+use Symfony\Component\Process\Process;
+use Symfony\Component\Yaml\Yaml;
+
+/*
+ * VideoProbe and FfmpegInput against the real ffprobe, on files the real
+ * ffmpeg makes. RATEGURU_REAL_FFMPEG=1 runs these: CI's PostgreSQL tests job
+ * installs the pinned build the hosts run and sets it;
+ * anywhere else they are skipped, so a machine without ffmpeg runs the suite
+ * unchanged. The last test, which needs no ffmpeg, proves CI does run them.
+ */
+
+function requireRealFfmpeg(): string
+{
+    if (getenv('RATEGURU_REAL_FFMPEG') !== '1') {
+        test()->markTestSkipped('RATEGURU_REAL_FFMPEG=1 runs it: it needs ffmpeg and ffprobe on PATH');
+    }
+
+    $dir = sys_get_temp_dir().'/real-ffmpeg-'.bin2hex(random_bytes(6));
+    mkdir($dir, 0o755);
+
+    return $dir;
+}
+
+/** @param  list<string>  $arguments */
+function realFfmpeg(array $arguments): Process
+{
+    $process = new Process(['ffmpeg', '-hide_banner', '-loglevel', 'error', '-y', ...$arguments], null, null, null, 120);
+    $process->run();
+
+    return $process;
+}
+
+/** @param  list<string>  $arguments */
+function makeWithRealFfmpeg(array $arguments): void
+{
+    $process = realFfmpeg($arguments);
+
+    expect($process->getExitCode())->toBe(0, $process->getErrorOutput());
+}
+
+afterEach(function () {
+    if (isset($this->dir)) {
+        exec('rm -rf '.escapeshellarg($this->dir));
+    }
+});
+
+it('probes an MP4 with sound as the clip it is, and the policy takes it', function () {
+    $this->dir = requireRealFfmpeg();
+    $path = $this->dir.'/clip.mp4';
+    makeWithRealFfmpeg([
+        '-f', 'lavfi', '-i', 'testsrc=duration=2:size=1280x720:rate=25',
+        '-f', 'lavfi', '-i', 'sine=frequency=440:duration=2',
+        '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-shortest', $path,
+    ]);
+
+    $probe = app(VideoProbe::class)->probe($path);
+
+    expect($probe->formatName)->toBe('mov,mp4,m4a,3gp,3g2,mj2')
+        ->and($probe->durationMs)->toBeGreaterThan(1_900)->toBeLessThan(2_200)
+        ->and([$probe->width, $probe->height])->toBe([1280, 720])
+        ->and($probe->frameRate)->toBe(25.0)
+        ->and($probe->videoCodec)->toBe('h264')
+        ->and($probe->audioCodec)->toBe('aac')
+        ->and($probe->hasAudio())->toBeTrue();
+
+    VideoIngestPolicy::fromConfig()->assertAcceptable($probe, (int) filesize($path));
+});
+
+it('probes an animated GIF and a WebM, the other formats an upload may be', function () {
+    $this->dir = requireRealFfmpeg();
+    makeWithRealFfmpeg(['-f', 'lavfi', '-i', 'testsrc=duration=1:size=320x240:rate=10', $this->dir.'/loop.gif']);
+    makeWithRealFfmpeg(['-f', 'lavfi', '-i', 'testsrc=duration=1:size=320x240:rate=25', '-c:v', 'libvpx', '-b:v', '200k', $this->dir.'/clip.webm']);
+
+    $gif = app(VideoProbe::class)->probe($this->dir.'/loop.gif');
+    $webm = app(VideoProbe::class)->probe($this->dir.'/clip.webm');
+
+    expect($gif->formatName)->toBe('gif')
+        ->and([$gif->width, $gif->height])->toBe([320, 240])
+        ->and($gif->hasAudio())->toBeFalse()
+        ->and($webm->formatName)->toBe('matroska,webm')
+        ->and($webm->videoCodec)->toBe('vp8');
+});
+
+it('reads a clip filmed sideways as the portrait picture it shows', function () {
+    $this->dir = requireRealFfmpeg();
+    makeWithRealFfmpeg(['-f', 'lavfi', '-i', 'testsrc=duration=1:size=1280x720:rate=25', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', $this->dir.'/flat.mp4']);
+
+    // ffmpeg 6 and later take a display rotation on the input; 4.4 a rotate tag.
+    $rotated = $this->dir.'/sideways.mp4';
+    $modern = realFfmpeg(['-display_rotation', '90', '-i', $this->dir.'/flat.mp4', '-c', 'copy', $rotated]);
+
+    if ($modern->getExitCode() !== 0) {
+        makeWithRealFfmpeg(['-i', $this->dir.'/flat.mp4', '-metadata:s:v:0', 'rotate=90', '-c', 'copy', $rotated]);
+    }
+
+    $probe = app(VideoProbe::class)->probe($rotated);
+
+    expect([$probe->width, $probe->height])->toBe([720, 1280])
+        ->and($probe->rotation)->toBeIn([90, 270]);
+});
+
+it('refuses a playlist that ffprobe would otherwise read as video, because of the format whitelist alone', function () {
+    $this->dir = requireRealFfmpeg();
+
+    // A playlist whose one entry is a real local video segment: nothing about
+    // it is broken, so only the demuxer whitelist can be what refuses it.
+    makeWithRealFfmpeg(['-f', 'lavfi', '-i', 'testsrc=duration=1:size=320x240:rate=25', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-f', 'mpegts', $this->dir.'/segment0.ts']);
+    $playlist = "#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:1\n#EXT-X-MEDIA-SEQUENCE:0\n#EXTINF:1.0,\nsegment0.ts\n#EXT-X-ENDLIST\n";
+    file_put_contents($this->dir.'/playlist.m3u8', $playlist);
+    file_put_contents($this->dir.'/playlist.mp4', $playlist);
+
+    // The control: the same ffprobe, the same protocol whitelist, no demuxer
+    // whitelist — it reads the playlist as HLS and opens its segment.
+    $control = new Process(['ffprobe', '-v', 'error', '-protocol_whitelist', 'file', '-show_entries', 'format=format_name:stream=codec_name', '-of', 'csv=p=0', 'file:'.$this->dir.'/playlist.m3u8'], null, null, null, 60);
+    $control->run();
+
+    expect($control->getExitCode())->toBe(0, $control->getErrorOutput())
+        ->and($control->getOutput())->toContain('h264')->toContain('hls');
+
+    // VideoProbe refuses it, under its own name and under a video's.
+    foreach (['playlist.m3u8', 'playlist.mp4'] as $name) {
+        expect(fn () => app(VideoProbe::class)->probe($this->dir.'/'.$name))
+            ->toThrow(VideoUnreadableException::class, null, $name);
+    }
+});
+
+it('refuses a file that is no video at all', function () {
+    $this->dir = requireRealFfmpeg();
+    file_put_contents($this->dir.'/notes.mp4', "just some text\n");
+
+    expect(fn () => app(VideoProbe::class)->probe($this->dir.'/notes.mp4'))->toThrow(VideoUnreadableException::class);
+});
+
+it('runs in the PostgreSQL tests job, against the pinned build the hosts run, checked against its digest', function () {
+    $job = Yaml::parseFile(base_path('.github/workflows/ci.yml'))['jobs']['tests'];
+    $steps = collect($job['steps']);
+    $names = $steps->pluck('name')->all();
+
+    // The same contract install-bootstrap-runtime reads, the same archive, the
+    // same digest — and never the distribution's ffmpeg.
+    $install = (string) ($steps->firstWhere('name', 'Install ffmpeg')['run'] ?? '');
+    expect($install)
+        ->toContain('contract=infrastructure/config/external-runtimes/versions.env')
+        ->toContain('https://github.com/BtbN/FFmpeg-Builds/releases/download/${release}/${artifact}')
+        ->toContain('echo "$(value FFMPEG_SHA256)  ${work}/${artifact}" | sha256sum --check --strict -')
+        ->toContain('grep -F "ffmpeg version ${version} "')
+        ->toContain('grep -F "ffprobe version ${version} "')
+        ->not->toContain('apt-get');
+
+    $run = $steps->firstWhere('name', 'Run PostgreSQL tests');
+    expect($run['env']['RATEGURU_REAL_FFMPEG'] ?? null)->toBe('1')
+        ->and(array_search('Install ffmpeg', $names, true))->toBeLessThan(array_search('Run PostgreSQL tests', $names, true));
+});

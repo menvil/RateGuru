@@ -121,4 +121,33 @@ return [
         ],
         'audit_run_retention' => max(1, EnvironmentValue::integer(env('MEDIA_AUDIT_RUN_RETENTION'), 30)),
     ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Video tools
+    |--------------------------------------------------------------------------
+    |
+    | ffmpeg and ffprobe are the pinned static build install-bootstrap-runtime
+    | installs on every host (FFMPEG_* in
+    | infrastructure/config/external-runtimes/versions.env), and CI installs
+    | the same one; locally, `brew install ffmpeg`. Every run goes through
+    | MediaToolRunner — an argument list, never a shell line — and every
+    | input through FfmpegInput's whitelists. probe_timeout_seconds bounds
+    | one ffprobe read: reading a container's headers takes well under a
+    | second, so the bound only matters for a file built to stall it.
+    |
+    | A bare binary name is looked up on PATH, then in search_directories, in
+    | order — PHP-FPM workers run with no PATH at all. /usr/local/bin is where
+    | install-bootstrap-runtime installs the pinned ffmpeg build, so it comes
+    | before /usr/bin, where a host prepared earlier may still carry Ubuntu's
+    | own, older ffmpeg.
+    |
+    */
+
+    'video' => [
+        'ffmpeg_binary' => 'ffmpeg',
+        'ffprobe_binary' => 'ffprobe',
+        'search_directories' => ['/usr/local/bin', '/usr/bin'],
+        'probe_timeout_seconds' => 30,
+    ],
 ];

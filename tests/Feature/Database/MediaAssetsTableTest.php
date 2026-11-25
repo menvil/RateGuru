@@ -1,7 +1,9 @@
 <?php
 
+use App\Enums\MediaType;
 use App\Models\MediaAsset;
 use Illuminate\Database\QueryException;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 it('creates media_assets table with required columns', function () {
@@ -9,6 +11,9 @@ it('creates media_assets table with required columns', function () {
         'id',
         'owner_user_id',
         'kind',
+        'media_type',
+        'duration_ms',
+        'has_audio',
         'disk',
         'path',
         'original_filename',
@@ -28,6 +33,28 @@ it('creates media_assets table with required columns', function () {
         'updated_at',
         'deleted_at',
     ]))->toBeTrue();
+});
+
+it('takes a row written without a media type for a silent image, as every asset stored before video was', function () {
+    // Written the way rows were before the column existed: no media type, no
+    // duration, no sound.
+    $id = DB::table('media_assets')->insertGetId([
+        'kind' => 'post_image',
+        'disk' => 'public',
+        'path' => 'media/post-images/2026/11/'.fake()->uuid().'.jpg',
+        'mime_type' => 'image/jpeg',
+        'byte_size' => 1_024,
+        'status' => 'ready',
+        'visibility' => 'public',
+        'created_at' => now(),
+        'updated_at' => now(),
+    ]);
+
+    $asset = MediaAsset::query()->findOrFail($id);
+
+    expect($asset->media_type)->toBe(MediaType::Image)
+        ->and($asset->duration_ms)->toBeNull()
+        ->and($asset->has_audio)->toBeFalse();
 });
 
 it('does not store a canonical url column', function () {
