@@ -1,0 +1,34 @@
+tests/Feature/Settings/LanguageRankingSettingsTest.php
+  ai_agent 110-114
+tests/Feature/Queries/FeedQueryTest.php
+  s_4b9dc6ab6b25d3::t_49da89619da865 300-359,361-366
+  s_4b9dc6ab6b25d3::t_d271868850540b 3,360
+app/Livewire/Feed/PostFeed.php
+  s_4b9dc6ab6b25d3::t_85dde560139eba 52-64,87,89-93
+  s_4b9dc6ab6b25d3::t_207be47fcbe134 88,115-132
+app/Support/Languages/LanguageRankingSettings.php
+  s_4b9dc6ab6b25d3::t_b89600def7d539 60-61
+app/Queries/Feed/FeedQuery.php
+  s_4b9dc6ab6b25d3::t_d271868850540b 168-170,200-201,209
+  s_4b9dc6ab6b25d3::t_b89600def7d539 15,19-21,153-167,171-189,191-195,202-208,210-246
+  s_4b9dc6ab6b25d3::t_c5c7553d93e163 190,196-199
+tests/Feature/Livewire/PostFeedLanguageOrderTest.php
+  s_4b9dc6ab6b25d3::t_49da89619da865 97-100,102-130
+  s_4b9dc6ab6b25d3::t_d271868850540b 6,101
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "795677af28858db34064c4f209bee1cf3bdb9563",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
