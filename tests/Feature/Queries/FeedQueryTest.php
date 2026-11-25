@@ -1,5 +1,6 @@
 <?php
 
+use App\Enums\PostStatus;
 use App\Models\Post;
 use App\Models\Tag;
 use App\Models\User;
@@ -295,4 +296,71 @@ it('reads the hot score a post has to reach at a percentile of the last days\' p
     expect(app(FeedQuery::class)->hotScoreAt(50, CarbonImmutable::now()->subDays(2)))->toBe(0.3)
         ->and(app(FeedQuery::class)->hotScoreAt(0, CarbonImmutable::now()->subDays(2)))->toBe(0.1)
         ->and(app(FeedQuery::class)->hotScoreAt(50, CarbonImmutable::now()->addDay()))->toBeNull();
+});
+
+/*
+ * Strong posts in other languages at every so many places: the ones whose votes and comments gathered reach the
+ * top of the week, shown in a feed put together by place, no post twice and none left out.
+ */
+
+it('picks the strong posts of the last two days in other languages, best first', function () {
+    $viewer = User::factory()->create();
+    foreach (range(1, 18) as $i) {
+        feedPost('en', 30, ['upvotes_count' => 1]);
+    }
+    $best = feedPost('de', 10, ['upvotes_count' => 40]);
+    $second = feedPost(null, 20, ['upvotes_count' => 20, 'comments_count' => 4]);
+    feedPost('ru', 5, ['upvotes_count' => 80]);
+    feedPost('es', 24 * 3, ['upvotes_count' => 90]);
+    feedPost('fr', 2, ['upvotes_count' => 70, 'user_id' => $viewer->id]);
+
+    expect(app(FeedQuery::class)->hitCandidates('ru', $viewer->id, 20, CarbonImmutable::now()))->toBe([$best->id, $second->id]);
+});
+
+it('takes no post with fewer than three net votes up as strong, however quiet the week', function () {
+    feedPost('de', 3, ['upvotes_count' => 2]);
+    $strong = feedPost('de', 3, ['upvotes_count' => 3]);
+
+    expect(app(FeedQuery::class)->hitCandidates('ru', null, 50, CarbonImmutable::now()))->toBe([$strong->id]);
+});
+
+it('shows a hit at every so many places, no post twice and none left out across pages', function () {
+    $feed = collect(range(1, 30))->map(fn (int $i) => feedPost('ru', $i))->pluck('id');
+    $hits = collect(range(1, 3))->map(fn () => feedPost('de', 40))->pluck('id')->all();
+    $languages = new FeedLanguageOrder('ru', null, CarbonImmutable::now()->subDays(7));
+    $shown = [];
+
+    foreach ([1, 2, 3] as $page) {
+        Paginator::currentPageResolver(fn () => $page);
+        $paginator = app(FeedQuery::class)->paginateWithHits('newest', $languages, $hits, 10, 12);
+        $shown = [...$shown, ...collect($paginator->items())->pluck('id')->all()];
+
+        expect($paginator->total())->toBe(33);
+    }
+
+    expect($shown)->toHaveCount(33)
+        ->and(array_unique($shown))->toHaveCount(33)
+        ->and([$shown[9], $shown[19], $shown[29]])->toBe($hits)
+        ->and(array_values(array_diff($shown, $hits)))->toBe($feed->all());
+});
+
+it('leaves a hit that would sit past the end of a short feed where its own order puts it', function () {
+    $feed = collect(range(1, 5))->map(fn (int $i) => feedPost('ru', $i))->pluck('id');
+    $hit = feedPost('de', 40)->id;
+
+    Paginator::currentPageResolver(fn () => 1);
+    $paginator = app(FeedQuery::class)->paginateWithHits('newest', new FeedLanguageOrder('ru', null, CarbonImmutable::now()->subDays(7)), [$hit], 10, 12);
+
+    expect(collect($paginator->items())->pluck('id')->all())->toBe([...$feed->all(), $hit])
+        ->and($paginator->total())->toBe(6);
+});
+
+it('gives a hit gone since the feed opened its place to the feed', function () {
+    $feed = collect(range(1, 12))->map(fn (int $i) => feedPost('ru', $i))->pluck('id');
+    $gone = feedPost('de', 40, ['status' => PostStatus::Hidden]);
+
+    Paginator::currentPageResolver(fn () => 1);
+    $paginator = app(FeedQuery::class)->paginateWithHits('newest', new FeedLanguageOrder('ru', null, CarbonImmutable::now()->subDays(7)), [$gone->id], 4, 12);
+
+    expect(collect($paginator->items())->pluck('id')->all())->toBe($feed->all());
 });

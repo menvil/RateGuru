@@ -57,7 +57,8 @@ final readonly class LanguageRankingSettings
             enabled: (bool) $values['enabled'],
             guestWindowDays: self::within($values['guest_window_days'], self::SHORTEST_WINDOW_DAYS, self::LONGEST_WINDOW_DAYS),
             memberWindowDays: self::within($values['member_window_days'], self::SHORTEST_WINDOW_DAYS, self::LONGEST_WINDOW_DAYS),
-            hitEvery: self::within($values['hit_every'], 0, 50),
+            // Every place a hit is no feed at all: from every second place on.
+            hitEvery: ($hitEvery = self::within($values['hit_every'], 0, 50)) === 1 ? 2 : $hitEvery,
             hitTopPercent: self::within($values['hit_top_percent'], 1, 50),
             hotFloorPercentile: self::within($values['hot_floor_percentile'], 0, 90),
             commentsFirst: (bool) $values['comments_first'],

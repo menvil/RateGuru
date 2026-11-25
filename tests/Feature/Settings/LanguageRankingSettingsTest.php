@@ -107,3 +107,8 @@ it('undoes the column and adds it again, the row staying', function () {
     expect(Schema::hasColumn('project_settings', 'language_ranking'))->toBeTrue()
         ->and(ProjectSettings::query()->whereKey(1)->exists())->toBeTrue();
 });
+
+it('never puts a strong post at every place, from every second one on', function () {
+    expect(LanguageRankingSettings::fromArray(['hit_every' => 1])->hitEvery)->toBe(2)
+        ->and(LanguageRankingSettings::fromArray(['hit_every' => 0])->hitEvery)->toBe(0);
+});

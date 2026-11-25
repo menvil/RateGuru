@@ -12,9 +12,13 @@ use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Pagination\LengthAwarePaginator;
+use Illuminate\Pagination\Paginator;
 
 final class FeedQuery implements RawSqlPersistenceBoundary, StablePaginationBoundary
 {
+    /** A hit has gathered at least this much: 1 + three net votes up. */
+    public const HIT_LEAST_GATHERED = 4.0;
+
     /** @return Builder<Post> */
     public function base(): Builder
     {
@@ -144,6 +148,102 @@ final class FeedQuery implements RawSqlPersistenceBoundary, StablePaginationBoun
             languages: $languages,
         )
             ->paginate($this->normalizePerPage($perPage));
+    }
+
+    /**
+     * A feed page with a strong post in another language at every so many places (docs/architecture/language-ranking.md):
+     * the hits go to places every, 2 × every… in the order given, the rest of the feed — without them — around them.
+     *
+     * The page is put together by place, not paged by the database: how far into the feed a page starts depends on
+     * how many hits came before it. A hit that would sit past the end of a short feed is not placed and stays in
+     * the feed where its own order puts it, so no post is shown twice or left out. The total counts both.
+     *
+     * @param  list<int>  $hitIds  best first (hitCandidates), fixed for as long as the feed is looked through
+     */
+    public function paginateWithHits(string $sort, FeedLanguageOrder $languages, array $hitIds, int $every, ?int $perPage = null): LengthAwarePaginator
+    {
+        $perPage = $this->normalizePerPage($perPage);
+        $page = max(1, Paginator::resolveCurrentPage('page'));
+        $every = max(2, $every);
+        // A hit hidden or deleted since the feed was opened is placed no more.
+        $published = Post::query()->published()->whereIn('id', $hitIds)->pluck('id')->map(fn ($id): int => (int) $id)->all();
+        $hitIds = array_values(array_filter($hitIds, fn (int $id): bool => in_array($id, $published, true)));
+
+        $withoutHits = $this->query(sort: $sort, languages: $languages)->whereNotIn('posts.id', $hitIds)->reorder()->count();
+        // Hit k sits at place k × every, after k × every − k posts of the feed: only as many as the feed can carry.
+        $placed = array_slice($hitIds, 0, min(count($hitIds), intdiv($withoutHits, $every - 1)));
+        $total = $withoutHits + count($hitIds);
+
+        $start = ($page - 1) * $perPage;
+        $before = min(count($placed), intdiv($start, $every));
+        $slots = [];
+
+        for ($k = $before + 1; $k <= count($placed) && $k * $every <= $start + $perPage; $k++) {
+            $slots[$k * $every - 1] = $placed[$k - 1];
+        }
+
+        $feed = $this->query(sort: $sort, languages: $languages)
+            ->whereNotIn('posts.id', $placed)
+            ->offset($start - $before)
+            ->limit($perPage - count($slots))
+            ->get();
+        $hits = $this->query()->whereIn('posts.id', array_values($slots))->get()->keyBy('id');
+
+        $items = [];
+        $next = 0;
+
+        for ($place = $start; $place < $start + $perPage; $place++) {
+            $hit = isset($slots[$place]) ? $hits->get($slots[$place]) : null;
+
+            if ($hit instanceof Post) {
+                $items[] = $hit;
+
+                continue;
+            }
+
+            if ($next < $feed->count()) {
+                $items[] = $feed[$next++];
+            }
+        }
+
+        return new LengthAwarePaginator(new Collection($items), $total, $perPage, $page, ['path' => Paginator::resolveCurrentPath(), 'pageName' => 'page']);
+    }
+
+    /**
+     * The strong posts of the last two days in languages other than the viewer's, best first: those whose votes and
+     * comments gathered — 1 + net votes up + half the comments — reach the top percent of the week's posts, and at
+     * least three net votes up. Not the hot score: it falls so fast with age that a post with one early vote would
+     * outrank a day-old favourite. Read in PHP, a week of posts at a time; the viewer's own posts are never hits.
+     *
+     * @return list<int>
+     */
+    public function hitCandidates(string $viewerLanguage, ?int $viewerId, int $topPercent, CarbonImmutable $now, int $limit = 20): array
+    {
+        $week = Post::query()
+            ->published()
+            ->where('published_at', '>=', $now->subDays(7))
+            ->get(['id', 'user_id', 'language', 'published_at', 'upvotes_count', 'downvotes_count', 'comments_count']);
+
+        if ($week->isEmpty()) {
+            return [];
+        }
+
+        $gathered = fn (Post $post): float => 1 + max(0, (int) $post->upvotes_count - (int) $post->downvotes_count) + 0.5 * (int) $post->comments_count;
+        $scores = $week->map($gathered)->sort()->values();
+        $threshold = max(self::HIT_LEAST_GATHERED, $scores[(int) floor((100 - max(0, min(100, $topPercent))) / 100 * ($scores->count() - 1))]);
+        $twoDays = $now->subDays(2);
+
+        return $week
+            ->filter(fn (Post $post): bool => $post->published_at !== null
+                && $post->published_at->greaterThanOrEqualTo($twoDays)
+                && $post->language !== $viewerLanguage
+                && $post->user_id !== $viewerId
+                && $gathered($post) >= $threshold)
+            ->sortBy([fn (Post $a, Post $b): int => $gathered($b) <=> $gathered($a), fn (Post $a, Post $b): int => $b->id <=> $a->id])
+            ->take($limit)
+            ->map(fn (Post $post): int => (int) $post->id)
+            ->values()
+            ->all();
     }
 
     /**

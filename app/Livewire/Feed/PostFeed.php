@@ -49,6 +49,19 @@ class PostFeed extends Component
     #[Locked]
     public ?array $languageOrder = null;
 
+    /**
+     * The strong posts in other languages this feed shows at every so many places, best first — fixed when it was
+     * opened, like the order. Only on the home feed in New and Hot: a filter narrows the feed to what the viewer
+     * asked for, and Top ranks all time, where a post of the last two days is weaker than its neighbours.
+     *
+     * @var list<int>
+     */
+    #[Locked]
+    public array $hitIds = [];
+
+    #[Locked]
+    public int $hitEvery = 0;
+
     public function mount(FeedQuery $feedQuery, ProjectSettingsManager $settings): void
     {
         $ranking = $settings->current()->languageRanking();
@@ -71,6 +84,13 @@ class PostFeed extends Component
                 ? $feedQuery->hotScoreAt($ranking->hotFloorPercentile, $now->subDays(2))
                 : null,
         ];
+
+        $unfiltered = trim((string) $this->tag) === '' && in_array($this->category, [[], null, ''], true) && $this->ratings === [];
+
+        if ($ranking->hitEvery > 0 && $unfiltered && in_array($this->sort, ['newest', 'hot'], true)) {
+            $this->hitEvery = $ranking->hitEvery;
+            $this->hitIds = $feedQuery->hitCandidates(app()->getLocale(), auth()->id(), $ranking->hitTopPercent, $now);
+        }
     }
 
     #[On('post-uploaded')]
@@ -92,20 +112,24 @@ class PostFeed extends Component
         RatingVotingStateLoader $ratingVotingStateLoader,
         PostCardViewerState $viewerState,
     ): View {
-        $paginator = $this->pageThatExists(fn () => $feedQuery->paginate(
-            search: $this->search !== '' ? $this->search : null,
-            tag: $this->tag !== '' ? $this->tag : null,
-            sort: $this->sort,
-            category: $this->category,
-            ratingFilters: $this->ratings,
-            followedByUserId: $this->followingOnly ? auth()->id() : null,
-            languages: $this->languageOrder === null ? null : new FeedLanguageOrder(
-                viewerLanguage: $this->languageOrder['language'],
-                viewerId: auth()->id(),
-                since: $this->languageOrder['since'] === null ? null : CarbonImmutable::parse($this->languageOrder['since']),
-                hotFloor: $this->languageOrder['hot_floor'],
-            ),
-        ))->onEachSide(1);
+        $languages = $this->languageOrder === null ? null : new FeedLanguageOrder(
+            viewerLanguage: $this->languageOrder['language'],
+            viewerId: auth()->id(),
+            since: $this->languageOrder['since'] === null ? null : CarbonImmutable::parse($this->languageOrder['since']),
+            hotFloor: $this->languageOrder['hot_floor'],
+        );
+
+        $paginator = $this->pageThatExists(fn () => $languages !== null && $this->hitIds !== []
+            ? $feedQuery->paginateWithHits($this->sort, $languages, $this->hitIds, $this->hitEvery)
+            : $feedQuery->paginate(
+                search: $this->search !== '' ? $this->search : null,
+                tag: $this->tag !== '' ? $this->tag : null,
+                sort: $this->sort,
+                category: $this->category,
+                ratingFilters: $this->ratings,
+                followedByUserId: $this->followingOnly ? auth()->id() : null,
+                languages: $languages,
+            ))->onEachSide(1);
         $posts = $paginator->getCollection();
         $user = auth()->user();
         $canModerate = Gate::allows('moderate-content');

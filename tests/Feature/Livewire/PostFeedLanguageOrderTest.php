@@ -3,6 +3,7 @@
 use App\Livewire\Feed\PostFeed;
 use App\Models\Post;
 use App\Models\ProjectSettings;
+use App\Models\Tag;
 use App\Models\User;
 use Carbon\CarbonImmutable;
 use Livewire\Features\SupportLockedProperties\CannotUpdateLockedPropertyException;
@@ -92,4 +93,38 @@ it('keeps the order it was opened with for as long as it is looked through', fun
 
     expect(fn () => Livewire::test(PostFeed::class)->set('languageOrder', null))
         ->toThrow(CannotUpdateLockedPropertyException::class);
+});
+
+it('shows strong posts in other languages on the home feed in New and Hot only', function (array $parameters, bool $hits) {
+    languageRankingOn();
+    Post::factory()->published()->create(['language' => 'de', 'upvotes_count' => 50, 'published_at' => now()->subHours(3)]);
+    Tag::factory()->create(['slug' => 'food']);
+
+    $component = Livewire::test(PostFeed::class, $parameters);
+
+    expect($component->get('hitIds') !== [])->toBe($hits);
+})->with([
+    'New' => [['sort' => 'newest'], true],
+    'Hot' => [['sort' => 'hot'], true],
+    'Top' => [['sort' => 'top'], false],
+    'a tag' => [['sort' => 'newest', 'tag' => 'food'], false],
+    'a category' => [['sort' => 'newest', 'category' => ['food']], false],
+]);
+
+it('shows none when the setting asks for none', function () {
+    languageRankingOn(['hit_every' => 0]);
+    Post::factory()->published()->create(['language' => 'de', 'upvotes_count' => 50, 'published_at' => now()->subHours(3)]);
+
+    Livewire::test(PostFeed::class)->assertSet('hitIds', []);
+});
+
+it('puts the strong post at its place in the feed', function () {
+    languageRankingOn(['hit_every' => 3]);
+    foreach (range(1, 5) as $i) {
+        publishedIn('ru', $i, "Russian Dish {$i}");
+    }
+    Post::factory()->published()->create(['language' => 'de', 'title' => 'German Favourite', 'upvotes_count' => 50, 'published_at' => now()->subHours(30)]);
+
+    Livewire::test(PostFeed::class)
+        ->assertSeeInOrder(['Russian Dish 1', 'Russian Dish 2', 'German Favourite', 'Russian Dish 3']);
 });
