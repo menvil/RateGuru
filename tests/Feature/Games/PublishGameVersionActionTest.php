@@ -83,6 +83,14 @@ it('refuses to publish what is not ready, saying why', function () {
     publish($draft);
 })->throws(CannotManageGameException::class, 'This version can’t be published yet: 1 of 1 rounds need attention in Content.');
 
+it('refuses to publish a version of an archived game until it is restored', function () {
+    $draft = publishableGameDraft(1);
+    $draft['game']->forceFill(['status' => GameStatus::Archived])->save();
+
+    expect(fn () => publish($draft))->toThrow(CannotManageGameException::class, 'This version can’t be published yet: The game is archived. Restore it before publishing a version.')
+        ->and(GameVersion::query()->exists())->toBeFalse();
+});
+
 it('publishes only a content set and a flow of its own game, and writes nothing for another game\'s', function () {
     $draft = publishableGameDraft(1);
     $foreign = publishableGameDraft(1);

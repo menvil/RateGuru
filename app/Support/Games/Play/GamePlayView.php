@@ -32,6 +32,7 @@ use App\Support\Media\ResponsiveImage;
 use App\Support\Settings\ProjectSettingsManager;
 use App\Support\Sharing\ShareMetadata;
 use App\Support\Sharing\ShareUrlBuilder;
+use App\Support\Translations\TranslatableField;
 use App\Support\Urls\DisplayHost;
 use Illuminate\Support\HtmlString;
 
@@ -59,8 +60,9 @@ final readonly class GamePlayView
 
     public static function unavailable(Game $game, string $reason): self
     {
-        return new self('unavailable', $game->title, [
-            'game' => self::gameData($game, 0, null),
+        // No version to read the title from: the game's own, in the visitor's language where it is translated.
+        return new self('unavailable', TranslatableField::resolve($game->title_translations, (string) $game->title), [
+            'game' => self::gameData($game, 0, null, app()->getLocale()),
             'reason' => $reason,
         ]);
     }
@@ -104,7 +106,8 @@ final readonly class GamePlayView
             'onward' => self::onward($game, $step, $shown, $snapshot, $attempt, $visitor, $preview),
             'preview' => $preview,
             'authenticated' => ! $visitor->isAnonymous(),
-            'nextGame' => $nextGame === null ? null : ['title' => $nextGame->title, 'slug' => $nextGame->slug],
+            // The other game's own title, as it stands, in the player's language where it is translated.
+            'nextGame' => $nextGame === null ? null : ['title' => TranslatableField::resolve($nextGame->title_translations, (string) $nextGame->title, $locale), 'slug' => $nextGame->slug],
             'canReplay' => $preview || $game->status === GameStatus::Live,
             'stepKey' => $step->key,
             'hasNext' => $hasNext,
@@ -216,8 +219,8 @@ final readonly class GamePlayView
         return [
             'id' => (int) $game->id,
             'slug' => $game->slug,
-            'title' => $snapshot?->title->in($locale) ?? $game->title,
-            'description' => $snapshot?->description->in($locale) ?? (string) $game->description,
+            'title' => $snapshot?->title->in($locale) ?? TranslatableField::resolve($game->title_translations, (string) $game->title, $locale),
+            'description' => $snapshot?->description->in($locale) ?? TranslatableField::resolve($game->description_translations, (string) $game->description, $locale),
             'site' => $settings->siteName(),
             'cover' => self::image($cover, '(max-width: 767px) 100vw, 720px'),
             // The game's own link, shared: its cover, never a post's picture.
