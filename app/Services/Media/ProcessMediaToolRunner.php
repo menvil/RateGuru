@@ -43,15 +43,31 @@ final class ProcessMediaToolRunner implements MediaToolRunner
         return new MediaToolResult($process->getExitCode() ?? -1, $process->getOutput(), $process->getErrorOutput());
     }
 
-    /** The configured binary as a path to an executable file — a bare name is looked up on PATH. */
+    /**
+     * The configured binary as a path to an executable file. A bare name is
+     * looked up on PATH, then in config('media.video.search_directories'):
+     * PHP-FPM clears its workers' environment, so a probe run while a request
+     * uploads a video has no PATH at all, and the directories are what find
+     * the tool there — /usr/local/bin first, where install-bootstrap-runtime
+     * puts the pinned build, ahead of a distribution copy in /usr/bin.
+     */
     private function resolve(MediaTool $tool): string
     {
         $configured = $tool->binary();
 
         $binary = str_contains($configured, '/')
             ? (is_file($configured) && is_executable($configured) ? $configured : null)
-            : (new ExecutableFinder)->find($configured);
+            : (new ExecutableFinder)->find($configured, null, $this->searchDirectories());
 
         return $binary ?? throw MediaToolUnavailableException::cannotStart($tool);
+    }
+
+    /** @return list<string> */
+    private function searchDirectories(): array
+    {
+        return array_values(array_filter(
+            (array) config('media.video.search_directories', []),
+            fn (mixed $directory): bool => is_string($directory) && $directory !== '',
+        ));
     }
 }

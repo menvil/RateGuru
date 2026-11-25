@@ -82,3 +82,28 @@ it('finds the tools on PATH by default', function () {
     expect(MediaTool::Ffmpeg->binary())->toBe('ffmpeg')
         ->and(MediaTool::Ffprobe->binary())->toBe('ffprobe');
 });
+
+it('finds a tool with no PATH at all, as in a PHP-FPM worker, in the search directories in order', function () {
+    $first = $this->bin.'/local';
+    $second = $this->bin.'/distribution';
+    mkdir($first, 0o755);
+    mkdir($second, 0o755);
+    standInMediaTool($first, 'ffprobe', 'echo pinned');
+    standInMediaTool($second, 'ffprobe', 'echo distribution');
+    config(['media.video.ffprobe_binary' => 'ffprobe', 'media.video.search_directories' => [$first, $second]]);
+
+    $path = getenv('PATH');
+    putenv('PATH=');
+
+    try {
+        $result = (new ProcessMediaToolRunner)->run(MediaTool::Ffprobe, [], 5);
+    } finally {
+        putenv('PATH='.$path);
+    }
+
+    expect($result->output)->toBe("pinned\n");
+});
+
+it('looks in /usr/local/bin, where the pinned build lives, before /usr/bin', function () {
+    expect(config('media.video.search_directories'))->toBe(['/usr/local/bin', '/usr/bin']);
+});

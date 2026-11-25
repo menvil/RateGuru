@@ -103,10 +103,10 @@ function bootstrapRuntimeRequiredPackages(): array
 {
     $base = [
         'acl', 'bash', 'bind9-dnsutils', 'ca-certificates', 'certbot', 'coreutils', 'cron', 'curl',
-        'diffutils', 'ffmpeg', 'findutils', 'gnupg', 'grep', 'gzip', 'hostname',
+        'diffutils', 'findutils', 'gnupg', 'grep', 'gzip', 'hostname',
         'iproute2', 'jq', 'libc-bin', 'mawk', 'nginx', 'openssh-server', 'openssl',
         'passwd', 'procps', 'redis-server', 'rsync', 'sed', 'sudo',
-        'supervisor', 'tar', 'unzip', 'util-linux',
+        'supervisor', 'tar', 'unzip', 'util-linux', 'xz-utils',
     ];
 
     $php = array_map(
@@ -139,11 +139,11 @@ function bootstrapRuntimeAllTools(): array
 {
     return [
         'apt-get', 'dpkg',
-        'setfacl', 'getfacl', 'certbot', 'cron', 'curl', 'cmp', 'diff', 'ffmpeg', 'ffprobe', 'find',
+        'setfacl', 'getfacl', 'certbot', 'cron', 'curl', 'cmp', 'diff', 'find',
         'gpg', 'grep', 'gzip', 'hostname', 'ss', 'ip', 'jq', 'dig', 'openssl', 'getent',
         'awk', 'nginx', 'sshd', 'useradd', 'redis-server',
         'rsync', 'sed', 'sudo', 'visudo', 'supervisord', 'tar', 'flock',
-        'namei', 'runuser', 'createdb', 'dropdb',
+        'namei', 'runuser', 'xz', 'createdb', 'dropdb',
     ];
 }
 
@@ -221,6 +221,29 @@ function bootstrapRuntimeRcloneArchiveContent(array $options): string
 function bootstrapRuntimeYtDlpFingerprint(): string
 {
     return 'AC0CBBE6848D6A873464AF4E57CF65933B5A7581';
+}
+
+/**
+ * The ffmpeg build a fixture simulates — the committed pin unless a test
+ * deliberately moves it.
+ *
+ * @param  array<string, mixed>  $options
+ */
+function bootstrapRuntimeFixtureFfmpegVersion(array $options): string
+{
+    return $options['ffmpegContractVersion'] ?? bootstrapRuntimeCommittedRcloneContract()['FFMPEG_VERSION'];
+}
+
+/**
+ * The bytes the curl stub serves as the pinned archive. What is inside never
+ * matters — the tar stub "extracts" the staged binaries — but its genuine
+ * SHA-256 is what the fixture contract pins, so the digest check is real.
+ *
+ * @param  array<string, mixed>  $options
+ */
+function bootstrapRuntimeFfmpegArchiveContent(array $options): string
+{
+    return 'FFMPEG-ARCHIVE:'.bootstrapRuntimeFixtureFfmpegVersion($options);
 }
 
 /**
@@ -432,6 +455,7 @@ function bootstrapRuntimeWriteHostFiles(string $scratch, array $options): void
 
     bootstrapRuntimeWriteRcloneFixture($scratch, $options);
     bootstrapRuntimeWriteYtDlpFixture($scratch, $options);
+    bootstrapRuntimeWriteFfmpegFixture($scratch, $options);
 
     // The running nginx master: its PID file and its executable as the kernel
     // shows it — the installed binary, or one an upgrade has replaced.
@@ -587,6 +611,60 @@ function bootstrapRuntimeWriteYtDlpFixture(string $scratch, array $options): voi
 }
 
 /**
+ * The managed ffmpeg landscape: its rows in the shared contract (the digest
+ * of the archive the curl stub serves, unless a test pins another), and the
+ * pair at the managed directory in whatever state the scenario needs:
+ * 'compliant', 'absent', 'broken' (no version), a version string (drift for
+ * both), or 'ffprobe-missing'. Every invocation is logged, so a test can
+ * prove the binaries are only ever asked for their version.
+ *
+ * @param  array<string, mixed>  $options
+ */
+function bootstrapRuntimeWriteFfmpegFixture(string $scratch, array $options): void
+{
+    $version = bootstrapRuntimeFixtureFfmpegVersion($options);
+
+    file_put_contents($scratch.'/fs/external-runtimes.env', implode("\n", [
+        'FFMPEG_VERSION='.$version,
+        'FFMPEG_RELEASE=autobuild-2026-10-31-12-59',
+        'FFMPEG_ARTIFACT=ffmpeg-n8.1.3-27-g8dca1586f4-linux64-gpl-8.1.tar.xz',
+        'FFMPEG_SHA256='.($options['ffmpegSha256'] ?? hash('sha256', bootstrapRuntimeFfmpegArchiveContent($options))),
+        'FFMPEG_BIN_DIR='.$scratch.'/fs/usr-local-bin',
+        'FFMPEG_OWNER='.($options['ffmpegOwner'] ?? bootstrapRuntimeCurrentUser()),
+        'FFMPEG_GROUP='.($options['ffmpegGroup'] ?? bootstrapRuntimeCurrentGroup()),
+        'FFMPEG_MODE=0755',
+    ])."\n", FILE_APPEND);
+
+    $installedState = $options['ffmpegInstalled'] ?? 'compliant';
+
+    if ($installedState === 'absent') {
+        return;
+    }
+
+    foreach (['ffmpeg', 'ffprobe'] as $tool) {
+        if ($tool === 'ffprobe' && $installedState === 'ffprobe-missing') {
+            continue;
+        }
+
+        $reported = in_array($installedState, ['compliant', 'ffprobe-missing'], true) ? $version : $installedState;
+        $versionLine = $installedState === 'broken'
+            ? "    printf 'garbage without a version\\n'"
+            : "    printf '%s version %s Copyright (c) the FFmpeg developers\\n' '{$tool}' '{$reported}'";
+
+        file_put_contents($scratch.'/fs/usr-local-bin/'.$tool, implode("\n", [
+            '#!/bin/bash',
+            'printf \'%s %s\\n\' "${0##*/}" "$*" >> "${STUB_LOG}/ffmpeg.log"',
+            'if [[ " $* " == *" -version "* ]]; then',
+            $versionLine,
+            '    exit 0',
+            'fi',
+            'exit 1',
+        ])."\n");
+        chmod($scratch.'/fs/usr-local-bin/'.$tool, intval($options['ffmpegFileMode'] ?? '0755', 8));
+    }
+}
+
+/**
  * @param  array<string, mixed>  $options
  */
 function bootstrapRuntimeWriteToolStubs(string $scratch, array $options): void
@@ -685,6 +763,55 @@ function bootstrapRuntimeWriteToolStubs(string $scratch, array $options): void
         fi
         exit 1
         STUB);
+
+    // tar: a behavioral stub too. "Extracting" members of the fake archive
+    // materializes the staged extracted ffmpeg/ffprobe under the layout the
+    // real archive uses — every member named, nothing else.
+    bootstrapRuntimeWriteStub($scratch.'/tools/tar', <<<'STUB'
+        #!/bin/bash
+        printf 'tar %s\n' "$*" >> "${STUB_LOG}/tar.log"
+        archive=""
+        dest=""
+        prev=""
+        members=()
+        for arg in "$@"; do
+            if [[ "${prev}" == "-xJf" ]]; then
+                archive="${arg}"
+            elif [[ "${prev}" == "-C" ]]; then
+                dest="${arg}"
+            elif [[ "${arg}" != -* ]]; then
+                members+=("${arg}")
+            fi
+            prev="${arg}"
+        done
+        if [[ ! -f "${archive}" || -z "${dest}" ]]; then
+            exit 2
+        fi
+        for member in "${members[@]}"; do
+            tool="${member##*/}"
+            if [[ "${tool}" == ffprobe && "${STUB_TAR_OMIT_FFPROBE:-}" == "true" ]]; then
+                printf 'tar: %s: Not found in archive\n' "${member}" >&2
+                exit 2
+            fi
+            PATH="${STUB_REAL_PATH}" mkdir -p "${dest}/${member%/*}"
+            PATH="${STUB_REAL_PATH}" cp "${STUB_STAGED_DIR}/${tool}-extracted" "${dest}/${member}"
+        done
+        exit 0
+        STUB);
+
+    // The binaries "inside" the archive: report whatever version the test
+    // configured, and log every invocation.
+    foreach (['ffmpeg', 'ffprobe'] as $tool) {
+        bootstrapRuntimeWriteStub($scratch."/staged/{$tool}-extracted", str_replace('TOOL', $tool, <<<'STUB'
+            #!/bin/bash
+            printf '%s %s\n' 'TOOL' "$*" >> "${STUB_LOG}/ffmpeg.log"
+            if [[ " $* " == *" -version "* ]]; then
+                printf '%s version %s Copyright (c) the FFmpeg developers\n' 'TOOL' "${STUB_EXTRACTED_FFMPEG_VERSION}"
+                exit 0
+            fi
+            exit 1
+            STUB));
+    }
 }
 
 function bootstrapRuntimeWriteMutationStubs(string $scratch, array $options): void
@@ -839,6 +966,10 @@ function bootstrapRuntimeWriteMutationStubs(string $scratch, array $options): vo
                 exit 0
             fi
             printf '%s' "${STUB_RCLONE_ARCHIVE_CONTENT}" > "${out}"
+            exit 0
+        fi
+        if [[ "${url}" == *"github.com/BtbN/FFmpeg-Builds/releases/download/"* ]]; then
+            printf '%s' "${STUB_FFMPEG_ARCHIVE_CONTENT}" > "${out}"
             exit 0
         fi
         if [[ "${url}" == *"github.com/yt-dlp/yt-dlp/releases/download/"* ]]; then
@@ -1036,6 +1167,13 @@ function bootstrapRuntimeWriteMutationStubs(string $scratch, array $options): vo
  *   ytdlpBadSignature: bool — the detached signature claims an unknown signer
  *   fprYtDlp:        fingerprint the gpg stub reports for the yt-dlp key
  *   ytdlpDownloadedVersion: version the downloaded executable reports
+ *   ffmpegInstalled: 'compliant' | 'absent' | 'broken' | 'ffprobe-missing' |
+ *                    '<version>' — the managed pair's state (default compliant)
+ *   ffmpegContractVersion/ffmpegSha256: what the fixture contract pins
+ *                    (default: the committed version; the served archive's digest)
+ *   ffmpegOwner/ffmpegGroup/ffmpegFileMode: as for rclone
+ *   ffmpegExtractedVersion: version the extracted binaries report
+ *   ffmpegOmitFfprobe: bool — the archive has no bin/ffprobe
  *   ytdlpTamperedRelease: bool — another executable is served with a
  *                    SHA2-256SUMS rewritten to match it, under the published
  *                    signature
@@ -1102,11 +1240,17 @@ function bootstrapRuntimeFixture(string $scratch, array $options = []): array
         'STUB_YTDLP_ARTIFACT_CONTENT' => bootstrapRuntimeYtDlpServedArtifact($options),
         'STUB_YTDLP_SUMS_FILE' => $scratch.'/fs/ytdlp-sums.txt',
         'STUB_YTDLP_SIGNED_DIGEST_FILE' => $scratch.'/fs/ytdlp-signed-digest.txt',
+        'STUB_FFMPEG_ARCHIVE_CONTENT' => bootstrapRuntimeFfmpegArchiveContent($options),
+        'STUB_EXTRACTED_FFMPEG_VERSION' => $options['ffmpegExtractedVersion'] ?? bootstrapRuntimeFixtureFfmpegVersion($options),
         'STUB_YTDLP_SIGNER' => ($options['ytdlpBadSignature'] ?? false) ? 'UNKNOWN-KEY' : 'YTDLP-RELEASE',
     ];
 
     if ($options['rcloneOmitBinary'] ?? false) {
         $env['STUB_UNZIP_OMIT_BINARY'] = 'true';
+    }
+
+    if ($options['ffmpegOmitFfprobe'] ?? false) {
+        $env['STUB_TAR_OMIT_FFPROBE'] = 'true';
     }
 
     if (isset($options['curlFailPattern'])) {
@@ -1163,6 +1307,7 @@ function bootstrapRuntimeCleanHostFixture(string $scratch, array $extra = []): a
         'pgdgRepo' => 'absent',
         'rcloneInstalled' => 'absent',
         'ytdlpInstalled' => 'absent',
+        'ffmpegInstalled' => 'absent',
     ], $extra));
 }
 
@@ -2111,6 +2256,7 @@ it('is idempotent: a second --apply performs no apt call, no key fetch and no fi
         expect($output)->toContain("packages: all {$expected} required packages already installed");
         expect($output)->toContain('rclone v'.bootstrapRuntimeFixtureRcloneVersion([]).' already installed');
         expect($output)->toContain('yt-dlp '.bootstrapRuntimeFixtureYtDlpVersion([]).' already installed');
+        expect($output)->toContain('ffmpeg '.bootstrapRuntimeFixtureFfmpegVersion([]).' already installed');
 
         expect((string) file_get_contents($scratch.'/log/apt.log'))->toBe('', 'second apply ran apt-get');
         expect((string) file_get_contents($scratch.'/log/curl.log'))->toBe('', 'second apply re-fetched key material or release artifacts');
@@ -2271,7 +2417,7 @@ it('bootstraps a host that genuinely lacks curl and gpg: tooling first, external
         // yt-dlp's after rclone's.
         $curlLog = (string) file_get_contents($scratch.'/log/curl.log');
         $curlLines = array_values(array_filter(explode("\n", $curlLog)));
-        expect(count($curlLines))->toBe(7, "unexpected curl activity:\n{$curlLog}");
+        expect(count($curlLines))->toBe(8, "unexpected curl activity:\n{$curlLog}");
         expect($curlLines[0])->toContain('keyserver.ubuntu.com');
         expect($curlLines[1])->toContain('postgresql.org');
         expect($curlLines[2])->toContain('downloads.rclone.org');
@@ -2280,6 +2426,8 @@ it('bootstraps a host that genuinely lacks curl and gpg: tooling first, external
         foreach ([4, 5, 6] as $line) {
             expect($curlLines[$line])->toContain('https://github.com/yt-dlp/yt-dlp/releases/download/');
         }
+
+        expect($curlLines[7])->toContain('https://github.com/BtbN/FFmpeg-Builds/releases/download/');
     } finally {
         bootstrapRuntimeCleanup($scratch);
     }
@@ -3115,6 +3263,7 @@ it('refuses to install rclone or yt-dlp over a directory standing where the bina
     foreach ([
         'rclone' => [['rcloneInstalled' => 'absent'], '/fs/usr-bin/rclone'],
         'yt-dlp' => [['ytdlpInstalled' => 'absent'], '/fs/usr-local-bin/yt-dlp'],
+        'ffmpeg' => [['ffmpegInstalled' => 'absent'], '/fs/usr-local-bin/ffmpeg'],
     ] as $tool => [$options, $relative]) {
         $scratch = bootstrapRuntimeScratchDir();
 
@@ -3140,6 +3289,191 @@ it('refuses to install rclone or yt-dlp over a directory standing where the bina
         } finally {
             bootstrapRuntimeCleanup($scratch);
         }
+    }
+});
+
+// =============================================================================
+// Managed external runtime: ffmpeg
+// =============================================================================
+
+it('passes the managed ffmpeg check when the pinned build is in place', function () {
+    $scratch = bootstrapRuntimeScratchDir();
+
+    try {
+        $env = bootstrapRuntimeFixture($scratch);
+        [$exit, $output] = bootstrapRuntimeRun(['--check'], $env);
+
+        expect($exit)->toBe(0, "a compliant ffmpeg must satisfy the contract:\n{$output}");
+        expect($output)->toContain('PASS     ffmpeg — '.bootstrapRuntimeFixtureFfmpegVersion([]).', ffmpeg and ffprobe in '.$scratch.'/fs/usr-local-bin')
+            ->not->toContain('package:ffmpeg');
+    } finally {
+        bootstrapRuntimeCleanup($scratch);
+    }
+});
+
+it('replaces Jammy\'s ffmpeg on a live host with the pinned build, through a digest-checked download, leaving the package alone', function () {
+    $scratch = bootstrapRuntimeScratchDir();
+
+    try {
+        // A host prepared before the managed build: Jammy's ffmpeg on PATH,
+        // nothing in the managed directory.
+        $env = bootstrapRuntimeFixture($scratch, ['ffmpegInstalled' => 'absent']);
+        bootstrapRuntimeWriteStub($scratch.'/tools/ffmpeg', "#!/bin/bash\nprintf 'ffmpeg version 4.4.2-0ubuntu0.22.04.1\\n'\n");
+        $jammy = (string) file_get_contents($scratch.'/tools/ffmpeg');
+        $version = bootstrapRuntimeFixtureFfmpegVersion([]);
+        $dir = $scratch.'/fs/usr-local-bin';
+
+        [$exit, $output] = bootstrapRuntimeRun(['--check'], $env);
+
+        expect($exit)->toBe(1);
+        expect($output)->toContain("CONFLICT ffmpeg — found at {$scratch}/tools/ffmpeg, but the managed binaries belong in {$dir}")
+            ->toContain("-> apply: install verified ffmpeg {$version} in {$dir} (the unexpected copy is never touched)");
+
+        [$exit, $output] = bootstrapRuntimeRun(['--apply'], $env);
+
+        expect($exit)->toBe(0, "the install must converge and verify:\n{$output}");
+        expect($output)->toContain('ffmpeg requires reconciliation (state: foreign:'.$scratch.'/tools/ffmpeg)')
+            ->toContain('ffmpeg: checksum matches the pinned digest — extracting ffmpeg and ffprobe')
+            ->toContain("ffmpeg {$version} installed in {$dir} (ffmpeg, ffprobe;")
+            ->toContain("PASS     ffmpeg — {$version}")
+            ->toContain('HOST RUNTIME CONTRACT: SATISFIED');
+
+        // Both binaries are exactly what was extracted, with the contract mode,
+        // no staged copy beside them, and Jammy's copy untouched.
+        foreach (['ffmpeg', 'ffprobe'] as $tool) {
+            expect((string) file_get_contents("{$dir}/{$tool}"))->toContain('STUB_EXTRACTED_FFMPEG_VERSION')->toContain("'{$tool}'")
+                ->and(fileperms("{$dir}/{$tool}") & 0o777)->toBe(0o755);
+        }
+        expect(glob($dir.'/ff*.*') ?: [])->toBe([])
+            ->and((string) file_get_contents($scratch.'/tools/ffmpeg'))->toBe($jammy);
+
+        // One HTTPS download of the exact pinned archive; tar asked for the two
+        // members only; no apt activity.
+        $curlLines = array_values(array_filter(explode("\n", (string) file_get_contents($scratch.'/log/curl.log'))));
+        expect($curlLines)->toHaveCount(1)
+            ->and($curlLines[0])->toEndWith('-- https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-10-31-12-59/ffmpeg-n8.1.3-27-g8dca1586f4-linux64-gpl-8.1.tar.xz')
+            ->and((string) file_get_contents($scratch.'/log/tar.log'))->toContain('ffmpeg-n8.1.3-27-g8dca1586f4-linux64-gpl-8.1/bin/ffmpeg ffmpeg-n8.1.3-27-g8dca1586f4-linux64-gpl-8.1/bin/ffprobe')
+            ->and(is_file($scratch.'/log/apt.log'))->toBeFalse('installing ffmpeg must never touch apt');
+
+        // The binaries were only ever asked for their version.
+        foreach (array_filter(explode("\n", (string) file_get_contents($scratch.'/log/ffmpeg.log'))) as $line) {
+            expect($line)->toMatch('/^ff(mpeg|probe) -hide_banner -version$/');
+        }
+
+        // A second apply downloads nothing.
+        file_put_contents($scratch.'/log/curl.log', '');
+
+        [$exit, $output] = bootstrapRuntimeRun(['--apply'], $env);
+
+        expect($exit)->toBe(0, $output);
+        expect($output)->toContain("ffmpeg {$version} already installed in {$dir} — nothing to do");
+        expect((string) file_get_contents($scratch.'/log/curl.log'))->toBe('');
+    } finally {
+        bootstrapRuntimeCleanup($scratch);
+    }
+});
+
+it('reports an outdated, half-installed, wrongly owned, wrongly permissioned or version-less ffmpeg', function () {
+    $dir = fn (string $scratch): string => $scratch.'/fs/usr-local-bin';
+    $version = bootstrapRuntimeFixtureFfmpegVersion([]);
+    $otherOwner = bootstrapRuntimeCurrentUser() === 'root' ? 'nobody' : 'root';
+
+    foreach ([
+        'absent' => [['ffmpegInstalled' => 'absent'], fn (string $scratch): string => 'MISSING  ffmpeg — '.$dir($scratch).'/ffmpeg and ffprobe absent'],
+        'outdated' => [['ffmpegInstalled' => '7.1.1'], fn (string $scratch): string => 'CONFLICT ffmpeg — '.$dir($scratch)."/ffmpeg reports 7.1.1, required {$version}"],
+        'half installed' => [['ffmpegInstalled' => 'ffprobe-missing'], fn (string $scratch): string => 'MISSING  ffmpeg — '.$dir($scratch).'/ffprobe absent'],
+        'owner' => [['ffmpegOwner' => $otherOwner, 'ffmpegGroup' => $otherOwner], fn (string $scratch): string => sprintf('CONFLICT ffmpeg — %s/ffmpeg owned by %s:%s, required %s:%s', $dir($scratch), bootstrapRuntimeCurrentUser(), bootstrapRuntimeCurrentGroup(), $otherOwner, $otherOwner)],
+        'mode' => [['ffmpegFileMode' => '0700'], fn (string $scratch): string => 'CONFLICT ffmpeg — '.$dir($scratch).'/ffmpeg mode 700, required 0755'],
+        'version-less' => [['ffmpegInstalled' => 'broken'], fn (string $scratch): string => 'CONFLICT ffmpeg — '.$dir($scratch).'/ffmpeg cannot report a version'],
+    ] as $case => [$options, $expected]) {
+        $scratch = bootstrapRuntimeScratchDir();
+
+        try {
+            $env = bootstrapRuntimeFixture($scratch, $options);
+            [$exit, $output] = bootstrapRuntimeRun(['--check'], $env);
+
+            expect($exit)->toBe(1, $case);
+            expect($output)->toContain($expected($scratch));
+        } finally {
+            bootstrapRuntimeCleanup($scratch);
+        }
+    }
+});
+
+it('leaves the installed ffmpeg untouched, naming the step, when the download, digest, archive or extracted version fails', function () {
+    $version = bootstrapRuntimeFixtureFfmpegVersion([]);
+
+    foreach ([
+        'download failure' => [['curlFailPattern' => 'BtbN/FFmpeg-Builds'], 'cannot download'],
+        'archive is not the pinned one' => [['ffmpegSha256' => hash('sha256', 'another archive')], 'checksum mismatch for ffmpeg-n8.1.3-27-g8dca1586f4-linux64-gpl-8.1.tar.xz'],
+        'archive without ffprobe' => [['ffmpegOmitFfprobe' => true], 'does not contain ffmpeg-n8.1.3-27-g8dca1586f4-linux64-gpl-8.1/bin/ffmpeg and'],
+        'extracted binaries report another version' => [['ffmpegExtractedVersion' => 'n8.1.2-5-gdeadbeef-20260930'], "extracted ffmpeg reports n8.1.2-5-gdeadbeef-20260930, expected {$version}"],
+    ] as $case => [$breakage, $message]) {
+        $scratch = bootstrapRuntimeScratchDir();
+
+        try {
+            $env = bootstrapRuntimeFixture($scratch, array_merge(['ffmpegInstalled' => '7.1.1'], $breakage));
+            $dir = $scratch.'/fs/usr-local-bin';
+            $before = [(string) file_get_contents($dir.'/ffmpeg'), (string) file_get_contents($dir.'/ffprobe')];
+
+            [$exit, $output] = bootstrapRuntimeRun(['--apply'], $env);
+
+            expect($exit)->toBe(1, "{$case} must abort the apply:\n{$output}");
+            expect($output)->toContain('ERROR: ffmpeg:')->toContain($message);
+            expect([(string) file_get_contents($dir.'/ffmpeg'), (string) file_get_contents($dir.'/ffprobe')])->toBe($before, "{$case}: an installed binary was modified");
+            expect(glob($dir.'/ff*.*') ?: [])->toBe([], "{$case}: a staged candidate was left behind");
+        } finally {
+            bootstrapRuntimeCleanup($scratch);
+        }
+    }
+});
+
+it('refuses a directory at ffprobe\'s path even while ffmpeg itself is only outdated', function () {
+    $scratch = bootstrapRuntimeScratchDir();
+
+    try {
+        // Both binaries outdated, then ffprobe's path taken by a directory: the
+        // directory must decide, not ffmpeg's version drift.
+        $env = bootstrapRuntimeFixture($scratch, ['ffmpegInstalled' => '7.1.1']);
+        $dir = $scratch.'/fs/usr-local-bin';
+        unlink($dir.'/ffprobe');
+        expect(mkdir($dir.'/ffprobe', 0o755))->toBeTrue();
+        $ffmpegBefore = (string) file_get_contents($dir.'/ffmpeg');
+
+        [$exit, $output] = bootstrapRuntimeRun(['--check'], $env);
+
+        expect($exit)->toBe(1);
+        expect($output)->toContain("CONFLICT ffmpeg — {$dir}/ffprobe is a directory, not the binary");
+
+        [$exit, $output] = bootstrapRuntimeRun(['--apply'], $env);
+
+        expect($exit)->toBe(1);
+        expect($output)->toContain("ERROR: ffmpeg: {$dir}/ffprobe is a directory — refusing to install over it");
+        expect(is_file($scratch.'/log/curl.log'))->toBeFalse('downloaded before refusing')
+            ->and(glob($dir.'/ffprobe/*') ?: [])->toBe([], 'a file was dropped inside the directory')
+            ->and((string) file_get_contents($dir.'/ffmpeg'))->toBe($ffmpegBefore);
+    } finally {
+        bootstrapRuntimeCleanup($scratch);
+    }
+});
+
+it('fails closed when the ffmpeg rows of the contract are missing or mangled', function () {
+    $scratch = bootstrapRuntimeScratchDir();
+
+    try {
+        $env = bootstrapRuntimeFixture($scratch);
+        $contract = $scratch.'/fs/external-runtimes.env';
+        file_put_contents($contract, (string) preg_replace('/^FFMPEG_SHA256=.*$/m', 'FFMPEG_SHA256=latest', (string) file_get_contents($contract)));
+
+        [$exit, $output] = bootstrapRuntimeRun(['--check'], $env);
+        expect($exit)->toBe(1);
+        expect($output)->toContain('CONFLICT ffmpeg — external-runtimes contract unreadable or incomplete');
+
+        [$exit, $output] = bootstrapRuntimeRun(['--apply'], $env);
+        expect($exit)->toBe(1);
+        expect($output)->toContain('ERROR: ffmpeg: external-runtimes contract unreadable or incomplete');
+    } finally {
+        bootstrapRuntimeCleanup($scratch);
     }
 });
 
@@ -3484,6 +3818,34 @@ it('commits the yt-dlp install contract and a release-signing key holding exactl
     }
 
     expect($fingerprints)->toBe([bootstrapRuntimeYtDlpFingerprint()], 'the committed key must hold exactly one primary key, the pinned one');
+});
+
+it('commits the ffmpeg pin as one month-end build, its archive and the digest that identifies it', function () {
+    $contract = bootstrapRuntimeCommittedRcloneContract();
+
+    expect($contract['FFMPEG_RELEASE'] ?? null)->toMatch('/^autobuild-\d{4}(-\d{2}){4}$/')
+        ->and($contract['FFMPEG_ARTIFACT'] ?? null)->toMatch('/^ffmpeg-n\d+\.\d+(\.\d+)?-\d+-g[0-9a-f]+-linux64-gpl-\d+\.\d+\.tar\.xz$/')
+        ->and($contract['FFMPEG_SHA256'] ?? null)->toMatch('/^[0-9a-f]{64}$/')
+        ->and($contract['FFMPEG_BIN_DIR'] ?? null)->toBe('/usr/local/bin')
+        ->and($contract['FFMPEG_OWNER'] ?? null)->toBe('root')
+        ->and($contract['FFMPEG_GROUP'] ?? null)->toBe('root')
+        ->and($contract['FFMPEG_MODE'] ?? null)->toBe('0755');
+
+    // The version the binaries print is the archive's own version plus the
+    // build date, so the two can never be moved apart.
+    preg_match('/^ffmpeg-(n[^-]+-\d+-g[0-9a-f]+)-linux64/', (string) $contract['FFMPEG_ARTIFACT'], $artifact);
+    preg_match('/^autobuild-(\d{4})-(\d{2})-(\d{2})/', (string) $contract['FFMPEG_RELEASE'], $release);
+    expect($contract['FFMPEG_VERSION'] ?? null)->toBe($artifact[1].'-'.$release[1].$release[2].$release[3]);
+});
+
+it('never installs Jammy\'s ffmpeg package: ffmpeg converges only through the pinned build', function () {
+    $source = bootstrapRuntimeSource();
+
+    preg_match('/^BASE_PACKAGES=\(\n(.*?)\n\)$/ms', $source, $baseMatch);
+    expect(array_map('trim', explode("\n", $baseMatch[1] ?? '')))->not->toContain('ffmpeg')->toContain('xz-utils');
+
+    preg_match('/^REQUIRED_RUNTIME_TOOLS=\(\n(.*?)\n\)$/ms', $source, $toolsMatch);
+    expect($toolsMatch[1] ?? '')->not->toContain('ffmpeg:')->not->toContain('ffprobe:')->toContain('xz:xz-utils');
 });
 
 it('never converges yt-dlp through apt or its own updater', function () {

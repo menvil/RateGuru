@@ -9,7 +9,7 @@ use Symfony\Component\Yaml\Yaml;
 /*
  * VideoProbe and FfmpegInput against the real ffprobe, on files the real
  * ffmpeg makes. RATEGURU_REAL_FFMPEG=1 runs these: CI's PostgreSQL tests job
- * installs Ubuntu's ffmpeg and sets it (the hosts run Ubuntu's ffmpeg too);
+ * installs the pinned build the hosts run and sets it;
  * anywhere else they are skipped, so a machine without ffmpeg runs the suite
  * unchanged. The last test, which needs no ffmpeg, proves CI does run them.
  */
@@ -136,13 +136,21 @@ it('refuses a file that is no video at all', function () {
     expect(fn () => app(VideoProbe::class)->probe($this->dir.'/notes.mp4'))->toThrow(VideoUnreadableException::class);
 });
 
-it('runs in the PostgreSQL tests job, against Ubuntu\'s ffmpeg', function () {
+it('runs in the PostgreSQL tests job, against the pinned build the hosts run, checked against its digest', function () {
     $job = Yaml::parseFile(base_path('.github/workflows/ci.yml'))['jobs']['tests'];
     $steps = collect($job['steps']);
     $names = $steps->pluck('name')->all();
 
-    $install = $steps->firstWhere('name', 'Install ffmpeg');
-    expect($install['run'] ?? '')->toContain('apt-get -o Acquire::Retries=3 install -y -qq --no-install-recommends ffmpeg');
+    // The same contract install-bootstrap-runtime reads, the same archive, the
+    // same digest — and never the distribution's ffmpeg.
+    $install = (string) ($steps->firstWhere('name', 'Install ffmpeg')['run'] ?? '');
+    expect($install)
+        ->toContain('contract=infrastructure/config/external-runtimes/versions.env')
+        ->toContain('https://github.com/BtbN/FFmpeg-Builds/releases/download/${release}/${artifact}')
+        ->toContain('echo "$(value FFMPEG_SHA256)  ${work}/${artifact}" | sha256sum --check --strict -')
+        ->toContain('grep -F "ffmpeg version ${version} "')
+        ->toContain('grep -F "ffprobe version ${version} "')
+        ->not->toContain('apt-get');
 
     $run = $steps->firstWhere('name', 'Run PostgreSQL tests');
     expect($run['env']['RATEGURU_REAL_FFMPEG'] ?? null)->toBe('1')

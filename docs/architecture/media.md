@@ -382,9 +382,14 @@ already safely in hand.
 ## Video probe and the ffmpeg tools
 
 Video and animated-GIF uploads are read with **ffprobe** and transcoded with
-**ffmpeg**, the host binaries Ubuntu's `ffmpeg` package supplies
-(`install-bootstrap-runtime` installs it; see `infrastructure/runbooks/bootstrap-host.md`).
-`config/media.php`'s `video` section names them, found on `PATH`.
+**ffmpeg**: a pinned static build (FFmpeg 8.1, `FFMPEG_*` in
+`infrastructure/config/external-runtimes/versions.env`) that
+`install-bootstrap-runtime` installs in `/usr/local/bin` on every host and CI
+installs from the same pin, so tests run on the build production runs (see
+"Managed external runtime: ffmpeg" in `infrastructure/runbooks/bootstrap-host.md`);
+locally, Homebrew's ffmpeg. `config/media.php`'s `video` section names them; a
+bare name is looked up on `PATH` and then in `search_directories`
+(`/usr/local/bin`, then `/usr/bin`), since PHP-FPM workers have no `PATH`.
 
 - **`MediaToolRunner`** (`ProcessMediaToolRunner`) is the only way either
   tool runs: an argument list started directly by PHP, never a shell line;
@@ -398,8 +403,9 @@ Video and animated-GIF uploads are read with **ffprobe** and transcoded with
   The demuxers are those of the formats an upload may be — MP4/MOV (with
   their 3GP relatives), Matroska/WebM and GIF. Both tools pick a demuxer by
   the bytes, not the name, so a playlist saved as `.mp4` is read as a
-  playlist and its entries opened as further inputs. On the hosts' ffmpeg
-  4.4 that is not hypothetical: without the format whitelist, ffprobe reads
+  playlist and its entries opened as further inputs. On ffmpeg 4.4 (Jammy's
+  package, which the hosts ran before the pinned build) that is not
+  hypothetical: without the format whitelist, ffprobe reads
   such a file as HLS and tries its first entry (`file:///etc/hosts` in the
   container rehearsal), stopped only by the HLS demuxer's extension check;
   with it, the file is refused as "Format not on whitelist" before any entry
@@ -421,7 +427,7 @@ Video and animated-GIF uploads are read with **ffprobe** and transcoded with
 
 None of this is wired to an upload yet: the transcoding job and the upload
 form arrive next. The `RATEGURU_REAL_FFMPEG=1` tests run the probe against the
-real tools; CI's PostgreSQL tests job installs Ubuntu's ffmpeg and sets it.
+real tools; CI's PostgreSQL tests job installs the pinned build and sets it.
 
 ## Responsive media variants
 
