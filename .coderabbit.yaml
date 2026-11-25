@@ -56,6 +56,16 @@ reviews:
         endpoints, and never let an HTTP client exception (which names the
         address and key) escape or reach a log. Postback addresses go through
         UrlImportValidator::validateFor with the postback policy.
+    - path: "app/{Actions,Services,Support}/Languages/**/*.php"
+      instructions: |
+        Enforce docs/architecture/language-ranking.md. A vote or a comment
+        never works out a post's language in its own transaction: it only sets
+        language_stale_at inside the one update it already makes of the post.
+        WorkOutPostLanguageAction locks the post first and reads every signal
+        without a lock. An OpenAI answer is written with the comment locked
+        before its check, the post marked afterwards in a statement of its own.
+        No HTTP inside a database transaction; only a text's words
+        (TextCleaner) are sent, and never a provider's response in a log.
     - path: "tools/phpstan/**/*.php"
       instructions: |
         Architecture rules require violation and false-positive fixtures. Keep

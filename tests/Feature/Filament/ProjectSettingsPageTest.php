@@ -12,7 +12,7 @@ use Livewire\Features\SupportLockedProperties\CannotUpdateLockedPropertyExceptio
 use Livewire\Livewire;
 
 /**
- * Project settings in Admin v2: one draft over six tabs, saved together from
+ * Project settings in Admin v2: one draft over seven tabs, saved together from
  * the top bar; the installation preset shown and compared, never applied;
  * switching off what locks people out asked first; each card saying which
  * offered languages miss what.

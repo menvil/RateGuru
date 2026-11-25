@@ -65,6 +65,10 @@ eager-load through the relation's normal SoftDeletes scope plus a Visible
 filter, so hidden/deleted replies never load. Sorting is unchanged:
 tombstone roots keep their stored counters and thread position (`top`/`hot`
 still order by the root's own vote counters — no reply-aggregate ranking).
+While language ranking is on, the roots in the viewer's language and the
+viewer's own come first, each group in that order; a comment's language is
+written with it and corrected by OpenAI's check later
+([language-ranking.md](language-ranking.md)).
 
 ## Race matrix (all row-locked)
 
