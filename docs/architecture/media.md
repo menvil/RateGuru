@@ -27,6 +27,23 @@ size. As of PR-06, six variant names are actually generated for JPEG/PNG/WebP
 post-image/avatar assets — see "Responsive media variants" and "Open Graph
 media variant" below for what, how, and when.
 
+## Media type, duration and sound
+
+`kind` says what an asset is *for* (a post's media, an avatar); `media_type`
+(`app/Enums/MediaType.php`) says what it *is*: `image`, `video`, or
+`animation` — an animated GIF kept as a silent, looping video. They are
+independent: a post's media may be any of the three, while an avatar stays an
+image. `duration_ms` is how long a video or animation plays (null for an
+image), and `has_audio` whether it carries sound (false for an image and
+for every animation). A video variant records its own `duration_ms`.
+
+Every asset stored before video existed is an image, which is the column's
+default; `MediaAssetCreator`, the one path a stored upload becomes an asset
+through, writes `image`, no duration and no sound explicitly, since every file
+reaching it passed the image ingest. Video and animated-GIF uploads, their
+processing and their variants are not built yet: nothing writes the other two
+types so far.
+
 ## Canonical identity is disk + path, not a URL
 
 Neither `media_assets` nor `media_variants` stores `url`, `public_url`,
@@ -361,6 +378,56 @@ network-layer threat model (DNS rebinding/TOCTOU pinning, redirect
 hardening, streaming byte caps) — that document owns the import-security
 details; this one only covers what happens to the bytes once they're
 already safely in hand.
+
+## Video probe and the ffmpeg tools
+
+Video and animated-GIF uploads are read with **ffprobe** and transcoded with
+**ffmpeg**: a pinned static build (FFmpeg 8.1, `FFMPEG_*` in
+`infrastructure/config/external-runtimes/versions.env`) that
+`install-bootstrap-runtime` installs in `/usr/local/bin` on every host and CI
+installs from the same pin, so tests run on the build production runs (see
+"Managed external runtime: ffmpeg" in `infrastructure/runbooks/bootstrap-host.md`);
+locally, Homebrew's ffmpeg. `config/media.php`'s `video` section names them; a
+bare name is looked up on `PATH` and then in `search_directories`
+(`/usr/local/bin`, then `/usr/bin`), since PHP-FPM workers have no `PATH`.
+
+- **`MediaToolRunner`** (`ProcessMediaToolRunner`) is the only way either
+  tool runs: an argument list started directly by PHP, never a shell line;
+  the binary resolved before it runs, so a missing tool is
+  `MediaToolUnavailableException` rather than a shell's exit code; a timeout
+  per run (`MediaToolTimedOutException`); `LC_ALL=C`. A non-zero exit comes
+  back in the result for the caller to judge, and no message carries a path
+  or the tool's output.
+- **`FfmpegInput`** is the only way a file is handed to either tool:
+  `-protocol_whitelist file -format_whitelist <demuxers> -i file:<path>`.
+  The demuxers are those of the formats an upload may be — MP4/MOV (with
+  their 3GP relatives), Matroska/WebM and GIF. Both tools pick a demuxer by
+  the bytes, not the name, so a playlist saved as `.mp4` is read as a
+  playlist and its entries opened as further inputs. On ffmpeg 4.4 (Jammy's
+  package, which the hosts ran before the pinned build) that is not
+  hypothetical: without the format whitelist, ffprobe reads
+  such a file as HLS and tries its first entry (`file:///etc/hosts` in the
+  container rehearsal), stopped only by the HLS demuxer's extension check;
+  with it, the file is refused as "Format not on whitelist" before any entry
+  is parsed.
+- **`VideoProbe`** runs `ffprobe -show_format -show_streams -of json` and
+  returns a `VideoProbeResult`: format, duration, the picture as shown
+  (width and height after the rotation a phone records — ffmpeg 4.4 reports
+  it as a `rotate` tag and a display matrix, later versions as the matrix),
+  frame rate, codecs and stream counts. A cover picture embedded in an MP4
+  (`attached_pic`) is not the video. A file ffprobe cannot read is
+  `VideoUnreadableException`.
+- **`VideoIngestPolicy`** (`config/uploads.php`'s `videos` section) refuses a
+  file over 100 MB before any tool opens it, then — from the probe — a
+  format off the list, a file with no video stream or no length, more than
+  90 seconds, a picture beyond 3840 on either side, or more than 60 frames a
+  second (a GIF's rate is left alone: converting it sets the rate). Extra
+  streams are allowed; transcoding keeps the first video and audio stream.
+  Every rejection is a `VideoIngestException`.
+
+None of this is wired to an upload yet: the transcoding job and the upload
+form arrive next. The `RATEGURU_REAL_FFMPEG=1` tests run the probe against the
+real tools; CI's PostgreSQL tests job installs the pinned build and sets it.
 
 ## Responsive media variants
 

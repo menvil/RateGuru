@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Enums\ImageOrientation;
 use App\Enums\MediaKind;
 use App\Enums\MediaStatus;
+use App\Enums\MediaType;
 use App\Enums\MediaVisibility;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -19,6 +20,9 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  * stored here — see docs/architecture/media.md.
  *
  * @property MediaKind $kind
+ * @property MediaType $media_type
+ * @property int|null $duration_ms
+ * @property bool $has_audio
  * @property MediaStatus $status
  * @property MediaVisibility $visibility
  * @property string $disk
@@ -34,6 +38,9 @@ class MediaAsset extends Model
     {
         return [
             'kind' => MediaKind::class,
+            'media_type' => MediaType::class,
+            'duration_ms' => 'integer',
+            'has_audio' => 'boolean',
             'status' => MediaStatus::class,
             'visibility' => MediaVisibility::class,
             'orientation' => ImageOrientation::class,

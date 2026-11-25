@@ -12,6 +12,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * (post images) or a square thumbnail (avatars). See docs/architecture/media.md.
  *
  * @property MediaVariantName $name
+ * @property int|null $duration_ms
  */
 class MediaVariant extends Model
 {
@@ -26,6 +27,7 @@ class MediaVariant extends Model
             'byte_size' => 'integer',
             'width' => 'integer',
             'height' => 'integer',
+            'duration_ms' => 'integer',
             'metadata' => 'array',
         ];
     }
