@@ -23,6 +23,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  * @property MediaType $media_type
  * @property int|null $duration_ms
  * @property bool $has_audio
+ * @property array<string, mixed>|null $metadata
  * @property MediaStatus $status
  * @property MediaVisibility $visibility
  * @property string $disk

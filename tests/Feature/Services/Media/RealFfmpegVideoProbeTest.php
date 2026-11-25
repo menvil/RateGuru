@@ -14,35 +14,6 @@ use Symfony\Component\Yaml\Yaml;
  * unchanged. The last test, which needs no ffmpeg, proves CI does run them.
  */
 
-function requireRealFfmpeg(): string
-{
-    if (getenv('RATEGURU_REAL_FFMPEG') !== '1') {
-        test()->markTestSkipped('RATEGURU_REAL_FFMPEG=1 runs it: it needs ffmpeg and ffprobe on PATH');
-    }
-
-    $dir = sys_get_temp_dir().'/real-ffmpeg-'.bin2hex(random_bytes(6));
-    mkdir($dir, 0o755);
-
-    return $dir;
-}
-
-/** @param  list<string>  $arguments */
-function realFfmpeg(array $arguments): Process
-{
-    $process = new Process(['ffmpeg', '-hide_banner', '-loglevel', 'error', '-y', ...$arguments], null, null, null, 120);
-    $process->run();
-
-    return $process;
-}
-
-/** @param  list<string>  $arguments */
-function makeWithRealFfmpeg(array $arguments): void
-{
-    $process = realFfmpeg($arguments);
-
-    expect($process->getExitCode())->toBe(0, $process->getErrorOutput());
-}
-
 afterEach(function () {
     if (isset($this->dir)) {
         exec('rm -rf '.escapeshellarg($this->dir));

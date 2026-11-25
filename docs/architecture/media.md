@@ -429,6 +429,61 @@ None of this is wired to an upload yet: the transcoding job and the upload
 form arrive next. The `RATEGURU_REAL_FFMPEG=1` tests run the probe against the
 real tools; CI's PostgreSQL tests job installs the pinned build and sets it.
 
+## Video processing
+
+`VideoAssetProcessor` (run by `ProcessVideoAssetJob`) turns a video or
+animated-GIF upload into what pages play — the counterpart of the image ingest
+and `MediaVariantGenerator` for a photo:
+
+```text
+the original (private disk, media/originals/Y/m/<uuid>.<ext>), asset Processing
+  -> copied to a work directory (MediaStorage::copyToFile)
+  -> VideoProbe + VideoIngestPolicy
+  -> the master: H.264/AAC MP4 at most 1080 on the short side, <= 30 fps,
+     public at media/post-videos/Y/m/<uuid>.mp4 (MediaStorage::putFile)
+  -> renditions below it: video_720, video_480 (only those smaller than the master)
+  -> a PNG poster frame -> the photo variants (post_feed_640/1280,
+     post_detail_1920, open_graph) through GdImageVariantProcessor
+  -> the asset Ready: the master's picture, length (duration_ms) and sound (has_audio)
+```
+
+- **Encoding** (`VideoTranscoder`, `VideoRendition`): libx264 `veryfast`,
+  CRF 23 (24 for 480) under a bitrate cap (5000/2500/1200 kbit/s), AAC
+  128/128/96 kbit/s stereo, a keyframe every two seconds, `+faststart`, two
+  threads, `-map_metadata -1` (a phone recording's location never reaches the
+  output). The rotation a phone records is applied to the pixels, so width and
+  height are the picture as shown. Sizes are scaled down to the rendition's
+  short side, never up, to even numbers. An animation (a GIF) has no sound.
+- **The poster** is taken a tenth of the way in (at most three seconds), from
+  the master, and goes through the same image variants as a photo — so
+  everything that shows a still (thumbnails, share cards, Open Graph, the game
+  picker) works for a video unchanged. A cover variant too large for the
+  master's picture is skipped, as for a photo.
+- **Retries:** the original's location is recorded in `metadata.original`
+  before anything else, because the asset's disk and path move to the master
+  partway through; a retry reads the same original and rewrites the same
+  master path (named after the original). One run per asset at a time (a
+  `database` cache lock).
+- **Failures:** a file the policy or ffmpeg refuses (`VideoIngestException`)
+  leaves the asset `Failed` with a safe reason and is not retried; anything
+  else (storage, a stalled tool) is thrown, retried once a minute later, and
+  after the last attempt the job's `failed()` leaves the asset `Failed` with a
+  generic reason.
+- **The queue:** a transcode runs for minutes, far past the default
+  connection's 90-second `retry_after`, so on Redis `ProcessVideoAssetJob`
+  goes to `redis-media` (`App\Support\Media\MediaQueue`): its own queue,
+  `<target queue>-media`, and a 960-second retry window over the job's
+  900-second timeout. Elsewhere (sync, database) it runs on the default
+  connection. `RunsOnMediaQueue` marks such jobs, and
+  `QueuedWorkRetryWindowTest` holds them to that connection's window.
+- **Variants from files:** `MediaVariantWriter::writeFile()` stores a file a
+  tool produced (`ProducedMediaFile`) under the same lock, path and failure
+  cleanup as `write()`, which now also takes the source's MIME type when the
+  bytes are not the asset's own file (the poster, a PNG, for a video asset).
+
+Not wired to an upload yet — the post that waits for its video, the upload
+form, a media worker on the hosts and the lifecycle of originals come next.
+
 ## Responsive media variants
 
 PR-05 generates five fixed variants from the master image, stores them as

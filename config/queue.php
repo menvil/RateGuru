@@ -75,6 +75,20 @@ return [
             'after_commit' => false,
         ],
 
+        // The media pipeline's long jobs (transcoding a video): a queue of
+        // their own beside the target's default one, on a connection whose
+        // retry window outlasts their 900-second timeout, so a transcode still
+        // running is never handed to a second worker. A media worker consumes
+        // it; see App\Support\Media\MediaQueue.
+        'redis-media' => [
+            'driver' => 'redis',
+            'connection' => env('REDIS_QUEUE_CONNECTION', 'default'),
+            'queue' => env('REDIS_QUEUE', 'default').'-media',
+            'retry_after' => 960,
+            'block_for' => null,
+            'after_commit' => false,
+        ],
+
         'deferred' => [
             'driver' => 'deferred',
         ],

@@ -117,6 +117,7 @@ use App\Services\Media\MediaToolResult;
 use App\Services\Media\MediaToolRunner;
 use App\Services\Media\MediaVariantSpecification;
 use App\Services\Media\NormalizedImage;
+use App\Services\Media\VideoProbeResult;
 use App\Support\Analytics\AnalyticsFilter;
 use App\Support\Analytics\AnalyticsPeriod;
 use App\Support\Analytics\AnalyticsSource;
@@ -193,6 +194,7 @@ use Sentry\State\HubInterface as SentryHubInterface;
 use Sentry\Transport\Result as SentryTransportResult;
 use Sentry\Transport\ResultStatus as SentryResultStatus;
 use Sentry\Transport\TransportInterface as SentryTransportInterface;
+use Symfony\Component\Process\Process;
 use Symfony\Component\Yaml\Yaml;
 use Tests\TestCase;
 
@@ -1358,6 +1360,62 @@ function bindRecordingImageVariantProcessor(?MediaVariantName $failOnceFor = nul
     app()->instance(ImageVariantProcessor::class, $processor);
 
     return $processor;
+}
+
+/**
+ * A probe of a clip every video upload limit accepts, with the given fields
+ * changed — for the policy, transcoder and processor tests.
+ */
+function acceptableVideoProbe(array $changes = []): VideoProbeResult
+{
+    return new VideoProbeResult(...$changes + [
+        'formatName' => 'mov,mp4,m4a,3gp,3g2,mj2',
+        'durationMs' => 15_000,
+        'width' => 1080,
+        'height' => 1920,
+        'rotation' => 0,
+        'frameRate' => 30.0,
+        'videoCodec' => 'h264',
+        'audioCodec' => 'aac',
+        'videoStreamCount' => 1,
+        'audioStreamCount' => 1,
+        'otherStreamCount' => 0,
+    ]);
+}
+
+/**
+ * The RATEGURU_REAL_FFMPEG tests' gate: skipped unless that flag is set (CI's
+ * PostgreSQL job sets it, with the pinned ffmpeg build installed), otherwise a
+ * fresh scratch directory for the test's files. Shared by every test file
+ * that runs the real ffmpeg/ffprobe.
+ */
+function requireRealFfmpeg(): string
+{
+    if (getenv('RATEGURU_REAL_FFMPEG') !== '1') {
+        test()->markTestSkipped('RATEGURU_REAL_FFMPEG=1 runs it: it needs ffmpeg and ffprobe on PATH');
+    }
+
+    $dir = sys_get_temp_dir().'/real-ffmpeg-'.bin2hex(random_bytes(6));
+    mkdir($dir, 0o755);
+
+    return $dir;
+}
+
+/** @param  list<string>  $arguments */
+function realFfmpeg(array $arguments): Process
+{
+    $process = new Process(['ffmpeg', '-hide_banner', '-loglevel', 'error', '-y', ...$arguments], null, null, null, 120);
+    $process->run();
+
+    return $process;
+}
+
+/** @param  list<string>  $arguments */
+function makeWithRealFfmpeg(array $arguments): void
+{
+    $process = realFfmpeg($arguments);
+
+    expect($process->getExitCode())->toBe(0, $process->getErrorOutput());
 }
 
 /**

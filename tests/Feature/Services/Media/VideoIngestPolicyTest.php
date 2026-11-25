@@ -8,25 +8,6 @@ use App\Services\Media\Exceptions\VideoTooLargeException;
 use App\Services\Media\Exceptions\VideoTooLongException;
 use App\Services\Media\Exceptions\VideoUnreadableException;
 use App\Services\Media\VideoIngestPolicy;
-use App\Services\Media\VideoProbeResult;
-
-/** A probe of a clip every limit accepts, with the given fields changed. */
-function acceptableVideoProbe(array $changes = []): VideoProbeResult
-{
-    return new VideoProbeResult(...$changes + [
-        'formatName' => 'mov,mp4,m4a,3gp,3g2,mj2',
-        'durationMs' => 15_000,
-        'width' => 1080,
-        'height' => 1920,
-        'rotation' => 0,
-        'frameRate' => 30.0,
-        'videoCodec' => 'h264',
-        'audioCodec' => 'aac',
-        'videoStreamCount' => 1,
-        'audioStreamCount' => 1,
-        'otherStreamCount' => 0,
-    ]);
-}
 
 function testVideoPolicy(): VideoIngestPolicy
 {

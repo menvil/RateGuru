@@ -1,6 +1,8 @@
 <?php
 
+use App\Jobs\ProcessVideoAssetJob;
 use App\Jobs\RunMediaAuditJob;
+use App\Jobs\RunsOnMediaQueue;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Tests\Fixtures\QueuedWork\InheritedQueuedTask;
 
@@ -123,8 +125,29 @@ it('finds a class queued only through its parent, and leaves the abstract parent
 
 it('gives every queued class its own timeout, stopping it with a margin before Redis could hand it to another worker', function () use ($queuedClassesIn, $outsideTheWindow, $beyondTheWindow, $latestStop) {
     $classes = array_diff($queuedClassesIn(dirname(__DIR__, 3).'/app', 'App'), array_keys($beyondTheWindow));
+    $media = array_values(array_filter($classes, fn (string $class): bool => is_subclass_of($class, RunsOnMediaQueue::class)));
+    $default = array_values(array_diff($classes, $media));
 
-    expect($outsideTheWindow(array_combine($classes, $classes), $latestStop()))->toBe([]);
+    expect($media)->toContain(ProcessVideoAssetJob::class);
+
+    expect($outsideTheWindow(array_combine($default, $default), $latestStop()))->toBe([])
+        // A media job is held to the media connection's own, longer window.
+        ->and($outsideTheWindow(array_combine($media, $media), (int) config('queue.connections.redis-media.retry_after') - 10))->toBe([]);
+});
+
+it('sends media jobs to a connection of their own on Redis, with a queue and a retry window of their own', function () {
+    $media = config('queue.connections.redis-media');
+
+    expect($media['driver'])->toBe('redis')
+        ->and($media['queue'])->toBe(config('queue.connections.redis.queue').'-media')
+        ->and($media['retry_after'])->toBeGreaterThan((new ProcessVideoAssetJob(1))->timeout + 10);
+
+    config(['queue.default' => 'redis']);
+    expect((new ProcessVideoAssetJob(1))->connection)->toBe('redis-media');
+
+    // Off Redis (sync in development and tests) they run as everything else does.
+    config(['queue.default' => 'sync']);
+    expect((new ProcessVideoAssetJob(1))->connection)->toBe('sync');
 });
 
 it('rejects a timeout that is missing, disables itself or runs past the window, and accepts one at the edge', function () use ($outsideTheWindow) {
