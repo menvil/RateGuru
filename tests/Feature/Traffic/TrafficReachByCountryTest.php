@@ -237,8 +237,8 @@ it('sets no part of a source against the network’s whole bill on Spend', funct
         ->and((float) $whole['without'])->toBe(8.0)
         ->and((float) $whole['reported'])->toBe(10.0);
 
-    // The first paid source comes opened by campaign.
-    $opened = fn (array $query) => Livewire::withQueryParams(['tab' => 'spend', 'period' => '30d', ...$query])->test(TrafficSourcesPage::class)->call('load');
+    // The source opened by campaign.
+    $opened = fn (array $query) => Livewire::withQueryParams(['tab' => 'spend', 'period' => '30d', ...$query])->test(TrafficSourcesPage::class)->call('load')->call('toggleSpendSource', $this->source->id);
 
     $opened($narrowedBy)->assertSeeText('For the whole campaign');
     $opened([])->assertDontSeeText('For the whole campaign');
