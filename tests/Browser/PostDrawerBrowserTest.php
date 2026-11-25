@@ -267,6 +267,38 @@ it('closes on Escape from its follow and save buttons too', function (string $bu
     waitForScript($page, OVERLAY_OPEN, false);
 })->with(['follow-button', 'save-post-button']);
 
+it('puts its close button on one line with the author\'s follow button', function (array $screen) {
+    ProjectSettings::factory()->create(['feature_flags' => ['post_detail_overlay_mode' => true, 'show_follow_buttons' => true]]);
+    $post = Post::factory()->published()->create(['title' => 'A post by someone to follow']);
+    actingAs(User::factory()->create());
+    $page = visit(route('feed'))->resize(...$screen);
+    waitForViewportSize($page, ...$screen);
+    waitForPostDetailOverlay($page);
+
+    $page->click('[data-testid="post-card"][data-post-id="'.$post->id.'"]');
+    waitForPostDetailOverlayOpen($page);
+    waitForScript($page, "!! document.querySelector('[data-testid=\"post-detail-overlay\"] [data-testid=\"follow-button\"]')");
+
+    $boxes = $page->script(<<<'JS'
+        (() => {
+            const panel = document.querySelector('[data-testid="post-detail-overlay"]');
+            const box = (selector) => panel.querySelector(selector).getBoundingClientRect();
+            const close = box('[data-testid="post-detail-close"]');
+            const follow = box('[data-testid="follow-button"]');
+
+            return { top: close.top - follow.top, bottom: close.bottom - follow.bottom, gap: close.left - follow.right };
+        })()
+    JS);
+
+    expect(abs($boxes['top']))->toBeLessThan(1)
+        ->and(abs($boxes['bottom']))->toBeLessThan(1)
+        ->and($boxes['gap'])->toBeGreaterThan(0);
+})->with([
+    'phone' => [MobileViewports::MOBILE],
+    'tablet' => [[820, 1180]],
+    'laptop' => [[1440, 900]],
+]);
+
 it('keeps the focus in the open panel', function () {
     ProjectSettings::factory()->create(['feature_flags' => ['post_detail_overlay_mode' => true]]);
     $post = Post::factory()->published()->create(['title' => 'A post to tab through']);
