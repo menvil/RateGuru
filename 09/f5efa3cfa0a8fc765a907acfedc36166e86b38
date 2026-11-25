@@ -1,0 +1,62 @@
+app/Services/Media/VideoAssetProcessor.php
+  s_1f43f39fbe0537::t_3560c7d933ab72 73-82
+tests/Feature/Actions/FinalizePostMediaActionTest.php
+  s_1f43f39fbe0537::t_a46565a2affdc7 3,5,15,19-20,144-146,170,173
+  s_1f43f39fbe0537::t_9b62b52c7d832d 129-143,147-169,171-172,174-176
+tests/Feature/Services/Media/VideoTranscoderTest.php
+  s_1f43f39fbe0537::t_63cbc1b12170e9 39-40
+app/Actions/Posts/RestoreDeletedPostAction.php
+  s_1f43f39fbe0537::t_a46565a2affdc7 9
+  s_1f43f39fbe0537::t_e3cc771952ab8c 5-6,76-86
+resources/views/livewire/feed/upload-post-form.blade.php
+  s_1f43f39fbe0537::t_ffe9dc6cf8ab6d 27,36-45,49,51-52,54-58,64,68,108-110
+tests/Feature/Actions/CreateVideoPostTest.php
+  s_1f43f39fbe0537::t_9b62b52c7d832d 106-135
+tests/Feature/Support/Media/PostImagePresenterVideoTest.php
+  s_1f43f39fbe0537::t_a46565a2affdc7 11,24
+  s_1f43f39fbe0537::t_63cbc1b12170e9 1-10,12-23,25-68
+app/Support/Media/PostImagePresenter.php
+  s_1f43f39fbe0537::t_2deb15f8a3a30f 345
+  s_1f43f39fbe0537::t_fb6dc16baf4c12 5,73-77,135,138,147,183-186,188,196,212-213,281-282,284,295,326,329,335,339-344
+config/uploads.php
+  s_1f43f39fbe0537::t_3560c7d933ab72 39-42
+app/Livewire/Feed/UploadPostForm.php
+  s_1f43f39fbe0537::t_9f120ee4c92af2 35,186-187
+  s_1f43f39fbe0537::t_ca24f0c0bc325a 31,123,161,165,184-185,188-189,259
+tests/Feature/Services/Media/VideoAssetProcessorTest.php
+  s_1f43f39fbe0537::t_9b62b52c7d832d 239-249
+app/Actions/Posts/FinalizePostMediaAction.php
+  s_1f43f39fbe0537::t_3560c7d933ab72 22-25,61-66
+app/Jobs/ProcessVideoAssetJob.php
+  s_1f43f39fbe0537::t_3560c7d933ab72 109-113,115,117-125
+app/Services/Media/VideoTranscoder.php
+  s_1f43f39fbe0537::t_3560c7d933ab72 58-60
+tests/Feature/Livewire/UploadPostFormVideoTest.php
+  s_1f43f39fbe0537::t_9f120ee4c92af2 41
+  s_1f43f39fbe0537::t_1c3204b76e7fd1 42-44
+  s_1f43f39fbe0537::t_9b62b52c7d832d 105-111,114-124
+  s_1f43f39fbe0537::t_a46565a2affdc7 11-12,14,83-84,104,112-113
+app/Support/Media/VideoUploadStorer.php
+  s_1f43f39fbe0537::t_3560c7d933ab72 33-35,67
+app/Notifications/VideoPostProcessedNotification.php
+  s_1f43f39fbe0537::t_3560c7d933ab72 40-43
+  s_1f43f39fbe0537::t_2647795e476184 36,45-51
+app/Actions/Posts/CreatePostAction.php
+  s_1f43f39fbe0537::t_3560c7d933ab72 216-228,286-287,292
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "09f5efa3cfa0a8fc765a907acfedc36166e86b38",
+  "prompts": {},
+  "sessions": {
+    "s_1f43f39fbe0537": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "526787d0-f443-4ad7-9610-cf9811fec895",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
