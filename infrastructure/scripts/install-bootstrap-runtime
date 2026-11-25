@@ -1027,6 +1027,21 @@ ffmpeg_state() {
     ffmpeg_tool="$(ffmpeg_tool_state ffmpeg)"
     ffprobe_tool="$(ffmpeg_tool_state ffprobe)"
 
+    # A directory where either binary belongs comes first, whatever the other
+    # one's state: reported as anything else, --apply would download and its
+    # rename would drop the new binary inside that directory.
+    if [[ "${ffmpeg_tool}" == not-file ]]; then
+        printf 'not-file@ffmpeg\n'
+
+        return 0
+    fi
+
+    if [[ "${ffprobe_tool}" == not-file ]]; then
+        printf 'not-file@ffprobe\n'
+
+        return 0
+    fi
+
     if [[ "${ffmpeg_tool}" == absent ]] && [[ "${ffprobe_tool}" == absent ]]; then
         local found
         found="$(tool_path ffmpeg || true)"

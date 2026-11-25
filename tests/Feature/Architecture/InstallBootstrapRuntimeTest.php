@@ -3428,6 +3428,35 @@ it('leaves the installed ffmpeg untouched, naming the step, when the download, d
     }
 });
 
+it('refuses a directory at ffprobe\'s path even while ffmpeg itself is only outdated', function () {
+    $scratch = bootstrapRuntimeScratchDir();
+
+    try {
+        // Both binaries outdated, then ffprobe's path taken by a directory: the
+        // directory must decide, not ffmpeg's version drift.
+        $env = bootstrapRuntimeFixture($scratch, ['ffmpegInstalled' => '7.1.1']);
+        $dir = $scratch.'/fs/usr-local-bin';
+        unlink($dir.'/ffprobe');
+        expect(mkdir($dir.'/ffprobe', 0o755))->toBeTrue();
+        $ffmpegBefore = (string) file_get_contents($dir.'/ffmpeg');
+
+        [$exit, $output] = bootstrapRuntimeRun(['--check'], $env);
+
+        expect($exit)->toBe(1);
+        expect($output)->toContain("CONFLICT ffmpeg — {$dir}/ffprobe is a directory, not the binary");
+
+        [$exit, $output] = bootstrapRuntimeRun(['--apply'], $env);
+
+        expect($exit)->toBe(1);
+        expect($output)->toContain("ERROR: ffmpeg: {$dir}/ffprobe is a directory — refusing to install over it");
+        expect(is_file($scratch.'/log/curl.log'))->toBeFalse('downloaded before refusing')
+            ->and(glob($dir.'/ffprobe/*') ?: [])->toBe([], 'a file was dropped inside the directory')
+            ->and((string) file_get_contents($dir.'/ffmpeg'))->toBe($ffmpegBefore);
+    } finally {
+        bootstrapRuntimeCleanup($scratch);
+    }
+});
+
 it('fails closed when the ffmpeg rows of the contract are missing or mangled', function () {
     $scratch = bootstrapRuntimeScratchDir();
 
