@@ -7,6 +7,7 @@ use App\Enums\ImageInputSource;
 use App\Enums\ImageOrientation;
 use App\Enums\MediaKind;
 use App\Enums\MediaStatus;
+use App\Enums\MediaType;
 use App\Enums\MediaVisibility;
 use App\Enums\PostStatus;
 use App\Enums\UserStatus;
@@ -272,6 +273,9 @@ it('creates a post_image media asset from the stored file when an image is provi
         ->and($asset->width)->toBe(1600)
         ->and($asset->height)->toBe(900)
         ->and($asset->orientation)->toBe(ImageOrientation::Landscape)
+        ->and($asset->media_type)->toBe(MediaType::Image)
+        ->and($asset->duration_ms)->toBeNull()
+        ->and($asset->has_audio)->toBeFalse()
         ->and($asset->status)->toBe(MediaStatus::Ready)
         ->and($asset->visibility)->toBe(MediaVisibility::Public);
 });

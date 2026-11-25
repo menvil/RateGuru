@@ -4,6 +4,7 @@ namespace Database\Factories;
 
 use App\Enums\MediaKind;
 use App\Enums\MediaStatus;
+use App\Enums\MediaType;
 use App\Enums\MediaVisibility;
 use App\Models\MediaAsset;
 use App\Support\Media\ImageOrientationClassifier;
@@ -24,6 +25,9 @@ class MediaAssetFactory extends Factory
         return [
             'owner_user_id' => null,
             'kind' => MediaKind::PostImage,
+            'media_type' => MediaType::Image,
+            'duration_ms' => null,
+            'has_audio' => false,
             'disk' => 'public',
             'path' => 'posts/'.fake()->uuid().'.jpg',
             'original_filename' => fake()->word().'.jpg',

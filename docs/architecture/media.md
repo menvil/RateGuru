@@ -27,6 +27,23 @@ size. As of PR-06, six variant names are actually generated for JPEG/PNG/WebP
 post-image/avatar assets — see "Responsive media variants" and "Open Graph
 media variant" below for what, how, and when.
 
+## Media type, duration and sound
+
+`kind` says what an asset is *for* (a post's media, an avatar); `media_type`
+(`app/Enums/MediaType.php`) says what it *is*: `image`, `video`, or
+`animation` — an animated GIF kept as a silent, looping video. They are
+independent: a post's media may be any of the three, while an avatar stays an
+image. `duration_ms` is how long a video or animation plays (null for an
+image), and `has_audio` whether it carries sound (false for an image and
+for every animation). A video variant records its own `duration_ms`.
+
+Every asset stored before video existed is an image, which is the column's
+default; `MediaAssetCreator`, the one path a stored upload becomes an asset
+through, writes `image`, no duration and no sound explicitly, since every file
+reaching it passed the image ingest. Video and animated-GIF uploads, their
+processing and their variants are not built yet: nothing writes the other two
+types so far.
+
 ## Canonical identity is disk + path, not a URL
 
 Neither `media_assets` nor `media_variants` stores `url`, `public_url`,
