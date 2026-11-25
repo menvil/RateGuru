@@ -59,10 +59,15 @@ final class CommentsSection extends Component
     #[Computed]
     public function comments(): Collection
     {
+        // The viewer's language first while the feature is on (docs/architecture/language-ranking.md).
+        $languageFirst = app(ProjectSettingsManager::class)->current()->languageRanking()->ranksComments();
+
         return app(CommentListQuery::class)->get(
             $this->postId,
             $this->commentSort,
             $this->visibleCount,
+            viewerLanguage: $languageFirst ? app()->getLocale() : null,
+            viewerId: $languageFirst ? auth()->id() : null,
         );
     }
 

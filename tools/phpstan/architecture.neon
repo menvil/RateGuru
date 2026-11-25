@@ -8,7 +8,7 @@ parameters:
             -
                 class: App\Queries\Comments\CommentListQuery
                 methods: [orderByRaw]
-                reason: 'Comment ranking requires an arithmetic vote expression with deterministic secondary ordering.'
+                reason: 'Comment ranking requires an arithmetic vote expression with deterministic secondary ordering; the viewer''s language goes first through one CASE of bound values (language, viewer).'
                 bindings: literal_only
                 behaviorTests: [tests/Feature/Queries/CommentListQueryTest.php]
                 status: approved
