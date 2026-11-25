@@ -1051,8 +1051,10 @@ settles them:
 | What | When | What happens |
 |---|---|---|
 | A processed video's original | `media.lifecycle.video_original_retention_days` (7) after `metadata.processed_at` | the file is deleted; `metadata.original` gives way to `original_deleted_at` |
-| A failed upload's files — original, any master and variants written before it failed | the same period after it failed | the files and variant rows go; the row stays, `metadata.files_removed_at` set, since the draft post that holds it still points at it |
-| An upload still Processing past `uploads.videos.processing_window_minutes` | each run | its job was lost: it fails, unless the processor's own lock shows a run working on it now, and its author is told (`FinalizePostMediaAction::failed`) |
+| A failed upload's files — original, any master and variants written before it failed | the same period after it failed | the files and variant rows go; the row stays, `metadata.files_removed_at` set, since the draft post that holds it still points at it — and the audit counts no missing master for it |
+| An upload still Processing a day after it arrived (`media.lifecycle.video_stuck_after_hours`) | each run | its job was lost: it fails, unless the processor's own lock (`VideoAssetProcessor::lockFor`) shows a run working on it now, and its author is told (`FinalizePostMediaAction::failed`, once per asset). A worker down or a queue backed up for a few hours delays uploads; it does not fail them |
+
+A file that will not delete fails the run, as it fails `media:purge`.
 
 The rest of the lifecycle knows about video files too:
 
@@ -1060,8 +1062,10 @@ The rest of the lifecycle knows about video files too:
   master and variants (`VideoOriginal`).
 - `MediaOrphanScanner` also scans the private disk's originals, and counts a
   processed video's kept original as known.
-- Media Diagnostics shows the videos stuck processing past their window, and
-  lists `ProcessVideoAssetJob` among the failed media jobs.
+- Media Diagnostics shows the videos still processing past the per-author
+  window (`uploads.videos.processing_window_minutes`). Its failed-jobs list
+  stays the image jobs': its retry regenerates image variants, which is no
+  retry for a video.
 
 ## Media observability and admin diagnostics
 

@@ -16,8 +16,9 @@ use App\Services\Media\Exceptions\MediaStorageException;
  * anything — deletion is a separate, explicit opt-in the caller performs
  * (MediaLifecycleService::purgeOrphanFile()).
  *
- * Scans config('media.disks.public') — the only disk this app's config
- * declares today, not generalized to a hypothetical multi-disk future.
+ * Scans every media directory on config('media.disks.public'), and the
+ * originals directory on config('media.disks.private'), where video uploads
+ * wait and are kept a while after processing.
  */
 final class MediaOrphanScanner
 {
@@ -40,6 +41,8 @@ final class MediaOrphanScanner
         // originals — where a video upload waits, and is kept a while after.
         $places = array_map(fn (string $directory): array => [(string) config('media.disks.public'), $directory], array_values(config('media.directories')));
         $places[] = [(string) config('media.disks.private'), (string) config('media.directories.originals')];
+        // One disk serving both is scanned once.
+        $places = array_values(array_unique($places, SORT_REGULAR));
 
         $candidates = [];
 

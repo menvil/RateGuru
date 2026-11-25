@@ -1,5 +1,6 @@
 <?php
 
+use App\Actions\Posts\FinalizePostMediaAction;
 use App\Enums\MediaStatus;
 use App\Enums\MediaType;
 use App\Enums\MediaVariantName;
@@ -9,11 +10,13 @@ use App\Models\MediaVariant;
 use App\Models\Post;
 use App\Models\User;
 use App\Notifications\VideoPostProcessedNotification;
+use App\Services\Media\MediaAuditService;
 use App\Services\Media\MediaLifecycleService;
 use App\Services\Media\MediaOrphanScanner;
+use App\Services\Media\MediaStorage;
+use App\Services\Media\VideoAssetProcessor;
 use App\Services\Media\VideoMediaSweeper;
 use Illuminate\Console\Scheduling\Schedule;
-use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -22,7 +25,7 @@ beforeEach(function () {
     Storage::fake('public');
     Storage::fake('local');
     Notification::fake();
-    config(['media.lifecycle.video_original_retention_days' => 7, 'uploads.videos.processing_window_minutes' => 180]);
+    config(['media.lifecycle.video_original_retention_days' => 7, 'media.lifecycle.video_stuck_after_hours' => 24]);
 });
 
 /**
@@ -91,13 +94,15 @@ it('removes a failed upload\'s files after the retention period and keeps its ro
         ->and($post->refresh()->image_asset_id)->toBe($asset->id);
 });
 
-it('fails an upload still processing past every retry and tells its author, but leaves one a run holds now', function () {
+it('fails an upload still processing a day on and tells its author, but leaves one a run holds now, a younger one and a photo', function () {
     $author = User::factory()->create();
-    $lost = MediaAsset::factory()->create(['owner_user_id' => $author->id, 'media_type' => MediaType::Video, 'status' => MediaStatus::Processing, 'created_at' => now()->subHours(4)]);
+    $lost = MediaAsset::factory()->create(['owner_user_id' => $author->id, 'media_type' => MediaType::Video, 'status' => MediaStatus::Processing, 'created_at' => now()->subHours(25)]);
     Post::factory()->for($author)->create(['status' => PostStatus::Draft, 'image_asset_id' => $lost->id]);
-    $working = MediaAsset::factory()->create(['media_type' => MediaType::Video, 'status' => MediaStatus::Processing, 'created_at' => now()->subHours(4)]);
-    $young = MediaAsset::factory()->create(['media_type' => MediaType::Video, 'status' => MediaStatus::Processing, 'created_at' => now()->subHour()]);
-    $held = Cache::store('database')->getStore()->lock("media-video-process:{$working->id}", 60);
+    $working = MediaAsset::factory()->create(['media_type' => MediaType::Video, 'status' => MediaStatus::Processing, 'created_at' => now()->subHours(25)]);
+    // Waiting in a backed-up queue for hours: delayed, not failed.
+    $young = MediaAsset::factory()->create(['media_type' => MediaType::Video, 'status' => MediaStatus::Processing, 'created_at' => now()->subHours(5)]);
+    $photo = MediaAsset::factory()->create(['media_type' => MediaType::Image, 'status' => MediaStatus::Processing, 'created_at' => now()->subHours(25)]);
+    $held = VideoAssetProcessor::lockFor($working->id);
     $held->get();
 
     try {
@@ -108,8 +113,13 @@ it('fails an upload still processing past every retry and tells its author, but 
 
     expect($lost->refresh()->status)->toBe(MediaStatus::Failed)
         ->and($working->refresh()->status)->toBe(MediaStatus::Processing)
-        ->and($young->refresh()->status)->toBe(MediaStatus::Processing);
-    Notification::assertSentTo($author, VideoPostProcessedNotification::class);
+        ->and($young->refresh()->status)->toBe(MediaStatus::Processing)
+        ->and($photo->refresh()->status)->toBe(MediaStatus::Processing);
+    Notification::assertSentToTimes($author, VideoPostProcessedNotification::class, 1);
+
+    // The job, arriving late, finds it failed: the author is not told twice.
+    app(FinalizePostMediaAction::class)->failed($lost->refresh());
+    Notification::assertSentToTimes($author, VideoPostProcessedNotification::class, 1);
 });
 
 it('purges a video\'s kept original with the asset', function () {
@@ -142,4 +152,42 @@ it('is scheduled hourly, never overlapping', function () {
     expect($event)->not->toBeNull()
         ->and($event->expression)->toBe('0 * * * *')
         ->and($event->withoutOverlapping)->toBeTrue();
+});
+
+it('deletes an original by when it was processed, not by the row\'s last change, and never one with no processing time', function () {
+    $touched = processedVideo(8);
+    $touched->forceFill(['updated_at' => now()])->saveQuietly();
+    $unknown = processedVideo(8);
+    $metadata = $unknown->metadata;
+    unset($metadata['processed_at']);
+    $unknown->forceFill(['metadata' => $metadata])->save();
+
+    expect(app(VideoMediaSweeper::class)->deleteExpiredOriginals())->toBe(1);
+
+    Storage::disk('local')->assertMissing($touched->metadata['original']['path']);
+    Storage::disk('local')->assertExists($unknown->metadata['original']['path']);
+});
+
+it('reports a failed upload whose files were removed as healthy, not as a missing master', function () {
+    $asset = MediaAsset::factory()->create([
+        'media_type' => MediaType::Video,
+        'status' => MediaStatus::Failed,
+        'disk' => 'public',
+        'path' => 'media/post-videos/2026/11/'.Str::uuid().'.mp4',
+        'metadata' => ['files_removed_at' => now()->toIso8601ZuluString()],
+    ]);
+    Post::factory()->create(['status' => PostStatus::Draft, 'image_asset_id' => $asset->id]);
+
+    $summary = app(MediaAuditService::class)->run();
+
+    expect($summary->missingMasters)->toBe(0);
+});
+
+it('fails the sweep run when a file will not delete', function () {
+    processedVideo(8);
+    app()->instance(MediaStorage::class, Mockery::mock(MediaStorage::class, function ($storage): void {
+        $storage->shouldReceive('deleteIfExists')->andThrow(new RuntimeException('disk is read-only'));
+    })->makePartial());
+
+    $this->artisan('media:sweep-videos')->assertFailed();
 });

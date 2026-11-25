@@ -25,6 +25,8 @@ use Livewire\Livewire;
 
 beforeEach(function () {
     Storage::fake('public');
+    // The orphan scan reads the private disk's originals too: never this machine's real files.
+    Storage::fake('local');
 });
 
 // --- Authorization ---------------------------------------------------------

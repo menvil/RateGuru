@@ -121,6 +121,8 @@ final class FinalizePostMediaAction
             return;
         }
 
+        // Once per asset, whoever failed it — the job, its last attempt, or
+        // media:sweep-videos — even when two of them meet.
         if ($this->tellAuthorOnce($asset, $post, 'failure_notified_at')) {
             $this->logger->info('posts.media_failed', [
                 'post_id' => $post->id,

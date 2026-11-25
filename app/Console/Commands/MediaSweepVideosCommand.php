@@ -24,6 +24,14 @@ final class MediaSweepVideosCommand extends Command
 
         $this->info("Failed {$stuck} upload(s) never processed; deleted {$originals} original(s); removed the files of {$failed} failed upload(s).");
 
+        // As media:purge does: a file that would not delete fails the run, so
+        // the schedule says so instead of only the log.
+        if ($sweeper->failures() > 0) {
+            $this->error("{$sweeper->failures()} file(s) could not be deleted; see the log.");
+
+            return self::FAILURE;
+        }
+
         return self::SUCCESS;
     }
 }

@@ -403,8 +403,9 @@ final class MediaDiagnosticsPage extends Page
     public function totals(): array
     {
         return [
-            // Video uploads still processing past every retry their job could
-            // make: media:sweep-videos fails them within the hour.
+            // Video uploads still processing past every retry a job that
+            // started at once could make: delayed, or lost — media:sweep-videos
+            // fails the lost ones a day on.
             'stuck_videos' => MediaAsset::query()
                 ->whereIn('media_type', [MediaType::Video, MediaType::Animation])
                 ->where('status', MediaStatus::Processing)
@@ -540,7 +541,7 @@ final class MediaDiagnosticsPage extends Page
             ['label' => 'Active unreferenced', 'value' => number_format((int) $run?->active_unreferenced_assets), 'note' => 'Candidates for release', 'badge' => null, 'filter' => $type(MediaAuditIssueType::ActiveUnreferencedAsset)],
             ['label' => 'Purgeable assets', 'value' => number_format((int) $run?->purgeable_assets), 'note' => 'Past their grace period', 'badge' => null, 'filter' => $type(MediaAuditIssueType::PurgeableAsset)],
             ['label' => 'Physical orphan candidates', 'value' => number_format((int) $run?->physical_orphan_candidates), 'note' => 'Files with no record', 'badge' => null, 'filter' => $type(MediaAuditIssueType::PhysicalOrphanCandidate)],
-            ['label' => 'Videos stuck processing', 'value' => number_format($totals['stuck_videos']), 'note' => 'Past every retry; failed within the hour', 'badge' => $totals['stuck_videos'] > 0 ? ['label' => 'Warning', 'tone' => 'warning'] : null, 'filter' => null],
+            ['label' => 'Videos stuck processing', 'value' => number_format($totals['stuck_videos']), 'note' => 'Past every retry; delayed or lost', 'badge' => $totals['stuck_videos'] > 0 ? ['label' => 'Warning', 'tone' => 'warning'] : null, 'filter' => null],
             ['label' => 'Failed media jobs', 'value' => number_format(count($jobs)), 'note' => $jobs !== [] ? 'Last failure '.ModerationListFormat::when($jobs[0]->failedAt) : 'Queue healthy', 'badge' => $jobs !== [] ? ['label' => 'Failed', 'tone' => 'danger'] : null, 'filter' => null],
         ];
     }

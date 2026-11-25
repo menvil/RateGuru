@@ -7,11 +7,7 @@ use App\Enums\MediaStatus;
 use App\Enums\MediaType;
 use App\Models\MediaAsset;
 use Carbon\CarbonImmutable;
-use Illuminate\Contracts\Cache\Lock;
-use Illuminate\Contracts\Cache\LockProvider;
-use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
-use RuntimeException;
 use Throwable;
 
 /**
@@ -22,15 +18,18 @@ use Throwable;
  * - a failed one's files — original, any master and variants written before
  *   it failed — after the same period. Its row stays: the draft post that
  *   holds it still points at it, and says it failed;
- * - an upload still Processing past the time any job could be working on it
- *   (uploads.videos.processing_window_minutes): its job was lost, so it fails
- *   now and its author is told, rather than waiting for good.
+ * - an upload still Processing a day after it arrived
+ *   (media.lifecycle.video_stuck_after_hours), far past every retry: its job
+ *   was lost, so it fails now and its author is told, rather than waiting
+ *   for good.
  *
  * Every file goes through MediaStorage; a file already gone is no error.
  */
 final class VideoMediaSweeper
 {
     private const array VIDEO_TYPES = [MediaType::Video, MediaType::Animation];
+
+    private int $failures = 0;
 
     public function __construct(
         private readonly MediaStorage $storage,
@@ -47,13 +46,13 @@ final class VideoMediaSweeper
             ->whereIn('media_type', self::VIDEO_TYPES)
             ->where('status', MediaStatus::Ready)
             ->whereNotNull('metadata->original')
-            ->where('updated_at', '<=', $cutoff)
-            ->chunkById(200, function ($assets) use ($cutoff, &$deleted): void {
+            // An ISO-8601 UTC string compares as its time does.
+            ->where('metadata->processed_at', '<=', $cutoff->toIso8601ZuluString())
+            ->chunkById(200, function ($assets) use (&$deleted): void {
                 foreach ($assets as $asset) {
                     $original = VideoOriginal::of($asset);
-                    $processedAt = self::processedAt($asset);
 
-                    if ($original === null || $processedAt === null || $processedAt->greaterThan($cutoff)) {
+                    if ($original === null) {
                         continue;
                     }
 
@@ -114,12 +113,12 @@ final class VideoMediaSweeper
         MediaAsset::query()
             ->whereIn('media_type', self::VIDEO_TYPES)
             ->where('status', MediaStatus::Processing)
-            ->where('created_at', '<=', now()->subMinutes((int) config('uploads.videos.processing_window_minutes')))
+            ->where('created_at', '<=', now()->subHours((int) config('media.lifecycle.video_stuck_after_hours')))
             ->chunkById(200, function ($assets) use (&$failed): void {
                 foreach ($assets as $asset) {
                     // The processor's own lock: a run working on it now is
                     // left to finish.
-                    $lock = $this->processingLock($asset);
+                    $lock = VideoAssetProcessor::lockFor($asset->id);
 
                     if (! $lock->get()) {
                         continue;
@@ -150,20 +149,10 @@ final class VideoMediaSweeper
         return CarbonImmutable::now()->subDays((int) config('media.lifecycle.video_original_retention_days'));
     }
 
-    /** When it was processed; its last update for a row from before that was recorded. */
-    private static function processedAt(MediaAsset $asset): ?CarbonImmutable
+    /** Deletes that failed since this sweeper was made: the command fails loudly on any. */
+    public function failures(): int
     {
-        $recorded = ($asset->metadata ?? [])['processed_at'] ?? null;
-
-        if (is_string($recorded)) {
-            try {
-                return CarbonImmutable::parse($recorded);
-            } catch (Throwable) {
-                return null;
-            }
-        }
-
-        return $asset->updated_at === null ? null : CarbonImmutable::instance($asset->updated_at);
+        return $this->failures;
     }
 
     private function delete(MediaAsset $asset, MediaLocation $location, string $what): bool
@@ -173,6 +162,7 @@ final class VideoMediaSweeper
 
             return true;
         } catch (Throwable $exception) {
+            $this->failures++;
             Log::error('VideoMediaSweeper: file delete failed.', [
                 'media_asset_id' => $asset->id,
                 'disk' => $location->disk,
@@ -191,16 +181,5 @@ final class VideoMediaSweeper
         unset($metadata['original']);
 
         $asset->forceFill(['metadata' => [...$metadata, 'original_deleted_at' => now()->toIso8601ZuluString()]])->save();
-    }
-
-    private function processingLock(MediaAsset $asset): Lock
-    {
-        $store = Cache::store('database')->getStore();
-
-        if (! $store instanceof LockProvider) {
-            throw new RuntimeException('The "database" cache store does not support locks.');
-        }
-
-        return $store->lock("media-video-process:{$asset->id}", VideoAssetProcessor::LOCK_SECONDS);
     }
 }
