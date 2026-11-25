@@ -1,0 +1,35 @@
+app/Actions/Traffic/OpenTrafficVisitAction.php
+  s_4b9dc6ab6b25d3::t_f0e76bdfe073f0 226,235
+app/Actions/Traffic/RecordPaidClickAction.php
+  s_4b9dc6ab6b25d3::t_d4bcee5d343d22 92,163
+  s_4b9dc6ab6b25d3::t_5290eceb397e51 80
+app/Models/TrafficVisit.php
+  s_4b9dc6ab6b25d3::t_f0e76bdfe073f0 91,184
+docs/architecture/traffic.md
+  ai_agent 194-198
+app/Http/Middleware/CaptureTrafficArrival.php
+  s_4b9dc6ab6b25d3::t_d4bcee5d343d22 213
+tests/Feature/Traffic/OpenTrafficVisitTest.php
+  s_4b9dc6ab6b25d3::t_f0e76bdfe073f0 676,678
+  s_4b9dc6ab6b25d3::t_e999befa8d6cdc 670-675,677,679-696
+database/migrations/2026_11_24_130000_add_landing_post_to_traffic_visits_table.php
+  s_4b9dc6ab6b25d3::t_f0e76bdfe073f0 1-34
+tests/Feature/Database/TrafficVisitLandingPostColumnTest.php
+  s_4b9dc6ab6b25d3::t_e999befa8d6cdc 1-27
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "2d6905ab36b5208908b80c81a8e33145e794efdb",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}

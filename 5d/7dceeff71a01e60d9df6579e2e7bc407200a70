@@ -1,0 +1,39 @@
+app/Actions/Languages/LanguageCheckQueue.php
+  s_4b9dc6ab6b25d3::t_fa91afd151915b 1-132,134-174
+  s_4b9dc6ab6b25d3::t_7e295527bdabdc 133
+app/Services/Languages/OpenAiLanguageDetector.php
+  s_4b9dc6ab6b25d3::t_8e3c456f76e039 1-196
+tests/Feature/Languages/OpenAiLanguageDetectorTest.php
+  s_4b9dc6ab6b25d3::t_6340f6ae15c74f 1-116
+app/Actions/Languages/WorkOutPostLanguageAction.php
+  s_4b9dc6ab6b25d3::t_006d36f363457b 1-73
+app/Console/Commands/WorkOnLanguagesCommand.php
+  s_4b9dc6ab6b25d3::t_7e295527bdabdc 1-133
+tests/Feature/Languages/WorkOutPostLanguageTest.php
+  s_4b9dc6ab6b25d3::t_8e71664ff05e0c 1-107
+app/Providers/AppServiceProvider.php
+  s_4b9dc6ab6b25d3::t_7e295527bdabdc 25,144
+app/Exceptions/Languages/LanguageDetectionFailed.php
+  s_4b9dc6ab6b25d3::t_c8b869030c5211 1-28
+routes/console.php
+  s_4b9dc6ab6b25d3::t_7e295527bdabdc 83-87
+tests/Feature/Console/WorkOnLanguagesCommandTest.php
+  s_4b9dc6ab6b25d3::t_3e120f4cd93668 1-108,115-116,118-123,127-175
+  s_4b9dc6ab6b25d3::t_e8bd58e0cfefca 109-114,117,124-126
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "5d7dceeff71a01e60d9df6579e2e7bc407200a70",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}

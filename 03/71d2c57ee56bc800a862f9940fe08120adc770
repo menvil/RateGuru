@@ -1,0 +1,48 @@
+resources/views/filament/pages/project-settings/languages.blade.php
+  s_4b9dc6ab6b25d3::t_93e546fd503c39 1-43
+app/Filament/Pages/ProjectSettingsPage.php
+  s_4b9dc6ab6b25d3::t_93e546fd503c39 14,56,60-76,195-196,294-304,322-323
+resources/views/filament/pages/comments/row.blade.php
+  s_4b9dc6ab6b25d3::t_46a63e98db368e 22
+tests/Feature/Filament/AdminContentLanguageTest.php
+  s_4b9dc6ab6b25d3::t_6c67a1b2019b25 1-36
+docs/design/admin/design-contract.md
+  s_4b9dc6ab6b25d3::t_54ef8c473f9366 981-982,1016-1020
+tests/Browser/AdminProjectSettingsBrowserTest.php
+  s_4b9dc6ab6b25d3::t_db43e99ff8b99e 45
+tests/Feature/Docs/AdminDesignDocsTest.php
+  s_4b9dc6ab6b25d3::t_9dd8a53b7ea443 428
+docs/design/admin/migration-plan.md
+  s_4b9dc6ab6b25d3::t_54ef8c473f9366 242-243
+app/Support/Languages/LanguageRankingSettings.php
+  s_4b9dc6ab6b25d3::t_93e546fd503c39 70-89
+app/Filament/Resources/Posts/Pages/ListPosts.php
+  s_4b9dc6ab6b25d3::t_46a63e98db368e 434-436
+tests/Feature/Console/LanguagesReportCommandTest.php
+  s_4b9dc6ab6b25d3::t_be012585a67712 1-26
+resources/views/filament/pages/project-settings.blade.php
+  s_4b9dc6ab6b25d3::t_93e546fd503c39 26,97-98
+tests/Feature/Filament/ProjectSettingsLanguageRankingTest.php
+  s_4b9dc6ab6b25d3::t_ff04849221665c 1-54
+app/Filament/Resources/Comments/Pages/ListComments.php
+  s_4b9dc6ab6b25d3::t_46a63e98db368e 292-293
+app/Console/Commands/LanguagesReportCommand.php
+  s_4b9dc6ab6b25d3::t_7f7f720ed7e894 24
+  s_4b9dc6ab6b25d3::t_be012585a67712 1-23,25-69
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "0371d2c57ee56bc800a862f9940fe08120adc770",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}

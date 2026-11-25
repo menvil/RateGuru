@@ -1,0 +1,39 @@
+app/Models/TrafficVisit.php
+  s_4b9dc6ab6b25d3::t_93f7304e5595f8 7,83-90,176-182
+docs/architecture/traffic.md
+  s_4b9dc6ab6b25d3::t_66a4254de02995 165-188
+tests/Unit/Enums/AuthTriggerTest.php
+  s_4b9dc6ab6b25d3::t_10715a3ad40f3f 1-24
+tests/Unit/Enums/SignupRefusalTest.php
+  s_4b9dc6ab6b25d3::t_1b7e7e485eb892 1-60
+app/Enums/TrafficEvent.php
+  s_4b9dc6ab6b25d3::t_edcec940359ea5 10-12,39-43,104-108,138-142
+database/migrations/2026_11_24_120000_add_registration_steps_to_traffic_visits_table.php
+  s_4b9dc6ab6b25d3::t_144fb663298ab3 1-46
+tests/Unit/Support/Traffic/TrafficVocabularyTest.php
+  s_4b9dc6ab6b25d3::t_5971d20425872d 55-66
+app/Enums/AuthTrigger.php
+  s_4b9dc6ab6b25d3::t_edcec940359ea5 1-44
+tests/Feature/Database/TrafficVisitRegistrationColumnsTest.php
+  s_4b9dc6ab6b25d3::t_bad5543281185f 1-43
+app/Enums/SignupRefusal.php
+  s_4b9dc6ab6b25d3::t_edcec940359ea5 1-109
+app/Support/Traffic/Worth/TrafficStep.php
+  s_4b9dc6ab6b25d3::t_edcec940359ea5 50,55-56
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "a7c7e643600a38ddd5577a0edb83249e67e8b2f3",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}

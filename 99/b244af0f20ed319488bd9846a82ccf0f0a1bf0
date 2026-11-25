@@ -1,0 +1,21 @@
+app/Queries/Analytics/RegistrationFunnelQuery.php
+  s_4b9dc6ab6b25d3::t_ad50d62ae8c9ea 5,27
+composer.json
+  s_4b9dc6ab6b25d3::t_1b585c0e421be7 86
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "99b244af0f20ed319488bd9846a82ccf0f0a1bf0",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}

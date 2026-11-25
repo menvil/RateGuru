@@ -1,0 +1,40 @@
+app/Livewire/Concerns/OpensAuthModal.php
+  s_4b9dc6ab6b25d3::t_b697181b64eaae 7-9,23-35
+app/Filament/Pages/ProjectSettingsPage.php
+  s_4b9dc6ab6b25d3::t_b697181b64eaae 78
+tests/Feature/Livewire/GuestActionSignUpTest.php
+  s_4b9dc6ab6b25d3::t_34bff2f45cefed 1-32,35-60
+  s_4b9dc6ab6b25d3::t_6dc19f51ad48a2 33-34
+app/Livewire/Posts/PostVoting.php
+  s_4b9dc6ab6b25d3::t_b697181b64eaae 89
+app/Livewire/Comments/CommentVoting.php
+  s_4b9dc6ab6b25d3::t_b697181b64eaae 90
+lang/en/admin.php
+  s_4b9dc6ab6b25d3::t_b697181b64eaae 49
+docs/admin/project-settings.md
+  ai_agent 123
+docs/dev/auth-modal.md
+  s_4b9dc6ab6b25d3::t_2f4ebbadc7c431 32-37
+app/Support/Settings/ProjectSettingsManager.php
+  s_4b9dc6ab6b25d3::t_b697181b64eaae 46-48
+tests/Feature/Filament/ProjectSettingsPageTest.php
+  s_4b9dc6ab6b25d3::t_46e4e72c5d9d21 134-147
+app/Livewire/Voting/RatingVoting.php
+  s_4b9dc6ab6b25d3::t_b697181b64eaae 108
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "f0096f9d262a47fb168e3bcde391b14a5301f502",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}

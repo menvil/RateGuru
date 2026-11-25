@@ -1,0 +1,31 @@
+app/Queries/Analytics/RegistrationFunnelQuery.php
+  s_4b9dc6ab6b25d3::t_0af9f81d7c39a1 1-44,46-68,70-94,96-156
+  s_4b9dc6ab6b25d3::t_1abb28ca1efa77 45,69,95
+app/Support/Analytics/RegistrationFunnel.php
+  s_4b9dc6ab6b25d3::t_4e772209c39650 1-28,31-38,40-44,46-47
+  s_4b9dc6ab6b25d3::t_1abb28ca1efa77 29-30,39,45
+app/Support/Analytics/FunnelLanding.php
+  s_4b9dc6ab6b25d3::t_4e772209c39650 1-98
+tools/phpstan/architecture.neon
+  s_4b9dc6ab6b25d3::t_6d2f8d58730304 177-182
+docs/architecture/http-and-database-boundaries.md
+  s_4b9dc6ab6b25d3::t_6d2f8d58730304 73-79
+tests/Feature/Queries/RegistrationFunnelQueryTest.php
+  s_4b9dc6ab6b25d3::t_c5a3e43e1e06a6 1-75
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "97bc055d6c67c264c10119729575ba10f24aff03",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}

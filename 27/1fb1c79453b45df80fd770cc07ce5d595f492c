@@ -1,0 +1,27 @@
+tests/Feature/Auth/SocialRedirectTest.php
+  s_4b9dc6ab6b25d3::t_a84929de7824b7 127-129,131-141,143-148
+  s_4b9dc6ab6b25d3::t_4019de776ad2ec 130,142
+tests/Feature/Traffic/AccountAttributionTest.php
+  s_4b9dc6ab6b25d3::t_1d07b2e54bdbd3 11
+  s_4b9dc6ab6b25d3::t_a84929de7824b7 370-372
+app/Actions/Games/GameSignupFormRecorder.php
+  s_4b9dc6ab6b25d3::t_b096c300357b22 6,15-17,21-24,29-31
+app/Http/Controllers/Auth/SocialAuthController.php
+  s_4b9dc6ab6b25d3::t_1d07b2e54bdbd3 7,19,22,26,35-37,43-44,57-61
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "271fb1c79453b45df80fd770cc07ce5d595f492c",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}

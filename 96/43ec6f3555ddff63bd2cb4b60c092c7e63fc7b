@@ -1,0 +1,29 @@
+app/Support/Analytics/AnalyticsVisitRow.php
+  s_4b9dc6ab6b25d3::t_d1b3190347f2df 30-31,43,52-55,57-60,215-223
+tests/Unit/Support/Analytics/AnalyticsVisitRowTest.php
+  s_4b9dc6ab6b25d3::t_4ba5711c6fbf2b 60-78
+tests/Feature/Analytics/AnalyticsRollupTest.php
+  s_4b9dc6ab6b25d3::t_4ba5711c6fbf2b 61-74
+database/migrations/2026_11_24_140000_add_registration_steps_to_analytics_visits_table.php
+  s_4b9dc6ab6b25d3::t_d1b3190347f2df 1-41
+docs/architecture/analytics.md
+  ai_agent 114-122
+app/Models/AnalyticsVisit.php
+  s_4b9dc6ab6b25d3::t_d1b3190347f2df 64-71,120-126
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "9643ec6f3555ddff63bd2cb4b60c092c7e63fc7b",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
