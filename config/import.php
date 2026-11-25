@@ -21,7 +21,10 @@ return [
     // it. Adding a site is a line here; which sites, the project's call.
     'ytdlp' => [
         'binary' => 'yt-dlp',
-        'probe_timeout_seconds' => 30,
+        // The probe runs while the author waits, in a web worker: short, one
+        // per author, two on the host at once (UploadPostForm::pageVideo).
+        'probe_timeout_seconds' => 15,
+        'probe_slots' => 2,
         'download_timeout_seconds' => 240,
         'sites' => [
             'redgifs.com' => 'RedGifs',

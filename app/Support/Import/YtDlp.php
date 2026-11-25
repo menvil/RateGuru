@@ -72,7 +72,7 @@ final class YtDlp
         $maxMegabytes = intdiv((int) config('uploads.videos.max_kilobytes'), 1024);
         $maxSeconds = (int) config('uploads.videos.max_duration_seconds');
 
-        $this->runner->run(MediaTool::YtDlp, [
+        $result = $this->runner->run(MediaTool::YtDlp, [
             ...$this->baseOptions($extractor),
             '--no-part',
             '--no-progress',
@@ -87,9 +87,18 @@ final class YtDlp
             $url,
         ], max(1, (int) config('import.ytdlp.download_timeout_seconds')));
 
-        $files = array_values(array_filter(glob($directory.'/download.*') ?: [], 'is_file'));
+        if (! $result->succeeded()) {
+            return null;
+        }
 
-        return $files[0] ?? null;
+        // The finished file alone: download.<ext>, never a part yt-dlp left
+        // behind (download.f137.mp4, a fragment) when joining failed.
+        $files = array_values(array_filter(
+            glob($directory.'/download.*') ?: [],
+            fn (string $path): bool => is_file($path) && preg_match('#/download\.[a-z0-9]+$#', $path) === 1,
+        ));
+
+        return count($files) === 1 ? $files[0] : null;
     }
 
     /** @return list<string> */

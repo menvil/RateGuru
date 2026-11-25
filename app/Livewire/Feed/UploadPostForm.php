@@ -38,9 +38,11 @@ use App\Support\Posts\PostContentRules;
 use App\Support\Rating\RatingConfigurationManager;
 use App\Support\Settings\ProjectSettingsManager;
 use Carbon\CarbonImmutable;
+use Illuminate\Contracts\Cache\Lock;
 use Illuminate\Contracts\View\View;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Validation\Rule;
 use Livewire\Attributes\On;
 use Livewire\Component;
@@ -174,12 +176,22 @@ final class UploadPostForm extends Component
                 // (RedGifs, Coub, an Instagram reel …): asked first, through
                 // that site's extractor alone. A page with no video it may
                 // take — an Instagram photo post — goes on as any link.
-                $pageVideo = $provider === 'direct_image' ? null : $this->pageVideo($this->importedImageUrl);
+                // A link to a video file goes to the plain download, whatever
+                // site serves it.
+                $pageVideo = in_array($provider, ['direct_image', 'direct_video'], true) ? null : $this->pageVideo($this->importedImageUrl);
 
                 if ($pageVideo !== null) {
                     $maxSeconds = (int) config('uploads.videos.max_duration_seconds');
 
-                    if ($pageVideo->durationSeconds !== null && $pageVideo->durationSeconds > $maxSeconds) {
+                    // A length the site does not say would only fail later:
+                    // the download takes no clip it cannot hold to the limit.
+                    if ($pageVideo->durationSeconds === null) {
+                        $this->submitError = __('ui.upload.error_invalid_video');
+
+                        return;
+                    }
+
+                    if ($pageVideo->durationSeconds > $maxSeconds) {
                         $this->submitError = __('ui.upload.error_video_too_long', ['seconds' => $maxSeconds]);
 
                         return;
@@ -353,13 +365,44 @@ final class UploadPostForm extends Component
 
         app(UrlImportValidator::class)->validate($url);
 
+        // A probe holds a web worker while the author waits: one per author,
+        // and only as many on the host at once as import.ytdlp.probe_slots,
+        // so a few accounts cannot take every worker the site has.
+        $author = Cache::store('database')->getStore()->lock('ytdlp-probe:user:'.auth()->id(), 30);
+        $slot = $author->get() ? $this->probeSlot() : null;
+
+        if ($slot === null) {
+            $author->release();
+
+            throw RateLimitExceededException::make(__('ui.rate_limit.uploading'), 30);
+        }
+
         try {
             return app(YtDlp::class)->probe($url);
         } catch (MediaToolTimedOutException|MediaToolUnavailableException|MediaToolInterruptedException $exception) {
             report($exception);
 
             return null;
+        } finally {
+            $slot->release();
+            $author->release();
         }
+    }
+
+    /** A free one of the host's probe slots, held, or null when all are taken. */
+    private function probeSlot(): ?Lock
+    {
+        $store = Cache::store('database')->getStore();
+
+        for ($slot = 1; $slot <= max(1, (int) config('import.ytdlp.probe_slots')); $slot++) {
+            $lock = $store->lock("ytdlp-probe:slot:{$slot}", 30);
+
+            if ($lock->get()) {
+                return $lock;
+            }
+        }
+
+        return null;
     }
 
     /**

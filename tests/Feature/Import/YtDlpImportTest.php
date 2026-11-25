@@ -17,6 +17,7 @@ use App\Support\Import\SafeImportHttpClient;
 use App\Support\Import\YtDlp;
 use App\Support\Import\YtDlpSites;
 use App\Support\Media\VideoUploadStorer;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
@@ -28,7 +29,7 @@ use Livewire\Livewire;
  */
 
 beforeEach(function () {
-    bindFakeHostResolver(['www.redgifs.com' => ['104.18.0.1'], 'coub.com' => ['104.18.0.2'], 'www.instagram.com' => ['157.240.2.174']]);
+    bindFakeHostResolver(['www.redgifs.com' => ['104.18.0.1'], 'media.redgifs.com' => ['104.18.0.3'], 'coub.com' => ['104.18.0.2'], 'www.instagram.com' => ['157.240.2.174']]);
     Http::preventStrayRequests();
     Storage::fake('local');
     Storage::fake('public');
@@ -179,4 +180,47 @@ it('fails the post\'s media when yt-dlp takes nothing from the page', function (
 
     expect(MediaAsset::query()->findOrFail($post->image_asset_id)->status)->toBe(MediaStatus::Failed);
     Queue::assertNotPushed(ProcessVideoAssetJob::class);
+});
+
+it('holds the host to one probe per author and a few at once, while the author waits', function () {
+    ytDlpStandIn(ytDlpVideoJson());
+    $author = User::factory()->create();
+    $held = Cache::store('database')->getStore()->lock('ytdlp-probe:user:'.$author->id, 30);
+    $held->get();
+
+    try {
+        Livewire::actingAs($author)
+            ->test(UploadPostForm::class)
+            ->set('title', 'A second at once')
+            ->set('importedImageUrl', 'https://www.redgifs.com/watch/aloop')
+            ->call('submit')
+            ->assertSet('submitError', __('ui.rate_limit.uploading'));
+    } finally {
+        $held->release();
+    }
+
+    expect(Post::query()->count())->toBe(0);
+});
+
+it('refuses a page\'s video whose length the site does not say, and leaves a video file\'s link to the plain download', function () {
+    $runner = ytDlpStandIn(ytDlpVideoJson(['duration' => null]));
+
+    Livewire::actingAs(User::factory()->create())
+        ->test(UploadPostForm::class)
+        ->set('title', 'No length')
+        ->set('importedImageUrl', 'https://www.redgifs.com/watch/unknown')
+        ->call('submit')
+        ->assertSet('submitError', __('ui.upload.error_invalid_video'));
+
+    $runner->calls = [];
+
+    Livewire::actingAs(User::factory()->create())
+        ->test(UploadPostForm::class)
+        ->set('title', 'A file on the site')
+        ->set('importedImageUrl', 'https://media.redgifs.com/AFile.mp4')
+        ->call('submit')
+        ->assertHasNoErrors();
+
+    expect($runner->calls)->toBe([])
+        ->and(MediaAsset::query()->sole()->metadata['import']['url'])->toBe('https://media.redgifs.com/AFile.mp4');
 });

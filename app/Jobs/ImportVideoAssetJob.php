@@ -12,6 +12,7 @@ use App\Services\Media\Exceptions\VideoIngestException;
 use App\Services\Media\MediaStorage;
 use App\Services\Media\StoredVideo;
 use App\Services\Media\VideoIngestPolicy;
+use App\Support\Import\ImportProviderDetector;
 use App\Support\Import\SafeImportHttpClient;
 use App\Support\Import\YtDlp;
 use App\Support\Import\YtDlpSites;
@@ -82,7 +83,9 @@ final class ImportVideoAssetJob implements RunsOnMediaQueue, ShouldQueue
 
         $ytDlp ??= app(YtDlp::class);
         $sites ??= app(YtDlpSites::class);
-        $viaYtDlp = $sites->extractorFor($url) !== null;
+        // A page on one of yt-dlp's sites; a video file's link goes to the
+        // plain download, whatever site serves it.
+        $viaYtDlp = $sites->extractorFor($url) !== null && app(ImportProviderDetector::class)->detect($url) !== 'direct_video';
         $file = self::temporaryFile();
         $directory = $file.'.d';
 
@@ -214,8 +217,14 @@ final class ImportVideoAssetJob implements RunsOnMediaQueue, ShouldQueue
     {
         $directory = sys_get_temp_dir().'/rateguru-video-import';
 
-        if (! is_dir($directory)) {
-            @mkdir($directory, 0o700, true);
+        if (! file_exists($directory) && ! @mkdir($directory, 0o700) && ! is_dir($directory)) {
+            throw new RuntimeException('Could not create the directory videos are downloaded into.');
+        }
+
+        // Ours, and a directory — not a link someone else left at that name,
+        // whose target the clean-up below would otherwise empty.
+        if (is_link($directory) || ! is_dir($directory) || fileowner($directory) !== posix_geteuid()) {
+            throw new RuntimeException('The directory videos are downloaded into is not this worker\'s own.');
         }
 
         foreach (glob($directory.'/*') ?: [] as $stale) {
