@@ -7,7 +7,7 @@
      * sideways and every column stays (TBL-01). A person is edited in the
      * drawer over the list (UserEditor).
      */
-    $columns = '--rg-admin-table-columns: minmax(200px, 1fr) 220px 200px 110px 140px 150px 70px 80px 110px; --rg-admin-table-min-width: 1280px';
+    $columns = '--rg-admin-table-columns: minmax(200px, 1fr) 220px 240px 110px 140px 150px 70px 80px 110px; --rg-admin-table-min-width: 1320px';
     $total = $paginator->total();
 @endphp
 

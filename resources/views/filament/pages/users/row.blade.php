@@ -42,7 +42,7 @@
         <div class="rg-admin-table__stack">
             <span class="rg-admin-table__ellipsis" title="{{ $row['location'] }}{{ $row['locationFromVisits'] ? ' · from the visits recorded' : '' }}">{{ $row['location'] }}</span>
             @if ($row['lastVisit'] !== null)
-                <span class="rg-admin-table__meta rg-admin-table__meta--small rg-admin-table__ellipsis" title="{{ $row['lastVisit'] }}">{{ $row['lastVisit'] }}</span>
+                <span class="rg-admin-table__meta rg-admin-table__meta--small rg-admin-table__ellipsis" title="{{ $row['lastVisitTitle'] }}">{{ $row['lastVisit'] }}</span>
             @endif
         </div>
     </div>

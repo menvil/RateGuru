@@ -231,7 +231,7 @@ final class ListUsers extends Page
      * Where the person signed up from, as their account keeps it or else as the visit their sign-up was credited
      * to shows it; and where their latest visit started from, when that was somewhere else.
      *
-     * @return array{location: string, locationFromVisits: bool, lastVisit: ?string}
+     * @return array{location: string, locationFromVisits: bool, lastVisit: ?string, lastVisitTitle: ?string}
      */
     private static function location(User $person): array
     {
@@ -244,7 +244,8 @@ final class ListUsers extends Page
         return [
             'location' => ModerationListFormat::place(is_string($country) ? $country : null, is_string($city) ? $city : null),
             'locationFromVisits' => ! $kept && is_string($country),
-            'lastVisit' => $elsewhere ? 'Last visit: '.ModerationListFormat::place($person->visit_country, $person->visit_city).' · '.$person->visit_started_at->format('d M') : null,
+            'lastVisit' => $elsewhere ? 'Last visit: '.ModerationListFormat::place($person->visit_country, $person->visit_city, short: true).' · '.$person->visit_started_at->format('d M') : null,
+            'lastVisitTitle' => $elsewhere ? 'Last visit: '.ModerationListFormat::place($person->visit_country, $person->visit_city).' · '.$person->visit_started_at->format('d M Y, H:i') : null,
         ];
     }
 

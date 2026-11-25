@@ -416,7 +416,7 @@ it('lists where each person signed up from, and their latest visit when it start
 
     $page = Livewire::test(ListUsers::class)->assertSeeInOrder(['Email', 'Location', 'Role']);
 
-    expect(listedRow($page, $moved))->toMatchArray(['location' => '🇬🇧 London, United Kingdom', 'lastVisit' => 'Last visit: 🇺🇸 Milton, United States · 26 Nov'])
+    expect(listedRow($page, $moved))->toMatchArray(['location' => '🇬🇧 London, United Kingdom', 'lastVisit' => 'Last visit: 🇺🇸 Milton · 26 Nov', 'lastVisitTitle' => 'Last visit: 🇺🇸 Milton, United States · 26 Nov 2026, 09:12'])
         ->and(listedRow($page, $stayed))->toMatchArray(['location' => '🇬🇧 London, United Kingdom', 'lastVisit' => null]);
 });
 
