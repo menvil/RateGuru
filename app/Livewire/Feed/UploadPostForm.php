@@ -20,6 +20,9 @@ use App\Models\Tag;
 use App\Models\User;
 use App\Queries\Categories\ActiveCategoriesQuery;
 use App\Services\Media\Exceptions\ImageIngestException;
+use App\Services\Media\Exceptions\MediaToolInterruptedException;
+use App\Services\Media\Exceptions\MediaToolTimedOutException;
+use App\Services\Media\Exceptions\MediaToolUnavailableException;
 use App\Services\Media\Exceptions\VideoIngestException;
 use App\Services\Media\Exceptions\VideoTooLargeException;
 use App\Services\Media\Exceptions\VideoTooLongException;
@@ -27,6 +30,10 @@ use App\Support\AbuseGuards\ActionRateLimiter;
 use App\Support\AbuseGuards\RateLimitKey;
 use App\Support\Games\Play\GameVisitorResolver;
 use App\Support\Import\ImportProviderDetector;
+use App\Support\Import\UrlImportValidator;
+use App\Support\Import\YtDlp;
+use App\Support\Import\YtDlpProbeResult;
+use App\Support\Import\YtDlpSites;
 use App\Support\Posts\PostContentRules;
 use App\Support\Rating\RatingConfigurationManager;
 use App\Support\Settings\ProjectSettingsManager;
@@ -163,7 +170,34 @@ final class UploadPostForm extends Component
 
                 $provider = app(ImportProviderDetector::class)->detect($this->importedImageUrl);
 
-                if ($provider !== 'direct_image') {
+                // A page on one of the sites yt-dlp may take a video from
+                // (RedGifs, Coub, an Instagram reel …): asked first, through
+                // that site's extractor alone. A page with no video it may
+                // take — an Instagram photo post — goes on as any link.
+                $pageVideo = $provider === 'direct_image' ? null : $this->pageVideo($this->importedImageUrl);
+
+                if ($pageVideo !== null) {
+                    $maxSeconds = (int) config('uploads.videos.max_duration_seconds');
+
+                    if ($pageVideo->durationSeconds !== null && $pageVideo->durationSeconds > $maxSeconds) {
+                        $this->submitError = __('ui.upload.error_video_too_long', ['seconds' => $maxSeconds]);
+
+                        return;
+                    }
+
+                    if ($pageVideo->approximateBytes !== null && $pageVideo->approximateBytes > (int) config('uploads.videos.max_kilobytes') * 1024) {
+                        $this->submitError = __('ui.upload.error_video_too_large', ['megabytes' => intdiv((int) config('uploads.videos.max_kilobytes'), 1024)]);
+
+                        return;
+                    }
+
+                    $videoUrl = $this->importedImageUrl;
+                    $imageUrl = null;
+
+                    if (blank($this->sourceUrl)) {
+                        $linkSource = strtok($this->importedImageUrl, '?#') ?: null;
+                    }
+                } elseif ($provider !== 'direct_image') {
                     $preview = app(ImportFromUrlAction::class)->handle($this->importedImageUrl);
                     $videoUrl = $preview->videoUrl;
                     // A link that names no file and is no known site's post may
@@ -298,6 +332,33 @@ final class UploadPostForm extends Component
                     $this->image = null;
                 }
             }
+        }
+    }
+
+    /**
+     * The video yt-dlp finds on a page of one of its sites, or null — a link
+     * to another site, a page with no video, yt-dlp unavailable or failing:
+     * the link then goes on as any link. URL imports must be on, and the link
+     * a public address, before yt-dlp is given it.
+     */
+    private function pageVideo(string $url): ?YtDlpProbeResult
+    {
+        if (app(YtDlpSites::class)->extractorFor($url) === null) {
+            return null;
+        }
+
+        if (! app(ProjectSettingsManager::class)->featureEnabled('allow_url_imports')) {
+            throw new UrlImportDisabledException;
+        }
+
+        app(UrlImportValidator::class)->validate($url);
+
+        try {
+            return app(YtDlp::class)->probe($url);
+        } catch (MediaToolTimedOutException|MediaToolUnavailableException|MediaToolInterruptedException $exception) {
+            report($exception);
+
+            return null;
         }
     }
 

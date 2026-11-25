@@ -565,6 +565,27 @@ The link is kept as the post's source when the author named none. Until it
 is downloaded the asset has no file, which the media audit does not count as
 a missing master.
 
+#### From a site's page, with yt-dlp
+
+A link to a page on one of the sites in `import.ytdlp.sites` (RedGifs,
+YouPorn, Coub, Instagram to begin with; which sites, the project's call) is
+asked of yt-dlp first (`App\Support\Import\YtDlp`): its video's length and
+size are read before anything is downloaded, so a clip that is too long is
+refused while posting. A page with no video it may take — an Instagram photo
+post — goes on as any link. `ImportVideoAssetJob` then downloads the video
+with yt-dlp instead of the plain client: an MP4 of at most 1080 lines,
+`--max-filesize` and `--match-filters duration<=…` at the upload limits,
+joined with the pinned ffmpeg.
+
+yt-dlp opens addresses itself, outside the pinned client, so it is never
+given a link to any other site, and only ever runs with that site's own
+extractor (`--use-extractors`): its generic extractor, which would open any
+address — an internal one included — is never among them. The link must be
+https and a public address first (`UrlImportValidator`). Every run ignores
+user and system configuration, plugins and the cache, takes one video (no
+playlist), and gets the link after `--`. Restricting yt-dlp's network at the
+operating-system level comes on top of this.
+
 How the draft and its processing state appear to its author come later.
 
 ## Responsive media variants

@@ -14,6 +14,22 @@ return [
     // A video downloaded by ImportVideoAssetJob, in the background: up to
     // 100 MB needs far longer than a page or a picture.
     'video_timeout_seconds' => 120,
+
+    // A video taken from a site's page with yt-dlp. Only the sites named
+    // here, each through its own extractor alone (--use-extractors): never
+    // yt-dlp's generic extractor, which would open any address a link gave
+    // it. Adding a site is a line here; which sites, the project's call.
+    'ytdlp' => [
+        'binary' => 'yt-dlp',
+        'probe_timeout_seconds' => 30,
+        'download_timeout_seconds' => 240,
+        'sites' => [
+            'redgifs.com' => 'RedGifs',
+            'youporn.com' => 'YouPorn',
+            'coub.com' => 'Coub',
+            'instagram.com' => 'Instagram',
+        ],
+    ],
     'max_redirects' => 3,
 
     // Bounds how many DNS answers a single A/AAAA lookup is allowed to
