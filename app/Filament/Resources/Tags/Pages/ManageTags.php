@@ -223,6 +223,7 @@ final class ManageTags extends Page
                 'missing' => array_sum(array_map(fn (array $row): int => $row['missing'], $rows)),
             ],
             'translationCenter' => $status->canTranslate() ? ContentTranslationStatus::sectionUrl(ProjectContentSection::Tags) : null,
+            'outdated' => $status->outdated([ProjectContentSection::Tags]),
             'canCreate' => TagResource::canCreate(),
             'canDelete' => $this->actor()->can('delete', new Tag),
             'drawer' => $this->drawer($rows, $status),

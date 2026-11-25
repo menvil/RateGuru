@@ -116,6 +116,12 @@
         @else
             <span class="rg-admin-table__none"><span aria-hidden="true">—</span><span class="rg-admin-sr-only">Nothing missing</span></span>
         @endif
+        @if ($row['outdated'] > 0 && $row['translate'] !== null)
+            {{-- Translations made from English since changed: Translation Center's Needs update, in this language. --}}
+            <a href="{{ \App\Filament\Pages\TranslationCenterPage::getUrl(['locale' => $row['code'], 'mode' => 'outdated']) }}" class="rg-admin-link rg-admin-languages__outdated" data-testid="language-outdated">
+                {{ number_format($row['outdated']) }} to update<span class="rg-admin-sr-only"> in {{ $row['label'] }}</span>
+            </a>
+        @endif
     </div>
 
     <div class="rg-admin-table__cell rg-admin-table__cell--end rg-admin-languages__cell--actions" role="cell">

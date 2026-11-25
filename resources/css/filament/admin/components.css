@@ -8978,6 +8978,16 @@
         font-weight: var(--rg-admin-weight-medium);
     }
 
+    /* Under what a language is missing: how many of its translations need an update, as the way to them. */
+    .rg-admin-languages__outdated {
+        display: block;
+        width: fit-content;
+        margin-top: 2px;
+        font-size: var(--rg-admin-text-caption);
+        line-height: var(--rg-admin-leading-caption);
+        white-space: nowrap;
+    }
+
     .rg-admin-languages__missing {
         display: inline-flex;
         white-space: nowrap;

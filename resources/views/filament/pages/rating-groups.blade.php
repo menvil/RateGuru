@@ -28,6 +28,7 @@
                 <dt class="rg-admin-stat__label">Votes</dt>
                 <dd class="rg-admin-stat__value">{{ number_format($stats['votes']) }}</dd>
             </div>
+            @include('filament.pages.translations.outdated-stat')
         </dl>
     </section>
 

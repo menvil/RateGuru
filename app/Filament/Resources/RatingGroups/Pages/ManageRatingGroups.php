@@ -179,6 +179,7 @@ final class ManageRatingGroups extends Page
                 'votes' => array_sum(array_column($rows, 'votes')),
             ],
             'translationCenter' => $status->canTranslate() ? ContentTranslationStatus::sectionUrl(ProjectContentSection::RatingGroups) : null,
+            'outdated' => $status->outdated([ProjectContentSection::RatingGroups, ProjectContentSection::RatingOptions]),
             'confirmation' => $this->confirming !== null ? ($rows[$this->confirmingId ?? 0] ?? null) : null,
             'confirming' => $this->confirming,
         ];

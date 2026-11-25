@@ -361,10 +361,42 @@ final class ProjectTranslationCatalog
         };
     }
 
+    /**
+     * Every unit of one section, as units() lists them, from one read: the
+     * settings row for project settings and static pages, one query for any
+     * other section.
+     *
+     * @return list<ProjectTranslationUnit>
+     */
+    public function unitsIn(ProjectContentSection $section): array
+    {
+        if (in_array($section, [ProjectContentSection::ProjectSettings, ProjectContentSection::StaticPages], true)) {
+            return array_values(array_filter($this->settingsUnits(ProjectSettings::query()->find(1)), fn (ProjectTranslationUnit $unit): bool => $unit->section === $section));
+        }
+
+        return $this->records($section)->orderBy('id')->get()->flatMap(fn (Model $row): array => $this->rowUnits($section, $row))->values()->all();
+    }
+
     /** The unit with this id among the units of one row, or null. */
     private function unitIn(ProjectContentSection $section, ?Model $row, string $id): ?ProjectTranslationUnit
     {
-        $units = match (true) {
+        foreach ($this->rowUnits($section, $row) as $unit) {
+            if ($unit->id === $id) {
+                return $unit;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * The units of one row of a section.
+     *
+     * @return list<ProjectTranslationUnit>
+     */
+    private function rowUnits(ProjectContentSection $section, ?Model $row): array
+    {
+        return match (true) {
             $section === ProjectContentSection::ProjectSettings => $this->projectSettingUnits($this->settingsAttributes($row)),
             $section === ProjectContentSection::StaticPages => $this->staticPageUnits($row instanceof ProjectSettings ? $row->static_pages : $this->settings->defaults()['static_pages']),
             $row instanceof Category => $this->categoryUnits($row),
@@ -378,14 +410,6 @@ final class ProjectTranslationCatalog
             $row instanceof GameFlowStep => $this->gameFlowStepUnits($row),
             default => [],
         };
-
-        foreach ($units as $unit) {
-            if ($unit->id === $id) {
-                return $unit;
-            }
-        }
-
-        return null;
     }
 
     /**

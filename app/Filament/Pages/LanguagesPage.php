@@ -6,8 +6,10 @@ use App\Actions\Settings\UpdateProjectLocaleSettingsAction;
 use App\Exceptions\Settings\IncompleteLocaleCatalogException;
 use App\Filament\Support\AdminNavigationGroup;
 use App\Filament\Support\TranslationSourceEditor;
+use App\Queries\Translations\OutdatedProjectTranslationsQuery;
 use App\Support\Locale\LocaleManager;
 use App\Support\Translations\ProjectContentSection;
+use App\Support\Translations\ProjectTranslationCatalog;
 use App\Support\Translations\ProjectTranslationCompleteness;
 use App\Support\Translations\ProjectTranslationReport;
 use App\Support\Translations\ProjectTranslationUnit;
@@ -52,7 +54,7 @@ use UnitEnum;
  * language against what is installed and what is offered now, because what
  * the browser sends is not a permission.
  *
- * @phpstan-type LanguageRow array{code: string, flag: string, label: string, native: string, enabled: bool, default: bool, reference: bool, catalog: TranslationCatalogReport, project: ProjectTranslationReport, missing: int, incomplete: bool, search: string, translate: ?string}
+ * @phpstan-type LanguageRow array{code: string, flag: string, label: string, native: string, enabled: bool, default: bool, reference: bool, catalog: TranslationCatalogReport, project: ProjectTranslationReport, missing: int, outdated: int, incomplete: bool, search: string, translate: ?string}
  */
 final class LanguagesPage extends Page
 {
@@ -110,6 +112,12 @@ final class LanguagesPage extends Page
 
     /** @var array<string, ProjectTranslationReport>|null */
     private ?array $projectReports = null;
+
+    /** @var array<string, int>|null */
+    private ?array $outdatedCounts = null;
+
+    /** @var list<ProjectTranslationUnit>|null */
+    private ?array $projectUnits = null;
 
     /** @var array<string, LanguageRow>|null */
     private ?array $rows = null;
@@ -400,6 +408,7 @@ final class LanguagesPage extends Page
             'enabled' => count(app(LocaleManager::class)->enabledCodes()),
             'translated' => $required === 0 ? 100 : intdiv($translated * 100, $required),
             'missing' => array_sum(array_map(fn (array $row): int => $row['missing'], $targets)),
+            'outdated' => array_sum(array_map(fn (array $row): int => $row['outdated'], $targets)),
         ];
     }
 
@@ -518,6 +527,8 @@ final class LanguagesPage extends Page
                 'catalog' => $catalogs[$code],
                 'project' => $projects[$code],
                 'missing' => count($projects[$code]->missing),
+                // Stored translations made from English since changed: Translation Center's Needs update.
+                'outdated' => $this->outdatedCounts()[$code] ?? 0,
                 'incomplete' => ! $catalogs[$code]->isComplete() || ! $projects[$code]->isComplete(),
                 // What the browser's search looks in: English name, native name and code.
                 'search' => mb_strtolower("{$info['label']} {$info['native']} {$code}"),
@@ -546,7 +557,27 @@ final class LanguagesPage extends Page
     /** @return array<string, ProjectTranslationReport> */
     private function projectReports(): array
     {
-        return $this->projectReports ??= app(ProjectTranslationCompleteness::class)->reports(array_keys(app(LocaleManager::class)->supported()));
+        return $this->projectReports ??= app(ProjectTranslationCompleteness::class)->reportsFor($this->projectUnits(), array_keys(app(LocaleManager::class)->supported()));
+    }
+
+    /**
+     * How many stored translations of each installed language need an update.
+     *
+     * @return array<string, int>
+     */
+    private function outdatedCounts(): array
+    {
+        return $this->outdatedCounts ??= app(OutdatedProjectTranslationsQuery::class)->counts($this->projectUnits(), array_values(array_diff(array_keys(app(LocaleManager::class)->supported()), [TranslatableField::REFERENCE_LOCALE])));
+    }
+
+    /**
+     * The project's translatable content, read once for the counts.
+     *
+     * @return list<ProjectTranslationUnit>
+     */
+    private function projectUnits(): array
+    {
+        return $this->projectUnits ??= app(ProjectTranslationCatalog::class)->units();
     }
 
     /**
