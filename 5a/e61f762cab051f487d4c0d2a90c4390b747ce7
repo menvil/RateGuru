@@ -1,0 +1,47 @@
+resources/views/filament/pages/analytics/overview.blade.php
+  s_4b9dc6ab6b25d3::t_d6af8effee2904 147
+docs/design/admin/design-contract.md
+  s_4b9dc6ab6b25d3::t_54dd1d43fada20 1481-1483
+  s_4b9dc6ab6b25d3::t_636cf1de0e3ee9 1554
+resources/css/filament/admin/components.css
+  s_4b9dc6ab6b25d3::t_90e1cccb44df6e 18469-18472,18485-18495
+docs/architecture/analytics.md
+  s_4b9dc6ab6b25d3::t_0e6d5d5467af41 610-616
+app/Filament/Pages/Analytics/AnalyticsView.php
+  s_4b9dc6ab6b25d3::t_9d65762be425d4 122
+  s_4b9dc6ab6b25d3::t_fa425daf74e0fc 113-121,123-124
+app/Filament/Pages/Analytics/OverviewTab.php
+  s_4b9dc6ab6b25d3::t_d2287b8f0b2989 36
+  s_4b9dc6ab6b25d3::t_9a95376cfdc995 37-38
+  s_4b9dc6ab6b25d3::t_58657d035a6551 39-41
+  s_4b9dc6ab6b25d3::t_43c4bac0938926 90
+  s_4b9dc6ab6b25d3::t_19bc919dc5f6ef 291
+  s_4b9dc6ab6b25d3::t_8a3ddfb0155f4f 72-73
+  s_4b9dc6ab6b25d3::t_8e5226e8eb9213 237-238
+  s_4b9dc6ab6b25d3::t_da3cc22974f72f 74-75
+  s_4b9dc6ab6b25d3::t_14dcf7ab475e99 97-104
+tests/Feature/Analytics/GrowthAnalyticsPageTest.php
+  s_4b9dc6ab6b25d3::t_dfcd4e7e47133f 498
+  s_4b9dc6ab6b25d3::t_00ae208056793e 522-541,543-547,549,552-565
+  s_4b9dc6ab6b25d3::t_507d6c86f3ad57 508,510
+docs/admin/analytics.md
+  s_4b9dc6ab6b25d3::t_c98de019abcb06 128-134,136-137
+tests/Browser/AdminAnalyticsBrowserTest.php
+  s_4b9dc6ab6b25d3::t_a1985ed9a30408 154-159,161-164,167-168
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "5ae61f762cab051f487d4c0d2a90c4390b747ce7",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
