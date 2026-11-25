@@ -1,0 +1,22 @@
+tests/Unit/Support/Languages/LanguageCodesTest.php
+  s_4b9dc6ab6b25d3::t_0ee5bd830a519c 9-10,26-33
+  s_4b9dc6ab6b25d3::t_03072688c4f827 34-35
+tests/Feature/Languages/LocalLanguageDetectorTest.php
+  s_4b9dc6ab6b25d3::t_0ee5bd830a519c 40,42
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "dd341964176045bdcd4d99aef440c7741d3ec580",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
