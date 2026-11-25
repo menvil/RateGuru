@@ -1,0 +1,23 @@
+resources/views/livewire/feed/post-drawer-close.blade.php
+  s_4b9dc6ab6b25d3::t_d6ec070f605b68 1-2,12
+resources/views/livewire/feed/post-drawer-content.blade.php
+  s_4b9dc6ab6b25d3::t_d6ec070f605b68 22,48-56,59
+tests/Browser/PostDrawerBrowserTest.php
+  s_4b9dc6ab6b25d3::t_8f37b85af73c37 270-301
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "53dc70a060e889b234fb39d4c717bc26b1eeb1de",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
