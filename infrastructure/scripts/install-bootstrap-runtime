@@ -97,6 +97,21 @@
 # pipeline are never used, and a compliant host performs no network activity
 # at all for rclone.
 #
+# Managed external runtime — yt-dlp: the media import downloads videos from
+# the pages users link through yt-dlp, whose site support changes every few
+# weeks; the Ubuntu 22.04 package is years behind and would break on the
+# first changed site. It is therefore a second RateGuru-managed external
+# runtime under the same contract file and the same rules as rclone: the
+# exact pinned release (YTDLP_* in versions.env), never "latest" and never
+# `yt-dlp -U`. --apply downloads the standalone yt-dlp_linux executable (it
+# carries its own Python, so the host's Python never matters) and the
+# release's SHA2-256SUMS with its detached signature from the official GitHub
+# release, verifies the signature against the committed release-signing key
+# (trusted only through the pinned fingerprint), verifies the executable's
+# checksum, confirms it reports exactly the pinned version, and renames it
+# over the installed binary atomically. Moving the pin is the upgrade path,
+# and on a compliant host there is no network activity for yt-dlp either.
+#
 # Deliberate package decisions:
 #   - Node.js, npm and Composer are intentionally absent: GitHub Actions
 #     builds the immutable application artifact (composer install --no-dev,
@@ -121,6 +136,12 @@
 #     two are development-only validators, wget is unused by the committed
 #     scripts (curl is the contract), and journalctl ships with systemd
 #     anyway. Their absence never fails --check/--verify.
+#   - ffmpeg is required: the application probes uploaded video with ffprobe
+#     and transcodes it, and animated GIFs, with ffmpeg, in its media queue
+#     worker. It comes from the Ubuntu 22.04 (jammy) repository like every
+#     other base package — the 4.4 series there carries H.264/AAC encoding,
+#     GIF decoding and ffprobe's JSON output, which is all the media pipeline
+#     uses — so no external repository or static build is introduced for it.
 #
 # Package post-install side effects (documented, distro-standard, never
 # RateGuru-specific): installing these packages lets their maintainer
@@ -265,6 +286,18 @@ RCLONE_DOWNLOAD_BASE_URL="https://downloads.rclone.org"
 RCLONE_CONTRACT_FILE_DEFAULT="${REPO_ROOT}/infrastructure/config/external-runtimes/versions.env"
 RCLONE_SIGNING_KEY_FILE_DEFAULT="${REPO_ROOT}/infrastructure/config/external-runtimes/rclone-release-signing-key.asc"
 
+# --- Managed external runtime: yt-dlp -----------------------------------------
+
+# The official yt-dlp release origin. A constant, like rclone's: the release
+# is the pinned one, never discovered.
+YTDLP_DOWNLOAD_BASE_URL="https://github.com/yt-dlp/yt-dlp/releases/download"
+
+# The pinned release and its install contract live in the same committed
+# external-runtimes contract as rclone's; the release-signing public key is
+# committed next to it and trusted only after it matches the pinned
+# fingerprint.
+YTDLP_SIGNING_KEY_FILE_DEFAULT="${REPO_ROOT}/infrastructure/config/external-runtimes/yt-dlp-release-signing-key.asc"
+
 # --- Required package contract ----------------------------------------------
 
 # The smallest Ubuntu 22.04 package set supplying the clean-host bootstrap's canonical
@@ -276,7 +309,8 @@ RCLONE_SIGNING_KEY_FILE_DEFAULT="${REPO_ROOT}/infrastructure/config/external-run
 # bind9-dnsutils supplies dig and openssl the openssl CLI: verifying the
 # production mail identity reads public DNS and judges DKIM keys with them, on
 # every run of infrastructure verification, so they are host runtime rather
-# than something a read-only verification may install.
+# than something a read-only verification may install. ffmpeg supplies ffmpeg
+# and ffprobe to the media queue worker (see the header).
 BASE_PACKAGES=(
     acl
     bash
@@ -287,6 +321,7 @@ BASE_PACKAGES=(
     cron
     curl
     diffutils
+    ffmpeg
     findutils
     gnupg
     grep
@@ -348,6 +383,8 @@ REQUIRED_RUNTIME_TOOLS=(
     curl:curl
     cmp:diffutils
     diff:diffutils
+    ffmpeg:ffmpeg
+    ffprobe:ffmpeg
     find:findutils
     gpg:gnupg
     grep:grep
@@ -435,10 +472,12 @@ PROC_ROOT="$(gated_default RATEGURU_BOOTSTRAP_PROC_ROOT /proc)"
 STAT_BIN="$(gated_default RATEGURU_BOOTSTRAP_STAT_BIN stat)"
 RCLONE_CONTRACT_FILE="$(gated_default RATEGURU_BOOTSTRAP_RCLONE_CONTRACT_FILE "${RCLONE_CONTRACT_FILE_DEFAULT}")"
 RCLONE_SIGNING_KEY_FILE="$(gated_default RATEGURU_BOOTSTRAP_RCLONE_KEY_FILE "${RCLONE_SIGNING_KEY_FILE_DEFAULT}")"
+YTDLP_SIGNING_KEY_FILE="$(gated_default RATEGURU_BOOTSTRAP_YTDLP_KEY_FILE "${YTDLP_SIGNING_KEY_FILE_DEFAULT}")"
 
 # rclone_contract_value KEY — the value of the first KEY=VALUE line in the
-# committed external-runtimes contract. Plain text extraction in one awk
-# pass — the contract is never sourced, never eval'd.
+# committed external-runtimes contract, which every managed external runtime
+# (rclone, yt-dlp) shares. Plain text extraction in one awk pass — the
+# contract is never sourced, never eval'd.
 rclone_contract_value() {
     local key="$1"
 
@@ -468,6 +507,27 @@ rclone_contract_valid() {
         && [[ -n "${RCLONE_GROUP}" ]] \
         && [[ "${RCLONE_MODE}" =~ ^0[0-7]{3}$ ]] \
         && [[ "${RCLONE_KEY_FINGERPRINT}" =~ ^[0-9A-F]{40}$ ]]
+}
+
+YTDLP_VERSION="$(rclone_contract_value YTDLP_VERSION || true)"
+YTDLP_ARTIFACT="$(rclone_contract_value YTDLP_ARTIFACT || true)"
+YTDLP_BINARY_PATH="$(rclone_contract_value YTDLP_BINARY || true)"
+YTDLP_OWNER="$(rclone_contract_value YTDLP_OWNER || true)"
+YTDLP_GROUP="$(rclone_contract_value YTDLP_GROUP || true)"
+YTDLP_MODE="$(rclone_contract_value YTDLP_MODE || true)"
+YTDLP_KEY_FINGERPRINT="$(rclone_contract_value YTDLP_RELEASE_SIGNING_FINGERPRINT || true)"
+
+# yt-dlp releases are dated (2026.11.23), with a fourth number for a second
+# release on the same day. Like rclone's, a contract missing or mangling any
+# field fails closed.
+ytdlp_contract_valid() {
+    [[ "${YTDLP_VERSION}" =~ ^[0-9]{4}\.[0-9]{2}\.[0-9]{2}(\.[0-9]+)?$ ]] \
+        && [[ "${YTDLP_ARTIFACT}" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] \
+        && [[ "${YTDLP_BINARY_PATH}" == /* ]] \
+        && [[ -n "${YTDLP_OWNER}" ]] \
+        && [[ -n "${YTDLP_GROUP}" ]] \
+        && [[ "${YTDLP_MODE}" =~ ^0[0-7]{3}$ ]] \
+        && [[ "${YTDLP_KEY_FINGERPRINT}" =~ ^[0-9A-F]{40}$ ]]
 }
 
 PHP_REPO_SOURCES_FILE="${APT_SOURCES_DIR}/rateguru-php.sources"
@@ -766,6 +826,72 @@ rclone_state() {
     printf 'compliant\n'
 }
 
+# ytdlp_reported_version BIN — "2026.11.23", the whole first line of
+# `BIN --version`; empty when the binary cannot report a version at all.
+# The standalone executable unpacks its bundled Python into a temporary
+# directory of its own for the run and removes it afterwards — the only
+# effect asking it for a version has.
+ytdlp_reported_version() {
+    probe_exec "$1" --version 2>/dev/null | head -n 1 | tr -d '[:space:]'
+}
+
+# ytdlp_state — classifies the installed yt-dlp against the pinned contract,
+# in the same terms and the same order as rclone_state: path, owner/group,
+# mode, version. Prints exactly one of:
+#   compliant | absent | foreign:<path> | no-stat | owner:<o>:<g> |
+#   mode:<m> | no-version | version:<v>
+ytdlp_state() {
+    if [[ ! -e "${YTDLP_BINARY_PATH}" ]]; then
+        local found
+        found="$(tool_path yt-dlp || true)"
+
+        if [[ -n "${found}" ]]; then
+            printf 'foreign:%s\n' "${found}"
+        else
+            printf 'absent\n'
+        fi
+
+        return 0
+    fi
+
+    local probe owner group mode
+    if ! probe="$(rclone_stat_probe "${YTDLP_BINARY_PATH}")"; then
+        printf 'no-stat\n'
+
+        return 0
+    fi
+    IFS='|' read -r owner group mode <<<"${probe}"
+
+    if [[ "${owner}" != "${YTDLP_OWNER}" ]] || [[ "${group}" != "${YTDLP_GROUP}" ]]; then
+        printf 'owner:%s:%s\n' "${owner}" "${group}"
+
+        return 0
+    fi
+
+    if (( 8#${mode} != 8#${YTDLP_MODE} )); then
+        printf 'mode:%s\n' "${mode}"
+
+        return 0
+    fi
+
+    local version
+    version="$(ytdlp_reported_version "${YTDLP_BINARY_PATH}" || true)"
+
+    if [[ ! "${version}" =~ ^[0-9]{4}\.[0-9]{2}\.[0-9]{2}(\.[0-9]+)?$ ]]; then
+        printf 'no-version\n'
+
+        return 0
+    fi
+
+    if [[ "${version}" != "${YTDLP_VERSION}" ]]; then
+        printf 'version:%s\n' "${version}"
+
+        return 0
+    fi
+
+    printf 'compliant\n'
+}
+
 # --- Report sections (shared by --check and --verify) -----------------------
 
 report_host() {
@@ -870,6 +996,11 @@ report_packages() {
 report_external_runtime() {
     section "EXTERNAL RUNTIME"
 
+    report_rclone_runtime
+    report_ytdlp_runtime
+}
+
+report_rclone_runtime() {
     if ! rclone_contract_valid; then
         item CONFLICT "rclone" "external-runtimes contract unreadable or incomplete: ${RCLONE_CONTRACT_FILE}" \
             "restore the committed contract from the repository — never editable on the host"
@@ -914,6 +1045,55 @@ report_external_runtime() {
             ;;
         *)
             fail "internal: unknown rclone state: ${state}"
+            ;;
+    esac
+}
+
+report_ytdlp_runtime() {
+    if ! ytdlp_contract_valid; then
+        item CONFLICT "yt-dlp" "external-runtimes contract unreadable or incomplete: ${RCLONE_CONTRACT_FILE}" \
+            "restore the committed contract from the repository — never editable on the host"
+
+        return 0
+    fi
+
+    local state
+    state="$(ytdlp_state)"
+
+    case "${state}" in
+        compliant)
+            item PASS "yt-dlp" "${YTDLP_VERSION}, ${YTDLP_BINARY_PATH}, ${YTDLP_OWNER}:${YTDLP_GROUP} ${YTDLP_MODE} (managed external runtime)"
+            ;;
+        absent)
+            item MISSING "yt-dlp" "${YTDLP_BINARY_PATH} absent" \
+                "install verified yt-dlp ${YTDLP_VERSION}"
+            ;;
+        foreign:*)
+            item CONFLICT "yt-dlp" "found at ${state#foreign:}, but the managed binary path is ${YTDLP_BINARY_PATH}" \
+                "install verified yt-dlp ${YTDLP_VERSION} at ${YTDLP_BINARY_PATH} (the unexpected copy is never touched)"
+            ;;
+        no-stat)
+            item CONFLICT "yt-dlp" "cannot stat ${YTDLP_BINARY_PATH}" \
+                "investigate the binary manually, then re-run --apply"
+            ;;
+        owner:*)
+            item CONFLICT "yt-dlp" "owned by ${state#owner:}, required ${YTDLP_OWNER}:${YTDLP_GROUP}" \
+                "replace with verified yt-dlp ${YTDLP_VERSION}"
+            ;;
+        mode:*)
+            item CONFLICT "yt-dlp" "mode ${state#mode:}, required ${YTDLP_MODE}" \
+                "replace with verified yt-dlp ${YTDLP_VERSION}"
+            ;;
+        no-version)
+            item CONFLICT "yt-dlp" "${YTDLP_BINARY_PATH} cannot report a version" \
+                "replace with verified yt-dlp ${YTDLP_VERSION}"
+            ;;
+        version:*)
+            item CONFLICT "yt-dlp" "${state#version:} installed, required ${YTDLP_VERSION}" \
+                "replace with verified yt-dlp ${YTDLP_VERSION}"
+            ;;
+        *)
+            fail "internal: unknown yt-dlp state: ${state}"
             ;;
     esac
 }
@@ -1590,6 +1770,142 @@ reconcile_rclone() {
     action "rclone v${RCLONE_VERSION} installed at ${RCLONE_BINARY_PATH} (${RCLONE_OWNER}:${RCLONE_GROUP} ${RCLONE_MODE})"
 }
 
+YTDLP_WORKDIR=""
+
+# The same trap discipline as rclone's work directory: only the process that
+# owns the trap removes it.
+cleanup_ytdlp_workdir() {
+    [[ "${BASHPID:-$$}" == "$$" ]] || return 0
+    [[ -n "${YTDLP_WORKDIR}" ]] || return 0
+
+    rm -rf -- "${YTDLP_WORKDIR}"
+    YTDLP_WORKDIR=""
+}
+
+# fetch_ytdlp_file URL DST — HTTPS-only download from the official yt-dlp
+# release origin; GitHub answers a release asset with a redirect to its own
+# object storage, which --proto keeps on HTTPS.
+fetch_ytdlp_file() {
+    local url="$1" dst="$2"
+
+    probe_exec "${CURL_BIN}" --fail --silent --show-error --location \
+        --proto '=https' --tlsv1.2 --max-time 300 \
+        --output "${dst}" -- "${url}" \
+        || fail "yt-dlp: cannot download ${url}"
+}
+
+# reconcile_ytdlp — idempotent, fail-closed convergence of the managed yt-dlp
+# onto the pinned contract, the way reconcile_rclone converges rclone:
+#   - compliant -> no network request, no download, no file replacement;
+#   - anything else -> download the pinned standalone executable, the
+#     release's SHA2-256SUMS and its detached signature; verify the signature
+#     against the committed release-signing key (accepted only after the key
+#     matches the pinned fingerprint), verify the executable's checksum,
+#     confirm it reports exactly the pinned version, then stage it with final
+#     ownership/mode beside the destination and rename it into place. The
+#     installed binary is untouched until that rename.
+# `yt-dlp -U` is never invoked: the pin is the only way a version changes.
+reconcile_ytdlp() {
+    ytdlp_contract_valid \
+        || fail "yt-dlp: external-runtimes contract unreadable or incomplete: ${RCLONE_CONTRACT_FILE}"
+
+    local state
+    state="$(ytdlp_state)"
+
+    if [[ "${state}" == compliant ]]; then
+        action "yt-dlp ${YTDLP_VERSION} already installed at ${YTDLP_BINARY_PATH} — nothing to do"
+
+        return 0
+    fi
+
+    action "yt-dlp requires reconciliation (state: ${state}) — installing verified ${YTDLP_VERSION}"
+
+    tool_available "${CURL_BIN}" \
+        || fail "yt-dlp: curl unavailable — the bootstrap tooling must be installed first"
+    tool_available "${GPG_BIN}" \
+        || fail "yt-dlp: gpg unavailable — the bootstrap tooling must be installed first"
+
+    [[ -r "${YTDLP_SIGNING_KEY_FILE}" ]] \
+        || fail "yt-dlp: committed release-signing key not readable: ${YTDLP_SIGNING_KEY_FILE}"
+
+    YTDLP_WORKDIR="$(mktemp -d)" || fail "yt-dlp: cannot create work directory"
+    trap cleanup_ytdlp_workdir EXIT
+
+    local workdir="${YTDLP_WORKDIR}"
+    local release_url="${YTDLP_DOWNLOAD_BASE_URL}/${YTDLP_VERSION}"
+
+    action "yt-dlp: downloading ${YTDLP_ARTIFACT}, SHA2-256SUMS and its signature from ${release_url}"
+
+    fetch_ytdlp_file "${release_url}/${YTDLP_ARTIFACT}" "${workdir}/${YTDLP_ARTIFACT}"
+    fetch_ytdlp_file "${release_url}/SHA2-256SUMS" "${workdir}/SHA2-256SUMS"
+    fetch_ytdlp_file "${release_url}/SHA2-256SUMS.sig" "${workdir}/SHA2-256SUMS.sig"
+
+    # Trusted only through the pinned fingerprint, in a private GNUPGHOME —
+    # exactly as rclone's key is.
+    install -d -m 0700 -- "${workdir}/gnupg" || fail "yt-dlp: cannot create gpg work home"
+
+    GNUPGHOME="${workdir}/gnupg" probe_exec "${GPG_BIN}" --batch --yes --dearmor \
+        --output "${workdir}/signing-key.gpg" "${YTDLP_SIGNING_KEY_FILE}" 2>/dev/null \
+        || fail "yt-dlp: committed release-signing key is not a valid OpenPGP key"
+
+    keyring_matches_pin "${workdir}/signing-key.gpg" "${YTDLP_KEY_FINGERPRINT}" \
+        || fail "yt-dlp: committed release-signing key does not match the pinned fingerprint ${YTDLP_KEY_FINGERPRINT} — refusing to trust it"
+
+    # The signature is detached: --verify checks it over the SHA2-256SUMS
+    # bytes against the pin-validated keyring alone. A signature by any other
+    # key, or over any other content, fails closed.
+    GNUPGHOME="${workdir}/gnupg" probe_exec "${GPG_BIN}" --batch \
+        --no-default-keyring --keyring "${workdir}/signing-key.gpg" \
+        --verify "${workdir}/SHA2-256SUMS.sig" "${workdir}/SHA2-256SUMS" 2>/dev/null \
+        || fail "yt-dlp: SHA2-256SUMS signature verification failed against the pinned release-signing key"
+
+    local expected_sha actual_sha
+    expected_sha="$(awk -v name="${YTDLP_ARTIFACT}" '$2 == name { print $1; exit }' "${workdir}/SHA2-256SUMS")"
+
+    [[ "${expected_sha}" =~ ^[0-9a-f]{64}$ ]] \
+        || fail "yt-dlp: verified SHA2-256SUMS carries no usable digest for ${YTDLP_ARTIFACT}"
+
+    actual_sha="$(sha256sum "${workdir}/${YTDLP_ARTIFACT}" | awk '{ print $1 }')"
+
+    [[ "${actual_sha}" == "${expected_sha}" ]] \
+        || fail "yt-dlp: checksum mismatch for ${YTDLP_ARTIFACT}: expected ${expected_sha}, got ${actual_sha}"
+
+    action "yt-dlp: signature and checksum verified"
+
+    local candidate="${workdir}/${YTDLP_ARTIFACT}"
+
+    # No `--` separator: BSD chmod (local test hosts) rejects it, and the
+    # candidate path is always inside this run's own work directory.
+    chmod 0755 "${candidate}" || fail "yt-dlp: cannot mark the downloaded executable executable"
+
+    local candidate_version
+    candidate_version="$(ytdlp_reported_version "${candidate}" || true)"
+
+    [[ "${candidate_version}" == "${YTDLP_VERSION}" ]] \
+        || fail "yt-dlp: downloaded executable reports ${candidate_version:-no version}, expected ${YTDLP_VERSION}"
+
+    local staged
+    staged="$(mktemp "${YTDLP_BINARY_PATH}.XXXXXX")" || fail "yt-dlp: cannot stage the candidate"
+
+    if ! install -m "${YTDLP_MODE}" -o "${YTDLP_OWNER}" -g "${YTDLP_GROUP}" -- "${candidate}" "${staged}"; then
+        rm -f -- "${staged}"
+        fail "yt-dlp: cannot stage the verified binary with final ownership"
+    fi
+
+    if ! mv -f -- "${staged}" "${YTDLP_BINARY_PATH}"; then
+        rm -f -- "${staged}"
+        fail "yt-dlp: cannot install ${YTDLP_BINARY_PATH}"
+    fi
+
+    cleanup_ytdlp_workdir
+
+    state="$(ytdlp_state)"
+    [[ "${state}" == compliant ]] \
+        || fail "yt-dlp: post-install verification failed (state: ${state})"
+
+    action "yt-dlp ${YTDLP_VERSION} installed at ${YTDLP_BINARY_PATH} (${YTDLP_OWNER}:${YTDLP_GROUP} ${YTDLP_MODE})"
+}
+
 # reconcile_php_security_floor — PHP below PHP_MIN_VERSION is upgraded to what
 # its repository offers: the installed packages of PHP_PACKAGES and nothing
 # else (--only-upgrade installs nothing new; apt brings along what they
@@ -1797,6 +2113,9 @@ perform_apply() {
     # After the package phase, so unzip exists on a clean host. Never an apt
     # action: rclone converges through the verified-download path only.
     reconcile_rclone
+
+    # The same verified-download path, for the media import's downloader.
+    reconcile_ytdlp
 
     action "apply finished — running the full contract verification"
 

@@ -48,7 +48,7 @@ function bootstrapRuntimeScratchDir(): string
 {
     $dir = sys_get_temp_dir().'/bootstrap-runtime-'.uniqid('', true).'-'.getmypid();
 
-    foreach (['', '/bin', '/fs', '/fs/usr-bin', '/tools', '/staged', '/log', '/apt/sources.list.d', '/keyrings'] as $sub) {
+    foreach (['', '/bin', '/fs', '/fs/usr-bin', '/fs/usr-local-bin', '/tools', '/staged', '/log', '/apt/sources.list.d', '/keyrings'] as $sub) {
         expect(@mkdir($dir.$sub, 0o755, true))->toBeTrue("could not create scratch directory: {$dir}{$sub}");
     }
 
@@ -103,7 +103,7 @@ function bootstrapRuntimeRequiredPackages(): array
 {
     $base = [
         'acl', 'bash', 'bind9-dnsutils', 'ca-certificates', 'certbot', 'coreutils', 'cron', 'curl',
-        'diffutils', 'findutils', 'gnupg', 'grep', 'gzip', 'hostname',
+        'diffutils', 'ffmpeg', 'findutils', 'gnupg', 'grep', 'gzip', 'hostname',
         'iproute2', 'jq', 'libc-bin', 'mawk', 'nginx', 'openssh-server', 'openssl',
         'passwd', 'procps', 'redis-server', 'rsync', 'sed', 'sudo',
         'supervisor', 'tar', 'unzip', 'util-linux',
@@ -139,7 +139,7 @@ function bootstrapRuntimeAllTools(): array
 {
     return [
         'apt-get', 'dpkg',
-        'setfacl', 'getfacl', 'certbot', 'cron', 'curl', 'cmp', 'diff', 'find',
+        'setfacl', 'getfacl', 'certbot', 'cron', 'curl', 'cmp', 'diff', 'ffmpeg', 'ffprobe', 'find',
         'gpg', 'grep', 'gzip', 'hostname', 'ss', 'ip', 'jq', 'dig', 'openssl', 'getent',
         'awk', 'nginx', 'sshd', 'useradd', 'redis-server',
         'rsync', 'sed', 'sudo', 'visudo', 'supervisord', 'tar', 'flock',
@@ -216,6 +216,86 @@ function bootstrapRuntimeCurrentGroup(): string
 function bootstrapRuntimeRcloneArchiveContent(array $options): string
 {
     return 'RCLONE-ARCHIVE:v'.bootstrapRuntimeFixtureRcloneVersion($options);
+}
+
+function bootstrapRuntimeYtDlpFingerprint(): string
+{
+    return 'AC0CBBE6848D6A873464AF4E57CF65933B5A7581';
+}
+
+/**
+ * The fingerprint of every primary key in a committed public key file, as
+ * the real gpg reads it — the installer's own acceptance test for committed
+ * key material. Null when gpg is not on this machine (it always is on the
+ * Ubuntu CI runners).
+ *
+ * @return list<string>|null
+ */
+function bootstrapRuntimeKeyPrimaryFingerprints(string $keyPath): ?array
+{
+    $gpg = trim((string) shell_exec('command -v gpg'));
+
+    if ($gpg === '') {
+        return null;
+    }
+
+    exec($gpg.' --batch --show-keys --with-colons '.escapeshellarg($keyPath).' 2>/dev/null', $lines, $status);
+    expect($status)->toBe(0, "{$keyPath} is not a valid OpenPGP key");
+
+    $fingerprints = [];
+    $expectFpr = false;
+
+    foreach ($lines as $line) {
+        $fields = explode(':', $line);
+
+        if ($fields[0] === 'pub') {
+            $expectFpr = true;
+
+            continue;
+        }
+
+        if ($fields[0] === 'fpr' && $expectFpr) {
+            $fingerprints[] = $fields[9];
+            $expectFpr = false;
+        }
+    }
+
+    return $fingerprints;
+}
+
+/**
+ * The yt-dlp version a fixture simulates — the committed pin unless a test
+ * deliberately moves it.
+ *
+ * @param  array<string, mixed>  $options
+ */
+function bootstrapRuntimeFixtureYtDlpVersion(array $options): string
+{
+    return $options['ytdlpContractVersion'] ?? bootstrapRuntimeCommittedRcloneContract()['YTDLP_VERSION'];
+}
+
+/**
+ * The bytes the curl stub serves as the pinned standalone executable: a stub
+ * that logs its invocations and reports a version — the pinned one unless a
+ * test makes the download lie. Its genuine SHA256 is what the fixture
+ * SHA2-256SUMS carries, so checksum verification is exercised for real.
+ *
+ * @param  array<string, mixed>  $options
+ */
+function bootstrapRuntimeYtDlpArtifactContent(array $options): string
+{
+    $reported = $options['ytdlpDownloadedVersion'] ?? bootstrapRuntimeFixtureYtDlpVersion($options);
+
+    return implode("\n", [
+        '#!/bin/bash',
+        '# YTDLP-DOWNLOADED-EXECUTABLE',
+        'printf \'yt-dlp %s\n\' "$*" >> "${STUB_LOG}/yt-dlp.log"',
+        'if [[ "$1" == "--version" ]]; then',
+        "    printf '%s\\n' '{$reported}'",
+        '    exit 0',
+        'fi',
+        'exit 1',
+    ])."\n";
 }
 
 /**
@@ -337,6 +417,7 @@ function bootstrapRuntimeWriteHostFiles(string $scratch, array $options): void
     file_put_contents($scratch.'/fs/dpkg-installed.txt', implode("\n", $installed).($installed === [] ? '' : "\n"));
 
     bootstrapRuntimeWriteRcloneFixture($scratch, $options);
+    bootstrapRuntimeWriteYtDlpFixture($scratch, $options);
 
     // The running nginx master: its PID file and its executable as the kernel
     // shows it — the installed binary, or one an upgrade has replaced.
@@ -426,6 +507,60 @@ function bootstrapRuntimeWriteRcloneFixture(string $scratch, array $options): vo
         $scratch.'/fs/root-config-rclone/rclone.conf',
         "[b2]\ntype = b2\naccount = SECRET-B2-ACCOUNT-SENTINEL\nkey = SECRET-B2-KEY-SENTINEL\n",
     );
+}
+
+/**
+ * The managed yt-dlp landscape, the way the rclone fixture builds rclone's:
+ * its rows in the shared contract, a marker signing key, the SHA2-256SUMS
+ * the curl stub serves, and the canonical binary in whatever state the
+ * scenario needs. Every invocation of the installed binary is logged, so a
+ * test can prove it is only ever asked for --version — never `-U`.
+ *
+ * @param  array<string, mixed>  $options
+ */
+function bootstrapRuntimeWriteYtDlpFixture(string $scratch, array $options): void
+{
+    $version = bootstrapRuntimeFixtureYtDlpVersion($options);
+
+    file_put_contents($scratch.'/fs/external-runtimes.env', implode("\n", [
+        'YTDLP_VERSION='.$version,
+        'YTDLP_ARTIFACT=yt-dlp_linux',
+        'YTDLP_BINARY='.$scratch.'/fs/usr-local-bin/yt-dlp',
+        'YTDLP_OWNER='.($options['ytdlpOwner'] ?? bootstrapRuntimeCurrentUser()),
+        'YTDLP_GROUP='.($options['ytdlpGroup'] ?? bootstrapRuntimeCurrentGroup()),
+        'YTDLP_MODE=0755',
+        'YTDLP_RELEASE_SIGNING_FINGERPRINT='.bootstrapRuntimeYtDlpFingerprint(),
+    ])."\n", FILE_APPEND);
+
+    file_put_contents($scratch.'/fs/yt-dlp-release-signing-key.asc', "YTDLP-SIGNING-KEY\n");
+
+    // A row for another artifact of the same release proves the digest is
+    // picked by exact artifact name.
+    $digest = $options['ytdlpSumsDigest'] ?? hash('sha256', bootstrapRuntimeYtDlpArtifactContent($options));
+    file_put_contents($scratch.'/fs/ytdlp-sums.txt', implode("\n", [
+        str_repeat('0', 64).'  yt-dlp_linux_aarch64',
+        "{$digest}  yt-dlp_linux",
+    ])."\n");
+
+    $installedState = $options['ytdlpInstalled'] ?? 'compliant';
+
+    if ($installedState !== 'absent') {
+        $reported = $installedState === 'compliant' ? $version : $installedState;
+        $versionLine = $installedState === 'broken'
+            ? "    printf 'garbage without a version\\n'"
+            : "    printf '%s\\n' '{$reported}'";
+
+        file_put_contents($scratch.'/fs/usr-local-bin/yt-dlp', implode("\n", [
+            '#!/bin/bash',
+            'printf \'yt-dlp %s\n\' "$*" >> "${STUB_LOG}/yt-dlp.log"',
+            'if [[ "$1" == "--version" ]]; then',
+            $versionLine,
+            '    exit 0',
+            'fi',
+            'exit 1',
+        ])."\n");
+        chmod($scratch.'/fs/usr-local-bin/yt-dlp', intval($options['ytdlpFileMode'] ?? '0755', 8));
+    }
 }
 
 /**
@@ -683,6 +818,20 @@ function bootstrapRuntimeWriteMutationStubs(string $scratch, array $options): vo
             printf '%s' "${STUB_RCLONE_ARCHIVE_CONTENT}" > "${out}"
             exit 0
         fi
+        if [[ "${url}" == *"github.com/yt-dlp/yt-dlp/releases/download/"* ]]; then
+            if [[ "${url}" == *SHA2-256SUMS.sig ]]; then
+                printf 'DETACHED-SIGNATURE-BY:%s\n' "${STUB_YTDLP_SIGNER}" > "${out}"
+                exit 0
+            fi
+            if [[ "${url}" == *SHA2-256SUMS ]]; then
+                while IFS= read -r line; do
+                    printf '%s\n' "${line}"
+                done < "${STUB_YTDLP_SUMS_FILE}" > "${out}"
+                exit 0
+            fi
+            printf '%s' "${STUB_YTDLP_ARTIFACT_CONTENT}" > "${out}"
+            exit 0
+        fi
         printf 'KEY-FROM:%s' "${url}" > "${out}"
         exit 0
         STUB;
@@ -744,6 +893,25 @@ function bootstrapRuntimeWriteMutationStubs(string $scratch, array $options): vo
             fi
             exit 0
         fi
+        # --verify SIG DATA models a detached signature: it holds only when
+        # the keyring is the yt-dlp signing-key marker and the signature
+        # claims the release signer.
+        if [[ " $* " == *" --verify "* ]]; then
+            keyring=""
+            prev=""
+            for arg in "$@"; do
+                if [[ "${prev}" == "--keyring" ]]; then
+                    keyring="${arg}"
+                fi
+                prev="${arg}"
+            done
+            sig="${@: -2:1}"
+            if [[ ! -f "${keyring}" || "$(<"${keyring}")" != *YTDLP-SIGNING-KEY* ]]; then
+                exit 2
+            fi
+            [[ "$(<"${sig}")" == "DETACHED-SIGNATURE-BY:YTDLP-RELEASE" ]] || exit 1
+            exit 0
+        fi
         if [[ " $* " == *" --show-keys "* ]]; then
             keyfile="${!#}"
             content="$(<"${keyfile}")"
@@ -751,6 +919,7 @@ function bootstrapRuntimeWriteMutationStubs(string $scratch, array $options): vo
             [[ "${content}" == *keyserver.ubuntu.com* ]] && fpr="${STUB_FPR_PHP}"
             [[ "${content}" == *postgresql.org* ]] && fpr="${STUB_FPR_PGDG}"
             [[ "${content}" == *RCLONE-SIGNING-KEY* ]] && fpr="${STUB_FPR_RCLONE}"
+            [[ "${content}" == *YTDLP-SIGNING-KEY* ]] && fpr="${STUB_FPR_YTDLP}"
             if [[ -z "${fpr}" ]]; then
                 exit 2
             fi
@@ -832,6 +1001,16 @@ function bootstrapRuntimeWriteMutationStubs(string $scratch, array $options): vo
  *   fprRclone:       fingerprint the gpg stub reports for the signing key
  *   rcloneExtractedVersion: version the extracted binary reports
  *   rcloneOmitBinary: bool — the archive extracts without an rclone binary
+ *   ytdlpInstalled:  'compliant' | 'absent' | 'broken' | '<YYYY.MM.DD>' — the
+ *                    canonical managed yt-dlp's state (default compliant)
+ *   ytdlpContractVersion: pinned version the fixture contract carries
+ *                    (default: the committed pin)
+ *   ytdlpOwner/ytdlpGroup/ytdlpFileMode: as for rclone
+ *   ytdlpSumsDigest: digest SHA2-256SUMS carries for yt-dlp_linux (default:
+ *                    the genuine hash of the served executable)
+ *   ytdlpBadSignature: bool — the detached signature claims an unknown signer
+ *   fprYtDlp:        fingerprint the gpg stub reports for the yt-dlp key
+ *   ytdlpDownloadedVersion: version the downloaded executable reports
  *
  * @param  array<string, mixed>  $options
  * @return array<string, string>
@@ -869,6 +1048,7 @@ function bootstrapRuntimeFixture(string $scratch, array $options = []): array
         'RATEGURU_BOOTSTRAP_STAT_BIN' => $scratch.'/bin/stat',
         'RATEGURU_BOOTSTRAP_RCLONE_CONTRACT_FILE' => $scratch.'/fs/external-runtimes.env',
         'RATEGURU_BOOTSTRAP_RCLONE_KEY_FILE' => $scratch.'/fs/rclone-release-signing-key.asc',
+        'RATEGURU_BOOTSTRAP_YTDLP_KEY_FILE' => $scratch.'/fs/yt-dlp-release-signing-key.asc',
         'STUB_LOG' => $scratch.'/log',
         'STUB_DPKG_STATE' => $scratch.'/fs/dpkg-installed.txt',
         'STUB_REAL_PATH' => getenv('PATH') ?: '/usr/bin:/bin',
@@ -890,6 +1070,10 @@ function bootstrapRuntimeFixture(string $scratch, array $options = []): array
         'STUB_RCLONE_SUMS_SIGNER' => ($options['rcloneBadSignature'] ?? false) ? 'UNKNOWN-KEY' : 'RCLONE-RELEASE',
         'STUB_UNZIP_DIR_NAME' => 'rclone-v'.bootstrapRuntimeFixtureRcloneVersion($options).'-linux-amd64',
         'STUB_EXTRACTED_RCLONE_VERSION' => $options['rcloneExtractedVersion'] ?? 'v'.bootstrapRuntimeFixtureRcloneVersion($options),
+        'STUB_FPR_YTDLP' => $options['fprYtDlp'] ?? bootstrapRuntimeYtDlpFingerprint(),
+        'STUB_YTDLP_ARTIFACT_CONTENT' => bootstrapRuntimeYtDlpArtifactContent($options),
+        'STUB_YTDLP_SUMS_FILE' => $scratch.'/fs/ytdlp-sums.txt',
+        'STUB_YTDLP_SIGNER' => ($options['ytdlpBadSignature'] ?? false) ? 'UNKNOWN-KEY' : 'YTDLP-RELEASE',
     ];
 
     if ($options['rcloneOmitBinary'] ?? false) {
@@ -949,6 +1133,7 @@ function bootstrapRuntimeCleanHostFixture(string $scratch, array $extra = []): a
         'phpRepo' => 'absent',
         'pgdgRepo' => 'absent',
         'rcloneInstalled' => 'absent',
+        'ytdlpInstalled' => 'absent',
     ], $extra));
 }
 
@@ -1896,6 +2081,7 @@ it('is idempotent: a second --apply performs no apt call, no key fetch and no fi
 
         expect($output)->toContain("packages: all {$expected} required packages already installed");
         expect($output)->toContain('rclone v'.bootstrapRuntimeFixtureRcloneVersion([]).' already installed');
+        expect($output)->toContain('yt-dlp '.bootstrapRuntimeFixtureYtDlpVersion([]).' already installed');
 
         expect((string) file_get_contents($scratch.'/log/apt.log'))->toBe('', 'second apply ran apt-get');
         expect((string) file_get_contents($scratch.'/log/curl.log'))->toBe('', 'second apply re-fetched key material or release artifacts');
@@ -2052,14 +2238,19 @@ it('bootstraps a host that genuinely lacks curl and gpg: tooling first, external
         );
 
         // Both keys were fetched only after the tooling existed, and the
-        // rclone release material only after both repositories converged.
+        // rclone release material only after both repositories converged, and
+        // yt-dlp's after rclone's.
         $curlLog = (string) file_get_contents($scratch.'/log/curl.log');
         $curlLines = array_values(array_filter(explode("\n", $curlLog)));
-        expect(count($curlLines))->toBe(4, "unexpected curl activity:\n{$curlLog}");
+        expect(count($curlLines))->toBe(7, "unexpected curl activity:\n{$curlLog}");
         expect($curlLines[0])->toContain('keyserver.ubuntu.com');
         expect($curlLines[1])->toContain('postgresql.org');
         expect($curlLines[2])->toContain('downloads.rclone.org');
         expect($curlLines[3])->toContain('downloads.rclone.org');
+
+        foreach ([4, 5, 6] as $line) {
+            expect($curlLines[$line])->toContain('https://github.com/yt-dlp/yt-dlp/releases/download/');
+        }
     } finally {
         bootstrapRuntimeCleanup($scratch);
     }
@@ -2719,6 +2910,194 @@ it('fails closed when the external-runtimes contract is unreadable or mangled', 
 });
 
 // =============================================================================
+// Managed external runtime: yt-dlp
+// =============================================================================
+
+it('passes the managed yt-dlp check when the pinned standalone executable is present', function () {
+    $scratch = bootstrapRuntimeScratchDir();
+
+    try {
+        $env = bootstrapRuntimeFixture($scratch);
+        [$exit, $output] = bootstrapRuntimeRun(['--check'], $env);
+
+        expect($exit)->toBe(0, "a compliant yt-dlp must satisfy the contract:\n{$output}");
+        expect($output)->toContain('PASS     yt-dlp — '.bootstrapRuntimeFixtureYtDlpVersion([]).', '.$scratch.'/fs/usr-local-bin/yt-dlp');
+        expect($output)->not->toContain('package:yt-dlp');
+    } finally {
+        bootstrapRuntimeCleanup($scratch);
+    }
+});
+
+it('reports a host prepared before yt-dlp as one missing runtime, which --apply installs through signed, checksummed, version-verified material', function () {
+    $scratch = bootstrapRuntimeScratchDir();
+
+    try {
+        // A live host: everything else compliant, yt-dlp never installed.
+        $env = bootstrapRuntimeFixture($scratch, ['ytdlpInstalled' => 'absent']);
+        $version = bootstrapRuntimeFixtureYtDlpVersion([]);
+        $binary = $scratch.'/fs/usr-local-bin/yt-dlp';
+
+        [$exit, $output] = bootstrapRuntimeRun(['--check'], $env);
+
+        expect($exit)->toBe(1);
+        expect($output)->toContain("MISSING  yt-dlp — {$binary} absent");
+        expect($output)->toContain("-> apply: install verified yt-dlp {$version}");
+        expect($output)->toContain("MISSING: 1\n");
+        expect($output)->toContain("CONFLICT: 0\n");
+
+        [$exit, $output] = bootstrapRuntimeRun(['--apply'], $env);
+
+        expect($exit)->toBe(0, "the install must converge and verify:\n{$output}");
+        expect($output)->toContain('yt-dlp requires reconciliation (state: absent)');
+        expect($output)->toContain('yt-dlp: signature and checksum verified');
+        expect($output)->toContain("yt-dlp {$version} installed at {$binary}");
+        expect($output)->toContain("PASS     yt-dlp — {$version}");
+        expect($output)->toContain('HOST RUNTIME CONTRACT: SATISFIED');
+
+        // The installed file is exactly the verified download, with the
+        // contract mode, and no staged copy was left beside it.
+        expect((string) file_get_contents($binary))->toBe(bootstrapRuntimeYtDlpArtifactContent([]));
+        expect(fileperms($binary) & 0o777)->toBe(0o755);
+        expect(glob($binary.'.*') ?: [])->toBe([]);
+
+        // Exactly three HTTPS downloads from the official release, and no apt
+        // activity at all.
+        $curlLines = array_values(array_filter(explode("\n", (string) file_get_contents($scratch.'/log/curl.log'))));
+        $release = "https://github.com/yt-dlp/yt-dlp/releases/download/{$version}";
+        expect(count($curlLines))->toBe(3, 'unexpected download activity');
+        expect($curlLines[0])->toEndWith("-- {$release}/yt-dlp_linux");
+        expect($curlLines[1])->toEndWith("-- {$release}/SHA2-256SUMS");
+        expect($curlLines[2])->toEndWith("-- {$release}/SHA2-256SUMS.sig");
+        expect(is_file($scratch.'/log/apt.log'))->toBeFalse('installing yt-dlp must never touch apt');
+
+        // The binary was only ever asked for its version — never to update itself.
+        foreach (array_filter(explode("\n", (string) file_get_contents($scratch.'/log/yt-dlp.log'))) as $line) {
+            expect($line)->toBe('yt-dlp --version');
+        }
+
+        // A second apply downloads nothing and replaces nothing.
+        file_put_contents($scratch.'/log/curl.log', '');
+
+        [$exit, $output] = bootstrapRuntimeRun(['--apply'], $env);
+
+        expect($exit)->toBe(0, $output);
+        expect($output)->toContain("yt-dlp {$version} already installed");
+        expect((string) file_get_contents($scratch.'/log/curl.log'))->toBe('');
+        expect((string) file_get_contents($binary))->toBe(bootstrapRuntimeYtDlpArtifactContent([]));
+    } finally {
+        bootstrapRuntimeCleanup($scratch);
+    }
+});
+
+it('replaces an outdated yt-dlp once the pin moves', function () {
+    $scratch = bootstrapRuntimeScratchDir();
+
+    try {
+        $env = bootstrapRuntimeFixture($scratch, ['ytdlpInstalled' => '2026.10.01']);
+        $version = bootstrapRuntimeFixtureYtDlpVersion([]);
+
+        [$exit, $output] = bootstrapRuntimeRun(['--check'], $env);
+
+        expect($exit)->toBe(1);
+        expect($output)->toContain("CONFLICT yt-dlp — 2026.10.01 installed, required {$version}");
+        expect($output)->toContain("-> apply: replace with verified yt-dlp {$version}");
+
+        [$exit, $output] = bootstrapRuntimeRun(['--apply'], $env);
+
+        expect($exit)->toBe(0, $output);
+        expect($output)->toContain('yt-dlp requires reconciliation (state: version:2026.10.01)');
+        expect((string) file_get_contents($scratch.'/fs/usr-local-bin/yt-dlp'))->toBe(bootstrapRuntimeYtDlpArtifactContent([]));
+    } finally {
+        bootstrapRuntimeCleanup($scratch);
+    }
+});
+
+it('flags a wrongly owned, wrongly permissioned, misplaced or version-less yt-dlp as CONFLICT', function () {
+    $binary = fn (string $scratch): string => $scratch.'/fs/usr-local-bin/yt-dlp';
+
+    foreach ([
+        'owner' => [['ytdlpOwner' => 'root', 'ytdlpGroup' => 'root'], fn (string $scratch): string => sprintf(
+            'CONFLICT yt-dlp — owned by %s:%s, required root:root',
+            bootstrapRuntimeCurrentUser(),
+            bootstrapRuntimeCurrentGroup(),
+        )],
+        'mode' => [['ytdlpFileMode' => '0700'], fn (): string => 'CONFLICT yt-dlp — mode 700, required 0755'],
+        'version-less' => [['ytdlpInstalled' => 'broken'], fn (string $scratch): string => 'CONFLICT yt-dlp — '.$binary($scratch).' cannot report a version'],
+        'misplaced' => [['ytdlpInstalled' => 'absent'], fn (string $scratch): string => sprintf(
+            'CONFLICT yt-dlp — found at %s, but the managed binary path is %s',
+            $scratch.'/tools/yt-dlp',
+            $binary($scratch),
+        )],
+    ] as $case => [$options, $expected]) {
+        $scratch = bootstrapRuntimeScratchDir();
+
+        try {
+            $env = bootstrapRuntimeFixture($scratch, $options);
+
+            if ($case === 'misplaced') {
+                bootstrapRuntimeWriteStub($scratch.'/tools/yt-dlp', "#!/bin/bash\nexit 0\n");
+            }
+
+            [$exit, $output] = bootstrapRuntimeRun(['--check'], $env);
+
+            expect($exit)->toBe(1, $case);
+            expect($output)->toContain($expected($scratch));
+        } finally {
+            bootstrapRuntimeCleanup($scratch);
+        }
+    }
+});
+
+it('leaves the working yt-dlp untouched, naming the step, when the download, signature, key, checksum or reported version fails', function () {
+    $version = bootstrapRuntimeFixtureYtDlpVersion([]);
+
+    foreach ([
+        'download failure' => [['curlFailPattern' => 'github.com/yt-dlp'], 'cannot download'],
+        'signature by another key' => [['ytdlpBadSignature' => true], 'SHA2-256SUMS signature verification failed'],
+        'signing key off the pin' => [['fprYtDlp' => str_repeat('DEADBEEF', 5)], 'does not match the pinned fingerprint '.bootstrapRuntimeYtDlpFingerprint()],
+        'checksum mismatch' => [['ytdlpSumsDigest' => hash('sha256', 'not-the-executable')], 'checksum mismatch for yt-dlp_linux'],
+        'download reports another version' => [['ytdlpDownloadedVersion' => '2026.01.01'], "downloaded executable reports 2026.01.01, expected {$version}"],
+    ] as $case => [$breakage, $message]) {
+        $scratch = bootstrapRuntimeScratchDir();
+
+        try {
+            $env = bootstrapRuntimeFixture($scratch, array_merge(['ytdlpInstalled' => '2026.10.01'], $breakage));
+            $binary = $scratch.'/fs/usr-local-bin/yt-dlp';
+            $binaryBefore = (string) file_get_contents($binary);
+
+            [$exit, $output] = bootstrapRuntimeRun(['--apply'], $env);
+
+            expect($exit)->toBe(1, "{$case} must abort the apply:\n{$output}");
+            expect($output)->toContain('ERROR: yt-dlp:')->toContain($message);
+            expect((string) file_get_contents($binary))->toBe($binaryBefore, "{$case}: the working binary was modified");
+            expect(glob($binary.'.*') ?: [])->toBe([], "{$case}: a staged candidate was left behind");
+        } finally {
+            bootstrapRuntimeCleanup($scratch);
+        }
+    }
+});
+
+it('fails closed when the yt-dlp rows of the contract are missing or mangled', function () {
+    $scratch = bootstrapRuntimeScratchDir();
+
+    try {
+        $env = bootstrapRuntimeFixture($scratch);
+        $contract = $scratch.'/fs/external-runtimes.env';
+        file_put_contents($contract, (string) preg_replace('/^YTDLP_VERSION=.*$/m', 'YTDLP_VERSION=latest', (string) file_get_contents($contract)));
+
+        [$exit, $output] = bootstrapRuntimeRun(['--check'], $env);
+        expect($exit)->toBe(1);
+        expect($output)->toContain('CONFLICT yt-dlp — external-runtimes contract unreadable or incomplete');
+
+        [$exit, $output] = bootstrapRuntimeRun(['--apply'], $env);
+        expect($exit)->toBe(1);
+        expect($output)->toContain('ERROR: yt-dlp: external-runtimes contract unreadable or incomplete');
+    } finally {
+        bootstrapRuntimeCleanup($scratch);
+    }
+});
+
+// =============================================================================
 // Security posture
 // =============================================================================
 
@@ -3004,37 +3383,54 @@ it('commits the rclone release-signing public key holding exactly the pinned fin
     // With gpg available (always, on the Ubuntu CI runners), apply the
     // installer's own acceptance to the committed material: exactly one
     // primary key whose fingerprint equals the pin.
-    $gpg = trim((string) shell_exec('command -v gpg'));
+    $fingerprints = bootstrapRuntimeKeyPrimaryFingerprints($keyPath);
 
-    if ($gpg === '') {
+    if ($fingerprints === null) {
         return;
     }
 
-    exec($gpg.' --batch --show-keys --with-colons '.escapeshellarg($keyPath).' 2>/dev/null', $lines, $status);
-    expect($status)->toBe(0, 'the committed key is not a valid OpenPGP key');
+    expect($fingerprints)->toBe([bootstrapRuntimeRcloneFingerprint()], 'the committed key must hold exactly one primary key, the pinned one');
+});
 
-    $primaries = 0;
-    $fingerprint = null;
-    $expectFpr = false;
+it('commits the yt-dlp install contract and a release-signing key holding exactly the pinned fingerprint', function () {
+    $contract = bootstrapRuntimeCommittedRcloneContract();
 
-    foreach ($lines as $line) {
-        $fields = explode(':', $line);
+    // The version is the contract's own; shape and the security-critical
+    // pins are what this test freezes.
+    expect($contract['YTDLP_VERSION'] ?? null)->toMatch('/^\d{4}\.\d{2}\.\d{2}(\.\d+)?$/');
+    expect($contract['YTDLP_ARTIFACT'] ?? null)->toBe('yt-dlp_linux');
+    expect($contract['YTDLP_BINARY'] ?? null)->toBe('/usr/local/bin/yt-dlp');
+    expect($contract['YTDLP_OWNER'] ?? null)->toBe('root');
+    expect($contract['YTDLP_GROUP'] ?? null)->toBe('root');
+    expect($contract['YTDLP_MODE'] ?? null)->toBe('0755');
+    expect($contract['YTDLP_RELEASE_SIGNING_FINGERPRINT'] ?? null)->toBe(bootstrapRuntimeYtDlpFingerprint());
 
-        if ($fields[0] === 'pub') {
-            $primaries++;
-            $expectFpr = true;
+    $keyPath = base_path('infrastructure/config/external-runtimes/yt-dlp-release-signing-key.asc');
+    $key = File::get($keyPath);
 
-            continue;
-        }
+    expect($key)->toStartWith('-----BEGIN PGP PUBLIC KEY BLOCK-----');
+    expect(trim($key))->toEndWith('-----END PGP PUBLIC KEY BLOCK-----');
 
-        if ($fields[0] === 'fpr' && $expectFpr) {
-            $fingerprint ??= $fields[9];
-            $expectFpr = false;
-        }
+    $fingerprints = bootstrapRuntimeKeyPrimaryFingerprints($keyPath);
+
+    if ($fingerprints === null) {
+        return;
     }
 
-    expect($primaries)->toBe(1, 'the committed key must hold exactly one primary key');
-    expect($fingerprint)->toBe(bootstrapRuntimeRcloneFingerprint());
+    expect($fingerprints)->toBe([bootstrapRuntimeYtDlpFingerprint()], 'the committed key must hold exactly one primary key, the pinned one');
+});
+
+it('never converges yt-dlp through apt or its own updater', function () {
+    $source = bootstrapRuntimeSource();
+
+    preg_match('/^BASE_PACKAGES=\(\n(.*?)\n\)$/ms', $source, $baseMatch);
+    expect(array_map('trim', explode("\n", $baseMatch[1] ?? '')))->not->toContain('yt-dlp');
+
+    preg_match('/^REQUIRED_RUNTIME_TOOLS=\(\n(.*?)\n\)$/ms', $source, $toolsMatch);
+    expect($toolsMatch[1] ?? '')->not->toContain('yt-dlp:');
+
+    // Comment lines may name the updater to forbid it; no code line may run it.
+    expect(preg_match('/^[^#\n]*(?:\s-U\b|--update\b|--update-to\b)/m', $source))->toBe(0, 'a code line runs an updater');
 });
 
 it('shares the committed external-runtimes contract with bootstrap-host-preflight instead of duplicating the pin', function () {
