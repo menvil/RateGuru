@@ -51,7 +51,7 @@ function geographyRowNames(mixed $page): array
 }
 
 it('draws the tab at every width, the countries and cities scrolling inside their card, never the page', function (int $width) {
-    $page = visitAnalyticsGeography('/admin/analytics?tab=geo', $width);
+    $page = visitAnalyticsGeography('/admin/analytics?tab=geo&open=DE', $width);
 
     expect($page->script("[...document.querySelectorAll('.rg-admin-analytics__tabs .rg-admin-tab')].map((tab) => tab.textContent.trim())"))->toBe(['Overview', 'Site engagement', 'Campaigns', 'Tracking links', 'Landings', 'Games', 'Experiments', 'Retention', 'Geography', 'Journeys'])
         ->and(geographyRowNames($page))->toBe(['Germany', 'Berlin', 'Other cities', 'United States', 'Location unknown'])
@@ -74,8 +74,17 @@ it('draws the tab at every width, the countries and cities scrolling inside thei
     $page->assertNoJavaScriptErrors();
 })->with([1440, 1280, 1024, 390]);
 
-it('opens a country’s cities on a click, closing the one open, and closes it on another, each in the address', function () {
+it('opens no country by itself, a country’s cities on a click, closing the one open, and closes it on another, each in the address', function () {
     $page = visitAnalyticsGeography('/admin/analytics?tab=geo');
+
+    expect(geographyRowNames($page))->toBe(['Germany', 'United States', 'Location unknown'])
+        ->and($page->script("[...document.querySelectorAll('.rg-admin-analytics__geo-row--country .rg-admin-analytics__geo-name')].map((name) => name.getAttribute('aria-expanded'))"))->toBe(['false', 'false']);
+
+    $page->click('.rg-admin-analytics__geo-row--country:nth-child(2) .rg-admin-analytics__geo-share');
+    waitForScript($page, "new URLSearchParams(location.search).get('open')", 'DE', 10.0);
+    waitForScript($page, "document.querySelectorAll('.rg-admin-analytics__geo-row--inner').length > 0", true, 10.0);
+
+    expect(geographyRowNames($page))->toBe(['Germany', 'Berlin', 'Other cities', 'United States', 'Location unknown']);
 
     $page->click('.rg-admin-analytics__geo-row--country:nth-child(5) .rg-admin-analytics__geo-share');
     waitForScript($page, "new URLSearchParams(location.search).get('open')", 'US', 10.0);
@@ -85,7 +94,7 @@ it('opens a country’s cities on a click, closing the one open, and closes it o
         ->and($page->script("[...document.querySelectorAll('.rg-admin-analytics__geo-row--country .rg-admin-analytics__geo-name')].map((name) => name.getAttribute('aria-expanded'))"))->toBe(['false', 'true']);
 
     $page->click('.rg-admin-analytics__geo-row--country:nth-child(3) .rg-admin-analytics__geo-name');
-    waitForScript($page, "new URLSearchParams(location.search).get('open')", 'none', 10.0);
+    waitForScript($page, "new URLSearchParams(location.search).has('open')", false, 10.0);
     waitForScript($page, "document.querySelectorAll('.rg-admin-analytics__geo-row--inner').length", 0, 10.0);
 
     expect(geographyRowNames($page))->toBe(['Germany', 'United States', 'Location unknown']);
@@ -94,7 +103,7 @@ it('opens a country’s cities on a click, closing the one open, and closes it o
 });
 
 it('sorts by a rate of new visitors, kept in the address', function () {
-    $page = visitAnalyticsGeography('/admin/analytics?tab=geo&open=none');
+    $page = visitAnalyticsGeography('/admin/analytics?tab=geo');
 
     $page->click('[data-testid="analytics-geo"] .rg-admin-analytics__sort [role=radio]:has-text("Registration rate")');
     waitForScript($page, "new URLSearchParams(location.search).get('gsort')", 'registration', 10.0);

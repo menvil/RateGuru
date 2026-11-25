@@ -50,11 +50,19 @@ function campaignTreeNames(mixed $page): array
     return $page->script("[...document.querySelectorAll('[data-testid=\"analytics-campaign-row\"]')].map((row) => '  '.repeat(Number(row.dataset.level)) + row.querySelector('.rg-admin-analytics__campaign-name').textContent.trim())");
 }
 
+/** Clicks the tree's row at a place (the header row is the first) and waits for the tree to have so many rows. */
+function openCampaignRow(mixed $page, int $place, int $rows): void
+{
+    $page->click('[data-testid="analytics-campaign-row"]:nth-child('.$place.') .rg-admin-analytics__campaign-name');
+    waitForScript($page, "document.querySelectorAll('[data-testid=\"analytics-campaign-row\"]').length === {$rows}", true, 10.0);
+}
+
 it('draws the tab at every width, the tree scrolling inside its card, never the page', function (int $width) {
-    $page = visitAnalyticsCampaigns('/admin/analytics?tab=campaigns', $width);
+    // A campaign and its creative chosen by the address, as a tracking link opens them: the tree three levels deep.
+    $page = visitAnalyticsCampaigns('/admin/analytics?tab=campaigns&campaign=paid:'.$this->campaign->id.'&creative=banner-1', $width);
 
     expect($page->script("[...document.querySelectorAll('.rg-admin-analytics__tabs .rg-admin-tab')].map((tab) => tab.textContent.trim())"))->toBe(['Overview', 'Site engagement', 'Campaigns', 'Tracking links', 'Landings', 'Games', 'Experiments', 'Retention', 'Geography', 'Journeys'])
-        ->and(campaignTreeNames($page))->toBe(['US popunder', '  banner-1', '    Trust Your Taste', '  banner-2', 'spring'])
+        ->and(campaignTreeNames($page))->toBe(['US popunder', '  banner-1', '    Trust Your Taste', '  banner-2'])
         ->and($page->script("[...document.querySelectorAll('[data-testid=\"analytics-paid-source\"] .rg-admin-analytics__paid-name')].map((name) => name.textContent.trim())"))->toBe(['ExoClick tests'])
         ->and($page->script(<<<'JS'
             (() => {
@@ -71,8 +79,15 @@ it('draws the tab at every width, the tree scrolling inside its card, never the 
     $page->assertNoJavaScriptErrors();
 })->with([1440, 1280, 1024, 390]);
 
-it('opens a campaign’s creatives and a creative’s games, and closes them again', function () {
+it('opens nothing by itself, a campaign’s creatives and a creative’s games on a click, and closes them again', function () {
     $page = visitAnalyticsCampaigns('/admin/analytics?tab=campaigns');
+
+    expect(campaignTreeNames($page))->toBe(['US popunder', 'spring']);
+
+    openCampaignRow($page, 2, 4);
+    openCampaignRow($page, 3, 5);
+
+    expect(campaignTreeNames($page))->toBe(['US popunder', '  banner-1', '    Trust Your Taste', '  banner-2', 'spring']);
 
     $page->click('[data-testid="analytics-campaign-row"][data-kind="campaign"]:nth-last-child(1) .rg-admin-analytics__campaign-name');
     waitForScript($page, "document.querySelectorAll('[data-testid=\"analytics-campaign-row\"]').length === 8", true, 10.0);
@@ -90,6 +105,8 @@ it('opens a campaign’s creatives and a creative’s games, and closes them aga
 
 it('opens a game’s row on the Games tab, of the same days and device', function () {
     $page = visitAnalyticsCampaigns('/admin/analytics?tab=campaigns&period=7d&device=desktop&source=paid:'.$this->exo->id);
+    openCampaignRow($page, 2, 3);
+    openCampaignRow($page, 3, 4);
 
     $page->click('[data-testid="analytics-campaign-row"][data-kind="game"] .rg-admin-analytics__campaign-sub');
     waitForScript($page, "document.querySelector('[data-testid=\"game-analytics-filters\"]') !== null", true, 10.0);
@@ -111,7 +128,7 @@ it('keeps the sorting in the address, and filters the page by a paid source', fu
 
     expect($page->script("document.querySelector('[data-testid=\"analytics-source-chip\"]')?.textContent.trim()"))->toBe('Source: ExoClick tests · paid_ads')
         ->and($page->script("document.querySelector('[data-testid=\"analytics-paid-source\"] .rg-admin-analytics__paid-name').getAttribute('aria-pressed')"))->toBe('true')
-        ->and(campaignTreeNames($page))->toBe(['US popunder', '  banner-1', '    Trust Your Taste', '  banner-2']);
+        ->and(campaignTreeNames($page))->toBe(['US popunder']);
 
     $page->assertNoJavaScriptErrors();
 });

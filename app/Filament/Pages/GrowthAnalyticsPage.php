@@ -264,7 +264,7 @@ final class GrowthAnalyticsPage extends Page
     #[Url(except: 'visitors')]
     public mixed $gsort = 'visitors';
 
-    /** Geography: the country whose cities are open, by its code, or none (GeographyTab::NONE_OPEN); the one the most people came from while none is named. */
+    /** Geography: the country whose cities are open, by its code; none while it is empty. */
     #[Url(except: '')]
     public mixed $open = '';
 

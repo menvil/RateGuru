@@ -75,14 +75,13 @@ it('lists the ten countries the most people came from, then every other country 
     $data = analyticsGeography();
     $rows = geoRows($data);
 
-    expect($rows)->toHaveCount(13)
-        ->and(array_slice($rows, 0, 3))->toBe([
+    // No country is open until it is clicked.
+    expect($rows)->toHaveCount(12)
+        ->and(array_slice($rows, 0, 2))->toBe([
             'country | 🇺🇸 | United States | 13 | 13.8% | — | — | —',
-            // The country the most people came from is open: too few people to name a city, all of them are the rest.
-            'others | - | Other cities | 13 | 13.8% | — | — | —',
             'country | 🇩🇪 | Germany | 12 | 12.8% | — | — | —',
         ])
-        ->and(array_column(array_slice($data['rows'], 2, 9), 'name'))->toBe(['Germany', 'United Kingdom', 'France', 'Spain', 'Italy', 'Netherlands', 'Poland', 'Sweden', 'Norway'])
+        ->and(array_column(array_slice($data['rows'], 1, 9), 'name'))->toBe(['Germany', 'United Kingdom', 'France', 'Spain', 'Italy', 'Netherlands', 'Poland', 'Sweden', 'Norway'])
         ->and(array_slice($rows, -2))->toBe([
             'other | 🌐 | Other countries | 5 | 5.3% | — | — | —',
             'unknown | — | Location unknown | 4 | 4.3% | — | — | —',
@@ -90,10 +89,15 @@ it('lists the ten countries the most people came from, then every other country 
         ->and($data['note'])->toBe('Last 30 days · 94 unique visitors')
         ->and($data['foot'])->toBe('Start rate uses visitors; registration and activation use new visitors. Click a country to see its cities. A visitor seen in two places counts in each, and a rate shows “—” until the number it divides by reaches 30.')
         // Every bar against the row of the most people.
-        ->and(array_column($data['rows'], 'bar'))->toBe([100, 100, 92, 85, 77, 69, 62, 54, 46, 38, 31, 38, 31]);
+        ->and(array_column($data['rows'], 'bar'))->toBe([100, 92, 85, 77, 69, 62, 54, 46, 38, 31, 38, 31])
+        // Opened, a country with too few people to name a city has all of them as the rest.
+        ->and(array_slice(geoRows(analyticsGeography(['open' => 'US'])), 0, 2))->toBe([
+            'country | 🇺🇸 | United States | 13 | 13.8% | — | — | —',
+            'others | - | Other cities | 13 | 13.8% | — | — | —',
+        ]);
 });
 
-it('opens the cities of a country with twenty people or more, the rest of the country together, one country at a time', function () {
+it('opens the cities of a clicked country with twenty people or more, the rest of the country together, one country at a time', function () {
     geoVisitors('berlin', 25, 'DE', 'Berlin');
     geoVisitors('hamburg', 20, 'DE', 'Hamburg');
     geoVisitors('munich', 18, 'DE', 'Munich');
@@ -107,6 +111,16 @@ it('opens the cities of a country with twenty people or more, the rest of the co
 
     $data = analyticsGeography();
 
+    // Nothing opens by itself.
+    expect(array_map(fn (array $row): string => $row['kind'].' '.$row['name'].' '.$row['visitors'], $data['rows']))->toBe([
+        'country Germany 66',
+        'country United States 21',
+    ])
+        ->and(array_column($data['rows'], 'open'))->toBe([false, false])
+        ->and(array_column($data['rows'], 'toggle'))->toBe(['DE', 'US']);
+
+    $data = analyticsGeography(['open' => 'DE']);
+
     expect(array_map(fn (array $row): string => $row['kind'].' '.$row['name'].' '.$row['visitors'], $data['rows']))->toBe([
         'country Germany 66',
         'city Berlin 25',
@@ -117,19 +131,19 @@ it('opens the cities of a country with twenty people or more, the rest of the co
     ])
         ->and(array_column($data['rows'], 'open'))->toBe([true, false, false, false, false])
         // A click closes the country open, or opens another.
-        ->and(array_column($data['rows'], 'toggle'))->toBe([GeographyTab::NONE_OPEN, null, null, null, 'US'])
+        ->and(array_column($data['rows'], 'toggle'))->toBe(['', null, null, null, 'US'])
         ->and($data['rows'][1]['share'])->toBe('28.7%')
         ->and($cities(analyticsGeography(['open' => 'US'])))->toBe(['Berlin 21'])
-        ->and($cities(analyticsGeography(['open' => GeographyTab::NONE_OPEN])))->toBe([])
-        // A country listed nowhere opens the one the most people came from.
-        ->and($cities(analyticsGeography(['open' => 'FR'])))->toBe(['Berlin 25', 'Hamburg 20', 'Other cities 22']);
+        // A country listed nowhere, or anything else, opens none.
+        ->and($cities(analyticsGeography(['open' => 'FR'])))->toBe([])
+        ->and($cities(analyticsGeography(['open' => 'none'])))->toBe([]);
 
     Livewire::withQueryParams(['tab' => 'geo'])->test(GrowthAnalyticsPage::class)->call('load')
-        ->assertSeeHtml('aria-expanded="true"')
+        ->assertDontSeeHtml('aria-expanded="true"')
         ->set('open', 'US')
         ->assertSet('open', 'US')
         ->assertViewHas('data', fn (array $data): bool => $data['rows'][0]['open'] === false && $data['rows'][1]['name'] === 'United States' && $data['rows'][1]['open'] === true)
-        ->set('open', GeographyTab::NONE_OPEN)
+        ->set('open', '')
         ->assertViewHas('data', fn (array $data): bool => collect($data['rows'])->every(fn (array $row): bool => $row['kind'] === 'country' && ! $row['open']));
 });
 
@@ -147,7 +161,7 @@ it('sorts countries and cities by people or by a rate of new visitors, those who
     geoVisitors('denmark', 10, 'DK', null, $account(5, 5));
     geoVisitors('nowhere', 2, null, null, $account(2, 2));
 
-    $order = fn (array $query): array => array_map(fn (array $row): string => $row['name'].' '.$row['rates'][1]['value'].' '.$row['rates'][2]['value'], analyticsGeography($query)['rows']);
+    $order = fn (array $query): array => array_map(fn (array $row): string => $row['name'].' '.$row['rates'][1]['value'].' '.$row['rates'][2]['value'], analyticsGeography(['open' => 'CA', ...$query])['rows']);
 
     expect($order([]))->toBe([
         'Canada 7.8% 0.0%',
@@ -189,7 +203,7 @@ it('draws a country’s flag from its code, a globe for Kosovo and for every oth
     geoVisitors('japan', 2, 'JP');
     geoVisitors('nowhere', 1, null);
 
-    expect(array_map(fn (array $row): string => $row['flag'].' '.$row['name'], analyticsGeography(['open' => GeographyTab::NONE_OPEN])['rows']))->toBe([
+    expect(array_map(fn (array $row): string => $row['flag'].' '.$row['name'], analyticsGeography()['rows']))->toBe([
         '🌐 Kosovo',
         '🇯🇵 Japan',
         '— Location unknown',
@@ -204,7 +218,7 @@ it('reads every filter of the page, and says so once when nobody matches', funct
     analyticsVisit('cat', ['country' => 'US', 'source_key' => 'paid:'.$exo->id, 'campaign_key' => CampaignKey::paid($campaign->id)]);
     analyticsVisit('dan', ['country' => 'FR', 'network_day' => '2026-10-01', 'arrived_at' => '2026-10-01 10:00:00']);
 
-    $countries = fn (array $query): array => array_values(array_map(fn (array $row): string => $row['name'].' '.$row['visitors'], array_filter(analyticsGeography(['open' => GeographyTab::NONE_OPEN, ...$query])['rows'], fn (array $row): bool => $row['kind'] === 'country')));
+    $countries = fn (array $query): array => array_values(array_map(fn (array $row): string => $row['name'].' '.$row['visitors'], array_filter(analyticsGeography($query)['rows'], fn (array $row): bool => $row['kind'] === 'country')));
 
     expect($countries([]))->toBe(['Germany 2', 'United States 1'])
         ->and($countries(['device' => 'desktop']))->toBe(['Germany 1'])
@@ -274,9 +288,8 @@ it('keeps the sorting and the open country in the address, the Geography tab’s
     $page = fn (array $query): mixed => Livewire::withQueryParams($query)->test(GrowthAnalyticsPage::class);
 
     $page(['tab' => 'geo', 'gsort' => 'activation', 'open' => 'DE'])->assertSet('gsort', 'activation')->assertSet('open', 'DE');
-    $page(['tab' => 'geo', 'open' => GeographyTab::NONE_OPEN])->assertSet('open', GeographyTab::NONE_OPEN);
 
-    foreach ([['gsort' => 'spend'], ['gsort' => ['visitors']], ['open' => 'de'], ['open' => 'ZZ'], ['open' => 'DEU'], ['open' => ['DE']]] as $forged) {
+    foreach ([['gsort' => 'spend'], ['gsort' => ['visitors']], ['open' => 'none'], ['open' => 'de'], ['open' => 'ZZ'], ['open' => 'DEU'], ['open' => ['DE']]] as $forged) {
         $page(['tab' => 'geo', ...$forged])->assertSet('gsort', 'visitors')->assertSet('open', '');
     }
 
@@ -300,8 +313,8 @@ it('reads no visit until the page is in a browser, and the tab in a bounded numb
     };
 
     geoVisitors('berlin', 21, 'DE', 'Berlin');
-    $few = $queries(['open' => GeographyTab::NONE_OPEN]);
-    $open = $queries([]);
+    $few = $queries([]);
+    $open = $queries(['open' => 'DE']);
 
     DB::flushQueryLog();
     DB::enableQueryLog();
@@ -318,7 +331,7 @@ it('reads no visit until the page is in a browser, and the tab in a bounded numb
     $narrowed = $queries(['source' => 'direct', 'device' => 'mobile']);
 
     // Ten countries, Berlin under the first, every other country and the unplaced.
-    expect(analyticsGeography()['rows'])->toHaveCount(GeographyTab::COUNTRIES + 3)
+    expect(analyticsGeography(['open' => 'DE'])['rows'])->toHaveCount(GeographyTab::COUNTRIES + 3)
         // Everyone, the countries with the rest and the unplaced, then the open country's cities with theirs: never one per row.
         ->and($few)->toBeLessThanOrEqual(9)
         ->and($open - $few)->toBeLessThanOrEqual(2)

@@ -495,7 +495,7 @@ it('draws the sources table, Referral performance and Data notes for the period 
         ]);
 
     $narrowed = analyticsOverview(['source' => 'reddit:organic', 'campaign' => 'tag:spring']);
-    $unselected = fn (array $sources): array => [...$sources, 'rows' => array_map(fn (array $row): array => [...$row, 'selected' => false], $sources['rows'])];
+    $unselected = fn (array $sources): array => [...$sources, 'lit' => false, 'rows' => array_map(fn (array $row): array => [...$row, 'selected' => false], $sources['rows'])];
 
     expect($unselected($narrowed['sources']))->toBe($unselected($all['sources']))
         ->and($narrowed['referral'])->toBe($all['referral'])
@@ -505,8 +505,9 @@ it('draws the sources table, Referral performance and Data notes for the period 
         ->and(collect($narrowed['sources']['rows'])->firstWhere('selected', true)['name'])->toBe('Reddit')
         ->and($narrowed['funnel']['note'])->toStartWith('Reddit · spring · Last 30 days.')
         // And the card says so, while a source or a campaign is chosen.
+        ->and([$all['sourcesTitle'], $narrowed['sourcesTitle']])->toBe(['Traffic sources', 'All traffic sources'])
         ->and($all['sourcesNote'])->toBe('Click a source to filter the whole page. Start rate uses visitors; registration and activation use new visitors.')
-        ->and($narrowed['sourcesNote'])->toBe('Every source, for the period and the device, whatever source or campaign is chosen. Click a source to filter the whole page. Start rate uses visitors; registration and activation use new visitors.');
+        ->and($narrowed['sourcesNote'])->toBe('Every source for the period and device, the chosen one lit to compare with the rest. Click a source to filter the whole page. Start rate uses visitors; registration and activation use new visitors.');
 
     // The device narrows them all.
     $desktop = analyticsOverview(['device' => 'desktop']);
@@ -515,6 +516,51 @@ it('draws the sources table, Referral performance and Data notes for the period 
         ->and($desktop['sources']['total']['visitors'])->toBe('4')
         // A day's spend is no device's.
         ->and(collect($desktop['notes'])->pluck('text', 'title')['Spend'])->toBe('No paid source spent anything in this period. Unpaid visitors cost nothing.');
+});
+
+it('lights the source the page is narrowed to among every source, in the last place when past the biggest — a paid campaign’s own too — and none for a campaign named by its tag', function () {
+    config(['analytics.sources_top' => 2]);
+    $pop = TrafficSource::factory()->create(['name' => 'PopAds main']);
+    $campaign = TrafficCampaign::factory()->create(['source_id' => $pop->id, 'name' => 'US popunder']);
+
+    foreach (range(1, 3) as $n) {
+        analyticsVisit('reddit-'.$n, ['source_key' => 'reddit:organic', 'campaign_key' => $n === 1 ? 'tag:spring' : null]);
+    }
+
+    analyticsVisit('google-1', ['source_key' => 'google:organic']);
+    analyticsVisit('google-2', ['source_key' => 'google:organic']);
+    analyticsVisit('bing-1', ['source_key' => 'bing:organic']);
+    analyticsClick('pop-1', $campaign);
+
+    $table = function (array $query): array {
+        $data = analyticsOverview($query);
+
+        return [
+            'title' => $data['sourcesTitle'],
+            'rows' => collect($data['sources']['rows'])->map(fn (array $row): string => $row['name'].' '.$row['visitors'].($row['selected'] ? ' (lit)' : ''))->all(),
+            'lit' => $data['sources']['lit'],
+            'note' => str($data['sourcesNote'])->before('Click a source')->trim()->toString(),
+            'total' => $data['sources']['total']['visitors'],
+        ];
+    };
+
+    // Nothing chosen: the two biggest, then everyone else — PopAds main among them.
+    expect($table([]))->toBe(['title' => 'Traffic sources', 'rows' => ['Reddit 3', 'Google 2', 'Other referrals 2'], 'lit' => false, 'note' => '', 'total' => '7']);
+
+    // The paid source chosen, or its campaign alone: past the two biggest, it takes the last place, lit; everyone else's row counts the one it moved.
+    $lit = ['title' => 'All traffic sources', 'rows' => ['Reddit 3', 'PopAds main 1 (lit)', 'Other referrals 3'], 'lit' => true, 'note' => 'Every source for the period and device, the chosen one lit to compare with the rest.', 'total' => '7'];
+
+    expect($table(['source' => 'paid:'.$pop->id]))->toBe($lit)
+        ->and($table(['campaign' => 'paid:'.$campaign->id]))->toBe($lit)
+        // A campaign named by its tag may come by any source: none is lit, and the card says it counts every one.
+        ->and($table(['campaign' => 'tag:spring']))->toBe(['title' => 'All traffic sources', 'rows' => ['Reddit 3', 'Google 2', 'Other referrals 2'], 'lit' => false, 'note' => 'Every source for the period and device, whatever source or campaign is chosen.', 'total' => '7']);
+
+    // The rest are set back only while a row is lit.
+    Livewire::withQueryParams(['source' => 'paid:'.$pop->id])->test(GrowthAnalyticsPage::class)->call('load')
+        ->assertSeeHtml('rg-admin-analytics__sources-card--lit')
+        ->assertSee('All traffic sources');
+    Livewire::withQueryParams(['campaign' => 'tag:spring'])->test(GrowthAnalyticsPage::class)->call('load')
+        ->assertDontSeeHtml('rg-admin-analytics__sources-card--lit');
 });
 
 it('sorts the sources by visitors or a rate, the rows without one last and everyone else’s at the foot', function () {

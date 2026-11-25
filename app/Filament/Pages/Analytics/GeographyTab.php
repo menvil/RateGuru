@@ -21,10 +21,10 @@ use App\Support\Geo\Countries;
  * with its share of everyone, its start rate and the rates of new visitors
  * making an account and activating one, "—" below the denominator a row
  * needs — then the people of every other country together, and those no IP
- * database could place. One country is open at a time, the one the most
- * people came from unless another is chosen: its cities with enough people
- * to name, each a share of everyone too, and the rest of the country
- * together, so no single person can be picked out. Sorted by the people, or
+ * database could place. One country is open at a time, and none until it is
+ * clicked or named in the address: its cities with enough people to name,
+ * each a share of everyone too, and the rest of the country together, so no
+ * single person can be picked out. Sorted by the people, or
  * by either rate of new visitors; every filter of the page applies.
  *
  * Above it, how a place is known — from the IP address at each visit,
@@ -44,9 +44,6 @@ final class GeographyTab implements AnalyticsTab
     /** @var array<string, string> how the countries and cities can be sorted */
     public const array SORTS = ['visitors' => 'Visitors', 'registration' => 'Registration rate', 'activation' => 'Activation rate'];
 
-    /** The open country's value while none is open; an empty one opens the country the most people came from. */
-    public const string NONE_OPEN = 'none';
-
     public const string FOOT = 'Start rate uses visitors; registration and activation use new visitors. Click a country to see its cities. A visitor seen in two places counts in each, and a rate shows “—” until the number it divides by reaches %d.';
 
     public function __construct(
@@ -55,14 +52,10 @@ final class GeographyTab implements AnalyticsTab
         private readonly GeoAttribution $geo,
     ) {}
 
-    /** The open country as the address may name it: a country's code, none at all, or — anything else — the one the most people came from. */
+    /** The open country as the address may name it: a country's code, or — anything else — none. */
     public static function readOpen(mixed $value): string
     {
-        return match (true) {
-            $value === self::NONE_OPEN => self::NONE_OPEN,
-            is_string($value) && preg_match('/^[A-Z]{2}$/', $value) === 1 && Countries::has($value) => $value,
-            default => '',
-        };
+        return is_string($value) && preg_match('/^[A-Z]{2}$/', $value) === 1 && Countries::has($value) ? $value : '';
     }
 
     /** @return array<string, mixed> */
@@ -85,13 +78,9 @@ final class GeographyTab implements AnalyticsTab
             $listed[$code] = ['code' => $code, 'name' => Countries::name($code), 'figures' => $row['figures']];
         }
 
-        // The country the most people came from opens unless another of those listed is chosen, or none.
+        // Only a listed country that was clicked or named in the address is open.
         $asked = self::readOpen($page->open);
-        $open = match (true) {
-            $asked === self::NONE_OPEN => null,
-            array_key_exists($asked, $listed) => $asked,
-            default => array_key_first($listed),
-        };
+        $open = array_key_exists($asked, $listed) ? $asked : null;
         // Every bar is measured against the row of the most people, as long as the track.
         $widest = max(1, ...array_map(fn (array $group): int => $group['figures']->visitors, [
             ...array_values($listed),
@@ -114,7 +103,7 @@ final class GeographyTab implements AnalyticsTab
                 'key' => $country['code'],
                 'flag' => Countries::flag($country['code']),
                 'open' => $isOpen,
-                'toggle' => $isOpen ? self::NONE_OPEN : $country['code'],
+                'toggle' => $isOpen ? '' : $country['code'],
             ]);
 
             if ($isOpen) {

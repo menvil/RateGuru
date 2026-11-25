@@ -1478,8 +1478,9 @@ start. The architecture is `docs/architecture/analytics.md`; the operator guide 
   visitors and See an example journey; Visitors per hour, day or week as bars with their markers, on a scale of round
   values, with a readout line of the busiest bar or the one pointed at, tapped or arrowed to; Traffic sources
   (Source · medium, group badge, Attribution basis, Visitors, Started, Completed, Registered, Activated; Sort; a row
-  filters the page, the chosen one sunken; Other referrals; All sources); Referral performance; Data notes; Tracking
-  with Tracking settings.
+  filters the page; while a source or a campaign is chosen, titled All traffic sources, the source the page is narrowed
+  to lit — info background, a bar at its start — and the other rows set back to 45 % until pointed at; Other referrals;
+  All sources); Referral performance; Data notes; Tracking with Tracking settings.
 - **Site engagement:** the scope line; nine cards, each with its unit as a pill (Visitors, Actions, Accounts) and the
   change against the window before but Unique post viewers; Website funnel; Compare sources (sides A and B, each a
   choice of the six biggest sources); Content engagement (Post as `#id`, views, viewers, votes, comments, engagement,
@@ -1550,6 +1551,7 @@ Deviations from the fifth delivery for Experiments and Analytics, each for the r
 | Hidden Site and Language filters; Tablet; Demo data; € | none; mobile and desktop; $ | one deployment is one brand; a browser's language is kept 90 days; the owner's decisions; a prototype artefact |
 | Sources as “Name · medium” from a tag dictionary; Instagram and Google Ads found automatically by fbclid and gclid | a key of network and class of traffic — tagged and untagged traffic of a network one row, its paid traffic another (Google Ads beside Google); a paid source by its `rg_src` link; an unknown site by its domain, folded into Other referrals | a person counts once per source; a click ID without spend gives neither a price nor a postback |
 | A campaign silently wins over the source; the campaign list never narrows | both apply together; the list narrows to the source's campaigns; choosing another source drops a campaign that isn't its | a filter is never silently ignored |
+| Overview's Traffic sources: the chosen source's row sunken | while a source or a campaign is chosen, “All traffic sources”: every source still, the one the page is narrowed to — a paid campaign's own too — lit and listed (in the last place when past the ten biggest), the rest set back | the table never narrows, so the chosen source reads against all the others; campaigns and creatives are on the Campaigns tab |
 | A tab ignores a filter without saying so; Landings ignore the source and campaign, Geography the campaign | Games and Retention say so; Landings and Geography read every filter | honest filters; one population, by the session's entry |
 | Registration and activation of every visitor; “Rates use unique visitors”, “{x}% of visitors” | of new visitors; “Start rate uses visitors; registration and activation use new visitors”, “{x}% of new visitors”, “Registered · of new visitors” | a known visitor can't make a new account |
 | A registration rate marked below 4.5 % | below two thirds of the table's rate, from 30 new visitors | an absolute line depends on the site |

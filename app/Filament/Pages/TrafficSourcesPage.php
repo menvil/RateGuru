@@ -128,8 +128,8 @@ final class TrafficSourcesPage extends Page
     #[Url(as: 'signups', except: 'source')]
     public mixed $signupsBy = 'source';
 
-    /** @var list<string> the tree's rows opened, by their path; the ad networks to begin with */
-    public array $open = ['type=network'];
+    /** @var list<string> the tree's rows opened, by their path; none until one is clicked */
+    public array $open = [];
 
     /** @var list<string> the tree's levels shown in full rather than their ten biggest rows */
     public array $more = [];
@@ -259,7 +259,6 @@ final class TrafficSourcesPage extends Page
         $this->drawTargets();
         $firstPaid = TrafficSource::query()->whereIn('type', [TrafficSourceType::Network, TrafficSourceType::Placement])->orderBy('name')->value('id');
         $this->spendSource = is_numeric($this->spendSource) ? (string) (int) $this->spendSource : (string) ($firstPaid ?? '');
-        $this->spendOpen = $firstPaid === null ? [] : [(int) $firstPaid];
         $prices = TrafficPriceSet::current();
         $this->drawPriceFields($prices);
         $this->drawGroups($prices);
