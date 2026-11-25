@@ -721,6 +721,77 @@ contract, `--check` reports exactly `MISSING yt-dlp`, and `--apply` installs
 it as above. Staging and production share one machine, so a single run
 serves both.
 
+### Managed external runtime: ffmpeg
+
+The media pipeline probes and transcodes uploaded video, and turns animated
+GIFs into video, with ffmpeg and ffprobe — tools that parse files users
+upload. Jammy's package is the 4.4 series, frozen in 2022 and in `universe`
+(best-effort security fixes), and a different version from the one CI and
+developers test with. ffmpeg is therefore the third managed external runtime,
+under the same contract file and rules as rclone and yt-dlp:
+
+- `versions.env` carries `FFMPEG_VERSION` (what the binaries print after
+  "ffmpeg version", e.g. `n8.1.3-27-g8dca1586f4-20261031`), `FFMPEG_RELEASE`
+  (a month-end autobuild of [BtbN/FFmpeg-Builds](https://github.com/BtbN/FFmpeg-Builds),
+  the Linux builds ffmpeg.org links to — that project keeps the last build of
+  each month for two years), `FFMPEG_ARTIFACT` (the `linux64-gpl` archive of a
+  release branch), `FFMPEG_SHA256`, `FFMPEG_BIN_DIR=/usr/local/bin`,
+  `root:root`, mode `0755`.
+- The builds are not signed. The trust anchor is the archive's SHA-256,
+  copied from that release's `checksums.sha256` into the reviewed contract:
+  `--apply` refuses any archive whose digest is not exactly the pinned one.
+- `--check`/`--verify` report the pair in `EXTERNAL RUNTIME`: `PASS ffmpeg —
+  <pin>, ffmpeg and ffprobe in /usr/local/bin`; `MISSING` when neither or one
+  of them is there; `CONFLICT` for another version, owner or mode, a binary
+  that cannot report a version, a directory where a binary belongs, or — on a
+  host prepared before — an ffmpeg elsewhere on `PATH` (Jammy's
+  `/usr/bin/ffmpeg`) with nothing in `/usr/local/bin`.
+- `--apply` downloads the archive over HTTPS, checks the digest, extracts only
+  `bin/ffmpeg` and `bin/ffprobe`, confirms both report exactly the pinned
+  version, stages both with final ownership and mode beside their
+  destinations, and only then renames each into place; any failure before
+  that leaves the installed pair untouched. A directory at either path is
+  refused before any download. On a compliant host there is no network
+  activity.
+- Jammy's `ffmpeg` package, on a host that has it, is never removed (no
+  package ever is): `/usr/bin/ffmpeg` stays, unused. `/usr/local/bin` comes
+  before `/usr/bin` on `PATH`, and the application looks in `/usr/local/bin`
+  first even where `PATH` is cleared, as in PHP-FPM
+  (`config('media.video.search_directories')`).
+- CI's PostgreSQL tests job installs the same archive from the same contract
+  values, refused unless the digest matches, so the tests run on the build the
+  hosts run.
+
+Rehearsed in a disposable Ubuntu 22.04 amd64 container that had been
+prepared with Jammy's ffmpeg 4.4.2, the way the live host was, and with
+`xz-utils` removed. The rehearsal went as follows:
+
+- `--check` reported exactly three items: `MISSING package:xz-utils`,
+  `MISSING tool:xz`, and `CONFLICT ffmpeg — found at /usr/bin/ffmpeg, but the
+  managed binaries belong in /usr/local/bin`.
+- `--apply` installed `xz-utils` (one `apt-get update`, one install). It then
+  downloaded the pinned archive, matched its digest, installed the pair and
+  passed `--verify`. A second `--apply` downloaded nothing.
+- `ffmpeg` then resolved to `/usr/local/bin` (8.1) ahead of the untouched
+  `/usr/bin/ffmpeg` (4.4.2).
+- An old `ffprobe` in the managed directory was reported as version drift
+  and replaced.
+- A digest off the pin made `--apply` refuse the archive, with both installed
+  binaries byte-identical and nothing staged left behind.
+- The 8.1 build encoded H.264/AAC, turned an animated GIF into an MP4, and
+  refused a playlist with "Format not on whitelist". The same build read
+  that playlist as HLS when the whitelist was left off.
+- CI's install step was run as written, in a fresh Ubuntu 24.04 container,
+  and installed the same build.
+
+**Moving the pin:** pick a later month-end autobuild, take the `linux64-gpl`
+archive of the release branch wanted, and change `FFMPEG_VERSION`,
+`FFMPEG_RELEASE`, `FFMPEG_ARTIFACT` and `FFMPEG_SHA256` together in one
+reviewed PR (the tests hold the version to the archive name and release
+date). After the merge, `install-bootstrap-runtime --check` on each host shows
+`CONFLICT ffmpeg — /usr/local/bin/ffmpeg reports <old>, required <new>`, and
+`--apply` replaces the pair; CI picks the new build up by itself.
+
 ### apt policy and idempotency
 
 `--check`/`--verify` never run apt-get at all (package state is read via
@@ -757,21 +828,9 @@ modules (composer.json requires `ext-exif`; queue workers use pcntl);
 SQLite is not installed (tests support it, the runtime contract is
 PostgreSQL); `openssh-server` is required because the deploy pipeline
 delivers artifacts over SSH; shellcheck/actionlint/wget are never runtime
-requirements; `ffmpeg` (which supplies `ffprobe` too) is required because the
-media queue worker probes and transcodes uploaded video and animated GIFs — it
-comes from jammy like the other base packages, and its 4.4 series covers
-H.264/AAC encoding, GIF decoding and ffprobe's JSON output.
-
-**Existing host migration for ffmpeg:** on a host prepared before ffmpeg joined
-the contract, `--check` reports `package:ffmpeg`, `tool:ffmpeg` and
-`tool:ffprobe` as `MISSING`, with installing `ffmpeg` as the intended action
-(and `MISSING yt-dlp`, which joined the contract at the same time — see
-"Managed external runtime: yt-dlp"). `--apply` installs only that package
-with `--no-install-recommends` (one `apt-get update`, one install), restarts
-nothing, and ends with a passing `--verify`; a second `--apply` makes no apt
-call. Rehearsed so in a disposable Ubuntu 22.04 amd64 container on top of the
-runtime `develop` installs; ffmpeg 4.4.2 there encoded H.264/AAC, scaled to
-720, turned an animated GIF into an MP4 and extracted a PNG poster frame.
+requirements; Jammy's `ffmpeg` package is not required — ffmpeg is a managed
+external runtime (see "Managed external runtime: ffmpeg") — and `xz-utils` is,
+to unpack that build: a minimal Ubuntu 22.04 image carries no `xz`.
 
 ### Verification depth
 

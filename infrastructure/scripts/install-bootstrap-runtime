@@ -112,6 +112,25 @@
 # over the installed binary atomically. Moving the pin is the upgrade path,
 # and on a compliant host there is no network activity for yt-dlp either.
 #
+# Managed external runtime — ffmpeg: the media pipeline probes and transcodes
+# video, and turns animated GIFs into video, with ffmpeg and ffprobe — on
+# files users upload, so the tools parse untrusted input. Jammy's package is
+# the 4.4 series, frozen in 2022, in universe (best-effort security fixes),
+# and a different version from the one CI and developers test with. A
+# third managed runtime therefore replaces it: the exact pinned static build
+# (FFMPEG_* in versions.env) from BtbN/FFmpeg-Builds — the Linux builds the
+# FFmpeg project itself links to — taken from a month-end autobuild, which
+# that project keeps for two years. It publishes checksums but no
+# signature, so the trust anchor is the SHA-256 committed in the contract:
+# --apply downloads the archive over HTTPS, refuses it unless its digest is
+# exactly the pinned one, extracts only bin/ffmpeg and bin/ffprobe, confirms
+# both report exactly the pinned version, and renames each into
+# FFMPEG_BIN_DIR atomically. CI installs the same build from the same pin.
+# Jammy's ffmpeg package is not required any more and, like every package,
+# is never removed: a host prepared with it keeps /usr/bin/ffmpeg, unused —
+# /usr/local/bin precedes /usr/bin on PATH, and the application looks there
+# first even where PATH is cleared (PHP-FPM).
+#
 # Deliberate package decisions:
 #   - Node.js, npm and Composer are intentionally absent: GitHub Actions
 #     builds the immutable application artifact (composer install --no-dev,
@@ -136,12 +155,9 @@
 #     two are development-only validators, wget is unused by the committed
 #     scripts (curl is the contract), and journalctl ships with systemd
 #     anyway. Their absence never fails --check/--verify.
-#   - ffmpeg is required: the application probes uploaded video with ffprobe
-#     and transcodes it, and animated GIFs, with ffmpeg, in its media queue
-#     worker. It comes from the Ubuntu 22.04 (jammy) repository like every
-#     other base package — the 4.4 series there carries H.264/AAC encoding,
-#     GIF decoding and ffprobe's JSON output, which is all the media pipeline
-#     uses — so no external repository or static build is introduced for it.
+#   - Jammy's ffmpeg package is not required: ffmpeg is the managed runtime
+#     above. xz-utils is required instead, to unpack its .tar.xz archive — a
+#     minimal Ubuntu 22.04 image does not carry xz.
 #
 # Package post-install side effects (documented, distro-standard, never
 # RateGuru-specific): installing these packages lets their maintainer
@@ -298,6 +314,12 @@ YTDLP_DOWNLOAD_BASE_URL="https://github.com/yt-dlp/yt-dlp/releases/download"
 # fingerprint.
 YTDLP_SIGNING_KEY_FILE_DEFAULT="${REPO_ROOT}/infrastructure/config/external-runtimes/yt-dlp-release-signing-key.asc"
 
+# --- Managed external runtime: ffmpeg -----------------------------------------
+
+# BtbN/FFmpeg-Builds' release origin. A constant: the build is the pinned
+# month-end autobuild, never "latest", never discovered.
+FFMPEG_DOWNLOAD_BASE_URL="https://github.com/BtbN/FFmpeg-Builds/releases/download"
+
 # --- Required package contract ----------------------------------------------
 
 # The smallest Ubuntu 22.04 package set supplying the clean-host bootstrap's canonical
@@ -309,8 +331,8 @@ YTDLP_SIGNING_KEY_FILE_DEFAULT="${REPO_ROOT}/infrastructure/config/external-runt
 # bind9-dnsutils supplies dig and openssl the openssl CLI: verifying the
 # production mail identity reads public DNS and judges DKIM keys with them, on
 # every run of infrastructure verification, so they are host runtime rather
-# than something a read-only verification may install. ffmpeg supplies ffmpeg
-# and ffprobe to the media queue worker (see the header).
+# than something a read-only verification may install. xz-utils unpacks the
+# pinned ffmpeg build (see the header).
 BASE_PACKAGES=(
     acl
     bash
@@ -321,7 +343,6 @@ BASE_PACKAGES=(
     cron
     curl
     diffutils
-    ffmpeg
     findutils
     gnupg
     grep
@@ -344,6 +365,7 @@ BASE_PACKAGES=(
     tar
     unzip
     util-linux
+    xz-utils
 )
 
 PHP_PACKAGES=()
@@ -383,8 +405,6 @@ REQUIRED_RUNTIME_TOOLS=(
     curl:curl
     cmp:diffutils
     diff:diffutils
-    ffmpeg:ffmpeg
-    ffprobe:ffmpeg
     find:findutils
     gpg:gnupg
     grep:grep
@@ -411,6 +431,7 @@ REQUIRED_RUNTIME_TOOLS=(
     flock:util-linux
     namei:util-linux
     runuser:util-linux
+    xz:xz-utils
 )
 
 # --- Test override gate -----------------------------------------------------
@@ -528,6 +549,28 @@ ytdlp_contract_valid() {
         && [[ -n "${YTDLP_GROUP}" ]] \
         && [[ "${YTDLP_MODE}" =~ ^0[0-7]{3}$ ]] \
         && [[ "${YTDLP_KEY_FINGERPRINT}" =~ ^[0-9A-F]{40}$ ]]
+}
+
+FFMPEG_VERSION="$(rclone_contract_value FFMPEG_VERSION || true)"
+FFMPEG_RELEASE="$(rclone_contract_value FFMPEG_RELEASE || true)"
+FFMPEG_ARTIFACT="$(rclone_contract_value FFMPEG_ARTIFACT || true)"
+FFMPEG_SHA256="$(rclone_contract_value FFMPEG_SHA256 || true)"
+FFMPEG_BIN_DIR="$(rclone_contract_value FFMPEG_BIN_DIR || true)"
+FFMPEG_OWNER="$(rclone_contract_value FFMPEG_OWNER || true)"
+FFMPEG_GROUP="$(rclone_contract_value FFMPEG_GROUP || true)"
+FFMPEG_MODE="$(rclone_contract_value FFMPEG_MODE || true)"
+
+# The version is what the build itself prints after "ffmpeg version"; the
+# digest is the trust anchor, so it must be a whole SHA-256.
+ffmpeg_contract_valid() {
+    [[ "${FFMPEG_VERSION}" =~ ^[A-Za-z0-9][A-Za-z0-9.+_-]*$ ]] \
+        && [[ "${FFMPEG_RELEASE}" =~ ^autobuild-[0-9]{4}(-[0-9]{2}){4}$ ]] \
+        && [[ "${FFMPEG_ARTIFACT}" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*\.tar\.xz$ ]] \
+        && [[ "${FFMPEG_SHA256}" =~ ^[0-9a-f]{64}$ ]] \
+        && [[ "${FFMPEG_BIN_DIR}" == /* ]] \
+        && [[ -n "${FFMPEG_OWNER}" ]] \
+        && [[ -n "${FFMPEG_GROUP}" ]] \
+        && [[ "${FFMPEG_MODE}" =~ ^0[0-7]{3}$ ]]
 }
 
 PHP_REPO_SOURCES_FILE="${APT_SOURCES_DIR}/rateguru-php.sources"
@@ -908,6 +951,112 @@ ytdlp_state() {
     printf 'compliant\n'
 }
 
+# ffmpeg_reported_version BIN TOOL — the version token of `BIN -version`'s
+# first line ("ffmpeg version n8.1.3-27-g8dca1586f4-20261031 Copyright ...");
+# empty when the binary cannot report one.
+ffmpeg_reported_version() {
+    probe_exec "$1" -hide_banner -version 2>/dev/null | head -n 1 \
+        | awk -v tool="$2" '$1 == tool && $2 == "version" { print $3 }'
+}
+
+# ffmpeg_tool_state TOOL — one of the two managed binaries against the
+# contract, in rclone_state's order. Prints exactly one of:
+#   compliant | absent | not-file | no-stat | owner:<o>:<g> | mode:<m> |
+#   no-version | version:<v>
+ffmpeg_tool_state() {
+    local tool="$1"
+    local path="${FFMPEG_BIN_DIR}/${tool}"
+
+    if [[ ! -e "${path}" ]]; then
+        printf 'absent\n'
+
+        return 0
+    fi
+
+    if [[ -d "${path}" ]]; then
+        printf 'not-file\n'
+
+        return 0
+    fi
+
+    local probe owner group mode
+    if ! probe="$(rclone_stat_probe "${path}")"; then
+        printf 'no-stat\n'
+
+        return 0
+    fi
+    IFS='|' read -r owner group mode <<<"${probe}"
+
+    if [[ "${owner}" != "${FFMPEG_OWNER}" ]] || [[ "${group}" != "${FFMPEG_GROUP}" ]]; then
+        printf 'owner:%s:%s\n' "${owner}" "${group}"
+
+        return 0
+    fi
+
+    if (( 8#${mode} != 8#${FFMPEG_MODE} )); then
+        printf 'mode:%s\n' "${mode}"
+
+        return 0
+    fi
+
+    local version
+    version="$(ffmpeg_reported_version "${path}" "${tool}" || true)"
+
+    if [[ -z "${version}" ]]; then
+        printf 'no-version\n'
+
+        return 0
+    fi
+
+    if [[ "${version}" != "${FFMPEG_VERSION}" ]]; then
+        printf 'version:%s\n' "${version}"
+
+        return 0
+    fi
+
+    printf 'compliant\n'
+}
+
+# ffmpeg_state — the pair against the contract. Prints compliant, absent
+# (neither binary at FFMPEG_BIN_DIR), foreign:<path> (neither, but an ffmpeg
+# elsewhere on PATH — Jammy's package, on a host prepared before the
+# managed build), or the first unsatisfied binary as <state>@<tool>[:<detail>],
+# e.g. version@ffprobe:4.4.2-0ubuntu0.22.04.1 or absent@ffprobe.
+ffmpeg_state() {
+    local ffmpeg_tool ffprobe_tool
+    ffmpeg_tool="$(ffmpeg_tool_state ffmpeg)"
+    ffprobe_tool="$(ffmpeg_tool_state ffprobe)"
+
+    if [[ "${ffmpeg_tool}" == absent ]] && [[ "${ffprobe_tool}" == absent ]]; then
+        local found
+        found="$(tool_path ffmpeg || true)"
+
+        if [[ -n "${found}" ]]; then
+            printf 'foreign:%s\n' "${found}"
+        else
+            printf 'absent\n'
+        fi
+
+        return 0
+    fi
+
+    local tool state
+    for tool in ffmpeg ffprobe; do
+        if [[ "${tool}" == ffmpeg ]]; then state="${ffmpeg_tool}"; else state="${ffprobe_tool}"; fi
+        [[ "${state}" == compliant ]] && continue
+
+        if [[ "${state}" == *:* ]]; then
+            printf '%s@%s:%s\n' "${state%%:*}" "${tool}" "${state#*:}"
+        else
+            printf '%s@%s\n' "${state}" "${tool}"
+        fi
+
+        return 0
+    done
+
+    printf 'compliant\n'
+}
+
 # --- Report sections (shared by --check and --verify) -----------------------
 
 report_host() {
@@ -1014,6 +1163,7 @@ report_external_runtime() {
 
     report_rclone_runtime
     report_ytdlp_runtime
+    report_ffmpeg_runtime
 }
 
 report_rclone_runtime() {
@@ -1118,6 +1268,64 @@ report_ytdlp_runtime() {
             ;;
         *)
             fail "internal: unknown yt-dlp state: ${state}"
+            ;;
+    esac
+}
+
+report_ffmpeg_runtime() {
+    if ! ffmpeg_contract_valid; then
+        item CONFLICT "ffmpeg" "external-runtimes contract unreadable or incomplete: ${RCLONE_CONTRACT_FILE}" \
+            "restore the committed contract from the repository — never editable on the host"
+
+        return 0
+    fi
+
+    local state
+    state="$(ffmpeg_state)"
+
+    local install="install verified ffmpeg ${FFMPEG_VERSION}"
+    local replace="replace with verified ffmpeg ${FFMPEG_VERSION}"
+    local kind="${state%%@*}" rest="${state#*@}"
+    local tool="${rest%%:*}" detail=""
+    [[ "${rest}" == *:* ]] && detail="${rest#*:}"
+    local path="${FFMPEG_BIN_DIR}/${tool}"
+
+    case "${state}" in
+        compliant)
+            item PASS "ffmpeg" "${FFMPEG_VERSION}, ffmpeg and ffprobe in ${FFMPEG_BIN_DIR}, ${FFMPEG_OWNER}:${FFMPEG_GROUP} ${FFMPEG_MODE} (managed external runtime)"
+            ;;
+        absent)
+            item MISSING "ffmpeg" "${FFMPEG_BIN_DIR}/ffmpeg and ffprobe absent" "${install}"
+            ;;
+        foreign:*)
+            item CONFLICT "ffmpeg" "found at ${state#foreign:}, but the managed binaries belong in ${FFMPEG_BIN_DIR}" \
+                "${install} in ${FFMPEG_BIN_DIR} (the unexpected copy is never touched)"
+            ;;
+        absent@*)
+            item MISSING "ffmpeg" "${path} absent" "${install}"
+            ;;
+        not-file@*)
+            item CONFLICT "ffmpeg" "${path} is a directory, not the binary" \
+                "move it aside by hand, then re-run --apply"
+            ;;
+        no-stat@*)
+            item CONFLICT "ffmpeg" "cannot stat ${path}" \
+                "investigate the binary manually, then re-run --apply"
+            ;;
+        owner@*)
+            item CONFLICT "ffmpeg" "${path} owned by ${detail}, required ${FFMPEG_OWNER}:${FFMPEG_GROUP}" "${replace}"
+            ;;
+        mode@*)
+            item CONFLICT "ffmpeg" "${path} mode ${detail}, required ${FFMPEG_MODE}" "${replace}"
+            ;;
+        no-version@*)
+            item CONFLICT "ffmpeg" "${path} cannot report a version" "${replace}"
+            ;;
+        version@*)
+            item CONFLICT "ffmpeg" "${path} reports ${detail}, required ${FFMPEG_VERSION}" "${replace}"
+            ;;
+        *)
+            fail "internal: unknown ffmpeg state: ${state} (${kind})"
             ;;
     esac
 }
@@ -1936,6 +2144,134 @@ reconcile_ytdlp() {
     action "yt-dlp ${YTDLP_VERSION} installed at ${YTDLP_BINARY_PATH} (${YTDLP_OWNER}:${YTDLP_GROUP} ${YTDLP_MODE})"
 }
 
+FFMPEG_WORKDIR=""
+
+cleanup_ffmpeg_workdir() {
+    [[ "${BASHPID:-$$}" == "$$" ]] || return 0
+    [[ -n "${FFMPEG_WORKDIR}" ]] || return 0
+
+    rm -rf -- "${FFMPEG_WORKDIR}"
+    FFMPEG_WORKDIR=""
+}
+
+# fetch_ffmpeg_file URL DST — HTTPS-only download of the pinned build;
+# GitHub redirects a release asset to its object storage, which --proto keeps
+# on HTTPS. The archive is about 150 MB, hence the longer ceiling.
+fetch_ffmpeg_file() {
+    local url="$1" dst="$2"
+
+    probe_exec "${CURL_BIN}" --fail --silent --show-error --location \
+        --proto '=https' --tlsv1.2 --max-time 900 \
+        --output "${dst}" -- "${url}" \
+        || fail "ffmpeg: cannot download ${url}"
+}
+
+# reconcile_ffmpeg — idempotent, fail-closed convergence of the managed
+# ffmpeg and ffprobe onto the pinned build:
+#   - compliant -> no network request, no download, no file replacement;
+#   - a directory where a binary belongs -> refused before any download;
+#   - anything else -> download the pinned archive, refuse it unless its
+#     SHA-256 is exactly the committed one, extract only bin/ffmpeg and
+#     bin/ffprobe, confirm both report exactly the pinned version, stage both
+#     with final ownership and mode beside their destinations, and only then
+#     rename each into place. A failure before the renames leaves both
+#     installed binaries untouched.
+reconcile_ffmpeg() {
+    ffmpeg_contract_valid \
+        || fail "ffmpeg: external-runtimes contract unreadable or incomplete: ${RCLONE_CONTRACT_FILE}"
+
+    local state
+    state="$(ffmpeg_state)"
+
+    if [[ "${state}" == compliant ]]; then
+        action "ffmpeg ${FFMPEG_VERSION} already installed in ${FFMPEG_BIN_DIR} — nothing to do"
+
+        return 0
+    fi
+
+    if [[ "${state}" == not-file@* ]]; then
+        local blocked="${state#not-file@}"
+        fail "ffmpeg: ${FFMPEG_BIN_DIR}/${blocked} is a directory — refusing to install over it; move it aside by hand"
+    fi
+
+    action "ffmpeg requires reconciliation (state: ${state}) — installing verified ${FFMPEG_VERSION}"
+
+    tool_available "${CURL_BIN}" \
+        || fail "ffmpeg: curl unavailable — the bootstrap tooling must be installed first"
+    tool_available tar \
+        || fail "ffmpeg: tar unavailable — the base package contract installs it"
+    tool_available xz \
+        || fail "ffmpeg: xz unavailable — the base package contract installs xz-utils"
+
+    FFMPEG_WORKDIR="$(mktemp -d)" || fail "ffmpeg: cannot create work directory"
+    trap cleanup_ffmpeg_workdir EXIT
+
+    local workdir="${FFMPEG_WORKDIR}"
+    local url="${FFMPEG_DOWNLOAD_BASE_URL}/${FFMPEG_RELEASE}/${FFMPEG_ARTIFACT}"
+
+    action "ffmpeg: downloading ${FFMPEG_ARTIFACT} from ${FFMPEG_DOWNLOAD_BASE_URL}/${FFMPEG_RELEASE}"
+
+    fetch_ffmpeg_file "${url}" "${workdir}/${FFMPEG_ARTIFACT}"
+
+    local actual_sha
+    actual_sha="$(sha256sum "${workdir}/${FFMPEG_ARTIFACT}" | awk '{ print $1 }')"
+
+    [[ "${actual_sha}" == "${FFMPEG_SHA256}" ]] \
+        || fail "ffmpeg: checksum mismatch for ${FFMPEG_ARTIFACT}: expected ${FFMPEG_SHA256}, got ${actual_sha}"
+
+    action "ffmpeg: checksum matches the pinned digest — extracting ffmpeg and ffprobe"
+
+    local base="${FFMPEG_ARTIFACT%.tar.xz}"
+
+    probe_exec tar -xJf "${workdir}/${FFMPEG_ARTIFACT}" -C "${workdir}" "${base}/bin/ffmpeg" "${base}/bin/ffprobe" 2>/dev/null \
+        || fail "ffmpeg: ${FFMPEG_ARTIFACT} does not contain ${base}/bin/ffmpeg and ${base}/bin/ffprobe"
+
+    local tool candidate candidate_version
+    for tool in ffmpeg ffprobe; do
+        candidate="${workdir}/${base}/bin/${tool}"
+
+        [[ -f "${candidate}" ]] || fail "ffmpeg: ${FFMPEG_ARTIFACT} does not contain ${base}/bin/${tool}"
+
+        # No `--` separator: BSD chmod (local test hosts) rejects it.
+        chmod 0755 "${candidate}" || fail "ffmpeg: cannot mark the extracted ${tool} executable"
+
+        candidate_version="$(ffmpeg_reported_version "${candidate}" "${tool}" || true)"
+
+        [[ "${candidate_version}" == "${FFMPEG_VERSION}" ]] \
+            || fail "ffmpeg: extracted ${tool} reports ${candidate_version:-no version}, expected ${FFMPEG_VERSION}"
+    done
+
+    # Both staged first, so a failure staging the second leaves the installed
+    # pair as it was rather than half replaced.
+    local staged_ffmpeg staged_ffprobe
+    staged_ffmpeg="$(mktemp "${FFMPEG_BIN_DIR}/ffmpeg.XXXXXX")" || fail "ffmpeg: cannot stage ffmpeg"
+    staged_ffprobe="$(mktemp "${FFMPEG_BIN_DIR}/ffprobe.XXXXXX")" || { rm -f -- "${staged_ffmpeg}"; fail "ffmpeg: cannot stage ffprobe"; }
+
+    if ! install -m "${FFMPEG_MODE}" -o "${FFMPEG_OWNER}" -g "${FFMPEG_GROUP}" -- "${workdir}/${base}/bin/ffmpeg" "${staged_ffmpeg}" \
+        || ! install -m "${FFMPEG_MODE}" -o "${FFMPEG_OWNER}" -g "${FFMPEG_GROUP}" -- "${workdir}/${base}/bin/ffprobe" "${staged_ffprobe}"; then
+        rm -f -- "${staged_ffmpeg}" "${staged_ffprobe}"
+        fail "ffmpeg: cannot stage the verified binaries with final ownership"
+    fi
+
+    if ! mv -f -- "${staged_ffprobe}" "${FFMPEG_BIN_DIR}/ffprobe"; then
+        rm -f -- "${staged_ffmpeg}" "${staged_ffprobe}"
+        fail "ffmpeg: cannot install ${FFMPEG_BIN_DIR}/ffprobe"
+    fi
+
+    if ! mv -f -- "${staged_ffmpeg}" "${FFMPEG_BIN_DIR}/ffmpeg"; then
+        rm -f -- "${staged_ffmpeg}"
+        fail "ffmpeg: cannot install ${FFMPEG_BIN_DIR}/ffmpeg"
+    fi
+
+    cleanup_ffmpeg_workdir
+
+    state="$(ffmpeg_state)"
+    [[ "${state}" == compliant ]] \
+        || fail "ffmpeg: post-install verification failed (state: ${state})"
+
+    action "ffmpeg ${FFMPEG_VERSION} installed in ${FFMPEG_BIN_DIR} (ffmpeg, ffprobe; ${FFMPEG_OWNER}:${FFMPEG_GROUP} ${FFMPEG_MODE})"
+}
+
 # reconcile_php_security_floor — PHP below PHP_MIN_VERSION is upgraded to what
 # its repository offers: the installed packages of PHP_PACKAGES and nothing
 # else (--only-upgrade installs nothing new; apt brings along what they
@@ -2146,6 +2482,10 @@ perform_apply() {
 
     # The same verified-download path, for the media import's downloader.
     reconcile_ytdlp
+
+    # And for the media pipeline's ffmpeg/ffprobe, after the package phase
+    # put xz-utils in place to unpack it.
+    reconcile_ffmpeg
 
     action "apply finished — running the full contract verification"
 
