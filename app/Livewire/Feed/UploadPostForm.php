@@ -28,9 +28,11 @@ use App\Support\Settings\ProjectSettingsManager;
 use Carbon\CarbonImmutable;
 use Illuminate\Contracts\View\View;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Validation\Rule;
 use Livewire\Attributes\On;
 use Livewire\Component;
+use Livewire\Features\SupportFileUploads\TemporaryUploadedFile;
 use Livewire\WithFileUploads;
 
 final class UploadPostForm extends Component
@@ -118,7 +120,7 @@ final class UploadPostForm extends Component
         $importedTempFile = null;
 
         // A link field emptied is no link: the picture is then simply missing.
-        if (filled($this->importedImageUrl) && $this->image === null && $this->video === null) {
+        if (filled($this->importedImageUrl) && $this->image === null && ! $this->video instanceof UploadedFile) {
             // The link is the client's to set: nothing is fetched for an
             // account that may not post, whatever it sends.
             if (! auth()->user()?->can('create', Post::class)) {
@@ -156,11 +158,11 @@ final class UploadPostForm extends Component
                     description: $this->description,
                     sourceUrl: $this->sourceUrl,
                     tagIds: $this->tagIds,
-                    image: $this->video === null ? $this->image : null,
+                    image: $this->video instanceof UploadedFile ? null : $this->image,
                     imageSource: $imageSource,
                     categoryId: $this->categoryId !== '' ? (int) $this->categoryId : null,
                     authorAnswerOptionIds: $this->selectedAuthorAnswerOptionIds(),
-                    video: $this->video,
+                    video: $this->video instanceof UploadedFile ? $this->video : null,
                 ));
 
                 $author = auth()->user();
@@ -178,6 +180,12 @@ final class UploadPostForm extends Component
                     PostStatus::Draft => __('ui.upload.success_video_processing'),
                     default => __('ui.upload.success_pending'),
                 });
+
+                // Its original is stored now; the temporary upload would only
+                // wait a day for Livewire's clean-up, up to 100 MB at a time.
+                if ($this->video instanceof TemporaryUploadedFile) {
+                    $this->video->delete();
+                }
 
                 $this->reset(['title', 'description', 'sourceUrl', 'image', 'video', 'tagIds', 'categoryId', 'knowsCorrectAnswer', 'authorAnswers']);
                 $this->importedImageUrl = null;
@@ -248,7 +256,7 @@ final class UploadPostForm extends Component
             'description' => ['nullable', 'string', 'max:'.PostContentRules::DESCRIPTION_LIMIT],
             'image' => [
                 // A post needs its picture, unless a video takes its place.
-                Rule::requiredIf(fn (): bool => $this->video === null),
+                Rule::requiredIf(fn (): bool => ! $this->video instanceof UploadedFile),
                 'nullable',
                 'image',
                 'mimes:'.$imageMimes,

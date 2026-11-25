@@ -55,6 +55,9 @@ final class VideoTranscoder
             '-dn',
             '-map_metadata', '-1',
             '-map_chapters', '-1',
+            // Never longer than an upload may play, whatever length the
+            // container claimed when it was probed.
+            '-t', (string) (int) config('uploads.videos.max_duration_seconds'),
             // The index at the front, so playback starts before the file is in.
             '-movflags', '+faststart',
             // Before the input it bounds decoding; here, the encoder.

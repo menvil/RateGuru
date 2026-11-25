@@ -106,10 +106,23 @@ final class ProcessVideoAssetJob implements RunsOnMediaQueue, ShouldQueue
             ->where('status', MediaStatus::Processing)
             ->update(['status' => MediaStatus::Failed, 'processing_error' => 'The video could not be processed.']);
 
-        $asset = $failed === 1 ? MediaAsset::query()->find($this->mediaAssetId) : null;
+        $asset = MediaAsset::query()->find($this->mediaAssetId);
 
-        if ($asset !== null) {
+        if ($asset === null) {
+            return;
+        }
+
+        if ($failed === 1) {
             app(FinalizePostMediaAction::class)->failed($asset);
+        } elseif ($asset->status === MediaStatus::Ready) {
+            // The media was made and only publishing failed, every time: one
+            // more try, so the post does not stay a draft with nothing left
+            // to move it.
+            try {
+                app(FinalizePostMediaAction::class)->ready($asset);
+            } catch (Throwable $exception) {
+                report($exception);
+            }
         }
     }
 }

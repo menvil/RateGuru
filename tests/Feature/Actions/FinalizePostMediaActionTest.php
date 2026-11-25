@@ -1,6 +1,8 @@
 <?php
 
+use App\Actions\Posts\DeletePostAction;
 use App\Actions\Posts\FinalizePostMediaAction;
+use App\Actions\Posts\RestoreDeletedPostAction;
 use App\Enums\MediaStatus;
 use App\Enums\MediaType;
 use App\Enums\PostStatus;
@@ -10,9 +12,12 @@ use App\Models\MediaAsset;
 use App\Models\Post;
 use App\Models\User;
 use App\Notifications\VideoPostProcessedNotification;
+use App\Services\Media\MediaToolResult;
 use App\Services\Media\VideoAssetProcessor;
 use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Facades\Queue;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 
 beforeEach(function () {
     Queue::fake();
@@ -120,4 +125,52 @@ it('finalizes the post from the job: whenever its asset is ready, and once the l
     expect($failingAsset->refresh()->status)->toBe(MediaStatus::Failed)
         ->and($failing->refresh()->status)->toBe(PostStatus::Draft);
     Notification::assertSentTo($author, VideoPostProcessedNotification::class, fn (VideoPostProcessedNotification $notification): bool => $notification->post->is($failing));
+});
+
+it('publishes nothing for an asset that is not ready', function () {
+    $author = User::factory()->create();
+    [$post, $asset] = draftVideoPost($author, MediaStatus::Processing);
+
+    app(FinalizePostMediaAction::class)->ready($asset);
+
+    expect($post->refresh()->status)->toBe(PostStatus::Draft);
+    Notification::assertNothingSent();
+});
+
+it('tells the author of a failure once: from the run that failed the asset, never from a later one', function () {
+    $author = User::factory()->create();
+    // The processor refuses the file: ffprobe cannot read it.
+    [$post, $asset] = draftVideoPost($author, MediaStatus::Processing);
+    $asset->forceFill(['disk' => 'local', 'path' => 'media/originals/2026/11/'.Str::uuid().'.mp4'])->save();
+    Storage::fake('local')->put($asset->path, 'not a video');
+    bindRecordingMediaToolRunner([new MediaToolResult(1, '', 'Invalid data')]);
+
+    (new ProcessVideoAssetJob($asset->id))->handle(app(VideoAssetProcessor::class), app(FinalizePostMediaAction::class));
+    // Redelivered: the asset is Failed already.
+    (new ProcessVideoAssetJob($asset->id))->handle(app(VideoAssetProcessor::class), app(FinalizePostMediaAction::class));
+
+    expect($asset->refresh()->status)->toBe(MediaStatus::Failed)
+        ->and($post->refresh()->status)->toBe(PostStatus::Draft);
+    Notification::assertSentToTimes($author, VideoPostProcessedNotification::class, 1);
+});
+
+it('tries publishing once more when only publishing failed on every attempt', function () {
+    $author = User::factory()->create();
+    [$post, $asset] = draftVideoPost($author, MediaStatus::Ready);
+
+    (new ProcessVideoAssetJob($asset->id))->failed(new RuntimeException('database went away'));
+
+    expect($post->refresh()->status)->toBe(PostStatus::Published)
+        ->and($asset->refresh()->status)->toBe(MediaStatus::Ready);
+});
+
+it('publishes a video draft restored from the deleted posts once its media finished meanwhile', function () {
+    $author = User::factory()->create();
+    [$post, $asset] = draftVideoPost($author, MediaStatus::Processing);
+    app(DeletePostAction::class)->handle($author, $post);
+    $asset->forceFill(['status' => MediaStatus::Ready])->save();
+
+    app(RestoreDeletedPostAction::class)->handle($author, $post->fresh());
+
+    expect(Post::query()->findOrFail($post->id)->status)->toBe(PostStatus::Published);
 });

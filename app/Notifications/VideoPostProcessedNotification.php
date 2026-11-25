@@ -33,19 +33,21 @@ final class VideoPostProcessedNotification extends Notification
      */
     public function toArray(object $notifiable): array
     {
-        $outcome = match ($this->post->status) {
-            PostStatus::Published => 'video_post_published',
-            PostStatus::Pending => 'video_post_pending',
-            default => 'video_post_failed',
-        };
-
-        return [
-            'type' => $outcome,
+        $common = [
             'post_id' => $this->post->id,
             'post_title' => $this->post->title,
-            'message_key' => "ui.notifications.messages.{$outcome}",
             'message_params' => [],
-            'url' => Route::has('posts.show') ? route('posts.show', $this->post) : '#',
+            // Only a published post has a page anyone may open.
+            'url' => $this->post->status === PostStatus::Published && Route::has('posts.show')
+                ? route('posts.show', $this->post)
+                : '#',
         ];
+
+        // Each key written out whole, so the translation check finds it.
+        return match ($this->post->status) {
+            PostStatus::Published => ['type' => 'video_post_published', 'message_key' => 'ui.notifications.messages.video_post_published'] + $common,
+            PostStatus::Pending => ['type' => 'video_post_pending', 'message_key' => 'ui.notifications.messages.video_post_pending'] + $common,
+            default => ['type' => 'video_post_failed', 'message_key' => 'ui.notifications.messages.video_post_failed'] + $common,
+        };
     }
 }

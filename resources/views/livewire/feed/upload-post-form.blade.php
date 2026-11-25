@@ -24,6 +24,7 @@
             mediaError: null,
             uploadProgress: null,
             maxVideoSeconds: @js((int) config('uploads.videos.max_duration_seconds')),
+            maxVideoBytes: @js((int) config('uploads.videos.max_kilobytes') * 1024),
             tagOpen: false,
             clearMedia() {
                 if (this.previewIsVideo && this.previewUrl) URL.revokeObjectURL(this.previewUrl);
@@ -32,27 +33,39 @@
                 this.fileName = null;
                 this.uploadProgress = null;
             },
-            {{-- A video or animated GIF goes to $video, anything else to $image; the other field
-                 lets its file go, so what is shown is what is posted. --}}
+            {{-- Both fields let go of what they held, here and on the server, before anything else:
+                 what is shown is then what is posted, also when the new file is refused. --}}
+            forgetFiles() {
+                this.$wire.cancelUpload('image');
+                this.$wire.cancelUpload('video');
+                this.$wire.set('image', null, false);
+                this.$wire.set('video', null, false);
+            },
+            {{-- A video or animated GIF goes to $video, anything else to $image. Some systems give
+                 a clip no type at all; its name decides then. --}}
             pickMedia(file) {
                 this.mediaError = null;
                 this.clearMedia();
+                this.forgetFiles();
                 if (!file) return;
-                const isVideo = file.type.startsWith('video/') || file.type === 'image/gif';
+                const isVideo = file.type.startsWith('video/') || file.type === 'image/gif'
+                    || (file.type === '' && /\.(mp4|m4v|mov|webm|gif)$/i.test(file.name));
                 const field = isVideo ? 'video' : 'image';
-                const other = isVideo ? 'image' : 'video';
-                this.$wire.cancelUpload(other);
-                this.$wire.set(other, null, false);
+                if (isVideo && file.size > this.maxVideoBytes) {
+                    this.mediaError = @js(__('ui.upload.error_video_too_large', ['megabytes' => intdiv((int) config('uploads.videos.max_kilobytes'), 1024)]));
+                    this.$refs.image.value = '';
+                    return;
+                }
                 this.fileName = file.name;
                 const send = () => {
                     this.uploadProgress = 0;
                     this.$wire.upload(field, file,
                         () => { this.uploadProgress = null; },
-                        () => { this.uploadProgress = null; this.mediaError = @js(__('ui.upload.error_generic')); },
+                        () => { this.uploadProgress = null; this.$wire.set(field, null, false); this.mediaError = @js(__('ui.upload.error_generic')); },
                         (event) => { this.uploadProgress = event.detail.progress; },
                     );
                 };
-                if (file.type.startsWith('video/')) {
+                if (isVideo && !/gif$/i.test(file.type || file.name)) {
                     this.previewIsVideo = true;
                     this.previewUrl = URL.createObjectURL(file);
                     {{-- Its length is known from the metadata before a byte is sent, so a clip that is
@@ -92,6 +105,9 @@
         "
         x-on:upload-modal-opened.window="
             clearMedia();
+            {{-- An upload still on its way from before would land in the fresh form. --}}
+            $wire.cancelUpload('image');
+            $wire.cancelUpload('video');
             mediaError = null;
             imageTab = 'file';
             tagOpen = false;
@@ -159,7 +175,6 @@
                     x-on:click="
                         if (imageTab === 'url') return;
                         imageTab = 'url';
-                        previewUrl = null;
                         clearMedia();
                         mediaError = null;
                         $refs.image.value = '';

@@ -36,5 +36,9 @@ return [
         // has one media worker; this keeps one account from queueing an hour
         // of transcoding ahead of everyone else.
         'max_processing_per_author' => 2,
+        // How long an upload counts as processing for that limit: past every
+        // retry ProcessVideoAssetJob could make (5 attempts of at most 15
+        // minutes, with their waits).
+        'processing_window_minutes' => 180,
     ],
 ];

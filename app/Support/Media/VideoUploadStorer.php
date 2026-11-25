@@ -30,6 +30,9 @@ final class VideoUploadStorer
         'mov,mp4,m4a,3gp,3g2,mj2' => ['mp4', 'video/mp4'],
     ];
 
+    /** As for a picture's name: the column, not the file, is what it fits. */
+    private const int MAX_ORIGINAL_FILENAME_LENGTH = 255;
+
     public function __construct(
         private readonly VideoProbe $probe,
         private readonly MediaStorage $storage,
@@ -61,7 +64,7 @@ final class VideoUploadStorer
             media: new StoredMedia(
                 disk: $request->disk,
                 path: $path,
-                originalFilename: $file->getClientOriginalName(),
+                originalFilename: mb_substr($file->getClientOriginalName(), 0, self::MAX_ORIGINAL_FILENAME_LENGTH),
                 mimeType: $mimeType,
                 extension: $extension,
                 byteSize: $bytes,

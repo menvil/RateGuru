@@ -213,9 +213,19 @@ final class CreatePostAction
         }
 
         if ($storedVideo !== null) {
-            // Not caught: on the hosts this only enqueues, and a post whose
-            // video is never processed must not look like a success.
-            ProcessVideoAssetJob::dispatch((int) $post->image_asset_id)->afterCommit();
+            try {
+                ProcessVideoAssetJob::dispatch((int) $post->image_asset_id)->afterCommit();
+            } catch (Throwable $exception) {
+                // Never queued, so nothing would ever settle it: the asset
+                // fails at once rather than counting against the author's
+                // limit, and the author is told the upload did not work.
+                MediaAsset::query()
+                    ->whereKey($post->image_asset_id)
+                    ->where('status', MediaStatus::Processing)
+                    ->update(['status' => MediaStatus::Failed, 'processing_error' => 'The video could not be queued for processing.']);
+
+                throw $exception;
+            }
         } elseif ($post->image_asset_id !== null) {
             try {
                 // ->afterCommit(): the structural "after DB::transaction()
@@ -273,10 +283,13 @@ final class CreatePostAction
      */
     private function assertMayAddVideo(User $author): void
     {
+        // Only uploads still within the time a job could be working on them:
+        // one whose job was lost must not hold the author's place for good.
         $processing = MediaAsset::query()
             ->where('owner_user_id', $author->id)
             ->where('status', MediaStatus::Processing)
             ->whereIn('media_type', [MediaType::Video, MediaType::Animation])
+            ->where('created_at', '>=', now()->subMinutes((int) config('uploads.videos.processing_window_minutes')))
             ->count();
 
         if ($processing >= (int) config('uploads.videos.max_processing_per_author')) {

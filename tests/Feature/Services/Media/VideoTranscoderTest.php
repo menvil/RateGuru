@@ -36,6 +36,8 @@ it('encodes the master as H.264/AAC MP4 at the picture as shown, through the inp
             '-force_key_frames', 'expr:gte(t,n_forced*2)',
             '-c:a', 'aac', '-b:a', '128k', '-ac', '2',
             '-sn', '-dn', '-map_metadata', '-1', '-map_chapters', '-1',
+            // However long the container claimed to be when it was probed.
+            '-t', '90',
             '-movflags', '+faststart',
             '-threads', '2',
             '-f', 'mp4', '/work/master.mp4',

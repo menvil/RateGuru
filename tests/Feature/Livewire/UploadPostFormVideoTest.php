@@ -8,7 +8,10 @@ use App\Livewire\Feed\UploadPostForm;
 use App\Models\MediaAsset;
 use App\Models\Post;
 use App\Models\User;
+use App\Services\Media\Exceptions\VideoTooLargeException;
+use App\Support\Media\VideoUploadStorer;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use Livewire\Livewire;
@@ -35,7 +38,10 @@ it('posts a video as a draft that waits for processing, and says so', function (
 
     $post = Post::query()->sole();
     expect($post->status)->toBe(PostStatus::Draft)
-        ->and($post->imageAsset->media_type)->toBe(MediaType::Video);
+        ->and($post->imageAsset->media_type)->toBe(MediaType::Video)
+        // The original is stored; the temporary upload is gone (Livewire's
+        // own clean-up takes the small metadata file beside it).
+        ->and(array_values(array_filter(Storage::disk('tmp-for-tests')->allFiles('livewire-tmp'), fn (string $path): bool => ! str_ends_with($path, '.json'))))->toBe([]);
     Queue::assertPushed(ProcessVideoAssetJob::class);
 });
 
@@ -74,7 +80,8 @@ it('refuses a file of another type before any tool reads it', function () {
         ->and(Post::query()->count())->toBe(0);
 });
 
-it('tells the author why a video was refused: too long, or unreadable', function () {
+it('tells the author why a video was refused — too long, or unreadable — and reports none of it', function () {
+    Exceptions::fake();
     bindRecordingMediaToolRunner([acceptableFfprobeResult(['duration' => '95.000000'])]);
 
     Livewire::actingAs(User::factory()->create())
@@ -92,6 +99,29 @@ it('tells the author why a video was refused: too long, or unreadable', function
         ->set('video', fakeVideoUpload())
         ->call('submit')
         ->assertSet('submitError', __('ui.upload.error_invalid_video'));
+
+    expect(Post::query()->count())->toBe(0);
+    Exceptions::assertNothingReported();
+});
+
+it('says a file over the size limit is too large', function () {
+    config(['uploads.videos.max_kilobytes' => 1]);
+    $runner = bindRecordingMediaToolRunner();
+
+    // The storer refuses it before any tool opens it.
+    expect(fn () => app(VideoUploadStorer::class)->store(UploadedFile::fake()->create('big.mp4', 2, 'video/mp4'), 1))
+        ->toThrow(VideoTooLargeException::class);
+    expect($runner->calls)->toBe([])
+        ->and(__('ui.upload.error_video_too_large', ['megabytes' => 100]))->toBe('This video is larger than 100 MB.');
+});
+
+it('asks for a picture when the video field holds no file at all', function () {
+    Livewire::actingAs(User::factory()->create())
+        ->test(UploadPostForm::class)
+        ->set('title', 'An empty video field')
+        ->set('video', '')
+        ->call('submit')
+        ->assertHasErrors(['image' => 'required']);
 
     expect(Post::query()->count())->toBe(0);
 });

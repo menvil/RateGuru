@@ -19,8 +19,10 @@ use Throwable;
 /**
  * The end of a video post's wait. A post whose video or GIF is Ready leaves
  * its draft under the rule every new post follows — published at once or
- * waiting for a moderator — decided on the author's row as it is now. A
- * post whose media Failed stays a draft, and its author is told either way.
+ * waiting for a moderator — decided on the author's row as it is now, and
+ * its author is told. A post whose media Failed stays a draft, and its author
+ * is told that too. An author who may no longer post publishes nothing; the
+ * draft stays, and the log says why.
  *
  * Safe to run again: only a draft is ever published, so a redelivered job
  * changes nothing the first run already did.
@@ -56,6 +58,12 @@ final class FinalizePostMediaAction
             // An author who may no longer post — suspended or banned while
             // the video was processed — publishes nothing; the draft stays.
             if (! $author->canCreateContent()) {
+                $this->logger->info('posts.media_ready_held', [
+                    'post_id' => $post->id,
+                    'media_asset_id' => $asset->id,
+                    'reason' => 'author_cannot_create_content',
+                ]);
+
                 return null;
             }
 

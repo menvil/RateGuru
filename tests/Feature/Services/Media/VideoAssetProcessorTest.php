@@ -236,3 +236,14 @@ it('leaves the asset waiting when a tool was interrupted, for the job to run it 
     expect($asset->refresh()->status)->toBe(MediaStatus::Processing)
         ->and($asset->processing_error)->toBeNull();
 });
+
+it('reads the asset again once it holds the lock, and leaves one another run settled meanwhile', function () {
+    $runner = bindRecordingMediaToolRunner();
+    $asset = processingVideoAsset('x', 'mp4');
+    MediaAsset::query()->whereKey($asset->id)->update(['status' => MediaStatus::Ready]);
+
+    // $asset still says Processing in memory.
+    expect(app(VideoAssetProcessor::class)->process($asset))->toBeTrue()
+        ->and($runner->calls)->toBe([])
+        ->and($asset->status)->toBe(MediaStatus::Ready);
+});

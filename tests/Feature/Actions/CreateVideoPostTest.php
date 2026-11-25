@@ -83,8 +83,6 @@ it('refuses another video while the author already has as many processing as all
         'media_type' => MediaType::Video,
         'status' => MediaStatus::Processing,
     ]);
-    // A processed one and another author's do not count.
-    MediaAsset::factory()->create(['owner_user_id' => $author->id, 'media_type' => MediaType::Video, 'status' => MediaStatus::Ready]);
     $runner = bindRecordingMediaToolRunner([acceptableFfprobeResult()]);
 
     try {
@@ -104,4 +102,35 @@ it('takes one picture, video or stored image per post, never two', function () {
         image: UploadedFile::fake()->image('photo.jpg'),
         video: fakeVideoUpload(),
     )))->toThrow(InvalidArgumentException::class);
+});
+
+it('counts the author\'s own uploads still within the processing window, GIFs included, and nothing else', function () {
+    config(['uploads.videos.max_processing_per_author' => 2, 'uploads.videos.processing_window_minutes' => 180]);
+    $author = User::factory()->create();
+    // Counted: one video and one GIF of the author's, still processing.
+    MediaAsset::factory()->create(['owner_user_id' => $author->id, 'media_type' => MediaType::Video, 'status' => MediaStatus::Processing]);
+    // Not counted: processed, another author's, or past every retry its job could make.
+    MediaAsset::factory()->create(['owner_user_id' => $author->id, 'media_type' => MediaType::Video, 'status' => MediaStatus::Ready]);
+    MediaAsset::factory()->create(['owner_user_id' => User::factory()->create()->id, 'media_type' => MediaType::Video, 'status' => MediaStatus::Processing]);
+    MediaAsset::factory()->create(['owner_user_id' => $author->id, 'media_type' => MediaType::Video, 'status' => MediaStatus::Processing, 'created_at' => now()->subHours(4)]);
+    bindRecordingMediaToolRunner([acceptableFfprobeResult()]);
+
+    app(CreatePostAction::class)->handle($author, new CreatePostData(title: 'Second', video: fakeVideoUpload()));
+
+    MediaAsset::factory()->create(['owner_user_id' => $author->id, 'media_type' => MediaType::Animation, 'status' => MediaStatus::Processing]);
+    bindRecordingMediaToolRunner([acceptableFfprobeResult()]);
+
+    expect(fn () => app(CreatePostAction::class)->handle($author, new CreatePostData(title: 'Third', video: fakeVideoUpload())))
+        ->toThrow(CannotCreatePostException::class);
+});
+
+it('fails the asset at once when its job cannot be queued, so it never holds the author\'s place', function () {
+    bindRecordingMediaToolRunner([acceptableFfprobeResult()]);
+    Queue::shouldReceive('connection')->andThrow(new RuntimeException('Redis is down'));
+
+    expect(fn () => app(CreatePostAction::class)->handle(User::factory()->create(), new CreatePostData(title: 'Lost', video: fakeVideoUpload())))
+        ->toThrow(RuntimeException::class, 'Redis is down');
+
+    expect(MediaAsset::query()->sole()->status)->toBe(MediaStatus::Failed)
+        ->and(Post::query()->sole()->status)->toBe(PostStatus::Draft);
 });
