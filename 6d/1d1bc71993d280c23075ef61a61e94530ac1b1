@@ -1,0 +1,34 @@
+app/Livewire/Feed/PostFeed.php
+  s_4b9dc6ab6b25d3::t_d411b847a9b5eb 6-7,10,13-14,17,41-75,102-107
+tests/Feature/Queries/FeedQueryTest.php
+  s_4b9dc6ab6b25d3::t_1a0d2c77a23111 220-235,237-249,251-259,261-268,270-277,279-285,287-294,298
+  s_4b9dc6ab6b25d3::t_d6bfc08ac2e1c4 6,8,236,250,260,269,278,286,295-297
+tests/Feature/Livewire/PostFeedLanguageOrderTest.php
+  s_4b9dc6ab6b25d3::t_51091383399404 1-95
+tools/phpstan/architecture.neon
+  s_4b9dc6ab6b25d3::t_22d0e0cfe93cac 25
+app/Queries/Feed/FeedQuery.php
+  s_4b9dc6ab6b25d3::t_64f8e668b476ec 85-86,95
+  s_4b9dc6ab6b25d3::t_d411b847a9b5eb 149-163
+  s_4b9dc6ab6b25d3::t_22d0e0cfe93cac 11,32,84,87-94,96-102,135,144
+docs/architecture/http-and-database-boundaries.md
+  s_4b9dc6ab6b25d3::t_22d0e0cfe93cac 123
+app/Queries/Feed/FeedLanguageOrder.php
+  s_4b9dc6ab6b25d3::t_22d0e0cfe93cac 1-26
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "6d1d1bc71993d280c23075ef61a61e94530ac1b1",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
