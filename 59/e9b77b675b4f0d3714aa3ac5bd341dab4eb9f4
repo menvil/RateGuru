@@ -1,0 +1,32 @@
+docs/i18n/project-translation-lifecycle.md
+  s_4b9dc6ab6b25d3::t_bbafaf57b9b394 114-117
+app/Support/Games/Snapshot/LocalizedText.php
+  s_4b9dc6ab6b25d3::t_6ddf8f35e232b8 44-48,51-53
+  s_4b9dc6ab6b25d3::t_f542d39abaa01c 8-9
+app/Support/Translations/TranslatableField.php
+  s_4b9dc6ab6b25d3::t_6ddf8f35e232b8 33-35,44
+tests/Feature/I18n/TranslatableFieldTest.php
+  s_4b9dc6ab6b25d3::t_f542d39abaa01c 9,101-118
+tests/Feature/I18n/UpdateProjectTranslationActionTest.php
+  s_4b9dc6ab6b25d3::t_f542d39abaa01c 436-439,441-444
+app/Support/Settings/ResolvedProjectSettings.php
+  s_4b9dc6ab6b25d3::t_6ddf8f35e232b8 164-167
+docs/architecture/translation-engine.md
+  s_4b9dc6ab6b25d3::t_bbafaf57b9b394 199-202
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "59e9b77b675b4f0d3714aa3ac5bd341dab4eb9f4",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
