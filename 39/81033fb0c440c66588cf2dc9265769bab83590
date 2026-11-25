@@ -1,0 +1,29 @@
+app/Notifications/SocialAccountConnectedNotification.php
+  s_1f43f39fbe0537::t_9908a481c1c0f0 22-24
+docs/architecture/media.md
+  s_1f43f39fbe0537::t_560546625f7b5e 445-449
+tests/Feature/Architecture/QueuedWorkRetryWindowTest.php
+  s_1f43f39fbe0537::t_0bd062ca3656b5 1-84
+app/Notifications/SocialAccountDisconnectedNotification.php
+  s_1f43f39fbe0537::t_780e5dd358965a 17-19
+app/Jobs/GenerateMediaVariantsJob.php
+  s_1f43f39fbe0537::t_3bb988bd04c5dd 27-33
+app/Mail/ContactMessageMail.php
+  s_1f43f39fbe0537::t_2bf2978e6679a9 17-19
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "3981033fb0c440c66588cf2dc9265769bab83590",
+  "prompts": {},
+  "sessions": {
+    "s_1f43f39fbe0537": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "526787d0-f443-4ad7-9610-cf9811fec895",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
