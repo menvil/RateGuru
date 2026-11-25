@@ -1,6 +1,7 @@
 <?php
 
 use App\Filament\Pages\ProjectSettingsPage;
+use App\Models\Post;
 use App\Models\ProjectSettings;
 use App\Models\User;
 use Livewire\Livewire;
@@ -51,4 +52,21 @@ it('refuses a number out of its range, naming the tab', function () {
         ->assertSee('Some settings can’t be saved yet: Language ranking.');
 
     expect(ProjectSettings::query()->find(1)->language_ranking)->toBeNull();
+});
+
+it('shows how the languages look now on its tab', function () {
+    ProjectSettings::factory()->create();
+    Post::factory()->published()->count(3)->create(['language' => 'ru']);
+    Post::factory()->published()->create(['language' => null]);
+
+    Livewire::withQueryParams(['tab' => 'languages'])->test(ProjectSettingsPage::class)
+        ->assertSee('How languages look now')
+        ->assertSee('ru 3 (75%) · none 1 (25%)')
+        ->assertSee('Texts read by OpenAI: 0');
+});
+
+it('counts nothing for the other tabs', function () {
+    ProjectSettings::factory()->create();
+
+    Livewire::test(ProjectSettingsPage::class)->assertDontSee('How languages look now');
 });

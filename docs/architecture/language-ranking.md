@@ -88,7 +88,11 @@ time:
 1. **Stale posts first** (`WorkOutPostLanguageAction`), up to 200 a run: each in a transaction of its own, the post
    locked and saved once — without touching its `updated_at` — and every signal read without a lock, so it never
    takes an account or a comment after the post. A vote that lands meanwhile waits for the post and marks it again.
-2. **Then the checks of new texts are asked of OpenAI** (`LanguageCheckQueue`): first attempts in batches of forty,
+2. **Then texts written before languages were kept** are read on this server, up to 500 a run, posts first and the
+   newest first (`LanguageCheckQueue::readOlderTexts`): a comment given the language read, each check queued for
+   OpenAI behind the texts written now, and the post marked stale. An installation fills its older posts and comments
+   in on its own after the release that brings languages; nobody runs anything.
+3. **Then the checks of new texts are asked of OpenAI** (`LanguageCheckQueue`): first attempts in batches of forty,
    texts written now before a backfill's, the newest first; a check that failed is retried alone, so a text OpenAI
    will not read no longer takes a batch down with it. An answer is written only if its claim still stands, with the
    comment locked before its check — the order every comment writer keeps — and the post marked stale afterwards in a
@@ -96,9 +100,9 @@ time:
    a run that died is taken up again after ten minutes. Nothing is asked while the setting is off, without the
    Translation AI key, or once the day's limit (3,000 checks by default, UTC) is reached.
 
-**`languages:backfill`** — run once by hand on an installation: reads every post and comment written before languages
-were kept, queues their checks behind the texts written now, and works out every post's language. Run again, it
-reads only what it has not.
+**`languages:backfill`** — not needed, since `languages:work` takes the older texts up on its own: it reads all of
+them at once and works out every post's language, for an installation that wants them now. Run again, it reads only
+what it has not.
 
 ## The feed
 
@@ -172,8 +176,9 @@ under its defaults the way the feature flags are; applying a preset never resets
 ## Checking it on real data
 
 The admin lists show each post's language and how surely it was told, and each comment's language, beside their
-number. `php artisan languages:report` tells the published posts by language, where the checks stand, how often the
-server's reading agreed with OpenAI's and how often a post's text was in its author's language. Read a month after
+number. Project settings → Language ranking shows how the languages look now (`LanguageStatusQuery`): the published
+posts by language, where the checks stand, how often the server's reading agreed with OpenAI's and how often a
+post's text was in its author's language; `php artisan languages:report` prints the same. Read a month after
 switching the feature on, they say whether the simulation's assumptions hold and the weights need a change.
 
 `LanguageDemoSeeder` plays a month of a multilingual site through the site's own actions to look at all of this before

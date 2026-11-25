@@ -34,7 +34,7 @@ it('reads only what it has not read when run again', function () {
     $newer = Post::factory()->published()->create(['title' => 'Bardzo ładne zdjęcie z gór']);
 
     $this->artisan('languages:backfill')
-        ->expectsOutputToContain('Read 1 posts and 0 comments')
+        ->expectsOutputToContain('Read 1 texts')
         ->assertSuccessful();
 
     expect(ContentLanguageCheck::query()->count())->toBe(2)

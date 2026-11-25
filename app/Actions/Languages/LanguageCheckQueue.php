@@ -7,6 +7,7 @@ use App\Enums\ContentLanguageCheckStatus;
 use App\Models\Comment;
 use App\Models\ContentLanguageCheck;
 use App\Models\Post;
+use App\Services\Languages\LocalLanguageDetector;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -18,6 +19,9 @@ use Illuminate\Support\Facades\DB;
  * A first attempt goes in a batch; one that failed is retried alone, so that a text OpenAI will not read — or one
  * that fails it otherwise — no longer takes a batch down with it. Three attempts, then the local detector's answer
  * stands for good.
+ *
+ * It also takes up the texts written before languages were kept, a few hundred at a time, so an installation fills
+ * them in on its own after the release that brings them.
  */
 final class LanguageCheckQueue
 {
@@ -28,6 +32,52 @@ final class LanguageCheckQueue
 
     /** The pause before each retry, by the attempt that failed. */
     private const RETRY_MINUTES = [1 => 1, 2 => 5];
+
+    public function __construct(
+        private readonly LocalLanguageDetector $detector,
+        private readonly QueueLanguageCheckAction $checks,
+    ) {}
+
+    /**
+     * Texts written before languages were kept, up to $limit — posts first, the newest first: each read on this
+     * server and queued for OpenAI behind the texts written now, a comment given the language read, and the post
+     * marked for its language to be worked out. Returns how many it read; 0 once every text has its check.
+     */
+    public function readOlderTexts(int $limit): int
+    {
+        $read = 0;
+
+        $posts = Post::withTrashed()
+            ->whereNotIn('id', ContentLanguageCheck::query()->whereNotNull('post_id')->select('post_id'))
+            ->orderByDesc('id')
+            ->limit($limit)
+            ->get(['id', 'title', 'description']);
+
+        foreach ($posts as $post) {
+            $text = $this->detector->read(trim($post->title."\n".($post->description ?? '')));
+            DB::transaction(fn () => $this->checks->forPost($post, $text, ContentLanguageCheckPriority::Backfill));
+            $this->markPostStaleById((int) $post->id);
+            $read++;
+        }
+
+        $comments = Comment::withTrashed()
+            ->whereNotIn('id', ContentLanguageCheck::query()->whereNotNull('comment_id')->select('comment_id'))
+            ->orderByDesc('id')
+            ->limit(max(0, $limit - $read))
+            ->get(['id', 'post_id', 'body']);
+
+        foreach ($comments as $comment) {
+            $text = $this->detector->read((string) $comment->body);
+            DB::transaction(function () use ($comment, $text): void {
+                Comment::withoutTimestamps(fn () => Comment::withTrashed()->whereKey($comment->id)->update(['language' => $text->language()]));
+                $this->checks->forComment($comment, $text, ContentLanguageCheckPriority::Backfill);
+            });
+            $this->markPostStaleById((int) $comment->post_id);
+            $read++;
+        }
+
+        return $read;
+    }
 
     /** Claims a run left behind, put back in the queue. */
     public function reclaimAbandoned(): void
@@ -168,7 +218,13 @@ final class LanguageCheckQueue
         $postId = $check->post_id ?? Comment::withTrashed()->whereKey($check->comment_id)->value('post_id');
 
         if ($postId !== null) {
-            Post::withoutTimestamps(fn () => Post::withTrashed()->whereKey($postId)->update(['language_stale_at' => CarbonImmutable::now()]));
+            $this->markPostStaleById((int) $postId);
         }
+    }
+
+    /** In a statement of its own: never a second update of the post in someone's transaction. */
+    private function markPostStaleById(int $postId): void
+    {
+        Post::withoutTimestamps(fn () => Post::withTrashed()->whereKey($postId)->update(['language_stale_at' => CarbonImmutable::now()]));
     }
 }

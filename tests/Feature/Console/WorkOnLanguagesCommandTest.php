@@ -39,6 +39,15 @@ function openAiAnswering(string $language): void
     }]);
 }
 
+/** A post whose text was already read and told nothing: languages:work leaves its text alone. */
+function postAlreadyRead(array $attributes = []): Post
+{
+    $post = Post::factory()->create($attributes);
+    ContentLanguageCheck::query()->create(['post_id' => $post->id, 'status' => ContentLanguageCheckStatus::Skipped, 'run_after' => now(), 'finished_at' => now()]);
+
+    return $post;
+}
+
 function pendingCheck(array $text, ContentLanguageCheckPriority $priority = ContentLanguageCheckPriority::Live): ContentLanguageCheck
 {
     return ContentLanguageCheck::query()->create([...$text, 'local_language' => 'bg', 'local_weight' => 1, 'priority' => $priority, 'run_after' => now()->subMinute()]);
@@ -47,7 +56,7 @@ function pendingCheck(array $text, ContentLanguageCheckPriority $priority = Cont
 it('works out stale posts again', function () {
     $author = User::factory()->create();
     $author->forceFill(['locale' => 'ru'])->save();
-    $post = Post::factory()->create(['user_id' => $author->id, 'language' => null, 'language_stale_at' => now()]);
+    $post = postAlreadyRead(['user_id' => $author->id, 'language' => null, 'language_stale_at' => now()]);
 
     $this->artisan('languages:work')->assertSuccessful();
 
@@ -112,7 +121,7 @@ it('still works out stale posts while OpenAI hangs, and stops asking it for the 
 
         throw new ConnectionException('timed out');
     }]);
-    $stale = Post::factory()->create(['language_stale_at' => now()]);
+    $stale = postAlreadyRead(['language_stale_at' => now()]);
     $check = pendingCheck(['post_id' => Post::factory()->create()->id]);
     pendingCheck(['post_id' => Post::factory()->create()->id])->forceFill(['attempts' => 1])->save();
 
@@ -172,4 +181,23 @@ it('runs every minute in a process of its own, a stuck run lapsing within minute
         ->and($events->first()->withoutOverlapping)->toBeTrue()
         ->and($events->first()->expiresAt)->toBe(5)
         ->and($events->first()->runInBackground)->toBeTrue();
+});
+
+it('takes up the texts written before languages were kept on its own, behind the texts written now', function () {
+    $author = User::factory()->create();
+    $author->forceFill(['locale' => 'en'])->save();
+    $post = Post::factory()->published()->create(['user_id' => $author->id, 'title' => 'Wunderschönes Foto aus den Bergen', 'description' => 'Gefällt mir sehr']);
+    $comment = Comment::factory()->create(['post_id' => $post->id, 'body' => 'Wirklich ein tolles Bild, danke']);
+    config(['translation.providers.openai.api_key' => null]);
+
+    $this->artisan('languages:work')->expectsOutputToContain('read 2 older texts')->assertSuccessful();
+
+    expect(ContentLanguageCheck::query()->where('post_id', $post->id)->sole()->priority)->toBe(ContentLanguageCheckPriority::Backfill)
+        ->and($comment->fresh()->language)->toBe('de')
+        ->and($post->fresh()->language_stale_at)->not->toBeNull();
+
+    $this->artisan('languages:work')->expectsOutputToContain('read 0 older texts')->assertSuccessful();
+
+    expect($post->fresh()->language)->toBe('de')
+        ->and($post->fresh()->language_stale_at)->toBeNull();
 });

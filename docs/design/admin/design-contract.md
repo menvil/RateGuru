@@ -1016,8 +1016,9 @@ through `SaveProjectSettingsAction`. Static pages are its last tab; they have no
 - **Language ranking:** the switch for the whole feature, comments in the visitor's language first and OpenAI's
   checks, one settings row each (FRM-06) in a flush card; under it the numbers it runs on — the fresh windows for
   guests and members, a strong post in another language every n places and how strong, the Hot floor and the
-  OpenAI checks per day — each a number stepper (FRM-05) beside what it means, held to its range on Save
-  (`docs/architecture/language-ranking.md`).
+  OpenAI checks per day — each a number stepper (FRM-05) with its range and what it means, as many to a row as fit,
+  held to its range on Save; under them how the languages look now — the published posts by language, where the
+  checks of texts stand, how often the readings agreed (`docs/architecture/language-ranking.md`).
 - **Static pages:** the list — each page's title, “n translations missing” or “Translated”, “· edited” while its
   draft differs — and the open page: its path, View page, the English Title and Content (FRM-03, “Plain text.
   Line breaks are kept.”), and its translations in the footer with Translate.

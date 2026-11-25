@@ -19,7 +19,9 @@ use Throwable;
  *
  * 1. Posts marked stale — by a vote, a comment, an author's change of language or a check below — have their
  *    language worked out again, first, so that nothing below can starve it.
- * 2. The checks of texts written lately are asked of OpenAI in batches, texts written now before a backfill's;
+ * 2. Texts written before languages were kept are read on this server, a few hundred a run, and queued — so an
+ *    installation fills in its older posts and comments on its own after the release that brings languages.
+ * 3. The checks of texts written lately are asked of OpenAI in batches, texts written now before older ones;
  *    each answer replaces the local detector's and marks its post. A run that finds OpenAI unreachable stops asking
  *    until the next one. Off by setting, without the Translation AI key, or once the day's limit is reached.
  */
@@ -30,6 +32,9 @@ final class WorkOnLanguagesCommand extends Command
     protected $description = 'Work out the languages of posts again and have OpenAI check the languages of new texts.';
 
     private const int POSTS = 200;
+
+    /** Older texts read a run: the server reads one in about a millisecond. */
+    private const int OLDER_TEXTS = 500;
 
     private const int POST_SECONDS = 15;
 
@@ -43,6 +48,7 @@ final class WorkOnLanguagesCommand extends Command
         DomainLogger $log,
     ): int {
         $posts = $this->workOutStalePosts($workOut);
+        $older = $this->readOlderTexts($queue);
         $checked = 0;
         $ranking = $settings->current()->languageRanking();
 
@@ -50,7 +56,7 @@ final class WorkOnLanguagesCommand extends Command
             $checked = $this->checkTexts($queue, $openAi, $ranking->aiChecksPerDay, $log);
         }
 
-        $this->info("Worked out {$posts} posts, checked {$checked} texts.");
+        $this->info("Worked out {$posts} posts, read {$older} older texts, checked {$checked} texts.");
 
         return self::SUCCESS;
     }
@@ -76,6 +82,17 @@ final class WorkOnLanguagesCommand extends Command
         }
 
         return $done;
+    }
+
+    private function readOlderTexts(LanguageCheckQueue $queue): int
+    {
+        try {
+            return $queue->readOlderTexts(self::OLDER_TEXTS);
+        } catch (Throwable $exception) {
+            report($exception);
+
+            return 0;
+        }
     }
 
     private function checkTexts(LanguageCheckQueue $queue, OpenAiLanguageDetector $openAi, int $perDay, DomainLogger $log): int

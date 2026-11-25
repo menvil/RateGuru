@@ -8,6 +8,7 @@ use App\Filament\Support\AdminNavigationGroup;
 use App\Filament\Support\ContentTranslationStatus;
 use App\Models\Post;
 use App\Models\ProjectSettings;
+use App\Queries\Languages\LanguageStatusQuery;
 use App\Queries\SocialProvidersInUseQuery;
 use App\Services\Settings\ProjectPresetStatusService;
 use App\Support\Auth\SocialProviderAvailability;
@@ -392,6 +393,25 @@ final class ProjectSettingsPage extends Page
             'providers' => $this->providers(),
             'published' => Post::query()->published()->count(),
             'confirmation' => $this->confirmation(),
+            // Read only on its own tab: it counts every published post.
+            'languageStatus' => ($this->tab === 'languages') ? $this->languageStatus() : null,
+        ];
+    }
+
+    /**
+     * How the languages of posts and comments look now, for the Language ranking tab.
+     *
+     * @return array{posts: array<string, int>, checks: array<string, int>, readings: array{agreed: int, compared: int}, authors: array{agreed: int, compared: int}}
+     */
+    private function languageStatus(): array
+    {
+        $status = app(LanguageStatusQuery::class);
+
+        return [
+            'posts' => $status->postsByLanguage(),
+            'checks' => $status->checks(),
+            'readings' => $status->readingsAgreed(),
+            'authors' => $status->textsInTheirAuthorsLanguage(),
         ];
     }
 
