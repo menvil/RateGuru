@@ -3,6 +3,7 @@
 namespace App\Actions\Profile;
 
 use App\Actions\Analytics\MarkAnalyticsPeriodHourAction;
+use App\Actions\Languages\MarkAuthorPostsLanguageStaleAction;
 use App\Enums\ProfileActivityVisibility;
 use App\Enums\UserRole;
 use App\Enums\UserStatus;
@@ -94,6 +95,8 @@ final class AnonymizeUserAccountAction
                 'status' => UserStatus::Deleted,
                 'avatar_asset_id' => null,
                 'anonymized_at' => now(),
+                'last_seen_at' => null,
+                'previous_visit_at' => null,
             ])->save();
 
             // Private/social account state. Community contribution (posts,
@@ -186,6 +189,9 @@ final class AnonymizeUserAccountAction
         });
 
         if ($anonymized) {
+            // The posts survive, their author's language does not: they are worked out again without it.
+            app(MarkAuthorPostsLanguageStaleAction::class)->handle((int) $user->getKey());
+
             // Deferred to the outermost commit, not emitted here. The
             // transaction above is a savepoint when a caller wraps this action
             // — DeleteUserAccountAction does, for exactly this reason — so an

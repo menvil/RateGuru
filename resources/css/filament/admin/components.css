@@ -5376,6 +5376,14 @@
         }
     }
 
+    /* Language ranking's numbers: each a number stepper with its own label and hint, as many to a row as fit. */
+    .rg-admin-settings__numbers {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(min(280px, 100%), 1fr));
+        gap: var(--rg-admin-space-6);
+        padding: var(--rg-admin-space-5);
+    }
+
     .rg-admin-settings__choice-control {
         display: flex;
         flex-direction: column;
@@ -17498,6 +17506,15 @@
         background: var(--rg-admin-surface-sunken);
         font-size: var(--rg-admin-text-caption);
         color: var(--rg-admin-text-strong);
+    }
+
+    /* An API key's field and its Connect button: the field takes the room, the button sits level with the box. */
+    .rg-admin-traffic__key-row > .rg-admin-field {
+        flex: 1 1 240px;
+    }
+
+    .rg-admin-traffic__key-row > .rg-admin-button {
+        margin-bottom: calc((var(--rg-admin-input-md) - var(--rg-admin-control-sm)) / 2);
     }
 
     .rg-admin-traffic__preset-chips {

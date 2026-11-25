@@ -326,8 +326,11 @@ the sync's read of the lists is given a `ReadsBlockLists` alone. Keys are kept i
 (`encrypted:array`, hidden, redacted from logs); a backup restored without the
 same `APP_KEY` makes them unreadable, and the connection asks for the key
 again. Neither connector ever changes a bid or a budget or touches money, and
-both are unverified until checked on a real account
-(`config/traffic_presets.php`, "connectors").
+each is unverified until checked on a real account
+(`config/traffic_presets.php`, "connectors"): an unverified one reads and
+blocks when an administrator asks, never by the rule alone. PopAds is
+checked — its days' impressions and spend, by campaign, matched its own
+report in UTC to the cent; ExoClick waits for the owner's token.
 
 PopAds replaces a campaign's website list whole and refuses one to exclude
 without a site (a validation error, which PopAds sends with HTTP 500): the last

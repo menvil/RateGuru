@@ -76,6 +76,7 @@ services only decide HOW to delete an already-approved target safely.
 | game_attempts.traffic_visit_id, game_attempts.onward_post_id | traffic_visits / posts | — | no FK | pointers only: a visit is purged on its own schedule, a post by its own deletion rules |
 | traffic_visit_posts.post_id | posts | — | no FK | history only: the posts a visit opened, shared, voted on or commented on, kept 90 days (`traffic:purge-expired`); a post leaves by its own deletion rules |
 | traffic_* children (api connection, postback rules, campaign stages, events and prices, visit details, the posts of a visit, conversions, postbacks and their attempts, chances, spend days of an import) | their traffic parent | — | CASCADE | implementation-owned rows that mean nothing without their parent |
+| content_language_checks.post_id / comment_id | posts / comments | — | CASCADE | implementation-owned rows: the check of a text's language means nothing without the text and goes with the post or comment it checked, whichever service deletes it. Indexed by `content_language_checks_post_unique` and `content_language_checks_comment_unique` |
 | sessions.user_id | — | no FK | no FK | framework table, cleaned explicitly by PR-B |
 | notifications.notifiable | — | morph, no FK | morph, no FK | cleaned explicitly by PR-B |
 

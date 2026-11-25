@@ -15,8 +15,13 @@ final class CommentListQuery implements RawSqlPersistenceBoundary
     /** The most top-level comments one request lists. */
     public const MOST_ROOTS = 200;
 
-    /** @return Collection<int, Comment> */
-    public function get(int $postId, string $sort, int $limit): Collection
+    /**
+     * The thread's top-level comments in the chosen order — with the viewer's language first, when given: comments
+     * in it and the viewer's own, whatever language they were read as, ahead of the rest (each group in the order).
+     *
+     * @return Collection<int, Comment>
+     */
+    public function get(int $postId, string $sort, int $limit, ?string $viewerLanguage = null, ?int $viewerId = null): Collection
     {
         $query = $this->renderableTopLevelForPost($postId)
             ->with([
@@ -33,6 +38,10 @@ final class CommentListQuery implements RawSqlPersistenceBoundary
                         ->orderBy('id');
                 },
             ]);
+
+        if ($viewerLanguage !== null) {
+            $query->orderByRaw('CASE WHEN comments.language = ? OR comments.user_id = ? THEN 0 ELSE 1 END', [$viewerLanguage, $viewerId ?? 0]);
+        }
 
         match ($sort) {
             'top' => $query->orderByRaw('(upvotes_count - downvotes_count) DESC'),

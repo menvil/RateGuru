@@ -117,10 +117,10 @@ The reviewed boundaries are:
   the cells (`rb_or_agg` over the cells before, as a window function); and the
   numbers no cell holds (`NOT rb_contains`) for the purge (PostgreSQL with the
   roaringbitmap extension only).
-- `CommentListQuery` for arithmetic comment ranking.
+- `CommentListQuery` for arithmetic comment ranking and the viewer's language first (one `CASE` of bound values).
 - `ComparisonPeriodsQuery` for literal LIKE searches over the titles, internal
   names and slugs of the games whose traffic periods Growth → Experiments lists.
-- `FeedQuery` for arithmetic vote ordering and literal LIKE searches.
+- `FeedQuery` for arithmetic vote ordering, the viewer's language first (one `CASE` of bound values) and literal LIKE searches.
 - `GameMetricsQuery` for a game's figures: conditional and distinct counts of
   its attempts, answers, emails and events, per version, flow or content set,
   per device, country or country group of the recorded visits behind them, or

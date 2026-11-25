@@ -978,8 +978,8 @@ navigation item, the policy and global search, whose results open a group's edit
 
 ### Project settings
 
-Project settings (`ProjectSettingsPage`) is drawn entirely in Admin v2: one draft over six tabs — Site identity,
-Object labels, Defaults, Feature flags, Sign-in providers and Static pages — saved together from the top bar
+Project settings (`ProjectSettingsPage`) is drawn entirely in Admin v2: one draft over seven tabs — Site identity,
+Object labels, Defaults, Feature flags, Sign-in providers, Language ranking and Static pages — saved together from the top bar
 through `SaveProjectSettingsAction`. Static pages are its last tab; they have no screen of their own.
 
 - **Header band:** “Project settings”, the saved site name and host, and “English is the reference language”;
@@ -1013,6 +1013,12 @@ through `SaveProjectSettingsAction`. Static pages are its last tab; they have no
   configured (with the server keys it needs), how many accounts sign in with it, Enabled or Off. Switching one off
   asks first: its buttons are hidden and its sign-ins refused, the accounts stay linked, and people who only ever
   signed in with it are shown on the login page how to set a password.
+- **Language ranking:** the switch for the whole feature, comments in the visitor's language first and OpenAI's
+  checks, one settings row each (FRM-06) in a flush card; under it the numbers it runs on — the fresh windows for
+  guests and members, a strong post in another language every n places and how strong, the Hot floor and the
+  OpenAI checks per day — each a number stepper (FRM-05) with its range and what it means, as many to a row as fit,
+  held to its range on Save; under them how the languages look now — the published posts by language, where the
+  checks of texts stand, how often the readings agreed (`docs/architecture/language-ranking.md`).
 - **Static pages:** the list — each page's title, “n translations missing” or “Translated”, “· edited” while its
   draft differs — and the open page: its path, View page, the English Title and Content (FRM-03, “Plain text.
   Line breaks are kept.”), and its translations in the footer with Translate.

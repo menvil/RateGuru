@@ -1036,6 +1036,7 @@ it('says on Blocking why the rule can’t block for a source by itself', functio
 ]);
 
 it('says on Blocking what the rule would need, as a note, while the source doesn’t ask it to block', function () {
+    config(['traffic_presets.connectors.popads.verified' => false]);
     $source = TrafficSource::factory()->create(['connector' => TrafficConnector::PopAds, 'block_level' => TrafficBlockLevel::Site, 'block_auto' => false]);
 
     Livewire::withQueryParams(['tab' => 'sources', 'edit' => (string) $source->id])->test(TrafficSourcesPage::class)

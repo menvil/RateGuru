@@ -36,6 +36,8 @@ it('indexes the foreign keys that reads go through', function (string $table, ar
     'the tracking links an administrator changed last' => ['tracking_links', ['updated_by_user_id']],
     'where a block stands on each campaign’s list' => ['traffic_block_listings', ['block_id', 'campaign_id']],
     'the blocks on a campaign’s list' => ['traffic_block_listings', ['campaign_id']],
+    'the language check of a post' => ['content_language_checks', ['post_id']],
+    'the language check of a comment' => ['content_language_checks', ['comment_id']],
 ]);
 
 it('drops the indexes it made on the way down, and makes them again on the way up', function () {

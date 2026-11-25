@@ -239,8 +239,8 @@ prototype asks for: a group's and an option's key are fixed once created, and a 
 still never deleted.
 
 **Project settings. Status: done.** One screen (`ProjectSettingsPage`) drawn in Admin v2, as the contract's
-[Project settings](design-contract.md#project-settings) section describes: six tabs with addresses of their own —
-Site identity, Object labels, Defaults, Feature flags, Sign-in providers and Static pages — over one draft saved
+[Project settings](design-contract.md#project-settings) section describes: seven tabs with addresses of their own —
+Site identity, Object labels, Defaults, Feature flags, Sign-in providers, Language ranking and Static pages — over one draft saved
 together from the top bar, which counts its unsaved changes. The installation preset is shown and compared with the
 draft as it is typed, a setting reverted to it in one press, and never applied from the page. Each card and each
 static page says which offered languages miss which of its texts and leads to Translation Center; Edit source

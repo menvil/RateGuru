@@ -25,6 +25,9 @@ use Illuminate\Support\Str;
  * @property Carbon|null $published_at
  * @property Carbon|null $deleted_at
  * @property Carbon|null $moderation_removed_at
+ * @property string|null $language
+ * @property float|null $language_share
+ * @property Carbon|null $language_stale_at
  */
 class Post extends Model
 {
@@ -48,6 +51,8 @@ class Post extends Model
             'needs_review' => 'boolean',
             'flagged_at' => 'datetime',
             'moderation_removed_at' => 'datetime',
+            'language_share' => 'float',
+            'language_stale_at' => 'datetime',
         ];
     }
 

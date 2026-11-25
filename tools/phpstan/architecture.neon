@@ -8,7 +8,7 @@ parameters:
             -
                 class: App\Queries\Comments\CommentListQuery
                 methods: [orderByRaw]
-                reason: 'Comment ranking requires an arithmetic vote expression with deterministic secondary ordering.'
+                reason: 'Comment ranking requires an arithmetic vote expression with deterministic secondary ordering; the viewer''s language goes first through one CASE of bound values (language, viewer).'
                 bindings: literal_only
                 behaviorTests: [tests/Feature/Queries/CommentListQueryTest.php]
                 status: approved
@@ -22,7 +22,7 @@ parameters:
             -
                 class: App\Queries\Feed\FeedQuery
                 methods: [orderByRaw]
-                reason: 'Top feed ranking requires an arithmetic vote expression with a unique final order.'
+                reason: 'Top feed ranking requires an arithmetic vote expression with a unique final order; the viewer''s language goes first through one CASE of bound values (language, viewer, freshness, hot floor).'
                 bindings: literal_only
                 behaviorTests: [tests/Feature/Queries/FeedQueryTest.php]
                 status: approved

@@ -19,6 +19,7 @@
         @endif
         <div class="rg-admin-table__meta rg-admin-table__meta--small rg-admin-comments__meta">
             <span>#{{ $row['id'] }}</span>
+            <span>· {{ $row['language'] ?? 'no language' }}</span>
             @if ($row['readOnly'] !== null)
                 <span class="rg-admin-comments__read-only">· <x-admin.ui.icon name="lock" :size="12" />{{ $row['readOnly'] }}</span>
             @endif

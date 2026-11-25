@@ -19,6 +19,7 @@
         "laravel/tinker": "^3.0",
         "livewire/livewire": "^4.3",
         "maxmind-db/reader": "^1.14",
+        "nitotm/efficient-language-detector": "^3.2",
         "propaganistas/laravel-disposable-email": "^2.5",
         "sentry/sentry-laravel": "^4.27"
     },
@@ -92,7 +93,8 @@
         "post-autoload-dump": [
             "Illuminate\\Foundation\\ComposerScripts::postAutoloadDump",
             "@php artisan package:discover --ansi",
-            "@php artisan filament:upgrade"
+            "@php artisan filament:upgrade",
+            "@php tools/composer/prune-language-detector-data.php"
         ],
         "post-update-cmd": [
             "@php artisan vendor:publish --tag=laravel-assets --ansi --force"
