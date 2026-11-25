@@ -1,0 +1,57 @@
+database/migrations/2026_11_25_100200_create_content_language_checks_table.php
+  s_4b9dc6ab6b25d3::t_ca9170d138fe29 1-45
+database/migrations/2026_11_25_100300_add_language_ranking_to_project_settings_table.php
+  s_4b9dc6ab6b25d3::t_6d5443f6a50d6e 1-25
+app/Support/Settings/ResolvedProjectSettings.php
+  s_4b9dc6ab6b25d3::t_f39f1e555e2c75 140-145
+  s_4b9dc6ab6b25d3::t_61edddacb4b3ae 6
+app/Enums/ContentLanguageCheckStatus.php
+  s_4b9dc6ab6b25d3::t_57bdc014b24db8 1-17
+app/Enums/ContentLanguageCheckPriority.php
+  s_4b9dc6ab6b25d3::t_c9fd2c0a91cb46 1-13
+app/Models/User.php
+  s_4b9dc6ab6b25d3::t_ea1a7a8311998b 41-42,98-99
+database/migrations/2026_11_25_100000_add_language_to_posts_and_comments_tables.php
+  s_4b9dc6ab6b25d3::t_77c96b810a5fb5 1-46
+app/Models/Comment.php
+  s_4b9dc6ab6b25d3::t_ea1a7a8311998b 18
+app/Models/ContentLanguageCheck.php
+  s_4b9dc6ab6b25d3::t_c6a03fff76ad65 1-83
+app/Support/Languages/LanguageRankingSettings.php
+  s_4b9dc6ab6b25d3::t_9fdc68c4c2ab12 1-79
+tests/Feature/Database/ContentLanguageTablesTest.php
+  s_4b9dc6ab6b25d3::t_e3a4daabfdb24c 1-121
+database/migrations/2026_11_25_100100_add_visit_times_to_users_table.php
+  s_4b9dc6ab6b25d3::t_8223a4980cdf02 1-31
+app/Actions/Settings/SaveProjectSettingsAction.php
+  s_4b9dc6ab6b25d3::t_f39f1e555e2c75 70-74
+app/Support/Settings/ProjectSettingsManager.php
+  s_4b9dc6ab6b25d3::t_f39f1e555e2c75 6,63-65,86-89
+docs/architecture/community-fk-safety.md
+  s_4b9dc6ab6b25d3::t_ca0bdc561584f6 79
+app/Models/ProjectSettings.php
+  s_4b9dc6ab6b25d3::t_ea1a7a8311998b 35,41
+tests/Feature/Settings/LanguageRankingSettingsTest.php
+  s_4b9dc6ab6b25d3::t_095aa4d3750ffb 1-7,9-109
+  s_4b9dc6ab6b25d3::t_4bdff3c90d8e8c 8
+app/Models/Post.php
+  s_4b9dc6ab6b25d3::t_ea1a7a8311998b 28-30,54-55
+tests/Feature/Database/ForeignKeyIndexesTest.php
+  s_4b9dc6ab6b25d3::t_4bdff3c90d8e8c 39-40
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "161ccb135dd5cac57c45cc565d61f5bf0290ae7e",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
