@@ -18,6 +18,7 @@ use App\Models\User;
 use App\Queries\Translations\ProjectTranslationSourcesQuery;
 use App\Support\Locale\LocaleManager;
 use App\Support\TranslationEngine\Exceptions\InvalidTranslationRequestException;
+use App\Support\Translations\EnglishChange;
 use App\Support\Translations\Generation\ProjectTranslationSourceFingerprint;
 use App\Support\Translations\ProjectContentSection;
 use App\Support\Translations\ProjectTranslationCatalog;
@@ -577,6 +578,8 @@ final class TranslationCenterPage extends Page
                 // Made from English the unit no longer has: that English, shown beside the current one.
                 'outdated' => $outdated,
                 'translatedFrom' => $outdated ? $source?->reference : null,
+                // What changed between that English and today's, sentence by sentence, to update the translation by.
+                'change' => $outdated && $source !== null ? EnglishChange::between((string) $source->reference, $unit->reference) : null,
                 // Which English the row shows, to tell a background suggestion made from other English.
                 'fingerprint' => ProjectTranslationSourceFingerprint::of($unit),
                 'sourceUrl' => TranslationSourceEditor::url($unit),

@@ -9594,6 +9594,60 @@
         color: var(--rg-admin-status-due-fg);
     }
 
+    /* What changed: each changed sentence whole, the words taken out struck through and the words put in marked. */
+    .rg-admin-translation-row__changes {
+        display: flex;
+        flex-direction: column;
+        gap: var(--rg-admin-space-1);
+        padding: 8px var(--rg-admin-space-3);
+        border: 1px dashed var(--rg-admin-border-default);
+        border-radius: var(--rg-admin-radius-control);
+        font-size: var(--rg-admin-text-caption);
+        line-height: var(--rg-admin-leading-caption);
+        color: var(--rg-admin-text-secondary);
+        overflow-wrap: anywhere;
+    }
+
+    .rg-admin-translation-row__change,
+    .rg-admin-translation-row__change-more,
+    .rg-admin-translation-row__change-note {
+        margin: 0;
+    }
+
+    .rg-admin-translation-row__change del {
+        padding: 0 2px;
+        border-radius: 3px;
+        background: var(--rg-admin-status-danger-bg);
+        color: var(--rg-admin-status-danger-fg);
+        text-decoration: line-through;
+    }
+
+    .rg-admin-translation-row__change ins {
+        padding: 0 2px;
+        border-radius: 3px;
+        background: var(--rg-admin-status-success-bg);
+        color: var(--rg-admin-status-success-fg);
+        text-decoration: none;
+    }
+
+    .rg-admin-translation-row__change-more,
+    .rg-admin-translation-row__change-note {
+        font-size: var(--rg-admin-text-caption);
+        line-height: var(--rg-admin-leading-caption);
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-translation-row__previous-full summary {
+        cursor: pointer;
+        font-size: var(--rg-admin-text-caption);
+        line-height: var(--rg-admin-leading-caption);
+        color: var(--rg-admin-text-secondary);
+    }
+
+    .rg-admin-translation-row__previous-full[open] summary {
+        margin-bottom: var(--rg-admin-space-1);
+    }
+
     .rg-admin-translation-row__previous-text {
         max-height: 160px;
         overflow-y: auto;

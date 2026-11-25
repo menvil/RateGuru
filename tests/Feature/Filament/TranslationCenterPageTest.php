@@ -378,8 +378,11 @@ it('marks a translation made from older English, keeping it on the row beside th
         ->and(collect($page->viewData('client')['units'])->firstWhere('id', $unit))->toMatchArray(['stored' => 'Willkommen', 'outdated' => true])
         ->and($row)
         ->toContain('lang="en">Hello</div>')
-        ->toContain('<span class="rg-admin-translation-row__previous-label">Translated from the old English</span>')
-        ->toContain('<div class="rg-admin-translation-row__previous-text" lang="en">Welcome</div>')
+        // What changed: the word taken out and the word put in, in their sentence.
+        ->toContain('<span class="rg-admin-translation-row__previous-label">Changed since it was translated</span>')
+        ->toContain('<del><span class="rg-admin-sr-only">Removed:</span>Welcome</del><ins><span class="rg-admin-sr-only">Added:</span>Hello</ins>')
+        // A short text needs no note and no old English in full.
+        ->not->toContain('A long text')
         ->toContain('x-show="units[unit].outdated"')
         // Still stored, and still what visitors see, until the row is saved.
         ->toContain('value="Willkommen"')
@@ -402,6 +405,28 @@ it('marks neither a current translation nor one with nothing recorded of its Eng
         expect(collect($page->viewData('rows'))->firstWhere('id', $unit))->toMatchArray(['outdated' => false, 'translatedFrom' => null])
             ->and(translationRow($page, $unit))->not->toContain('Translated from')->not->toContain('English changed')->toContain('Stored translation');
     }
+});
+
+it('shows what changed in a long text sentence by sentence, says to read it all again, and keeps the old English in full', function () {
+    [$target] = twoTranslatedLocales();
+    $before = "Welcome to our community. Post your pets. Vote for the cutest ones.\nBe kind to each other.";
+    $pages = staticPagesTranslatedInto([$target]);
+    $pages['about']['en']['content'] = $before;
+    ProjectSettings::query()->update(['static_pages' => json_encode($pages)]);
+    app(UpdateProjectTranslationAction::class)->handle(User::factory()->admin()->create(), 'static_pages:about:content', $target, "[{$target}] translated");
+    $pages['about']['en']['content'] = "Welcome to our community. Post your cats and dogs. Vote for the cutest ones.\nBe kind to each other.";
+    ProjectSettings::query()->update(['static_pages' => json_encode($pages)]);
+
+    $row = (string) translationRow(translationCenter($target), 'static_pages:about:content');
+
+    expect($row)
+        // Only the changed sentence, whole, with what was taken out and put in.
+        ->toContain('<p class="rg-admin-translation-row__change">Post your')
+        ->toContain('<del><span class="rg-admin-sr-only">Removed:</span>pets.</del><ins><span class="rg-admin-sr-only">Added:</span>cats and dogs.</ins></p>')
+        ->not->toContain('<p class="rg-admin-translation-row__change">Welcome to our community.')
+        ->toContain('A long text: read the whole translation again, since a change can alter the sentences around it.')
+        ->toContain('<summary>The old English in full</summary>')
+        ->toContain('Welcome to our community. Post your pets. Vote for the cutest ones.');
 });
 
 it('counts the translations that need an update in the header, once there is one', function () {
