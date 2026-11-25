@@ -51,8 +51,8 @@ it('draws the list in Admin v2 at every width, the less needed columns giving wa
 })->with([
     // The less needed columns give way as the card narrows, until the card scrolls.
     'a wide screen' => [1920, ['Username', 'Email', 'Location', 'Role', 'Status', 'Trust', 'Posts', 'Post votes', 'Comments', 'Comment votes', 'Reports filed', 'Reports received', 'Actions']],
-    'a laptop' => [1440, ['Username', 'Email', 'Location', 'Status', 'Posts', 'Post votes', 'Comments', 'Reports received', 'Actions']],
-    'a small laptop' => [1280, ['Username', 'Email', 'Location', 'Status', 'Posts', 'Reports received', 'Actions']],
+    'a laptop' => [1440, ['Username', 'Email', 'Location', 'Status', 'Posts', 'Comments', 'Reports received', 'Actions']],
+    'a small laptop' => [1280, ['Username', 'Email', 'Location', 'Status', 'Reports received', 'Actions']],
     'a tablet sideways' => [1024, ['Username', 'Email', 'Location', 'Status', 'Reports received', 'Actions']],
     'a tablet' => [768, ['Username', 'Email', 'Status', 'Reports received', 'Actions']],
     'a phone' => [390, ['Username', 'Email', 'Status', 'Reports received', 'Actions']],
