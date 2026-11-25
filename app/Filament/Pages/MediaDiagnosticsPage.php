@@ -23,6 +23,7 @@ use App\Services\Media\MediaAssetInspection;
 use App\Services\Media\MediaAssetInspector;
 use App\Services\Media\MediaHealthResolver;
 use App\Services\Media\MediaLifecycleService;
+use App\Support\Import\YtDlpSiteCheck;
 use Carbon\CarbonInterface;
 use Filament\Pages\Page;
 use Filament\Support\Enums\Width;
@@ -538,7 +539,28 @@ final class MediaDiagnosticsPage extends Page
             ['label' => 'Purgeable assets', 'value' => number_format((int) $run?->purgeable_assets), 'note' => 'Past their grace period', 'badge' => null, 'filter' => $type(MediaAuditIssueType::PurgeableAsset)],
             ['label' => 'Physical orphan candidates', 'value' => number_format((int) $run?->physical_orphan_candidates), 'note' => 'Files with no record', 'badge' => null, 'filter' => $type(MediaAuditIssueType::PhysicalOrphanCandidate)],
             ['label' => 'Videos stuck processing', 'value' => number_format($totals['stuck_videos']), 'note' => 'Past every retry; delayed or lost', 'badge' => $totals['stuck_videos'] > 0 ? ['label' => 'Warning', 'tone' => 'warning'] : null, 'filter' => null],
+            self::ytDlpTile(),
             ['label' => 'Failed media jobs', 'value' => number_format(count($jobs)), 'note' => $jobs !== [] ? 'Last failure '.ModerationListFormat::when($jobs[0]->failedAt) : 'Queue healthy', 'badge' => $jobs !== [] ? ['label' => 'Failed', 'tone' => 'danger'] : null, 'filter' => null],
+        ];
+    }
+
+    /**
+     * The daily yt-dlp check's last word on each site it may import from.
+     *
+     * @return array{label: string, value: string, note: string, badge: ?array{label: string, tone: string}, filter: null}
+     */
+    private static function ytDlpTile(): array
+    {
+        $results = YtDlpSiteCheck::results();
+        $broken = array_keys(array_filter($results, fn (array $result): bool => $result['status'] === 'broken'));
+        $working = count(array_filter($results, fn (array $result): bool => $result['status'] === 'ok'));
+
+        return [
+            'label' => 'yt-dlp sites',
+            'value' => $results === [] ? 'Not checked' : number_format($working).' working',
+            'note' => $broken !== [] ? 'Taking nothing: '.implode(', ', $broken) : ($results === [] ? 'Checked daily' : 'No site taking nothing'),
+            'badge' => $broken !== [] ? ['label' => 'Broken', 'tone' => 'danger'] : null,
+            'filter' => null,
         ];
     }
 

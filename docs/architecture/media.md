@@ -642,6 +642,17 @@ never reaches another's downloads.
 The accounts, the rule and the firewall table are installed with the host
 (`install-media-fetch-isolation`).
 
+Sites change, and yt-dlp's extractors break with them until a newer yt-dlp
+catches up. `import:check-ytdlp-sites` (`YtDlpSiteCheck`, daily at 04:20)
+asks each site about the pages its videos were last imported from — real
+links that worked, so no list of reference pages is kept: one still giving a
+video means the site works; the last few all giving none means its extractor
+most likely broke. Two failed checks running are reported
+(`YtDlpSiteBrokenException`: Sentry, and Nightwatch where it runs), and Media
+Diagnostics shows every site's last result. The fix is usually a newer pinned
+yt-dlp (`infrastructure/config/external-runtimes/versions.env`), installed by
+the Prepare host workflows.
+
 How the draft and its processing state appear to its author come later.
 
 ## Responsive media variants
