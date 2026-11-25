@@ -32,6 +32,10 @@ return [
 
     'directories' => [
         'post_images' => 'media/post-images',
+        'post_videos' => 'media/post-videos',
+        // A video upload as it arrived, on the private disk, until it has
+        // been processed.
+        'originals' => 'media/originals',
         'avatars' => 'media/avatars',
     ],
 
@@ -149,5 +153,9 @@ return [
         'ffprobe_binary' => 'ffprobe',
         'search_directories' => ['/usr/local/bin', '/usr/bin'],
         'probe_timeout_seconds' => 30,
+        // One ffmpeg run (a rendition or the poster). A 90-second clip at
+        // 1080 takes a few minutes on two threads; ProcessVideoAssetJob's
+        // own timeout bounds all of them together.
+        'transcode_timeout_seconds' => 600,
     ],
 ];

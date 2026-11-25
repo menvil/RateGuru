@@ -73,6 +73,51 @@ final class FilesystemMediaStorage implements MediaStorage
         }
     }
 
+    public function putFile(MediaLocation $location, string $localPath, MediaVisibility $visibility): void
+    {
+        $stream = @fopen($localPath, 'rb');
+
+        if ($stream === false) {
+            throw MediaStorageException::couldNotStore($location->disk, $location->path);
+        }
+
+        try {
+            $written = $this->filesystem->disk($location->disk)->writeStream(
+                $location->path,
+                $stream,
+                ['visibility' => $visibility === MediaVisibility::Public ? 'public' : 'private'],
+            );
+        } catch (Throwable $exception) {
+            throw MediaStorageException::couldNotStore($location->disk, $location->path, $exception);
+        } finally {
+            if (is_resource($stream)) {
+                fclose($stream);
+            }
+        }
+
+        if (! $written) {
+            throw MediaStorageException::couldNotStore($location->disk, $location->path);
+        }
+    }
+
+    public function copyToFile(MediaLocation $location, string $localPath): void
+    {
+        $source = $this->readStream($location);
+        $target = @fopen($localPath, 'wb');
+
+        try {
+            if ($target === false || stream_copy_to_stream($source, $target) === false) {
+                throw MediaStorageException::couldNotReadStream($location->disk, $location->path);
+            }
+        } finally {
+            fclose($source);
+
+            if (is_resource($target)) {
+                fclose($target);
+            }
+        }
+    }
+
     /** @phpstan-impure see MediaStorage::exists() */
     public function exists(MediaLocation $location): bool
     {

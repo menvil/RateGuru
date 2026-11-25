@@ -2,8 +2,10 @@
 
 namespace App\Services\Media;
 
+use App\Enums\MediaVariantName;
 use App\Models\MediaAsset;
 use App\Models\MediaVariant;
+use Closure;
 use Illuminate\Contracts\Cache\Lock;
 use Illuminate\Contracts\Cache\LockProvider;
 use Illuminate\Support\Facades\Cache;
@@ -60,39 +62,83 @@ final class MediaVariantWriter
         private readonly MediaStorage $storage,
     ) {}
 
-    public function write(MediaAsset $asset, string $masterBytes, MediaVariantSpecification $specification): MediaVariant
+    /**
+     * $sourceMimeType is what $masterBytes are when they are not the asset's
+     * own file — a video's poster frame, a PNG, for an asset whose mime type
+     * is video/mp4.
+     */
+    public function write(MediaAsset $asset, string $masterBytes, MediaVariantSpecification $specification, ?string $sourceMimeType = null): MediaVariant
     {
-        $generated = $this->processor->generate($masterBytes, $asset->mime_type, $specification);
+        $generated = $this->processor->generate($masterBytes, $sourceMimeType ?? $asset->mime_type, $specification);
 
-        $path = $this->pathGenerator->generate($asset, $specification->name, $generated->extension);
+        return $this->persist(
+            $asset,
+            $specification->name,
+            $generated->extension,
+            fn (MediaLocation $location) => $this->storage->putContents($location, $generated->bytes, $asset->visibility),
+            [
+                'mime_type' => $generated->mimeType,
+                'extension' => $generated->extension,
+                'byte_size' => $generated->byteSize,
+                'width' => $generated->width,
+                'height' => $generated->height,
+            ],
+        );
+    }
+
+    /**
+     * Persists a variant a tool already produced as a local file — a video
+     * rendition ffmpeg wrote, too large to hold in memory — under the same
+     * lock, path and failure cleanup as write(). The file is streamed to
+     * storage; the caller owns the local file and removes it.
+     */
+    public function writeFile(MediaAsset $asset, MediaVariantName $name, ProducedMediaFile $file): MediaVariant
+    {
+        return $this->persist(
+            $asset,
+            $name,
+            $file->extension,
+            fn (MediaLocation $location) => $this->storage->putFile($location, $file->localPath, $asset->visibility),
+            [
+                'mime_type' => $file->mimeType,
+                'extension' => $file->extension,
+                'byte_size' => $file->byteSize,
+                'width' => $file->width,
+                'height' => $file->height,
+                'duration_ms' => $file->durationMs,
+            ],
+        );
+    }
+
+    /**
+     * The write/upsert/cleanup sequence both kinds of variant share.
+     *
+     * @param  Closure(MediaLocation): void  $store
+     * @param  array<string, mixed>  $attributes
+     */
+    private function persist(MediaAsset $asset, MediaVariantName $name, string $extension, Closure $store, array $attributes): MediaVariant
+    {
+        $path = $this->pathGenerator->generate($asset, $name, $extension);
         $location = new MediaLocation($asset->disk, $path);
 
-        $lockKey = "media-variant-write:{$asset->id}:{$specification->name->value}";
+        $lockKey = "media-variant-write:{$asset->id}:{$name->value}";
         $lock = $this->variantWriteLock($lockKey);
 
         return $lock->block(
             (int) config('media.variant_lock.wait_seconds'),
-            function () use ($asset, $specification, $generated, $path, $location): MediaVariant {
+            function () use ($asset, $name, $path, $location, $store, $attributes): MediaVariant {
                 $previous = MediaVariant::query()
                     ->where('media_asset_id', $asset->id)
-                    ->where('name', $specification->name)
+                    ->where('name', $name)
                     ->first();
                 $moved = $previous !== null && ($previous->disk !== $asset->disk || $previous->path !== $path);
 
-                $this->storage->putContents($location, $generated->bytes, $asset->visibility);
+                $store($location);
 
                 try {
                     $variant = MediaVariant::query()->updateOrCreate(
-                        ['media_asset_id' => $asset->id, 'name' => $specification->name],
-                        [
-                            'disk' => $asset->disk,
-                            'path' => $path,
-                            'mime_type' => $generated->mimeType,
-                            'extension' => $generated->extension,
-                            'byte_size' => $generated->byteSize,
-                            'width' => $generated->width,
-                            'height' => $generated->height,
-                        ],
+                        ['media_asset_id' => $asset->id, 'name' => $name],
+                        ['disk' => $asset->disk, 'path' => $path, ...$attributes],
                     );
                 } catch (Throwable $exception) {
                     if ($previous === null || $moved) {

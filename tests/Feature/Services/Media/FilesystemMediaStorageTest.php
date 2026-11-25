@@ -389,3 +389,35 @@ it('normalizes a filesystem exception thrown during putContents() into a narrow 
         ->and($caught->getPrevious())->toBeInstanceOf(RuntimeException::class)
         ->and($caught->getPrevious()->getMessage())->toBe('Simulated disk outage.');
 });
+
+it('streams a local file to a location, with its visibility, and back out to a local file', function () {
+    Storage::fake('public');
+    $storage = app(MediaStorage::class);
+    $source = tempnam(sys_get_temp_dir(), 'media-put-');
+    $copy = tempnam(sys_get_temp_dir(), 'media-copy-');
+    file_put_contents($source, str_repeat('video-bytes', 1000));
+    $location = new MediaLocation('public', 'media/post-videos/2026/11/clip.mp4');
+
+    try {
+        $storage->putFile($location, $source, MediaVisibility::Public);
+        $storage->copyToFile($location, $copy);
+
+        expect(Storage::disk('public')->get($location->path))->toBe(str_repeat('video-bytes', 1000))
+            ->and(Storage::disk('public')->getVisibility($location->path))->toBe('public')
+            ->and(file_get_contents($copy))->toBe(str_repeat('video-bytes', 1000));
+    } finally {
+        @unlink($source);
+        @unlink($copy);
+    }
+});
+
+it('refuses to put a local file that cannot be read, or to copy out a file that is not there', function () {
+    Storage::fake('public');
+    $storage = app(MediaStorage::class);
+    $location = new MediaLocation('public', 'media/post-videos/2026/11/missing.mp4');
+
+    expect(fn () => $storage->putFile($location, sys_get_temp_dir().'/no-such-file-'.bin2hex(random_bytes(4)), MediaVisibility::Public))
+        ->toThrow(MediaStorageException::class)
+        ->and(fn () => $storage->copyToFile($location, sys_get_temp_dir().'/never-written'))
+        ->toThrow(MediaStorageException::class);
+});
