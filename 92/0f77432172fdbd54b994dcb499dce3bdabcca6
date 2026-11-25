@@ -1,0 +1,24 @@
+tests/Browser/AdminReportsBrowserTest.php
+  s_4b9dc6ab6b25d3::t_8068815ffc7e09 39,41-51,63
+docs/design/admin/design-contract.md
+  s_4b9dc6ab6b25d3::t_47504bc0c53131 1694
+  s_4b9dc6ab6b25d3::t_7072f543a3cfe5 1894
+resources/views/filament/pages/reports.blade.php
+  s_4b9dc6ab6b25d3::t_88e3dcb3d2caed 9-11
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "920f77432172fdbd54b994dcb499dce3bdabcca6",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
