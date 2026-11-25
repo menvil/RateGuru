@@ -14,6 +14,9 @@ final class SocialAccountDisconnectedNotification extends Notification implement
 {
     use Queueable;
 
+    /** Inside the Redis queue's retry window, like every class the application queues. */
+    public int $timeout = 80;
+
     public function __construct(
         public readonly SocialProvider $provider,
         public readonly ?string $providerEmail,
