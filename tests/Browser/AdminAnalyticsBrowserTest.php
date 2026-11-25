@@ -151,9 +151,21 @@ it('changes the period, the device and the source, with the chip and a source ro
     expect(analyticsScreen($page))->toMatchArray(['chip' => 'Source: Google · organic_search'])
         ->and($page->script("document.querySelector('.rg-admin-analytics__source-row--selected .rg-admin-analytics__source-name')?.textContent.trim()"))->toBe('Google');
 
+    // Every source still, the card says so: the chosen one lit, the rest set back.
+    $sourcesCard = <<<'JS'
+        (() => {
+            const card = document.querySelector('[data-testid="analytics-sources"]');
+            const row = (name) => [...card.querySelectorAll('.rg-admin-analytics__source-row')].find((each) => each.querySelector('.rg-admin-analytics__source-name')?.textContent.trim() === name);
+
+            return [card.querySelector('.rg-admin-card__title')?.textContent.trim(), getComputedStyle(row('Google')).opacity, getComputedStyle(row('Reddit')).opacity].join('|');
+        })()
+        JS;
+    expect($page->script($sourcesCard))->toBe('All traffic sources|1|0.45');
+
     $page->click('.rg-admin-analytics__source-row .rg-admin-analytics__source-name:has-text("Google")');
     waitForScript($page, "document.querySelector('.rg-admin-analytics__kpi-value')?.textContent.trim()", '61', 10.0);
-    expect(analyticsScreen($page)['chip'])->toBeNull();
+    expect(analyticsScreen($page)['chip'])->toBeNull()
+        ->and($page->script($sourcesCard))->toBe('Traffic sources|1|1');
 
     // Sorted by start rate, the source whose every visitor started comes first.
     $page->click('.rg-admin-analytics__sort [role=radio]:has-text("Start rate")');

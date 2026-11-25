@@ -607,6 +607,13 @@ campaign. Some parts of the page read fewer of the filters, and each says so:
 | Experiments, Landings' comparison | none: a comparison reads the visitors each version was assigned |
 | Journeys | none: a journey is one visitor's or member's, whatever the period |
 
+Overview's sources table, still counting every source, lights the one the page
+is narrowed to: the source chosen, or the paid source of a paid campaign chosen
+(`AnalyticsView::campaignSource()`). It asks `AnalyticsVisitsQuery::by()` to
+keep that source, so one past the ten biggest takes the last place, and is
+titled "All traffic sources" while a source or a campaign is chosen. A campaign
+named by its tag belongs to no one source, and lights none.
+
 ### Raw SQL
 
 Each read that Eloquent cannot express without loading millions of rows is a
