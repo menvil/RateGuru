@@ -1,5 +1,6 @@
 <?php
 
+use App\Jobs\ProcessVideoAssetJob;
 use Illuminate\Support\Facades\File;
 
 /**
@@ -2503,6 +2504,69 @@ it('renders a queue program that is safe for supervisord to load before the firs
 
         expect($settle)->not->toBeEmpty('the guard must settle before it exits');
         expect((int) $settle[1])->toBeGreaterThan(3);
+    } finally {
+        bsvcCleanup($scratch);
+    }
+})->group('bsvc-provisioning');
+
+it('renders the target program as a group of the default worker and a media worker that outlasts a transcode', function () {
+    $scratch = bsvcScratchDir();
+
+    try {
+        $rendered = bsvcRenderTarget($scratch, preActivationRegistryPath(), 'tits-guru');
+        $supervisor = $rendered['SUPERVISOR'];
+        $registry = json_decode(File::get(base_path('infrastructure/config/deployment-targets.json')), true, 512, JSON_THROW_ON_ERROR);
+        $program = $registry['targets']['tits-guru']['supervisor']['program'];
+        $queue = $registry['targets']['tits-guru']['supervisor']['queue'];
+        $logs = '/home/www/rateguru/production/tits-guru/shared/storage/logs';
+
+        // One group under the registry's program name, so every operation that
+        // addresses the program as <program>:* covers both workers.
+        expect($supervisor)
+            ->toContain("[group:{$program}]\nprograms={$program}-default,{$program}-media\n")
+            ->not->toContain("[program:{$program}]");
+
+        $sections = preg_split('/^(?=\[)/m', $supervisor);
+        $default = collect($sections)->first(fn (string $section): bool => str_starts_with($section, "[program:{$program}-default]"));
+        $media = collect($sections)->first(fn (string $section): bool => str_starts_with($section, "[program:{$program}-media]"));
+
+        expect($default)->toBeString()
+            ->toContain("exec /usr/bin/php8.5 artisan queue:work redis --queue={$queue} --sleep=3 --tries=3 --timeout=120 ")
+            ->toContain("stopwaitsecs=130\n")
+            ->toContain("stdout_logfile={$logs}/queue-worker.log\n");
+
+        // The media worker: the redis-media connection (retry_after 960) and
+        // its own queue, a timeout inside that window, a lower CPU priority,
+        // and the same PRE_DEPLOY guard and restart policy as the default one.
+        $retryAfter = (int) config('queue.connections.redis-media.retry_after');
+        preg_match('/--timeout=(\d+) /', (string) $media, $timeout);
+
+        expect($media)->toBeString()
+            ->toContain("exec /usr/bin/nice -n 10 /usr/bin/php8.5 artisan queue:work redis-media --queue={$queue}-media ")
+            ->toContain('--tries=2 ')
+            ->toContain('--memory=512')
+            ->toContain('[ ! -d /home/www/rateguru/production/tits-guru/current ]')
+            ->toContain("autorestart=unexpected\nexitcodes=99\n")
+            ->toContain("user={$registry['targets']['tits-guru']['runtime_user']}\n")
+            ->toContain("stdout_logfile={$logs}/media-worker.log\n")
+            ->and((int) $timeout[1])->toBeLessThanOrEqual($retryAfter - 10)
+            ->and((int) $timeout[1])->toBeGreaterThanOrEqual((new ProcessVideoAssetJob(1))->timeout);
+    } finally {
+        bsvcCleanup($scratch);
+    }
+})->group('bsvc-provisioning');
+
+it('renders a pool and an internal vhost that accept a 100 MB video upload', function () {
+    $scratch = bsvcScratchDir();
+
+    try {
+        $rendered = bsvcRenderTarget($scratch, preActivationRegistryPath(), 'tits-guru');
+
+        expect($rendered['NGINX'])->toContain("    client_max_body_size 128m;\n");
+        expect($rendered['FPM'])
+            ->toContain("php_admin_value[upload_max_filesize] = 128M\n")
+            ->toContain('php_admin_value[post_max_size] = 128M');
+        expect(128 * 1024)->toBeGreaterThan((int) config('uploads.videos.max_kilobytes'));
     } finally {
         bsvcCleanup($scratch);
     }

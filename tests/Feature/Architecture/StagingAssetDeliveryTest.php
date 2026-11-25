@@ -32,3 +32,27 @@ it('lets a browser keep every fingerprinted build file for good', function () {
         // A missing build file is a 404, never a page the application renders.
         ->toContain('try_files $uri =404;');
 });
+
+it('lets a browser keep post media for a week, and never hands a file under it to PHP', function () {
+    expect(preg_match('#^    location \^~ /storage/media/ \{\n(.*?)^    \}#ms', stagingPublicServerBlock(), $location))->toBe(1);
+
+    // Not immutable: a forced variant regeneration rewrites a path in place.
+    expect($location[1])
+        ->toContain('add_header Cache-Control "public, max-age=604800";')
+        ->not->toContain('immutable')
+        ->toContain('try_files $uri =404;')
+        ->not->toContain('fastcgi_pass');
+});
+
+it('accepts a 100 MB video upload, with room for the multipart envelope, in nginx and PHP alike', function () {
+    expect(substr_count(stagingVhost(), "client_max_body_size 128m;\n"))->toBe(2)
+        ->and(stagingVhost())->not->toContain('client_max_body_size 64m;');
+
+    $pool = File::get(base_path('infrastructure/config/php-fpm/rateguru-staging.conf'));
+
+    expect($pool)
+        ->toContain("php_admin_value[upload_max_filesize] = 128M\n")
+        ->toContain("php_admin_value[post_max_size] = 128M\n");
+
+    expect(128 * 1024)->toBeGreaterThan((int) config('uploads.videos.max_kilobytes'));
+});

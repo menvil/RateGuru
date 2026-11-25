@@ -49,6 +49,10 @@ it('renders public-active through the target\'s own release and PHP-FPM pool, ne
         ->toContain("        fastcgi_pass unix:{$target['tits-guru']['php_fpm']['socket']};")
         ->toContain('        fastcgi_param HTTPS on;')
         ->toContain("    location / {\n        return 301 https://\$host\$request_uri;\n    }")
+        // A 100 MB video upload fits, and post media is cached for a week and
+        // served as files only, never handed to PHP.
+        ->toContain("    client_max_body_size 128m;\n")
+        ->toContain("    location ^~ /storage/media/ {\n        add_header Cache-Control \"public, max-age=604800\";\n\n        try_files \$uri =404;\n    }\n")
         ->not->toContain($target['staging-main']['application_root'])
         ->not->toContain($target['staging-main']['php_fpm']['socket'])
         ->not->toContain('default_server')

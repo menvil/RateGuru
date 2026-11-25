@@ -283,11 +283,15 @@ it('derives staging-main from the committed infrastructure sources', function ()
         ->toContain('listen = '.$target['php_fpm']['socket'])
         ->toContain('user = '.$target['runtime_user']);
 
-    // Supervisor — program name and the queue it consumes.
+    // Supervisor — the program is the group of the target's two workers, and
+    // the queue is the default worker's; the media worker takes its -media
+    // counterpart.
+    $program = $target['supervisor']['program'];
     $supervisor = $source('config/supervisor/rateguru-staging-queue.conf');
     expect($supervisor)
-        ->toContain('[program:'.$target['supervisor']['program'].']')
-        ->toContain('--queue='.$target['supervisor']['queue'])
+        ->toContain("[group:{$program}]\nprograms={$program}-default,{$program}-media\n")
+        ->toContain('--queue='.$target['supervisor']['queue'].' ')
+        ->toContain('queue:work redis-media --queue='.$target['supervisor']['queue'].'-media ')
         ->toContain('user='.$target['runtime_user']);
 
     // Nginx — internal hostname, public hostname, and the socket it dials.
