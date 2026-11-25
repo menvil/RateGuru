@@ -8,6 +8,7 @@ use App\Enums\ImportProvider;
 use App\Enums\MediaStatus;
 use App\Enums\MediaType;
 use App\Enums\PostStatus;
+use App\Exceptions\Abuse\RateLimitExceededException;
 use App\Exceptions\Import\UnsafeImportUrlException;
 use App\Exceptions\Posts\CannotCreatePostException;
 use App\Jobs\ImportVideoAssetJob;
@@ -143,4 +144,63 @@ it('counts no missing master for a linked video before it was downloaded', funct
 
     expect(app(MediaAuditService::class)->run()->missingMasters)->toBe(0)
         ->and(MediaAsset::query()->findOrFail($post->image_asset_id)->status)->toBe(MediaStatus::Processing);
+});
+
+it('spends one byte budget and one deadline on all of a download\'s hops', function () {
+    $policies = [];
+    app()->instance(ImportHttpTransport::class, new ScriptedImportHttpTransport([
+        function ($target, $policy) use (&$policies) {
+            $policies[] = $policy;
+
+            return new ImportTransportResponse(302, ['location' => 'https://videos.example/real.mp4'], str_repeat('r', 600));
+        },
+        function ($target, $policy) use (&$policies) {
+            $policies[] = $policy;
+
+            return new ImportTransportResponse(200, [], 'video');
+        },
+    ]));
+    config(['import.video_timeout_seconds' => 120]);
+    $path = sys_get_temp_dir().'/video-import-budget-'.uniqid();
+
+    try {
+        app(SafeImportHttpClient::class)->download('https://videos.example/clip.mp4', 1000, $path);
+    } finally {
+        @unlink($path);
+    }
+
+    expect($policies[0]->maxBytes)->toBe(1000)
+        // The redirect's own 600 bytes count against the file's limit.
+        ->and($policies[1]->maxBytes)->toBe(400)
+        ->and($policies[1]->timeoutSeconds)->toBeLessThanOrEqual(120);
+});
+
+it('downloads into a file only its user may read, and leaves nothing behind', function () {
+    $post = app(CreatePostAction::class)->handle(User::factory()->create(), new CreatePostData(title: 'From a link', videoUrl: 'https://videos.example/clip.mp4?token=secret'));
+    $modes = [];
+    app()->instance(ImportHttpTransport::class, new ScriptedImportHttpTransport([
+        function ($target, $policy) {
+            return new ImportTransportResponse(200, [], 'the video bytes');
+        },
+    ]));
+    bindRecordingMediaToolRunner([acceptableFfprobeResult()]);
+    $directory = sys_get_temp_dir().'/rateguru-video-import';
+
+    (new ImportVideoAssetJob((int) $post->image_asset_id))->handle(app(SafeImportHttpClient::class), app(VideoUploadStorer::class), app(FinalizePostMediaAction::class));
+
+    expect(glob($directory.'/download-*') ?: [])->toBe([])
+        ->and(substr(sprintf('%o', fileperms($directory)), -3))->toBe('700')
+        // The link's query, which may have carried a token, is not kept.
+        ->and(MediaAsset::query()->findOrFail($post->image_asset_id)->metadata['import']['url'])->toBe('https://videos.example/clip.mp4');
+});
+
+it('limits the videos one author may have downloaded in an hour', function () {
+    config(['rate_limits.video_import.max_attempts' => 2, 'uploads.videos.max_processing_per_author' => 10]);
+    $author = User::factory()->create();
+
+    app(CreatePostAction::class)->handle($author, new CreatePostData(title: 'One', videoUrl: 'https://videos.example/a.mp4'));
+    app(CreatePostAction::class)->handle($author, new CreatePostData(title: 'Two', videoUrl: 'https://videos.example/b.mp4'));
+
+    expect(fn () => app(CreatePostAction::class)->handle($author, new CreatePostData(title: 'Three', videoUrl: 'https://videos.example/c.mp4')))
+        ->toThrow(RateLimitExceededException::class);
 });

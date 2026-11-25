@@ -82,6 +82,15 @@ final class CreatePostAction
             message: __('ui.rate_limit.uploading'),
         );
 
+        if ($data->videoUrl !== null) {
+            $this->rateLimiter->hitOrFail(
+                key: RateLimitKey::userAction('video-import', $user),
+                maxAttempts: (int) config('rate_limits.video_import.max_attempts'),
+                decaySeconds: (int) config('rate_limits.video_import.decay_seconds'),
+                message: __('ui.rate_limit.uploading'),
+            );
+        }
+
         $ratingGroups = $this->ratingConfiguration->activeGroups();
         $categoryId = $this->validatedCategoryId($data->categoryId);
         $authorAnswers = $this->validatedAuthorAnswers($data->authorAnswerOptionIds, $ratingGroups);

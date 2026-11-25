@@ -145,6 +145,10 @@ final class PinnedImportHttpTransport implements ImportHttpTransport
                     // fix. The URL, Host header, and TLS SNI/certificate
                     // verification all still use $target->host untouched.
                     CURLOPT_RESOLVE => ["{$target->host}:{$target->port}:{$target->ip}"],
+                    // A download that trickles — under 32 KB a second for 20
+                    // seconds — is cut off rather than holding a worker for
+                    // its whole time.
+                    ...($sink !== null ? [CURLOPT_LOW_SPEED_LIMIT => 32 * 1024, CURLOPT_LOW_SPEED_TIME => 20] : []),
                 ],
             ])
                 ->timeout($policy->timeoutSeconds)

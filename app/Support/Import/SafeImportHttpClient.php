@@ -44,13 +44,36 @@ class SafeImportHttpClient
      */
     public function download(string $url, int $maxBytes, string $path): SafeImportResponse
     {
+        // One deadline and one byte budget for the whole download, redirects
+        // included: a chain of slow or large hops cannot take a worker for
+        // longer, or write more, than one file may.
+        $deadline = microtime(true) + (int) config('import.video_timeout_seconds');
+        $spent = 0;
+
         $policy = new ImportFetchPolicy(
             maxBytes: $maxBytes,
             timeoutSeconds: (int) config('import.video_timeout_seconds'),
             connectTimeoutSeconds: (int) config('import.connect_timeout_seconds'),
         );
 
-        return $this->follow($url, $policy, fn (ResolvedImportTarget $target): ImportTransportResponse => $this->transport->download($target, $policy, $path));
+        return $this->follow($url, $policy, function (ResolvedImportTarget $target) use ($url, $maxBytes, $path, $deadline, &$spent): ImportTransportResponse {
+            $left = (int) floor($deadline - microtime(true));
+
+            if ($left < 1 || $spent >= $maxBytes) {
+                throw ImportFetchException::connectionError($url, 'The download ran out of its time or size.');
+            }
+
+            $response = $this->transport->download($target, new ImportFetchPolicy(
+                maxBytes: $maxBytes - $spent,
+                timeoutSeconds: $left,
+                connectTimeoutSeconds: (int) config('import.connect_timeout_seconds'),
+            ), $path);
+
+            clearstatcache(true, $path);
+            $spent += (int) @filesize($path);
+
+            return $response;
+        });
     }
 
     /**

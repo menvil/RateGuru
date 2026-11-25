@@ -23,6 +23,8 @@ use App\Services\Media\Exceptions\ImageIngestException;
 use App\Services\Media\Exceptions\VideoIngestException;
 use App\Services\Media\Exceptions\VideoTooLargeException;
 use App\Services\Media\Exceptions\VideoTooLongException;
+use App\Support\AbuseGuards\ActionRateLimiter;
+use App\Support\AbuseGuards\RateLimitKey;
 use App\Support\Games\Play\GameVisitorResolver;
 use App\Support\Import\ImportProviderDetector;
 use App\Support\Posts\PostContentRules;
@@ -148,7 +150,17 @@ final class UploadPostForm extends Component
                 // picture now.
                 $imageUrl = $this->importedImageUrl;
 
-                if (app(ImportProviderDetector::class)->detect($this->importedImageUrl) !== 'direct_image') {
+                // Counted before anything is fetched from outside.
+                app(ActionRateLimiter::class)->hitOrFail(
+                    key: RateLimitKey::userAction('link-import', auth()->user()),
+                    maxAttempts: (int) config('rate_limits.link_import.max_attempts'),
+                    decaySeconds: (int) config('rate_limits.link_import.decay_seconds'),
+                    message: __('ui.rate_limit.uploading'),
+                );
+
+                $provider = app(ImportProviderDetector::class)->detect($this->importedImageUrl);
+
+                if ($provider !== 'direct_image') {
                     $preview = app(ImportFromUrlAction::class)->handle($this->importedImageUrl);
                     $videoUrl = $preview->videoUrl;
                     $imageUrl = $videoUrl === null ? $preview->imageUrl : null;
@@ -159,9 +171,11 @@ final class UploadPostForm extends Component
                         return;
                     }
 
-                    // Where it came from, unless the author named a source.
-                    if (blank($this->sourceUrl)) {
-                        $this->sourceUrl = $this->importedImageUrl;
+                    // A post on a social site is where it came from, unless the
+                    // author named a source — without its query, which may
+                    // carry a token or tracking, never meant to be public.
+                    if (blank($this->sourceUrl) && in_array($provider, ['x', 'instagram', 'facebook', 'pinterest'], true)) {
+                        $this->sourceUrl = strtok($this->importedImageUrl, '?#') ?: null;
                     }
                 }
 
@@ -174,6 +188,10 @@ final class UploadPostForm extends Component
                 }
             } catch (UrlImportDisabledException) {
                 $this->submitError = __('import.errors.feature_disabled');
+
+                return;
+            } catch (RateLimitExceededException $e) {
+                $this->submitError = $e->getMessage();
 
                 return;
             } catch (UnsafeImportUrlException) {

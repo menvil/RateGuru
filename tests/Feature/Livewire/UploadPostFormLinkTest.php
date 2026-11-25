@@ -118,3 +118,38 @@ it('tells the author what a link may be', function () {
         ->test(UploadPostForm::class)
         ->assertSee(__('ui.upload.media_url_hint'));
 });
+
+it('counts links before fetching anything, and keeps a post\'s link without its query as the source', function () {
+    config(['rate_limits.link_import.max_attempts' => 1]);
+    Http::fake(['cdn.syndication.twimg.com/*' => Http::response(xPostCarrying('video'), 200)]);
+    $author = User::factory()->create();
+
+    Livewire::actingAs($author)
+        ->test(UploadPostForm::class)
+        ->set('title', 'From X')
+        ->set('importedImageUrl', 'https://x.com/someone/status/7?s=20&t=tracking')
+        ->call('submit')
+        ->assertSet('submitError', null);
+
+    expect(Post::query()->sole()->source_url)->toBe('https://x.com/someone/status/7');
+
+    Livewire::actingAs($author)
+        ->test(UploadPostForm::class)
+        ->set('title', 'Again')
+        ->set('importedImageUrl', 'https://x.com/someone/status/9')
+        ->call('submit')
+        ->assertSet('submitError', __('ui.rate_limit.uploading'));
+
+    Http::assertSentCount(1);
+});
+
+it('names no source for a link to a file or a page that is not a social post', function () {
+    Livewire::actingAs(User::factory()->create())
+        ->test(UploadPostForm::class)
+        ->set('title', 'A clip')
+        ->set('importedImageUrl', 'https://videos.example/clip.mp4')
+        ->call('submit')
+        ->assertHasNoErrors();
+
+    expect(Post::query()->sole()->source_url)->toBeNull();
+});

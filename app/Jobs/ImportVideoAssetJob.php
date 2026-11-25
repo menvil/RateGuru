@@ -17,7 +17,7 @@ use App\Support\Media\VideoUploadStorer;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Str;
+use RuntimeException;
 use Throwable;
 
 /**
@@ -58,7 +58,7 @@ final class ImportVideoAssetJob implements RunsOnMediaQueue, ShouldQueue
             return;
         }
 
-        $file = sys_get_temp_dir().'/rateguru-video-import-'.Str::uuid()->toString();
+        $file = self::temporaryFile();
 
         try {
             $client->download($url, VideoIngestPolicy::fromConfig()->maxBytes, $file);
@@ -97,10 +97,44 @@ final class ImportVideoAssetJob implements RunsOnMediaQueue, ShouldQueue
             'height' => $valid ? $height : null,
             'aspect_ratio' => $valid ? round($width / $height, 6) : null,
             'orientation' => $valid ? app(ImageOrientationClassifier::class)->classify($width, $height) : null,
-            'metadata' => [...($asset->metadata ?? []), 'import' => [...$asset->metadata['import'], 'downloaded_at' => now()->toIso8601ZuluString()]],
+            // Where it came from, without a query that may have carried a
+            // signed link's token, now that the link has done its job.
+            'metadata' => [...($asset->metadata ?? []), 'import' => [
+                'url' => strtok($url, '?#') ?: $url,
+                'downloaded_at' => now()->toIso8601ZuluString(),
+            ]],
         ])->save();
 
         ProcessVideoAssetJob::dispatch((int) $asset->id);
+    }
+
+    /**
+     * A new, empty file only this user may read (tempnam: created
+     * exclusively, mode 0600), in a directory of its own. A download a timeout
+     * killed mid-way never reached its clean-up, so any file there older than
+     * an hour goes first.
+     */
+    private static function temporaryFile(): string
+    {
+        $directory = sys_get_temp_dir().'/rateguru-video-import';
+
+        if (! is_dir($directory)) {
+            @mkdir($directory, 0o700, true);
+        }
+
+        foreach (glob($directory.'/*') ?: [] as $stale) {
+            if (is_file($stale) && filemtime($stale) < time() - 3600) {
+                @unlink($stale);
+            }
+        }
+
+        $file = tempnam($directory, 'download-');
+
+        if ($file === false) {
+            throw new RuntimeException('Could not create a file to download a video into.');
+        }
+
+        return $file;
     }
 
     /** After the last attempt: the asset stops waiting and its author is told. */
