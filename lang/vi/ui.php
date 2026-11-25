@@ -268,6 +268,7 @@ return [
         'image_drop_hint' => 'JPEG, PNG, GIF tối đa 5MB',
         'image_browse' => 'Chọn tệp',
         'image_url_placeholder' => 'https://example.com/image.jpg',
+        'media_url_hint' => 'Liên kết đến ảnh hoặc video, hoặc đến bài đăng trên X, Instagram hay trang khác: video, GIF hoặc ảnh của bài sẽ được lấy.',
         'source_url' => 'URL nguồn',
         'source_url_placeholder' => 'https://example.com/original',
         'tags' => 'Thẻ',

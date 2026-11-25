@@ -11,6 +11,7 @@ use App\Enums\MediaType;
 use App\Enums\PostStatus;
 use App\Exceptions\Posts\CannotCreatePostException;
 use App\Jobs\GenerateMediaVariantsJob;
+use App\Jobs\ImportVideoAssetJob;
 use App\Jobs\NotifyFollowersAboutNewPostJob;
 use App\Jobs\ProcessVideoAssetJob;
 use App\Models\Category;
@@ -66,7 +67,7 @@ final class CreatePostAction
 
     public function handle(User $user, CreatePostData $data): Post
     {
-        if (count(array_filter([$data->imageAssetId, $data->image, $data->video], fn (mixed $media): bool => $media !== null)) > 1) {
+        if (count(array_filter([$data->imageAssetId, $data->image, $data->video, $data->videoUrl], fn (mixed $media): bool => $media !== null)) > 1) {
             throw new InvalidArgumentException('A post takes one picture, video or stored image.');
         }
 
@@ -96,7 +97,7 @@ final class CreatePostAction
 
         // Asked before the file is read at all, and again under the author's
         // lock below, where two submissions at once cannot both pass.
-        if ($data->video !== null) {
+        if ($data->video !== null || $data->videoUrl !== null) {
             $this->assertMayAddVideo($user);
         }
 
@@ -113,6 +114,7 @@ final class CreatePostAction
 
         try {
             $post = DB::transaction(function () use ($user, $data, $categoryId, $authorAnswers, $storedImage, $storedVideo, $text) {
+                $waitsForVideo = $storedVideo !== null || $data->videoUrl !== null;
                 // Lock order: Actor User first (docs/architecture/
                 // user-lifecycle.md). The policy pre-check above ran on a
                 // possibly stale instance — a sanction may have committed
@@ -124,15 +126,15 @@ final class CreatePostAction
                     throw CannotCreatePostException::becauseUserIsNotAllowed();
                 }
 
-                if ($storedVideo !== null) {
+                if ($waitsForVideo) {
                     $this->assertMayAddVideo($lockedActor);
                 }
 
                 // A video post is a draft until its media is ready; then
                 // FinalizePostMediaAction applies the same rule to it.
-                $publishesAtOnce = $storedVideo === null && $this->publicationRule->publishesAtOnce($lockedActor);
+                $publishesAtOnce = ! $waitsForVideo && $this->publicationRule->publishesAtOnce($lockedActor);
                 $status = match (true) {
-                    $storedVideo !== null => PostStatus::Draft,
+                    $waitsForVideo => PostStatus::Draft,
                     $publishesAtOnce => PostStatus::Published,
                     default => PostStatus::Pending,
                 };
@@ -142,6 +144,7 @@ final class CreatePostAction
                     $data->imageAssetId !== null => $this->lockStoredPostImage($data->imageAssetId),
                     $storedImage !== null => $this->mediaAssetCreator->create($storedImage, MediaKind::PostImage, $user)->id,
                     $storedVideo !== null => $this->mediaAssetCreator->createProcessing($storedVideo, $user)->id,
+                    $data->videoUrl !== null => $this->mediaAssetCreator->createAwaitingDownload($user, $data->videoUrl)->id,
                     default => null,
                 };
 
@@ -196,7 +199,7 @@ final class CreatePostAction
             'user_id' => $user->id,
             'status' => $post->status->value,
             'has_image' => $post->image_asset_id !== null,
-            'has_video' => $storedVideo !== null,
+            'has_video' => $storedVideo !== null || $data->videoUrl !== null,
         ]);
 
         if ($post->status === PostStatus::Published) {
@@ -212,9 +215,12 @@ final class CreatePostAction
             }
         }
 
-        if ($storedVideo !== null) {
+        if ($storedVideo !== null || $data->videoUrl !== null) {
             try {
-                ProcessVideoAssetJob::dispatch((int) $post->image_asset_id)->afterCommit();
+                // A linked video is fetched first; an uploaded one is here.
+                $data->videoUrl !== null
+                    ? ImportVideoAssetJob::dispatch((int) $post->image_asset_id)->afterCommit()
+                    : ProcessVideoAssetJob::dispatch((int) $post->image_asset_id)->afterCommit();
             } catch (Throwable $exception) {
                 // Never queued, so nothing would ever settle it: the asset
                 // fails at once rather than counting against the author's

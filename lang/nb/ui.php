@@ -268,6 +268,7 @@ return [
         'image_drop_hint' => 'JPEG, PNG, GIF på opptil 5 MB',
         'image_browse' => 'Bla gjennom filer',
         'image_url_placeholder' => 'https://example.com/image.jpg',
+        'media_url_hint' => 'En lenke til et bilde eller en video, eller til et innlegg på X, Instagram eller et annet nettsted: videoen, GIF-en eller bildet hentes.',
         'source_url' => 'Kilde-URL',
         'source_url_placeholder' => 'https://example.com/original',
         'tags' => 'Tagger',

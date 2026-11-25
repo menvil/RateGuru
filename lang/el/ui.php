@@ -268,6 +268,7 @@ return [
         'image_drop_hint' => 'JPEG, PNG, GIF έως 5 MB',
         'image_browse' => 'Επιλογή αρχείου',
         'image_url_placeholder' => 'https://example.com/image.jpg',
+        'media_url_hint' => 'Σύνδεσμος σε εικόνα ή βίντεο, ή σε ανάρτηση στο X, στο Instagram ή σε άλλον ιστότοπο: λαμβάνεται το βίντεο, το GIF ή η φωτογραφία της.',
         'source_url' => 'URL πηγής',
         'source_url_placeholder' => 'https://example.com/original',
         'tags' => 'Ετικέτες',

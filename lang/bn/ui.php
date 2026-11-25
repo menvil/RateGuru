@@ -268,6 +268,7 @@ return [
         'image_drop_hint' => 'JPEG, PNG, GIF, সর্বোচ্চ 5MB',
         'image_browse' => 'ফাইল বেছে নিন',
         'image_url_placeholder' => 'https://example.com/image.jpg',
+        'media_url_hint' => 'একটি ছবি বা ভিডিওর লিংক, অথবা X, Instagram বা অন্য সাইটের পোস্টের লিংক: তার ভিডিও, GIF বা ছবি নেওয়া হবে।',
         'source_url' => 'উৎস URL',
         'source_url_placeholder' => 'https://example.com/original',
         'tags' => 'ট্যাগ',

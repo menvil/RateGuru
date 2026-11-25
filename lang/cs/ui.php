@@ -268,6 +268,7 @@ return [
         'image_drop_hint' => 'JPEG, PNG, GIF do 5 MB',
         'image_browse' => 'Procházet soubory',
         'image_url_placeholder' => 'https://example.com/image.jpg',
+        'media_url_hint' => 'Odkaz na obrázek nebo video, nebo na příspěvek na X, Instagramu či jiném webu: použije se jeho video, GIF nebo fotka.',
         'source_url' => 'URL zdroje',
         'source_url_placeholder' => 'https://example.com/original',
         'tags' => 'Štítky',

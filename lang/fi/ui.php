@@ -268,6 +268,7 @@ return [
         'image_drop_hint' => 'JPEG, PNG, GIF, enintään 5 Mt',
         'image_browse' => 'Selaa tiedostoja',
         'image_url_placeholder' => 'https://example.com/image.jpg',
+        'media_url_hint' => 'Linkki kuvaan tai videoon tai julkaisuun palvelussa X, Instagram tai muu sivusto: siitä otetaan video, GIF tai kuva.',
         'source_url' => 'Lähteen URL-osoite',
         'source_url_placeholder' => 'https://example.com/original',
         'tags' => 'Tunnisteet',

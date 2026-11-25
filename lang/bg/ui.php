@@ -268,6 +268,7 @@ return [
         'image_drop_hint' => 'JPEG, PNG, GIF до 5 МБ',
         'image_browse' => 'Преглед',
         'image_url_placeholder' => 'https://example.com/image.jpg',
+        'media_url_hint' => 'Връзка към снимка или видео, или към публикация в X, Instagram или друг сайт: взима се видеото, GIF-ът или снимката ѝ.',
         'source_url' => 'URL на оригинала',
         'source_url_placeholder' => 'https://example.com/original',
         'tags' => 'Тагове',

@@ -268,6 +268,7 @@ return [
         'image_drop_hint' => 'JPEG, PNG, GIF do 5 MB',
         'image_browse' => 'Odaberi datoteku',
         'image_url_placeholder' => 'https://example.com/image.jpg',
+        'media_url_hint' => 'Poveznica na sliku ili videozapis, ili na objavu na X-u, Instagramu ili drugoj stranici: preuzima se njezin video, GIF ili fotografija.',
         'source_url' => 'URL izvora',
         'source_url_placeholder' => 'https://example.com/original',
         'tags' => 'Oznake',

@@ -268,6 +268,7 @@ return [
         'image_drop_hint' => 'JPEG, PNG, GIF hanggang 5MB',
         'image_browse' => 'Mag-browse ng File',
         'image_url_placeholder' => 'https://example.com/image.jpg',
+        'media_url_hint' => 'Link sa larawan o video, o sa post sa X, Instagram o ibang site: kukunin ang video, GIF o larawan nito.',
         'source_url' => 'URL ng pinagmulan',
         'source_url_placeholder' => 'https://example.com/original',
         'tags' => 'Mga tag',

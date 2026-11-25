@@ -276,6 +276,7 @@ return [
         'image_drop_hint' => 'JPEG، PNG، GIF، زیادہ سے زیادہ 5MB',
         'image_browse' => 'فائل منتخب کریں',
         'image_url_placeholder' => 'https://example.com/image.jpg',
+        'media_url_hint' => 'کسی تصویر یا ویڈیو کا لنک، یا X، Instagram یا کسی اور سائٹ کی پوسٹ کا لنک: اس کی ویڈیو، GIF یا تصویر لی جائے گی۔',
         'source_url' => 'ماخذ کا URL',
         'source_url_placeholder' => 'https://example.com/original',
         'tags' => 'ٹیگز',

@@ -268,6 +268,7 @@ return [
         'image_drop_hint' => 'JPEG, PNG, GIF upp till 5 MB',
         'image_browse' => 'Bläddra efter fil',
         'image_url_placeholder' => 'https://example.com/image.jpg',
+        'media_url_hint' => 'En länk till en bild eller video, eller till ett inlägg på X, Instagram eller en annan webbplats: dess video, GIF eller foto hämtas.',
         'source_url' => 'Källadress',
         'source_url_placeholder' => 'https://example.com/original',
         'tags' => 'Taggar',

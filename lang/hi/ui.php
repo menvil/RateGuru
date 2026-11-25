@@ -268,6 +268,7 @@ return [
         'image_drop_hint' => 'JPEG, PNG, GIF, 5MB तक',
         'image_browse' => 'फ़ाइल चुनें',
         'image_url_placeholder' => 'https://example.com/image.jpg',
+        'media_url_hint' => 'किसी तस्वीर या वीडियो का लिंक, या X, Instagram या किसी और साइट की पोस्ट का लिंक: उसका वीडियो, GIF या फ़ोटो लिया जाएगा।',
         'source_url' => 'सोर्स URL',
         'source_url_placeholder' => 'https://example.com/original',
         'tags' => 'टैग',

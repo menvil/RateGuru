@@ -484,6 +484,24 @@ final class ScriptedImportHttpTransport implements ImportHttpTransport
 
         return $next;
     }
+
+    /**
+     * The same script, for a download: the response's body is written to
+     * $path (a redirect's too, as a sink would, and the next hop's replaces
+     * it), and the response handed back carries none.
+     *
+     * @var list<string>
+     */
+    public array $downloadedTo = [];
+
+    public function download(ResolvedImportTarget $target, ImportFetchPolicy $policy, string $path): ImportTransportResponse
+    {
+        $response = $this->get($target, $policy);
+        $this->downloadedTo[] = $path;
+        file_put_contents($path, $response->body);
+
+        return new ImportTransportResponse($response->status, $response->headers, '');
+    }
 }
 
 /**

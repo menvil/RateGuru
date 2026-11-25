@@ -268,6 +268,7 @@ return [
         'image_drop_hint' => 'JPEG, PNG, GIF op til 5 MB',
         'image_browse' => 'Gennemse filer',
         'image_url_placeholder' => 'https://example.com/image.jpg',
+        'media_url_hint' => 'Et link til et billede eller en video, eller til et opslag på X, Instagram eller et andet websted: dets video, GIF eller foto hentes.',
         'source_url' => 'Kilde-URL',
         'source_url_placeholder' => 'https://example.com/original',
         'tags' => 'Tags',

@@ -268,6 +268,7 @@ return [
         'image_drop_hint' => 'JPEG、PNG、GIF（最大5MB）',
         'image_browse' => 'ファイルを選択',
         'image_url_placeholder' => 'https://example.com/image.jpg',
+        'media_url_hint' => '画像や動画へのリンク、またはX、Instagram、その他のサイトの投稿へのリンク：その動画、GIF、写真を取り込みます。',
         'source_url' => '出典URL',
         'source_url_placeholder' => 'https://example.com/original',
         'tags' => 'タグ',

@@ -45,9 +45,19 @@ final class VideoUploadStorer
      */
     public function store(UploadedFile $file, int $ownerUserId): StoredVideo
     {
+        return $this->storeFile((string) $file->getRealPath(), $file->getClientOriginalName(), $ownerUserId, (int) $file->getSize());
+    }
+
+    /**
+     * store() for a file already on this machine — a video ImportVideoAssetJob
+     * downloaded — named $originalFilename.
+     *
+     * @throws VideoIngestException when the policy refuses the file
+     */
+    public function storeFile(string $local, string $originalFilename, int $ownerUserId, ?int $bytes = null): StoredVideo
+    {
         $policy = VideoIngestPolicy::fromConfig();
-        $bytes = (int) $file->getSize();
-        $local = (string) $file->getRealPath();
+        $bytes ??= (int) @filesize($local);
 
         $policy->assertWithinByteLimit($bytes);
 
@@ -78,7 +88,7 @@ final class VideoUploadStorer
             media: new StoredMedia(
                 disk: $request->disk,
                 path: $path,
-                originalFilename: mb_substr($file->getClientOriginalName(), 0, self::MAX_ORIGINAL_FILENAME_LENGTH),
+                originalFilename: mb_substr($originalFilename, 0, self::MAX_ORIGINAL_FILENAME_LENGTH),
                 mimeType: $mimeType,
                 extension: $extension,
                 byteSize: $bytes,

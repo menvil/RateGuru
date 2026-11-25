@@ -33,13 +33,38 @@ class SafeImportHttpClient
             connectTimeoutSeconds: (int) config('import.connect_timeout_seconds'),
         );
 
+        return $this->follow($url, $policy, fn (ResolvedImportTarget $target): ImportTransportResponse => $this->transport->get($target, $policy));
+    }
+
+    /**
+     * get() for a video: every hop validated and pinned the same way, the
+     * final body written to $path as it arrives (a redirect's own body is
+     * overwritten by the next hop's), with the time a large file needs
+     * (import.video_timeout_seconds). The response's body is empty.
+     */
+    public function download(string $url, int $maxBytes, string $path): SafeImportResponse
+    {
+        $policy = new ImportFetchPolicy(
+            maxBytes: $maxBytes,
+            timeoutSeconds: (int) config('import.video_timeout_seconds'),
+            connectTimeoutSeconds: (int) config('import.connect_timeout_seconds'),
+        );
+
+        return $this->follow($url, $policy, fn (ResolvedImportTarget $target): ImportTransportResponse => $this->transport->download($target, $policy, $path));
+    }
+
+    /**
+     * @param  callable(ResolvedImportTarget): ImportTransportResponse  $fetch
+     */
+    private function follow(string $url, ImportFetchPolicy $policy, callable $fetch): SafeImportResponse
+    {
         $maxRedirects = (int) config('import.max_redirects');
 
         $target = $this->validator->validate($url);
         $hop = 0;
 
         while (true) {
-            $response = $this->transport->get($target, $policy);
+            $response = $fetch($target);
 
             if (! in_array($response->status, self::REDIRECT_STATUSES, true)) {
                 break;
