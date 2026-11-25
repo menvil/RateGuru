@@ -633,8 +633,11 @@ owns**, and the Ubuntu 22.04 candidate package is the far older
   is `MISSING` with the action `install verified rclone v<pin>`; version
   drift (like the current staging v1.74.4), a wrong owner/group or mode, an
   unexpected path, or a binary that cannot report a version are `CONFLICT`
-  with the action `replace with verified rclone v<pin>`. An apt action for
-  rclone is never proposed.
+  with the action `replace with verified rclone v<pin>`. A directory (or a
+  link to one) standing at `/usr/bin/rclone` is a `CONFLICT` of its own:
+  `--apply` refuses before downloading anything, since `mv` would drop the
+  new binary inside it, and the operator moves it aside by hand. An apt
+  action for rclone is never proposed.
 - `--apply` converges drift through verification only: download the exact
   versioned release archive and its `SHA256SUMS` from the official
   `downloads.rclone.org` origin (HTTPS only), verify the clearsigned
@@ -661,6 +664,62 @@ current staging host reports exactly one unsatisfied item — the rclone
 version drift (installed v1.74.4, required pinned version) — and proposes
 the verified replacement, never `apt-get install rclone`. `--apply` then
 performs the signature- and checksum-verified atomic upgrade.
+
+### Managed external runtime: yt-dlp
+
+The media import downloads videos from the pages users link through yt-dlp.
+Its site support breaks whenever a site changes, so the Ubuntu 22.04 package
+(years behind) is no use, and the pin has to move every few weeks. yt-dlp is
+therefore a second managed external runtime under the same contract file and
+the same rules as rclone:
+
+- `versions.env` carries `YTDLP_VERSION` (a dated release such as
+  `2026.11.23`), `YTDLP_ARTIFACT=yt-dlp_linux` — the standalone executable,
+  which bundles its own Python, so the host's Python never matters —
+  `/usr/local/bin/yt-dlp`, `root:root`, mode `0755`, and the fingerprint of
+  the key yt-dlp's README names for its release signatures
+  (`AC0CBBE6848D6A873464AF4E57CF65933B5A7581`). The public key is committed
+  next to it as `yt-dlp-release-signing-key.asc`.
+- `--check`/`--verify` report it in the `EXTERNAL RUNTIME` section beside
+  rclone, with the same states: `PASS yt-dlp — <pin>, /usr/local/bin/yt-dlp,
+  root:root 0755`; `MISSING` when absent, with the action `install verified
+  yt-dlp <pin>`; `CONFLICT` for another version, owner, group or mode, a copy
+  elsewhere on the PATH, or a binary that cannot report a version, with the
+  action `replace with verified yt-dlp <pin>`. A directory or a link to one
+  at `/usr/local/bin/yt-dlp` is a `CONFLICT` that `--apply` refuses before
+  any download, exactly as for rclone.
+- `--apply` downloads `yt-dlp_linux`, `SHA2-256SUMS` and the detached
+  `SHA2-256SUMS.sig` from the official GitHub release over HTTPS, verifies the
+  signature with the committed key (accepted only after it matches the pinned
+  fingerprint), verifies the executable's checksum, confirms it reports
+  exactly the pinned version, and renames it over `/usr/local/bin/yt-dlp`
+  atomically. A failure at any step leaves the working binary as it was.
+  `yt-dlp -U` is never run.
+- On a compliant host `--apply` makes no network request for yt-dlp.
+
+Rehearsed in a disposable Ubuntu 22.04 amd64 container on top of the runtime
+`develop` installs: `--check` reported exactly one item, `MISSING yt-dlp`;
+`--apply` installed it through the real signature and checksum and passed
+`--verify`; a second `--apply` downloaded nothing. An older version and a
+`0700` mode were each reported as `CONFLICT` and repaired by `--apply`; a
+fingerprint off the pin made `--apply` refuse the key and leave the working
+binary untouched; a link to a directory at the binary's path was reported and
+refused with nothing written inside it. The installed yt-dlp found ffmpeg 4.4.2 by itself and
+extracted the video from an ordinary HTML5 page.
+
+**Moving the pin (the routine upgrade):**
+
+1. Change `YTDLP_VERSION` in `infrastructure/config/external-runtimes/versions.env`
+   in a reviewed PR. The key and its fingerprint stay unless yt-dlp rotates
+   its signing key, which is then a change of its own.
+2. After the merge, on each host: `install-bootstrap-runtime --check` shows
+   `CONFLICT yt-dlp — <old> installed, required <new>`; `--apply` replaces it
+   and ends with a passing `--verify`.
+
+**Existing host migration:** on a host prepared before yt-dlp joined the
+contract, `--check` reports exactly `MISSING yt-dlp`, and `--apply` installs
+it as above. Staging and production share one machine, so a single run
+serves both.
 
 ### apt policy and idempotency
 
@@ -698,7 +757,21 @@ modules (composer.json requires `ext-exif`; queue workers use pcntl);
 SQLite is not installed (tests support it, the runtime contract is
 PostgreSQL); `openssh-server` is required because the deploy pipeline
 delivers artifacts over SSH; shellcheck/actionlint/wget are never runtime
-requirements.
+requirements; `ffmpeg` (which supplies `ffprobe` too) is required because the
+media queue worker probes and transcodes uploaded video and animated GIFs — it
+comes from jammy like the other base packages, and its 4.4 series covers
+H.264/AAC encoding, GIF decoding and ffprobe's JSON output.
+
+**Existing host migration for ffmpeg:** on a host prepared before ffmpeg joined
+the contract, `--check` reports `package:ffmpeg`, `tool:ffmpeg` and
+`tool:ffprobe` as `MISSING`, with installing `ffmpeg` as the intended action
+(and `MISSING yt-dlp`, which joined the contract at the same time — see
+"Managed external runtime: yt-dlp"). `--apply` installs only that package
+with `--no-install-recommends` (one `apt-get update`, one install), restarts
+nothing, and ends with a passing `--verify`; a second `--apply` makes no apt
+call. Rehearsed so in a disposable Ubuntu 22.04 amd64 container on top of the
+runtime `develop` installs; ffmpeg 4.4.2 there encoded H.264/AAC, scaled to
+720, turned an animated GIF into an MP4 and extracted a PNG poster frame.
 
 ### Verification depth
 
