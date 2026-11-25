@@ -3,12 +3,18 @@
 namespace App\Livewire\Feed;
 
 use App\Livewire\Concerns\ShowsAPageThatExists;
+use App\Models\User;
+use App\Queries\Feed\FeedLanguageOrder;
 use App\Queries\Feed\FeedQuery;
 use App\Support\Feed\PostCardViewerState;
+use App\Support\Languages\FreshWindow;
 use App\Support\Rating\RatingConfigurationManager;
 use App\Support\Rating\RatingVotingStateLoader;
+use App\Support\Settings\ProjectSettingsManager;
+use Carbon\CarbonImmutable;
 use Illuminate\Contracts\View\View;
 use Illuminate\Support\Facades\Gate;
+use Livewire\Attributes\Locked;
 use Livewire\Attributes\On;
 use Livewire\Component;
 use Livewire\WithPagination;
@@ -31,6 +37,41 @@ class PostFeed extends Component
     public bool $followingOnly = false;
 
     public ?int $selectedPostId = null;
+
+    /**
+     * The viewer's language first, as this feed was opened with it: the language, since when a post counts as fresh
+     * and, in Hot, the score a post has to reach — fixed for as long as the feed is looked through, so its pages
+     * never shift under the viewer (docs/architecture/language-ranking.md). Null while the feature is off, and in
+     * the Following feed and a search, which the viewer narrowed themselves.
+     *
+     * @var array{language: string, since: string|null, hot_floor: float|null}|null
+     */
+    #[Locked]
+    public ?array $languageOrder = null;
+
+    public function mount(FeedQuery $feedQuery, ProjectSettingsManager $settings): void
+    {
+        $ranking = $settings->current()->languageRanking();
+
+        if (! $ranking->enabled || $this->followingOnly || trim((string) $this->search) !== '') {
+            return;
+        }
+
+        $now = CarbonImmutable::now();
+        $user = auth()->user();
+        $since = $user instanceof User
+            ? FreshWindow::forMember($user->previous_visit_at === null ? null : CarbonImmutable::instance($user->previous_visit_at), $ranking, $now)
+            : FreshWindow::forGuest($ranking, $now);
+
+        $this->languageOrder = [
+            'language' => app()->getLocale(),
+            // Top ranks all time: its groups are by language alone.
+            'since' => $this->sort === 'top' ? null : $since->toIso8601String(),
+            'hot_floor' => $this->sort === 'hot' && $ranking->hotFloorPercentile > 0
+                ? $feedQuery->hotScoreAt($ranking->hotFloorPercentile, $now->subDays(2))
+                : null,
+        ];
+    }
 
     #[On('post-uploaded')]
     public function refreshAfterUpload(): void {}
@@ -58,6 +99,12 @@ class PostFeed extends Component
             category: $this->category,
             ratingFilters: $this->ratings,
             followedByUserId: $this->followingOnly ? auth()->id() : null,
+            languages: $this->languageOrder === null ? null : new FeedLanguageOrder(
+                viewerLanguage: $this->languageOrder['language'],
+                viewerId: auth()->id(),
+                since: $this->languageOrder['since'] === null ? null : CarbonImmutable::parse($this->languageOrder['since']),
+                hotFloor: $this->languageOrder['hot_floor'],
+            ),
         ))->onEachSide(1);
         $posts = $paginator->getCollection();
         $user = auth()->user();

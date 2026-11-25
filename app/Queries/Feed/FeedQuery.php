@@ -8,6 +8,7 @@ use App\Models\Category;
 use App\Models\Follow;
 use App\Models\Post;
 use App\Support\Database\LikePattern;
+use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Pagination\LengthAwarePaginator;
@@ -28,6 +29,7 @@ final class FeedQuery implements RawSqlPersistenceBoundary, StablePaginationBoun
         array|string|null $category = null,
         array $ratingFilters = [],
         ?int $followedByUserId = null,
+        ?FeedLanguageOrder $languages = null,
     ): Builder {
         $query = $this->base()
             ->published()
@@ -79,6 +81,25 @@ final class FeedQuery implements RawSqlPersistenceBoundary, StablePaginationBoun
             });
         }
 
+        if ($languages !== null) {
+            $since = ($languages->since ?? CarbonImmutable::createFromTimestampUTC(0))->utc()->format('Y-m-d H:i:s');
+
+            // One literal with bound values: the viewer's language and own posts while fresh (and, in Hot, above the
+            // floor), then fresh English, then the rest — each group then in the sort's own order below. Top passes
+            // no window, its groups covering all time; no floor lifts every post.
+            $query->orderByRaw(
+                'CASE WHEN (posts.language = ? OR posts.user_id = ?) AND posts.published_at >= ? AND posts.hot_score >= ? THEN 0 WHEN posts.language = ? AND posts.published_at >= ? THEN 1 ELSE 2 END',
+                [
+                    $languages->viewerLanguage,
+                    $languages->viewerId ?? 0,
+                    $since,
+                    $languages->hotFloor ?? -1.0,
+                    FeedLanguageOrder::SECOND_LANGUAGE,
+                    $since,
+                ],
+            );
+        }
+
         return match ($sort) {
             'newest' => $query->orderByDesc('published_at')->orderByDesc('created_at')->orderByDesc('id'),
             'top' => $query->orderByRaw('(upvotes_count - downvotes_count) DESC')->orderByDesc('published_at')->orderByDesc('id'),
@@ -111,6 +132,7 @@ final class FeedQuery implements RawSqlPersistenceBoundary, StablePaginationBoun
         array|string|null $category = null,
         array $ratingFilters = [],
         ?int $followedByUserId = null,
+        ?FeedLanguageOrder $languages = null,
     ): LengthAwarePaginator {
         return $this->query(
             search: $search,
@@ -119,8 +141,24 @@ final class FeedQuery implements RawSqlPersistenceBoundary, StablePaginationBoun
             category: $category,
             ratingFilters: $ratingFilters,
             followedByUserId: $followedByUserId,
+            languages: $languages,
         )
             ->paginate($this->normalizePerPage($perPage));
+    }
+
+    /**
+     * The hot score at a percentile of the posts published since a moment — what a post has to reach in Hot to be
+     * lifted by its language — or null when none was published. Read in PHP, the window holding a couple of days.
+     */
+    public function hotScoreAt(int $percentile, CarbonImmutable $since): ?float
+    {
+        $scores = Post::query()->published()->where('published_at', '>=', $since)->pluck('hot_score')->map(fn ($score): float => (float) $score)->sort()->values();
+
+        if ($scores->isEmpty()) {
+            return null;
+        }
+
+        return $scores[(int) floor(max(0, min(100, $percentile)) / 100 * ($scores->count() - 1))];
     }
 
     /** @return list<string> */

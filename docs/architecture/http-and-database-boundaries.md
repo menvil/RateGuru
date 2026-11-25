@@ -120,7 +120,7 @@ The reviewed boundaries are:
 - `CommentListQuery` for arithmetic comment ranking.
 - `ComparisonPeriodsQuery` for literal LIKE searches over the titles, internal
   names and slugs of the games whose traffic periods Growth → Experiments lists.
-- `FeedQuery` for arithmetic vote ordering and literal LIKE searches.
+- `FeedQuery` for arithmetic vote ordering, the viewer's language first (one `CASE` of bound values) and literal LIKE searches.
 - `GameMetricsQuery` for a game's figures: conditional and distinct counts of
   its attempts, answers, emails and events, per version, flow or content set,
   per device, country or country group of the recorded visits behind them, or

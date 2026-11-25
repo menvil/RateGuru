@@ -3,7 +3,9 @@
 use App\Models\Post;
 use App\Models\Tag;
 use App\Models\User;
+use App\Queries\Feed\FeedLanguageOrder;
 use App\Queries\Feed\FeedQuery;
+use Carbon\CarbonImmutable;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Pagination\Paginator;
 
@@ -214,4 +216,83 @@ it('keeps equal-ranked feed records stable across pages', function () {
     expect($first->intersect($second))->toBeEmpty()
         ->and($first->merge($second)->merge($third)->all())
         ->toBe($posts->pluck('id')->reverse()->values()->all());
+});
+
+/*
+ * The viewer's language first: fresh posts in it and the viewer's own posts, then fresh English ones, then the
+ * rest — each group in the sort's own order.
+ */
+
+function feedPost(?string $language, int $hoursAgo, array $attributes = []): Post
+{
+    return Post::factory()->published()->create([
+        'language' => $language,
+        'published_at' => now()->subHours($hoursAgo),
+        'created_at' => now()->subHours($hoursAgo),
+        ...$attributes,
+    ]);
+}
+
+function feedOrder(string $sort, FeedLanguageOrder $languages): array
+{
+    return app(FeedQuery::class)->query(sort: $sort, languages: $languages)->pluck('id')->all();
+}
+
+it('puts fresh posts in the viewer\'s language first, fresh English next, the rest after, newest first in each', function () {
+    $oldRussian = feedPost('ru', 24 * 9);
+    $english = feedPost('en', 1);
+    $german = feedPost('de', 2);
+    $russian = feedPost('ru', 30);
+    $newerRussian = feedPost('ru', 5);
+    $oldEnglish = feedPost('en', 24 * 10);
+    $unknown = feedPost(null, 3);
+
+    $order = feedOrder('newest', new FeedLanguageOrder('ru', null, CarbonImmutable::now()->subDays(7)));
+
+    expect($order)->toBe([$newerRussian->id, $russian->id, $english->id, $german->id, $unknown->id, $oldRussian->id, $oldEnglish->id]);
+});
+
+it('puts the viewer\'s own post first whatever language it was read as', function () {
+    $viewer = User::factory()->create();
+    $russian = feedPost('ru', 2);
+    $own = feedPost('de', 5, ['user_id' => $viewer->id]);
+
+    expect(feedOrder('newest', new FeedLanguageOrder('ru', $viewer->id, CarbonImmutable::now()->subDays(7))))->toBe([$russian->id, $own->id]);
+});
+
+it('ranks Top by language over all time, by votes within each group', function () {
+    $oldRussian = feedPost('ru', 24 * 60, ['upvotes_count' => 2]);
+    $popularEnglish = feedPost('en', 1, ['upvotes_count' => 90]);
+    $russian = feedPost('ru', 3, ['upvotes_count' => 5]);
+    $german = feedPost('de', 3, ['upvotes_count' => 200]);
+
+    expect(feedOrder('top', new FeedLanguageOrder('ru', null, null)))
+        ->toBe([$russian->id, $oldRussian->id, $popularEnglish->id, $german->id]);
+});
+
+it('lifts a post in Hot only from the floor up', function () {
+    $weakRussian = feedPost('ru', 2, ['hot_score' => 0.1]);
+    $strongRussian = feedPost('ru', 2, ['hot_score' => 0.9]);
+    $english = feedPost('en', 2, ['hot_score' => 0.5]);
+
+    expect(feedOrder('hot', new FeedLanguageOrder('ru', null, CarbonImmutable::now()->subDays(7), hotFloor: 0.3)))
+        ->toBe([$strongRussian->id, $english->id, $weakRussian->id]);
+});
+
+it('gives an English viewer English first, the rest after', function () {
+    $german = feedPost('de', 1);
+    $english = feedPost('en', 5);
+
+    expect(feedOrder('newest', new FeedLanguageOrder('en', null, CarbonImmutable::now()->subDays(7))))->toBe([$english->id, $german->id]);
+});
+
+it('reads the hot score a post has to reach at a percentile of the last days\' posts', function () {
+    foreach ([0.1, 0.2, 0.3, 0.4, 0.5] as $score) {
+        feedPost('en', 3, ['hot_score' => $score]);
+    }
+    feedPost('en', 24 * 5, ['hot_score' => 9.0]);
+
+    expect(app(FeedQuery::class)->hotScoreAt(50, CarbonImmutable::now()->subDays(2)))->toBe(0.3)
+        ->and(app(FeedQuery::class)->hotScoreAt(0, CarbonImmutable::now()->subDays(2)))->toBe(0.1)
+        ->and(app(FeedQuery::class)->hotScoreAt(50, CarbonImmutable::now()->addDay()))->toBeNull();
 });
