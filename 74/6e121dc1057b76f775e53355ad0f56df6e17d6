@@ -1,0 +1,79 @@
+tests/Pest.php
+  s_1f43f39fbe0537::t_9b9116071f8e06 40,116-117,1363-1398
+app/Services/Media/ProcessMediaToolRunner.php
+  s_1f43f39fbe0537::t_c3a8cc7397f334 10,16-23,29-30,33,44-55
+  s_1f43f39fbe0537::t_3e1f41fb963fe6 1-9,11-15,24-28,31-32,34-43,56-57
+tests/Feature/Services/Media/MediaServiceBindingTest.php
+  s_1f43f39fbe0537::t_b39aee87fd9b95 6,8
+  s_1f43f39fbe0537::t_bb1f1a465921f6 16-20
+.github/workflows/ci.yml
+  s_1f43f39fbe0537::t_4ad9c56592cbe5 266-274,280-281
+app/Enums/MediaTool.php
+  s_1f43f39fbe0537::t_77cf55df3b1f82 1-19
+tests/Feature/Services/Media/ProcessMediaToolRunnerTest.php
+  s_1f43f39fbe0537::t_104d0b7dcd52bc 1-61,78-84
+  s_1f43f39fbe0537::t_9420adb647acf1 62-77
+app/Providers/AppServiceProvider.php
+  s_1f43f39fbe0537::t_6dcfef309fab78 33,35
+  s_1f43f39fbe0537::t_1b3c30405959ea 115
+tests/Feature/Services/Media/VideoProbeTest.php
+  s_1f43f39fbe0537::t_4bcf32e63085f5 1-129
+app/Services/Media/VideoIngestPolicy.php
+  s_1f43f39fbe0537::t_4e3c8643c359cf 1-100
+app/Services/Media/Exceptions/VideoUnreadableException.php
+  s_1f43f39fbe0537::t_e82e10cae88043 1-16
+config/media.php
+  s_1f43f39fbe0537::t_1ac3ecdf38c64a 124-144
+app/Services/Media/MediaToolRunner.php
+  s_1f43f39fbe0537::t_1f56ef858cadff 1-24
+app/Services/Media/Exceptions/VideoTooLargeException.php
+  s_1f43f39fbe0537::t_e82e10cae88043 1-11
+app/Services/Media/Exceptions/MediaToolTimedOutException.php
+  s_1f43f39fbe0537::t_1d68dd123e2a37 1-16
+tests/Feature/Services/Media/VideoIngestPolicyTest.php
+  s_1f43f39fbe0537::t_ccb7e36d97d430 1-83
+app/Services/Media/Exceptions/VideoTooLongException.php
+  s_1f43f39fbe0537::t_e82e10cae88043 1-11
+app/Services/Media/Exceptions/VideoIngestException.php
+  s_1f43f39fbe0537::t_e82e10cae88043 1-12
+docs/architecture/media.md
+  s_1f43f39fbe0537::t_06c3b87fc17b77 365-408
+app/Services/Media/Exceptions/MediaToolUnavailableException.php
+  s_1f43f39fbe0537::t_92113cb3616a38 1-16
+app/Services/Media/Exceptions/VideoDimensionsExceededException.php
+  s_1f43f39fbe0537::t_e82e10cae88043 1-11
+app/Services/Media/Exceptions/VideoStreamLayoutException.php
+  s_1f43f39fbe0537::t_e82e10cae88043 1-11
+app/Services/Media/MediaToolResult.php
+  s_1f43f39fbe0537::t_198544e755a2f0 1-17
+app/Services/Media/Exceptions/UnsupportedVideoFormatException.php
+  s_1f43f39fbe0537::t_e82e10cae88043 1-11
+app/Services/Media/FfmpegInput.php
+  s_1f43f39fbe0537::t_e0f1b9684e769d 1-48
+config/uploads.php
+  s_1f43f39fbe0537::t_3cac7791bedcd0 21-31
+app/Services/Media/Exceptions/VideoFrameRateExceededException.php
+  s_1f43f39fbe0537::t_e82e10cae88043 1-11
+tests/Feature/Services/Media/RealFfmpegVideoProbeTest.php
+  s_1f43f39fbe0537::t_afb6b75f0d82aa 1-129
+app/Services/Media/VideoProbe.php
+  s_1f43f39fbe0537::t_a3b057a8d41fc5 1-47
+app/Services/Media/VideoProbeResult.php
+  s_1f43f39fbe0537::t_50faec12c8eeb8 1-113
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "746e121dc1057b76f775e53355ad0f56df6e17d6",
+  "prompts": {},
+  "sessions": {
+    "s_1f43f39fbe0537": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "526787d0-f443-4ad7-9610-cf9811fec895",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
