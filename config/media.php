@@ -17,6 +17,9 @@ return [
 
     'disks' => [
         'public' => env('MEDIA_PUBLIC_DISK', 'public'),
+        // Uploads nobody may fetch yet: a video as it arrived, until it has
+        // been processed into what pages play.
+        'private' => env('MEDIA_PRIVATE_DISK', 'local'),
     ],
 
     /*

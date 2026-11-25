@@ -1,5 +1,6 @@
 <?php
 
+use App\Actions\Posts\FinalizePostMediaAction;
 use App\Enums\MediaStatus;
 use App\Enums\MediaType;
 use App\Enums\MediaVariantName;
@@ -193,7 +194,7 @@ it('stops an asset waiting once the job has failed for the last time, and leaves
 it('skips an asset that no longer exists', function () {
     $runner = bindRecordingMediaToolRunner();
 
-    (new ProcessVideoAssetJob(999_999))->handle(app(VideoAssetProcessor::class));
+    (new ProcessVideoAssetJob(999_999))->handle(app(VideoAssetProcessor::class), app(FinalizePostMediaAction::class));
 
     expect($runner->calls)->toBe([]);
 });
@@ -206,7 +207,7 @@ it('sends the job back to wait when another run holds the asset, rather than ack
 
     try {
         $job = (new ProcessVideoAssetJob($asset->id))->withFakeQueueInteractions();
-        $job->handle(app(VideoAssetProcessor::class));
+        $job->handle(app(VideoAssetProcessor::class), app(FinalizePostMediaAction::class));
 
         $job->assertReleased(ProcessVideoAssetJob::BUSY_RETRY_SECONDS);
         expect($runner->calls)->toBe([])

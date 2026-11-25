@@ -28,5 +28,13 @@ return [
         'max_width' => 3840,
         'max_height' => 3840,
         'max_frame_rate' => 60,
+        // What the upload form takes as a video, by the type the file's
+        // contents show; ffprobe has the final word on every one of them.
+        // (application/mp4 is what some MP4 files read as.)
+        'mimetypes' => ['video/mp4', 'application/mp4', 'video/quicktime', 'video/webm', 'video/x-m4v', 'image/gif'],
+        // Videos one author may have waiting for processing at once. A host
+        // has one media worker; this keeps one account from queueing an hour
+        // of transcoding ahead of everyone else.
+        'max_processing_per_author' => 2,
     ],
 ];

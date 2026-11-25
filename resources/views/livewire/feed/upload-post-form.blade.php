@@ -19,8 +19,64 @@
         x-data="{
             imageTab: @if($importedImageUrl) 'url' @else 'file' @endif,
             previewUrl: @js($importedImageUrl ?? null),
+            previewIsVideo: false,
             fileName: null,
+            mediaError: null,
+            uploadProgress: null,
+            maxVideoSeconds: @js((int) config('uploads.videos.max_duration_seconds')),
             tagOpen: false,
+            clearMedia() {
+                if (this.previewIsVideo && this.previewUrl) URL.revokeObjectURL(this.previewUrl);
+                this.previewUrl = null;
+                this.previewIsVideo = false;
+                this.fileName = null;
+                this.uploadProgress = null;
+            },
+            {{-- A video or animated GIF goes to $video, anything else to $image; the other field
+                 lets its file go, so what is shown is what is posted. --}}
+            pickMedia(file) {
+                this.mediaError = null;
+                this.clearMedia();
+                if (!file) return;
+                const isVideo = file.type.startsWith('video/') || file.type === 'image/gif';
+                const field = isVideo ? 'video' : 'image';
+                const other = isVideo ? 'image' : 'video';
+                this.$wire.cancelUpload(other);
+                this.$wire.set(other, null, false);
+                this.fileName = file.name;
+                const send = () => {
+                    this.uploadProgress = 0;
+                    this.$wire.upload(field, file,
+                        () => { this.uploadProgress = null; },
+                        () => { this.uploadProgress = null; this.mediaError = @js(__('ui.upload.error_generic')); },
+                        (event) => { this.uploadProgress = event.detail.progress; },
+                    );
+                };
+                if (file.type.startsWith('video/')) {
+                    this.previewIsVideo = true;
+                    this.previewUrl = URL.createObjectURL(file);
+                    {{-- Its length is known from the metadata before a byte is sent, so a clip that is
+                         too long is refused here rather than after a long upload. --}}
+                    const probe = document.createElement('video');
+                    probe.preload = 'metadata';
+                    probe.onloadedmetadata = () => {
+                        if (Number.isFinite(probe.duration) && probe.duration > this.maxVideoSeconds + 0.5) {
+                            this.mediaError = @js(__('ui.upload.error_video_too_long', ['seconds' => (int) config('uploads.videos.max_duration_seconds')]));
+                            this.clearMedia();
+                            this.$refs.image.value = '';
+                            return;
+                        }
+                        send();
+                    };
+                    probe.onerror = send;
+                    probe.src = this.previewUrl;
+                    return;
+                }
+                const reader = new FileReader();
+                reader.onload = e => this.previewUrl = e.target.result;
+                reader.readAsDataURL(file);
+                send();
+            },
             initTagOpen() {
                 this.$watch('tagOpen', v => {
                     if (v) this.$nextTick(() => this.$refs.tagInput?.focus());
@@ -35,8 +91,8 @@
             if (tagOpen) { $event.stopImmediatePropagation(); tagOpen = false; }
         "
         x-on:upload-modal-opened.window="
-            previewUrl = null;
-            fileName = null;
+            clearMedia();
+            mediaError = null;
             imageTab = 'file';
             tagOpen = false;
             if ($refs.image) $refs.image.value = '';
@@ -104,10 +160,13 @@
                         if (imageTab === 'url') return;
                         imageTab = 'url';
                         previewUrl = null;
-                        fileName = null;
+                        clearMedia();
+                        mediaError = null;
                         $refs.image.value = '';
                         {{-- A file still on its way is stopped too: arriving after the switch, it would be posted instead of the link's. --}}
                         $wire.cancelUpload('image');
+                        $wire.cancelUpload('video');
+                        $wire.set('video', null, false);
                         $wire.set('image', null);
                     "
                     data-testid="image-tab-url"
@@ -137,22 +196,18 @@
                         id="image"
                         name="image"
                         type="file"
-                        accept="image/*"
-                        wire:model="image"
+                        accept="image/*,{{ implode(',', config('uploads.videos.mimetypes')) }}"
                         x-ref="image"
                         class="sr-only"
-                        x-on:change="
-                            const file = $event.target.files[0];
-                            if (!file) { previewUrl = null; fileName = null; return; }
-                            fileName = file.name;
-                            const reader = new FileReader();
-                            reader.onload = e => previewUrl = e.target.result;
-                            reader.readAsDataURL(file);
-                        "
+                        x-on:change="pickMedia($event.target.files[0])"
                     />
 
-                    <template x-if="previewUrl && imageTab === 'file'">
+                    <template x-if="previewUrl && imageTab === 'file' && !previewIsVideo">
                         <img :src="previewUrl" alt="{{ __('ui.upload.selected_image_alt') }}" decoding="async" class="max-h-56 w-full rounded-rgMedia object-contain" />
+                    </template>
+
+                    <template x-if="previewUrl && imageTab === 'file' && previewIsVideo">
+                        <video :src="previewUrl" muted playsinline autoplay loop aria-label="{{ __('ui.upload.selected_video_label') }}" data-testid="upload-video-preview" class="max-h-56 w-full rounded-rgMedia object-contain"></video>
                     </template>
 
                     <div x-show="!previewUrl || imageTab !== 'file'" class="flex flex-col items-center gap-2">
@@ -162,6 +217,7 @@
                         <div>
                             <p class="text-sm font-semibold text-rg-text">{{ __('ui.upload.image_drop_text') }}</p>
                             <p class="mt-1 text-xs text-rg-muted">{{ __('ui.upload.image_drop_hint') }}</p>
+                            <p class="mt-1 text-xs text-rg-muted" data-testid="upload-video-hint">{{ __('ui.upload.media_drop_hint_video', ['seconds' => (int) config('uploads.videos.max_duration_seconds'), 'megabytes' => intdiv((int) config('uploads.videos.max_kilobytes'), 1024)]) }}</p>
                         </div>
                         <span class="mt-1 inline-flex h-9 items-center rounded-rgControl border border-rg-border2 bg-rg-card px-4 text-[13px] font-semibold text-rg-text">
                             {{ __('ui.upload.image_browse') }}
@@ -169,7 +225,16 @@
                     </div>
 
                     <p x-show="fileName && imageTab === 'file'" x-text="fileName" class="mt-2 text-xs text-rg-muted"></p>
+
+                    <div x-show="uploadProgress !== null" x-cloak class="mt-2 w-full" data-testid="upload-progress">
+                        <div class="h-1.5 w-full overflow-hidden rounded-rgPill bg-rg-border">
+                            <div class="h-full bg-rg-accent transition-all" :style="`width: ${uploadProgress ?? 0}%`"></div>
+                        </div>
+                        <p class="mt-1 text-xs text-rg-muted" x-text="@js(__('ui.upload.uploading_progress', ['percent' => '__P__'])).replace('__P__', uploadProgress ?? 0)"></p>
+                    </div>
                 </label>
+
+                <p x-show="mediaError" x-cloak x-text="mediaError" role="alert" data-testid="upload-media-error" class="mt-1 text-sm text-rg-dangerText"></p>
             </div>
 
             {{-- URL tab --}}
@@ -194,6 +259,9 @@
 
             <div data-testid="field-error-image" class="mt-1">
                 <x-input-error :messages="$errors->get('image')" />
+            </div>
+            <div data-testid="field-error-video" class="mt-1">
+                <x-input-error :messages="$errors->get('video')" />
             </div>
         </div>
 

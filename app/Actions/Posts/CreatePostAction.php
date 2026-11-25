@@ -3,15 +3,16 @@
 namespace App\Actions\Posts;
 
 use App\Actions\Languages\QueueLanguageCheckAction;
-use App\Actions\Moderation\MarkUserTrustedAction;
 use App\Actions\Traffic\RecordAccountBonusAction;
 use App\Data\Posts\CreatePostData;
 use App\Enums\MediaKind;
 use App\Enums\MediaStatus;
+use App\Enums\MediaType;
 use App\Enums\PostStatus;
 use App\Exceptions\Posts\CannotCreatePostException;
 use App\Jobs\GenerateMediaVariantsJob;
 use App\Jobs\NotifyFollowersAboutNewPostJob;
+use App\Jobs\ProcessVideoAssetJob;
 use App\Models\Category;
 use App\Models\Concerns\LocksActorForWrite;
 use App\Models\MediaAsset;
@@ -26,7 +27,9 @@ use App\Support\AbuseGuards\RateLimitKey;
 use App\Support\Languages\LanguageProfile;
 use App\Support\Media\ImageUploadStorer;
 use App\Support\Media\MediaAssetCreator;
+use App\Support\Media\VideoUploadStorer;
 use App\Support\Observability\DomainLogger;
+use App\Support\Posts\PostPublicationRule;
 use App\Support\Rating\RatingConfigurationManager;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Collection;
@@ -36,7 +39,9 @@ use InvalidArgumentException;
 use Throwable;
 
 /**
- * A member's new post, with its photo, taxonomy and author answers — or,
+ * A member's new post, with its photo — or its video or animated GIF, when
+ * the post waits as a draft until the media is processed and
+ * FinalizePostMediaAction publishes it — taxonomy and author answers; or,
  * through the trusted fields of CreatePostData that only Content Studio's
  * executor sets, a Persona's approved plan published as a post: its photo,
  * already stored and Ready, used as it is, and its own dates. Either way the
@@ -55,12 +60,14 @@ final class CreatePostAction
         private readonly StoredMediaCleaner $storedMediaCleaner,
         private readonly LocalLanguageDetector $languageDetector,
         private readonly QueueLanguageCheckAction $languageChecks,
+        private readonly VideoUploadStorer $videoUploadStorer,
+        private readonly PostPublicationRule $publicationRule,
     ) {}
 
     public function handle(User $user, CreatePostData $data): Post
     {
-        if ($data->imageAssetId !== null && $data->image !== null) {
-            throw new InvalidArgumentException('A post takes a new file or a stored image, not both.');
+        if (count(array_filter([$data->imageAssetId, $data->image, $data->video], fn (mixed $media): bool => $media !== null)) > 1) {
+            throw new InvalidArgumentException('A post takes one picture, video or stored image.');
         }
 
         if (! $user->can('create', Post::class)) {
@@ -87,12 +94,25 @@ final class CreatePostAction
             ? $this->imageUploadStorer->store($data->image, MediaStoreRequest::forPostImage($user->id), $data->imageSource)
             : null;
 
+        // Asked before the file is read at all, and again under the author's
+        // lock below, where two submissions at once cannot both pass.
+        if ($data->video !== null) {
+            $this->assertMayAddVideo($user);
+        }
+
+        // A video passes ffprobe and the upload policy here, and is stored as
+        // it arrived on the private disk; a refused one stores nothing.
+        $storedVideo = $data->video !== null
+            ? $this->videoUploadStorer->store($data->video, (int) $user->id)
+            : null;
+        $storedFile = $storedImage ?? $storedVideo?->media;
+
         // The language of the title and description, told on this server before the transaction (CPU work); OpenAI
         // reads them again in the background (languages:work).
         $text = $this->languageDetector->read(trim($data->title."\n".($data->description ?? '')));
 
         try {
-            $post = DB::transaction(function () use ($user, $data, $categoryId, $authorAnswers, $storedImage, $text) {
+            $post = DB::transaction(function () use ($user, $data, $categoryId, $authorAnswers, $storedImage, $storedVideo, $text) {
                 // Lock order: Actor User first (docs/architecture/
                 // user-lifecycle.md). The policy pre-check above ran on a
                 // possibly stale instance — a sanction may have committed
@@ -104,25 +124,26 @@ final class CreatePostAction
                     throw CannotCreatePostException::becauseUserIsNotAllowed();
                 }
 
-                // Published at once only for a trusted author who has also
-                // proved the email address is theirs: every new account is
-                // trusted, so trust alone would publish whatever an account
-                // registered with any address posts. Staff — Admin and
-                // Moderator, never "anyone but a User" — are exempt from the
-                // email half, since they could approve the post themselves.
-                // A Persona's post always waits, whatever its trust or address:
-                // it is published only by an administrator's approval, so a
-                // confirmed address on its row — which it should never have —
-                // publishes nothing.
-                $publishesAtOnce = ! $lockedActor->isPersona()
-                    && $lockedActor->trust_level >= MarkUserTrustedAction::TRUSTED_LEVEL
-                    && ($lockedActor->hasVerifiedEmail() || $lockedActor->isStaff());
-                $status = $publishesAtOnce ? PostStatus::Published : PostStatus::Pending;
+                if ($storedVideo !== null) {
+                    $this->assertMayAddVideo($lockedActor);
+                }
+
+                // A video post is a draft until its media is ready; then
+                // FinalizePostMediaAction applies the same rule to it.
+                $publishesAtOnce = $storedVideo === null && $this->publicationRule->publishesAtOnce($lockedActor);
+                $status = match (true) {
+                    $storedVideo !== null => PostStatus::Draft,
+                    $publishesAtOnce => PostStatus::Published,
+                    default => PostStatus::Pending,
+                };
                 $publishedAt = $publishesAtOnce ? now() : null;
 
-                $imageAssetId = $data->imageAssetId !== null
-                    ? $this->lockStoredPostImage($data->imageAssetId)
-                    : ($storedImage !== null ? $this->mediaAssetCreator->create($storedImage, MediaKind::PostImage, $user)->id : null);
+                $imageAssetId = match (true) {
+                    $data->imageAssetId !== null => $this->lockStoredPostImage($data->imageAssetId),
+                    $storedImage !== null => $this->mediaAssetCreator->create($storedImage, MediaKind::PostImage, $user)->id,
+                    $storedVideo !== null => $this->mediaAssetCreator->createProcessing($storedVideo, $user)->id,
+                    default => null,
+                };
 
                 // Its language from what tells it so far: its text and its author's language (LanguageProfile).
                 $language = (new LanguageProfile)->text($text->language(), $text->weight())->author($lockedActor->locale);
@@ -163,8 +184,8 @@ final class CreatePostAction
             // The file was already written before the transaction started; a
             // DB failure past that point (asset insert, post insert, tag
             // sync, author answers) must not leave it orphaned on disk.
-            if ($storedImage !== null) {
-                $this->storedMediaCleaner->deleteIfUnclaimed($storedImage);
+            if ($storedFile !== null) {
+                $this->storedMediaCleaner->deleteIfUnclaimed($storedFile);
             }
 
             throw $exception;
@@ -175,6 +196,7 @@ final class CreatePostAction
             'user_id' => $user->id,
             'status' => $post->status->value,
             'has_image' => $post->image_asset_id !== null,
+            'has_video' => $storedVideo !== null,
         ]);
 
         if ($post->status === PostStatus::Published) {
@@ -190,7 +212,11 @@ final class CreatePostAction
             }
         }
 
-        if ($post->image_asset_id !== null) {
+        if ($storedVideo !== null) {
+            // Not caught: on the hosts this only enqueues, and a post whose
+            // video is never processed must not look like a success.
+            ProcessVideoAssetJob::dispatch((int) $post->image_asset_id)->afterCommit();
+        } elseif ($post->image_asset_id !== null) {
             try {
                 // ->afterCommit(): the structural "after DB::transaction()
                 // returns" placement above is enough for the upload form,
@@ -240,6 +266,22 @@ final class CreatePostAction
         }
 
         return (int) $asset->id;
+    }
+
+    /**
+     * @throws CannotCreatePostException
+     */
+    private function assertMayAddVideo(User $author): void
+    {
+        $processing = MediaAsset::query()
+            ->where('owner_user_id', $author->id)
+            ->where('status', MediaStatus::Processing)
+            ->whereIn('media_type', [MediaType::Video, MediaType::Animation])
+            ->count();
+
+        if ($processing >= (int) config('uploads.videos.max_processing_per_author')) {
+            throw CannotCreatePostException::becauseVideosAreStillProcessing();
+        }
     }
 
     private function validatedCategoryId(?int $categoryId): ?int

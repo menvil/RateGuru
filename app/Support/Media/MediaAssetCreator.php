@@ -9,6 +9,7 @@ use App\Enums\MediaVisibility;
 use App\Models\MediaAsset;
 use App\Models\User;
 use App\Services\Media\StoredMedia;
+use App\Services\Media\StoredVideo;
 
 /**
  * Builds the MediaAsset row for a just-stored file. Shared by post-image and
@@ -52,6 +53,39 @@ final class MediaAssetCreator
                 : null,
             'status' => MediaStatus::Ready,
             'visibility' => MediaVisibility::Public,
+        ]);
+    }
+
+    /**
+     * The asset of an accepted video or animated GIF: it points at the
+     * private original and waits in Processing. Its dimensions, length and
+     * sound are the probe's until the master replaces them.
+     */
+    public function createProcessing(StoredVideo $video, User $owner): MediaAsset
+    {
+        $width = $video->probe->width;
+        $height = $video->probe->height;
+        $hasValidDimensions = $width > 0 && $height > 0;
+
+        return MediaAsset::create([
+            'owner_user_id' => $owner->id,
+            'kind' => MediaKind::PostImage,
+            'media_type' => $video->mediaType,
+            'duration_ms' => $video->probe->durationMs,
+            // An animation plays silent whatever its file carries.
+            'has_audio' => $video->mediaType === MediaType::Video && $video->probe->hasAudio(),
+            'disk' => $video->media->disk,
+            'path' => $video->media->path,
+            'original_filename' => $video->media->originalFilename,
+            'mime_type' => $video->media->mimeType,
+            'extension' => $video->media->extension,
+            'byte_size' => $video->media->byteSize,
+            'width' => $hasValidDimensions ? $width : null,
+            'height' => $hasValidDimensions ? $height : null,
+            'aspect_ratio' => $hasValidDimensions ? round($width / $height, 6) : null,
+            'orientation' => $hasValidDimensions ? $this->orientationClassifier->classify($width, $height) : null,
+            'status' => MediaStatus::Processing,
+            'visibility' => MediaVisibility::Private,
         ]);
     }
 }

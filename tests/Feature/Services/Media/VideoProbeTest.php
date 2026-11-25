@@ -6,20 +6,6 @@ use App\Services\Media\FfmpegInput;
 use App\Services\Media\MediaToolResult;
 use App\Services\Media\VideoProbe;
 
-/**
- * ffprobe's JSON for one file, shaped the way the real tool prints it.
- *
- * @param  list<array<string, mixed>>  $streams
- * @param  array<string, mixed>  $format
- */
-function ffprobeJson(array $streams, array $format = []): string
-{
-    return (string) json_encode([
-        'streams' => $streams,
-        'format' => $format + ['format_name' => 'mov,mp4,m4a,3gp,3g2,mj2', 'duration' => '14.960000'],
-    ]);
-}
-
 it('asks ffprobe for the format and streams as JSON, reading the file only through the input whitelists', function () {
     $runner = bindRecordingMediaToolRunner([new MediaToolResult(0, ffprobeJson([['codec_type' => 'video', 'codec_name' => 'h264', 'width' => 1280, 'height' => 720]]), '')]);
     config(['media.video.probe_timeout_seconds' => 12]);

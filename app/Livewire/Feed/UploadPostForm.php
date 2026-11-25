@@ -11,12 +11,16 @@ use App\Enums\PostStatus;
 use App\Enums\UserActivity;
 use App\Exceptions\Abuse\RateLimitExceededException;
 use App\Exceptions\Import\UrlImportDisabledException;
+use App\Exceptions\Posts\CannotCreatePostException;
 use App\Models\Post;
 use App\Models\RatingGroup;
 use App\Models\Tag;
 use App\Models\User;
 use App\Queries\Categories\ActiveCategoriesQuery;
 use App\Services\Media\Exceptions\ImageIngestException;
+use App\Services\Media\Exceptions\VideoIngestException;
+use App\Services\Media\Exceptions\VideoTooLargeException;
+use App\Services\Media\Exceptions\VideoTooLongException;
 use App\Support\Games\Play\GameVisitorResolver;
 use App\Support\Posts\PostContentRules;
 use App\Support\Rating\RatingConfigurationManager;
@@ -54,6 +58,12 @@ final class UploadPostForm extends Component
 
     public $image = null;
 
+    /**
+     * A video or animated GIF in place of a picture: the dropzone sends a file
+     * here or to $image by its type, never to both.
+     */
+    public $video = null;
+
     public ?string $importedImageUrl = null;
 
     public string $activeTab = 'upload';
@@ -75,7 +85,7 @@ final class UploadPostForm extends Component
     #[On('upload-modal-opened')]
     public function resetUploadForm(): void
     {
-        $this->reset(['title', 'description', 'sourceUrl', 'image', 'importedImageUrl', 'tagIds', 'tagSearch', 'submitError', 'categoryId', 'knowsCorrectAnswer', 'authorAnswers']);
+        $this->reset(['title', 'description', 'sourceUrl', 'image', 'video', 'importedImageUrl', 'tagIds', 'tagSearch', 'submitError', 'categoryId', 'knowsCorrectAnswer', 'authorAnswers']);
         $this->loadTags();
         $this->activeTab = 'upload';
         $this->resetValidation();
@@ -108,7 +118,7 @@ final class UploadPostForm extends Component
         $importedTempFile = null;
 
         // A link field emptied is no link: the picture is then simply missing.
-        if (filled($this->importedImageUrl) && $this->image === null) {
+        if (filled($this->importedImageUrl) && $this->image === null && $this->video === null) {
             // The link is the client's to set: nothing is fetched for an
             // account that may not post, whatever it sends.
             if (! auth()->user()?->can('create', Post::class)) {
@@ -146,10 +156,11 @@ final class UploadPostForm extends Component
                     description: $this->description,
                     sourceUrl: $this->sourceUrl,
                     tagIds: $this->tagIds,
-                    image: $this->image,
+                    image: $this->video === null ? $this->image : null,
                     imageSource: $imageSource,
                     categoryId: $this->categoryId !== '' ? (int) $this->categoryId : null,
                     authorAnswerOptionIds: $this->selectedAuthorAnswerOptionIds(),
+                    video: $this->video,
                 ));
 
                 $author = auth()->user();
@@ -160,12 +171,15 @@ final class UploadPostForm extends Component
 
                 $this->dispatch('post-uploaded', postId: $post->id);
                 // A trusted author's post is published at once; anyone else's
-                // waits for a moderator, and the message says which.
-                $this->dispatch('toast', message: $post->status === PostStatus::Published
-                    ? __('ui.upload.success_published')
-                    : __('ui.upload.success_pending'));
+                // waits for a moderator, and a video post waits for its video
+                // first. The message says which.
+                $this->dispatch('toast', message: match ($post->status) {
+                    PostStatus::Published => __('ui.upload.success_published'),
+                    PostStatus::Draft => __('ui.upload.success_video_processing'),
+                    default => __('ui.upload.success_pending'),
+                });
 
-                $this->reset(['title', 'description', 'sourceUrl', 'image', 'tagIds', 'categoryId', 'knowsCorrectAnswer', 'authorAnswers']);
+                $this->reset(['title', 'description', 'sourceUrl', 'image', 'video', 'tagIds', 'categoryId', 'knowsCorrectAnswer', 'authorAnswers']);
                 $this->importedImageUrl = null;
                 $this->activeTab = 'upload';
                 $this->tagSearch = '';
@@ -174,6 +188,20 @@ final class UploadPostForm extends Component
             } catch (ImageIngestException $e) {
                 report($e);
                 $this->submitError = __('ui.upload.error_invalid_image');
+            } catch (CannotCreatePostException $e) {
+                if ($e->isWaitingForVideos()) {
+                    $this->submitError = __('ui.upload.error_videos_processing', ['count' => (int) config('uploads.videos.max_processing_per_author')]);
+                } else {
+                    report($e);
+                    $this->submitError = __('ui.upload.error_generic');
+                }
+            } catch (VideoIngestException $e) {
+                // The file's fault, not the site's: said, never reported.
+                $this->submitError = match (true) {
+                    $e instanceof VideoTooLongException => __('ui.upload.error_video_too_long', ['seconds' => (int) config('uploads.videos.max_duration_seconds')]),
+                    $e instanceof VideoTooLargeException => __('ui.upload.error_video_too_large', ['megabytes' => intdiv((int) config('uploads.videos.max_kilobytes'), 1024)]),
+                    default => __('ui.upload.error_invalid_video'),
+                };
             } catch (\Throwable $e) {
                 report($e);
                 $this->submitError = __('ui.upload.error_generic');
@@ -219,13 +247,23 @@ final class UploadPostForm extends Component
             'title' => ['required', 'string', 'min:'.PostContentRules::TITLE_MIN_LENGTH, 'max:'.PostContentRules::TITLE_LIMIT],
             'description' => ['nullable', 'string', 'max:'.PostContentRules::DESCRIPTION_LIMIT],
             'image' => [
-                'required',
+                // A post needs its picture, unless a video takes its place.
+                Rule::requiredIf(fn (): bool => $this->video === null),
+                'nullable',
                 'image',
                 'mimes:'.$imageMimes,
                 'max:'.config('uploads.images.max_kilobytes', 5120),
                 Rule::dimensions()
                     ->maxWidth((int) config('uploads.images.max_width', 6000))
                     ->maxHeight((int) config('uploads.images.max_height', 6000)),
+            ],
+            // What the file really is decides, not its name: ffprobe checks it
+            // again before it is stored.
+            'video' => [
+                'nullable',
+                'file',
+                'mimetypes:'.implode(',', config('uploads.videos.mimetypes')),
+                'max:'.config('uploads.videos.max_kilobytes'),
             ],
             'sourceUrl' => ['nullable', 'url', 'max:'.PostContentRules::SOURCE_URL_LIMIT],
             'importedImageUrl' => ['nullable', 'url:http,https', 'max:'.PostContentRules::SOURCE_URL_LIMIT],
