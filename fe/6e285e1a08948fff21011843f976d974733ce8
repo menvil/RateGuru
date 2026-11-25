@@ -1,0 +1,27 @@
+tests/Feature/Auth/SocialLoginTest.php
+  s_4b9dc6ab6b25d3::t_e6678b3f84fc2c 10-13,17,343,348-353,355,358
+  s_4b9dc6ab6b25d3::t_437efc4f3d627c 342,344-347,354,356-357
+app/Exceptions/Auth/SocialAuthenticationException.php
+  s_4b9dc6ab6b25d3::t_574361c0f66bfd 15-17,51-57
+app/Support/Auth/SocialProviderGateway.php
+  s_4b9dc6ab6b25d3::t_94189026a9cfc8 8,10,25-29,40,84-88,90-92
+  s_4b9dc6ab6b25d3::t_3c9d10c6b16d93 9,89
+resources/css/filament/admin/components.css
+  s_4b9dc6ab6b25d3::t_3bfa8077d8c780 6933-6935
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "fe6e285e1a08948fff21011843f976d974733ce8",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
