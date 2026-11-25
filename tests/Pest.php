@@ -37,6 +37,7 @@ use App\Enums\GameEventType;
 use App\Enums\GameFlowStepType;
 use App\Enums\GameStatus;
 use App\Enums\MediaResizeMode;
+use App\Enums\MediaTool;
 use App\Enums\MediaVariantName;
 use App\Enums\ReportStatus;
 use App\Enums\StudioActionStatus;
@@ -112,6 +113,8 @@ use App\Queries\Games\GameTrafficQuery;
 use App\Services\Media\GeneratedMediaVariant;
 use App\Services\Media\ImageVariantProcessor;
 use App\Services\Media\MediaReferenceChecker;
+use App\Services\Media\MediaToolResult;
+use App\Services\Media\MediaToolRunner;
 use App\Services\Media\MediaVariantSpecification;
 use App\Services\Media\NormalizedImage;
 use App\Support\Analytics\AnalyticsFilter;
@@ -1355,6 +1358,44 @@ function bindRecordingImageVariantProcessor(?MediaVariantName $failOnceFor = nul
     app()->instance(ImageVariantProcessor::class, $processor);
 
     return $processor;
+}
+
+/**
+ * A MediaToolRunner that runs nothing: it records every call — the tool, its
+ * arguments and its timeout — and answers each with the next queued result,
+ * or a clean exit with no output once the queue is empty. For tests of what
+ * the media pipeline asks ffmpeg/ffprobe and how it reads the answer; what
+ * the real tools do is covered by the RATEGURU_REAL_FFMPEG tests.
+ */
+final class RecordingMediaToolRunner implements MediaToolRunner
+{
+    /** @var list<array{tool: MediaTool, arguments: list<string>, timeout: int}> */
+    public array $calls = [];
+
+    /** @param  list<MediaToolResult>  $results */
+    public function __construct(private array $results = []) {}
+
+    public function run(MediaTool $tool, array $arguments, int $timeoutSeconds): MediaToolResult
+    {
+        $this->calls[] = ['tool' => $tool, 'arguments' => $arguments, 'timeout' => $timeoutSeconds];
+
+        return array_shift($this->results) ?? new MediaToolResult(0, '', '');
+    }
+}
+
+/**
+ * Binds a RecordingMediaToolRunner answering with $results, in order, and
+ * returns it so the test can read back what was run.
+ *
+ * @param  list<MediaToolResult>  $results
+ */
+function bindRecordingMediaToolRunner(array $results = []): RecordingMediaToolRunner
+{
+    $runner = new RecordingMediaToolRunner($results);
+
+    app()->instance(MediaToolRunner::class, $runner);
+
+    return $runner;
 }
 
 /**
