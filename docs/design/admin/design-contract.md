@@ -1011,8 +1011,13 @@ through `SaveProjectSettingsAction`. Static pages are its last tab; they have no
   settings saved. Visitors see the changes on their next page load.”
 - **Site identity and Object labels (LAY-02):** each English text (FRM-02, the description FRM-03 counted to its
   translation limit) with what it is used for and “Differs from preset · “…”” while it does; in the card's sunken
-  footer which offered languages miss which texts — “Translations: Русский complete · Български missing the
-  description.” — and Translate into Translation Center on the first missing one. Beside the card, “Where visitors
+  footer which offered languages miss which texts, and which have a translation to update since its English
+  changed — “Translations: Русский complete · Български missing the description · to update in Deutsch.” — with
+  Translate into Translation Center on the first missing one and Update on the first to update. One line however
+  many languages are offered: past three, the languages missing a text or with one to update are named three at most
+  and the rest counted (“missing in Русский, Deutsch, Français and 17 more”), and the complete ones only counted
+  (“5 languages complete”). Static pages say the same of each page's title and content, and the list of pages says
+  “n to update” of a page with nothing missing and a translation to update. Beside the card, “Where visitors
   see it”: the site header, the feed's title and count and a post's links drawn from the draft as it is typed.
 - **Defaults:** Default theme (System, Light, Dark) and Default sort (Hot, New, Top), each a segmented control
   (FRM-08) with an icon per option and what the chosen one means under it.

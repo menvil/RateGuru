@@ -4,8 +4,11 @@ namespace App\Filament\Support;
 
 use App\Filament\Pages\TranslationCenterPage;
 use App\Queries\Translations\OutdatedProjectTranslationsQuery;
+use App\Queries\Translations\ProjectTranslationSourcesQuery;
 use App\Support\Locale\LocaleManager;
+use App\Support\Translations\Generation\ProjectTranslationSourceFingerprint;
 use App\Support\Translations\ProjectContentSection;
+use App\Support\Translations\ProjectTranslationUnit;
 use App\Support\Translations\TranslatableField;
 
 /**
@@ -105,6 +108,57 @@ final class ContentTranslationStatus
         }
 
         return ['count' => $count, 'url' => $url];
+    }
+
+    /**
+     * The ids of the units among these, already read, whose translation needs
+     * an update — made from English since changed — in each offered language
+     * that has any, in the order given, from one read of what is recorded.
+     *
+     * @param  list<ProjectTranslationUnit>  $units
+     * @return array<string, list<string>> by language, in the languages' order
+     */
+    public function outdatedUnits(array $units): array
+    {
+        $codes = array_keys($this->languages());
+        $recorded = $units === [] || $codes === [] ? [] : app(ProjectTranslationSourcesQuery::class)->fingerprintsIn($codes, array_map(fn (ProjectTranslationUnit $unit): string => $unit->id, $units));
+        $outdated = [];
+
+        foreach ($codes as $code) {
+            foreach ($units as $unit) {
+                if (ProjectTranslationSourceFingerprint::isOutdated($unit, $code, $recorded[$code][$unit->id] ?? null)) {
+                    $outdated[$code][] = $unit->id;
+                }
+            }
+        }
+
+        return $outdated;
+    }
+
+    /**
+     * Those of an outdatedUnits() answer that are among these unit ids, the
+     * languages left with none dropped.
+     *
+     * @param  array<string, list<string>>  $outdated
+     * @param  list<string>  $unitIds
+     * @return array<string, list<string>>
+     */
+    public static function outdatedAmong(array $outdated, array $unitIds): array
+    {
+        return array_filter(array_map(fn (array $ids): array => array_values(array_intersect($ids, $unitIds)), $outdated));
+    }
+
+    /**
+     * Translation Center's Needs update on the first unit that needs one, in
+     * the first offered language that has one; none while none does.
+     *
+     * @param  array<string, list<string>>  $outdated  as outdatedUnits() gives them
+     */
+    public function updateUrl(ProjectContentSection $section, array $outdated): ?string
+    {
+        $locale = array_key_first($outdated);
+
+        return $locale === null ? null : TranslationCenterPage::getUrl(['locale' => $locale, 'section' => $section->value, 'mode' => 'outdated', 'unit' => $outdated[$locale][0]]);
     }
 
     /** Whether the signed-in user may open Translation Center at all. */
