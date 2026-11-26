@@ -119,25 +119,43 @@ final class ImportVideoAssetJob implements RunsOnMediaQueue, ShouldQueue
         // under a lock on its row: a run that met this one on the same asset
         // and settled it first keeps what it wrote, and this run's file —
         // which nothing names then — goes.
-        $claimed = DB::transaction(function () use ($asset, $stored, $url, $width, $height, $valid): bool {
-            $locked = MediaAsset::query()->whereKey($asset->id)->lockForUpdate()->first();
+        try {
+            $claimed = DB::transaction(function () use ($asset, $stored, $url, $width, $height, $valid): bool {
+                $locked = MediaAsset::query()->whereKey($asset->id)->lockForUpdate()->first();
 
-            if ($locked === null || $locked->status !== MediaStatus::Processing || isset($locked->metadata['import']['downloaded_at'])) {
-                return false;
-            }
+                if ($locked === null || $locked->status !== MediaStatus::Processing || isset($locked->metadata['import']['downloaded_at'])) {
+                    return false;
+                }
 
-            $this->pointAtFile($locked, $stored, $url, $width, $height, $valid);
+                $this->pointAtFile($locked, $stored, $url, $width, $height, $valid);
 
-            return true;
-        });
+                return true;
+            });
+        } catch (Throwable $exception) {
+            // The write rolled back: the file it was to name is named by
+            // nothing, and the job's next attempt stores its own.
+            self::forget($stored);
+
+            throw $exception;
+        }
 
         if (! $claimed) {
-            app(MediaStorage::class)->deleteIfExists($stored->media->location());
+            self::forget($stored);
 
             return;
         }
 
         ProcessVideoAssetJob::dispatch((int) $asset->id);
+    }
+
+    /** Removes an original no asset names; a removal that fails is reported, never thrown over what went before. */
+    private static function forget(StoredVideo $stored): void
+    {
+        try {
+            app(MediaStorage::class)->deleteIfExists($stored->media->location());
+        } catch (Throwable $cleanup) {
+            report($cleanup);
+        }
     }
 
     private function pointAtFile(MediaAsset $asset, StoredVideo $stored, string $url, int $width, int $height, bool $valid): void
@@ -224,9 +242,12 @@ final class ImportVideoAssetJob implements RunsOnMediaQueue, ShouldQueue
 
     private function failImport(MediaAsset $asset, FinalizePostMediaAction $finalize, string $reason): void
     {
+        // Never an asset another run of the job has downloaded meanwhile:
+        // that run's file is on its way to processing.
         $changed = MediaAsset::query()
             ->whereKey($asset->id)
             ->where('status', MediaStatus::Processing)
+            ->whereNull('metadata->import->downloaded_at')
             ->update(['status' => MediaStatus::Failed, 'processing_error' => $reason]);
 
         if ($changed === 1) {

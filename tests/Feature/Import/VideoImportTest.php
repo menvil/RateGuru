@@ -332,3 +332,37 @@ it('tells the author of a failed download on the next attempt when the first cou
 
     $notices->assertSentToTimes($author, VideoPostProcessedNotification::class, 1);
 });
+
+it('never fails an asset another run downloaded meanwhile, from a run whose own download failed or from the last attempt', function () {
+    $author = User::factory()->create();
+    $post = app(CreatePostAction::class)->handle($author, new CreatePostData(title: 'From a link', videoUrl: 'https://videos.example/clip.mp4'));
+    $assetId = (int) $post->image_asset_id;
+    $downloaded = fn () => MediaAsset::query()->whereKey($assetId)->update(['metadata' => json_encode(['import' => ['url' => 'https://videos.example/clip.mp4', 'downloaded_at' => now()->toIso8601ZuluString()]])]);
+    app()->instance(ImportHttpTransport::class, new ScriptedImportHttpTransport([
+        function () use ($downloaded) {
+            // Another run finishes its download while this one's fails.
+            $downloaded();
+
+            return new ImportTransportResponse(200, [], 'not a video');
+        },
+    ]));
+    bindRecordingMediaToolRunner([new MediaToolResult(1, '', 'Invalid data')]);
+
+    app()->call([new ImportVideoAssetJob($assetId), 'handle']);
+    (new ImportVideoAssetJob($assetId))->failed(new RuntimeException('disk full'));
+
+    expect(MediaAsset::query()->findOrFail($assetId)->status)->toBe(MediaStatus::Processing);
+    Notification::assertNothingSent();
+});
+
+it('removes the original it stored when pointing the asset at it fails, and lets the failure go up', function () {
+    $post = app(CreatePostAction::class)->handle(User::factory()->create(), new CreatePostData(title: 'From a link', videoUrl: 'https://videos.example/clip.mp4'));
+    app()->instance(ImportHttpTransport::class, new ScriptedImportHttpTransport([new ImportTransportResponse(200, [], 'the video bytes')]));
+    bindRecordingMediaToolRunner([acceptableFfprobeResult()]);
+    // The database refuses the write that names the stored file.
+    MediaAsset::saving(fn () => throw new RuntimeException('The connection was lost.'));
+
+    expect(fn () => app()->call([new ImportVideoAssetJob((int) $post->image_asset_id), 'handle']))->toThrow(RuntimeException::class, 'The connection was lost.');
+
+    expect(Storage::disk('local')->allFiles('media/originals'))->toBe([]);
+});
