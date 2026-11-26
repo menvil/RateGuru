@@ -6,6 +6,7 @@ use App\Actions\Posts\FinalizePostMediaAction;
 use App\Data\Posts\CreatePostData;
 use App\Enums\MediaStatus;
 use App\Enums\MediaTool;
+use App\Enums\PostStatus;
 use App\Exceptions\Import\ImportFetchException;
 use App\Jobs\ImportVideoAssetJob;
 use App\Jobs\ProcessVideoAssetJob;
@@ -263,8 +264,8 @@ it('takes a page\'s video whose codec yt-dlp was not told — null, or none at a
     expect(app(YtDlp::class)->probe('https://www.redgifs.com/watch/aloop'))->toBeNull();
 });
 
-it('says a video-only site\'s page gave nothing, rather than posting its poster, and takes an Instagram photo post\'s photo', function () {
-    ytDlpStandIn(null);
+it('refuses a page of a site yt-dlp knows but could not read, rather than posting its poster, and takes a photo post\'s photo', function () {
+    ytDlpStandIn(null, probeError: 'ERROR: [RedGifs] aloop: Unable to download JSON metadata: HTTP Error 403');
 
     Livewire::actingAs(User::factory()->create())
         ->test(UploadPostForm::class)
@@ -275,7 +276,8 @@ it('says a video-only site\'s page gave nothing, rather than posting its poster,
 
     expect(Post::query()->count())->toBe(0);
 
-    // Instagram: no video on a photo post, so its photo is taken instead.
+    // A photo post: yt-dlp says there is no video in it, so its photo is taken instead.
+    ytDlpStandIn(null);
     Http::fake(['www.instagram.com/*' => Http::response('<html><img class="EmbeddedMediaImage" src="https://www.instagram.com/photo.jpg" srcset="https://www.instagram.com/photo.jpg 1080w"></html>', 200, ['Content-Type' => 'text/html'])]);
     $this->mock(StoreImportedImageAction::class, function ($mock): void {
         $mock->shouldReceive('download')->once()->andReturn(UploadedFile::fake()->image('photo.jpg', 800, 600));
@@ -643,4 +645,69 @@ it('takes what a preview read once: a submit that fails after it reads the link 
 
     expect($probes())->toBe(2)
         ->and(Post::query()->where('title', 'Second try')->exists())->toBeTrue();
+});
+
+it('gives yt-dlp any other page, with every extractor but the generic one, only where it runs isolated — never a file, a post on X or a blocked host', function () {
+    $isolated = fn (bool $armed) => app()->instance(YtDlpIsolation::class, new YtDlpIsolation(fn (): bool => true, fn (): bool => true, fn (): bool => $armed));
+    $sites = fn (): YtDlpSites => app(YtDlpSites::class);
+    config(['import.ytdlp.blocked_domains' => ['blocked.example']]);
+
+    $isolated(true);
+    expect($sites()->extractorFor('https://vimeo.com/123456'))->toBe(YtDlpSites::ANY)
+        ->and(YtDlpSites::ANY)->toBe('default,-generic')
+        ->and($sites()->extractorFor('https://www.facebook.com/watch/?v=1'))->toBe(YtDlpSites::ANY)
+        // A named site keeps its own extractor.
+        ->and($sites()->extractorFor('https://www.youtube.com/shorts/JcsN3h05J7k'))->toBe('Youtube')
+        // X's own reader takes its video; files go to the plain download.
+        ->and($sites()->extractorFor('https://x.com/someone/status/1'))->toBeNull()
+        ->and($sites()->extractorFor('https://cdn.example.com/clip.mp4'))->toBeNull()
+        ->and($sites()->extractorFor('https://cdn.example.com/photo.jpg'))->toBeNull()
+        ->and($sites()->extractorFor('https://www.blocked.example/video/1'))->toBeNull()
+        ->and($sites()->extractorFor('http://vimeo.com/123456'))->toBeNull();
+
+    // Not isolated — the firewall not loaded, or no account: the named sites only.
+    $isolated(false);
+    expect($sites()->extractorFor('https://vimeo.com/123456'))->toBeNull()
+        ->and($sites()->extractorFor('https://www.youtube.com/shorts/JcsN3h05J7k'))->toBe('Youtube');
+
+    $isolated(true);
+    config(['import.ytdlp.any_site' => false]);
+    expect($sites()->extractorFor('https://vimeo.com/123456'))->toBeNull();
+});
+
+it('posts any other page\'s video yt-dlp finds, and takes a page it does not know as any link, unlogged', function () {
+    app()->instance(YtDlpIsolation::class, new YtDlpIsolation(fn (): bool => true, fn (): bool => true, fn (): bool => true));
+    bindFakeHostResolver(['vimeo.com' => ['151.101.0.217'], 'news.example.org' => ['93.184.216.40'], 'cdn.example.org' => ['93.184.216.41']]);
+
+    $runner = ytDlpStandIn(ytDlpVideoJson(['extractor_key' => 'Vimeo']));
+    Livewire::actingAs(User::factory()->create())
+        ->test(UploadPostForm::class)
+        ->set('title', 'From Vimeo')
+        ->set('importedImageUrl', 'https://vimeo.com/123456')
+        ->call('submit')
+        ->assertSet('submitError', null);
+
+    expect(Post::query()->where('title', 'From Vimeo')->sole()->status)->toBe(PostStatus::Draft)
+        ->and($runner->calls[0]['arguments'])->toContain('--use-extractors', 'default,-generic');
+
+    // A page no extractor knows: not refused, not logged — its picture is taken.
+    Log::spy();
+    ytDlpStandIn(null, probeError: 'ERROR: Unsupported URL: https://news.example.org/story');
+    Http::fake([
+        'news.example.org/*' => Http::response('<head><meta property="og:image" content="https://cdn.example.org/story.jpg"></head>', 200, ['Content-Type' => 'text/html']),
+    ]);
+    $this->mock(StoreImportedImageAction::class, function ($mock): void {
+        $mock->shouldReceive('download')->once()->with('https://cdn.example.org/story.jpg')->andReturn(UploadedFile::fake()->image('story.jpg', 800, 600));
+        $mock->shouldReceive('cleanup')->once();
+    });
+
+    Livewire::actingAs(User::factory()->create())
+        ->test(UploadPostForm::class)
+        ->set('title', 'A story')
+        ->set('importedImageUrl', 'https://news.example.org/story')
+        ->call('submit')
+        ->assertSet('submitError', null);
+
+    expect(Post::query()->where('title', 'A story')->exists())->toBeTrue();
+    Log::shouldNotHaveReceived('warning');
 });

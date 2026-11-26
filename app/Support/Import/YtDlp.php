@@ -56,6 +56,12 @@ final class YtDlp
                 return null;
             }
 
+            // Asked with every extractor, a page none of them knows is simply
+            // not a video site's: it goes on as any link, and is not logged.
+            if ($extractor === YtDlpSites::ANY && preg_match('/^ERROR: Unsupported URL/m', $result->errorOutput) === 1) {
+                return null;
+            }
+
             throw self::unread($extractor, self::lastLine($result->errorOutput));
         }
 
