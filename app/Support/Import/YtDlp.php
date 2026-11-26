@@ -3,6 +3,7 @@
 namespace App\Support\Import;
 
 use App\Enums\MediaTool;
+use App\Exceptions\Import\ImportFetchException;
 use App\Services\Media\MediaToolRunner;
 use Symfony\Component\Process\ExecutableFinder;
 use Throwable;
@@ -23,9 +24,13 @@ final class YtDlp
     ) {}
 
     /**
-     * The page's video as yt-dlp sees it, or null when it has none it may
-     * take (not one of the sites, no video — a photo post — or yt-dlp
-     * failing): the caller then treats the link as it would without it.
+     * The page's video as yt-dlp sees it, or null when it surely has none —
+     * not one of the sites, a photo post, a carousel of photos: the caller
+     * then treats the link as it would without it.
+     *
+     * @throws YtDlpProbeException when yt-dlp could not say (it failed, or
+     *                             answered nothing readable), or found a carousel with a video
+     *                             among its photos — never taken for a page with no video
      */
     public function probe(string $url): ?YtDlpProbeResult
     {
@@ -43,9 +48,35 @@ final class YtDlp
             $url,
         ], max(1, (int) config('import.ytdlp.probe_timeout_seconds')));
 
-        $info = $result->succeeded() ? json_decode($result->output, true) : null;
+        if (! $result->succeeded()) {
+            // yt-dlp's own answer for a post with no video in it — an
+            // Instagram photo post — is the one failure that says something.
+            if (self::saysNoVideo($result->errorOutput)) {
+                return null;
+            }
 
-        if (! is_array($info) || ($info['_type'] ?? 'video') !== 'video' || ! self::hasVideo($info)) {
+            throw YtDlpProbeException::failed($extractor);
+        }
+
+        $info = json_decode($result->output, true);
+
+        if (! is_array($info)) {
+            throw YtDlpProbeException::failed($extractor);
+        }
+
+        // A carousel: photos alone go on as a photo post; one with a video
+        // among them is refused, never posted as its first picture.
+        if (($info['_type'] ?? 'video') === 'playlist') {
+            foreach (is_array($info['entries'] ?? null) ? $info['entries'] : [] as $entry) {
+                if (is_array($entry) && self::hasVideo($entry)) {
+                    throw YtDlpProbeException::carouselWithVideo($extractor);
+                }
+            }
+
+            return null;
+        }
+
+        if (($info['_type'] ?? 'video') !== 'video' || ! self::hasVideo($info)) {
             return null;
         }
 
@@ -60,8 +91,10 @@ final class YtDlp
     /**
      * Downloads the page's video into $directory as an MP4 of at most 1080
      * lines, no longer and no larger than an upload may be, and returns its
-     * path — or null when yt-dlp took nothing (the site refused, or the video
-     * was too long or too large for its filters).
+     * path — or null when yt-dlp ran and took nothing it may (the page has
+     * no video, or it was too long or too large for its filters).
+     *
+     * @throws ImportFetchException when yt-dlp failed, for the job to try once more
      */
     public function download(string $url, string $directory): ?string
     {
@@ -86,7 +119,8 @@ final class YtDlp
                 '--retries', '2',
                 '--max-filesize', "{$maxMegabytes}M",
                 '--match-filters', "duration<={$maxSeconds}",
-                '-f', 'bv*[height<=1080][ext=mp4]+ba[ext=m4a]/b[height<=1080][ext=mp4]/bv*[height<=1080]+ba/b[height<=1080]/b',
+                // A silent video has no audio to join: its video alone, last.
+                '-f', 'bv*[height<=1080][ext=mp4]+ba[ext=m4a]/b[height<=1080][ext=mp4]/bv*[height<=1080]+ba/b[height<=1080]/bv*[height<=1080]/b',
                 '--merge-output-format', 'mp4',
                 ...$this->ffmpegLocation(),
                 '-o', $directory.'/download.%(ext)s',
@@ -104,7 +138,13 @@ final class YtDlp
         if (! $result->succeeded()) {
             $this->isolation->take($directory, null);
 
-            return null;
+            // A page with no video is final; anything else yt-dlp failed at
+            // — the site slow or refusing for a while — may pass.
+            if (self::saysNoVideo($result->errorOutput)) {
+                return null;
+            }
+
+            throw ImportFetchException::connectionError($url, 'yt-dlp could not take the video from that page.');
         }
 
         // The finished file alone: download.<ext>, never a part yt-dlp left
@@ -145,6 +185,12 @@ final class YtDlp
             : (new ExecutableFinder)->find($configured, null, (array) config('media.video.search_directories', []));
 
         return $found === null ? [] : ['--ffmpeg-location', $found];
+    }
+
+    /** Whether yt-dlp's error says the page holds no video at all, rather than that it failed. */
+    private static function saysNoVideo(string $errorOutput): bool
+    {
+        return preg_match('/there is no video in this post|no video formats found|does not contain (?:a |any )?video/i', $errorOutput) === 1;
     }
 
     /**

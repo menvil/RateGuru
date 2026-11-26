@@ -622,6 +622,15 @@ never reaches another's downloads.
 - **When yt-dlp cannot answer while posting:** the link is refused, to be
   tried later, never posted as the page's picture. An Instagram reel would
   otherwise go out as its poster.
+  - Only yt-dlp's own "there is no video in this post" counts as a page
+    without one. Any other failure, or an answer it cannot read, is a
+    refusal.
+  - An Instagram carousel with a video among its photos is refused ("cannot
+    be imported automatically"). One of photos alone goes on as a photo post.
+- **A download yt-dlp fails at** goes back to the job, to try once more. A
+  page with no video, or a video its filters refuse, is final.
+- **A silent video** downloads too: its video alone is the last format
+  chosen, after every choice with sound.
 - **Where the account does not exist:** in development, tests, or a host not
   yet prepared (no marker), yt-dlp runs as the worker, as before. A prepared
   host with no account for this worker runs no yt-dlp at all.

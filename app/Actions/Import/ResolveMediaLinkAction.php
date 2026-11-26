@@ -15,6 +15,7 @@ use App\Support\AbuseGuards\RateLimitKey;
 use App\Support\Import\ImportProviderDetector;
 use App\Support\Import\UrlImportValidator;
 use App\Support\Import\YtDlp;
+use App\Support\Import\YtDlpProbeException;
 use App\Support\Import\YtDlpProbeResult;
 use App\Support\Import\YtDlpSites;
 use App\Support\Settings\ProjectSettingsManager;
@@ -143,6 +144,10 @@ final class ResolveMediaLinkAction
 
         try {
             return app(YtDlp::class)->probe($url);
+        } catch (YtDlpProbeException $exception) {
+            // Not "no video": a carousel with one among its photos, or a
+            // page yt-dlp could not read — never posted as its picture.
+            throw $exception->carouselWithVideo ? MediaLinkRefusedException::carouselWithVideo() : MediaLinkRefusedException::couldNotRead();
         } catch (MediaToolTimedOutException|MediaToolUnavailableException|MediaToolInterruptedException $exception) {
             // yt-dlp could not answer — never the same as "this page has no
             // video": an Instagram reel would otherwise go on as its poster.

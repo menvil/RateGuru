@@ -232,11 +232,14 @@ final class VideoAssetProcessor
 
     /**
      * A run its job's timeout killed never reached its clean-up: any work
-     * directory older than two hours — past every run's time — goes.
+     * directory older than two hours — past every run's time — goes. Only a
+     * run's own, named by its UUID: never another directory that shares the
+     * prefix, such as the import's (rateguru-video-import-<uid>), whose
+     * downloads clear themselves.
      */
     private static function clearStaleWorkDirectories(): void
     {
-        foreach (glob(sys_get_temp_dir().'/rateguru-video-*', GLOB_ONLYDIR) ?: [] as $stale) {
+        foreach (glob(sys_get_temp_dir().'/rateguru-video-????????-????-????-????-????????????', GLOB_ONLYDIR) ?: [] as $stale) {
             if (filemtime($stale) < time() - 7200) {
                 exec('rm -rf '.escapeshellarg($stale));
             }

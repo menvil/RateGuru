@@ -6,6 +6,7 @@ use App\Actions\Posts\FinalizePostMediaAction;
 use App\Data\Posts\CreatePostData;
 use App\Enums\MediaStatus;
 use App\Enums\MediaTool;
+use App\Exceptions\Import\ImportFetchException;
 use App\Jobs\ImportVideoAssetJob;
 use App\Jobs\ProcessVideoAssetJob;
 use App\Livewire\Feed\UploadPostForm;
@@ -19,6 +20,7 @@ use App\Services\Media\MediaToolRunner;
 use App\Support\Import\SafeImportHttpClient;
 use App\Support\Import\YtDlp;
 use App\Support\Import\YtDlpIsolation;
+use App\Support\Import\YtDlpProbeException;
 use App\Support\Import\YtDlpSites;
 use App\Support\Media\VideoUploadStorer;
 use Illuminate\Http\UploadedFile;
@@ -60,31 +62,33 @@ function ytDlpVideoJson(array $changes = []): string
  * A runner standing in for yt-dlp and ffprobe: yt-dlp "downloads" a file to
  * the place its -o names; ffprobe answers as for an acceptable clip.
  */
-function ytDlpStandIn(?string $probeJson = null, bool $downloads = true): object
+function ytDlpStandIn(?string $probeJson = null, bool $downloads = true, string $probeError = 'ERROR: [Instagram] ABC123: There is no video in this post', int $downloadExit = 0, string $downloadError = ''): object
 {
-    $runner = new class($probeJson, $downloads) implements MediaToolRunner
+    $runner = new class($probeJson, $downloads, $probeError, $downloadExit, $downloadError) implements MediaToolRunner
     {
         /** @var list<array{tool: MediaTool, arguments: list<string>}> */
         public array $calls = [];
 
-        public function __construct(private ?string $probeJson, private bool $downloads) {}
+        public function __construct(private ?string $probeJson, private bool $downloads, private string $probeError, private int $downloadExit, private string $downloadError) {}
 
         public function run(MediaTool $tool, array $arguments, int $timeoutSeconds): MediaToolResult
         {
             $this->calls[] = ['tool' => $tool, 'arguments' => $arguments];
 
             if ($tool === MediaTool::YtDlp && in_array('--dump-single-json', $arguments, true)) {
-                return new MediaToolResult($this->probeJson === null ? 1 : 0, (string) $this->probeJson, '');
+                // No JSON: yt-dlp failing, by default as it does for a post
+                // with no video in it.
+                return new MediaToolResult($this->probeJson === null ? 1 : 0, (string) $this->probeJson, $this->probeJson === null ? $this->probeError : '');
             }
 
             if ($tool === MediaTool::YtDlp) {
                 $template = $arguments[array_search('-o', $arguments, true) + 1];
 
-                if ($this->downloads) {
+                if ($this->downloads && $this->downloadExit === 0) {
                     file_put_contents(str_replace('%(ext)s', 'mp4', $template), 'the video bytes');
                 }
 
-                return new MediaToolResult(0, '', '');
+                return new MediaToolResult($this->downloadExit, '', $this->downloadError);
             }
 
             return acceptableFfprobeResult();
@@ -415,4 +419,77 @@ it('refuses a link to try later when yt-dlp cannot answer, never taking an Insta
 
     expect(Post::query()->count())->toBe(0);
     Http::assertNothingSent();
+});
+
+it('refuses a page yt-dlp failed to read, never taking it for a photo post, and goes on with one it says has no video', function () {
+    ytDlpStandIn(null, probeError: 'ERROR: [Instagram] ABC123: Unable to extract shared data; please report this issue');
+    expect(fn () => app(YtDlp::class)->probe('https://www.instagram.com/reel/ABC123/'))->toThrow(YtDlpProbeException::class);
+
+    Livewire::actingAs(User::factory()->create())
+        ->test(UploadPostForm::class)
+        ->set('title', 'A reel')
+        ->set('importedImageUrl', 'https://www.instagram.com/reel/ABC123/')
+        ->call('submit')
+        ->assertSet('submitError', __('import.errors.fetch_failed'));
+    expect(Post::query()->count())->toBe(0);
+    Http::assertNothingSent();
+
+    ytDlpStandIn(null);
+    expect(app(YtDlp::class)->probe('https://www.instagram.com/p/ABC123/'))->toBeNull();
+});
+
+it('refuses an Instagram carousel with a video among its photos, and takes one of photos alone as a photo post', function () {
+    $carousel = fn (array $entries): string => (string) json_encode(['_type' => 'playlist', 'extractor_key' => 'Instagram', 'entries' => $entries]);
+    ytDlpStandIn($carousel([['_type' => 'url', 'formats' => [['vcodec' => 'none', 'url' => 'https://x/1.jpg']]], json_decode(ytDlpVideoJson(), true)]));
+
+    Livewire::actingAs(User::factory()->create())
+        ->test(UploadPostForm::class)
+        ->set('title', 'A carousel')
+        ->set('importedImageUrl', 'https://www.instagram.com/p/CAROUSEL/')
+        ->call('submit')
+        ->assertSet('submitError', __('import.errors.unsupported'));
+
+    ytDlpStandIn($carousel([['formats' => [['vcodec' => 'none', 'url' => 'https://x/1.jpg']]], ['formats' => [['vcodec' => 'none', 'url' => 'https://x/2.jpg']]]]));
+    expect(app(YtDlp::class)->probe('https://www.instagram.com/p/CAROUSEL/'))->toBeNull();
+});
+
+it('sends a download yt-dlp failed at back to the job to try once more, and gives up on a page with no video at once', function () {
+    $post = app(CreatePostAction::class)->handle(User::factory()->create(), new CreatePostData(title: 'From RedGifs', videoUrl: 'https://www.redgifs.com/watch/aloop'));
+    ytDlpStandIn(downloadExit: 1, downloadError: 'ERROR: [RedGifs] aloop: HTTP Error 503: Service Unavailable');
+
+    expect(fn () => app()->call([new ImportVideoAssetJob((int) $post->image_asset_id), 'handle']))->toThrow(ImportFetchException::class);
+    expect(MediaAsset::query()->findOrFail($post->image_asset_id)->status)->toBe(MediaStatus::Processing);
+
+    ytDlpStandIn(downloadExit: 1, downloadError: 'ERROR: [RedGifs] aloop: There is no video in this post');
+    app()->call([new ImportVideoAssetJob((int) $post->image_asset_id), 'handle']);
+    expect(MediaAsset::query()->findOrFail($post->image_asset_id)->status)->toBe(MediaStatus::Failed);
+});
+
+it('takes a silent video too: its video alone, after every choice with sound', function () {
+    $post = app(CreatePostAction::class)->handle(User::factory()->create(), new CreatePostData(title: 'Silent', videoUrl: 'https://www.redgifs.com/watch/silent'));
+    $runner = ytDlpStandIn();
+
+    app()->call([new ImportVideoAssetJob((int) $post->image_asset_id), 'handle']);
+
+    $download = collect($runner->calls)->first(fn (array $call): bool => $call['tool'] === MediaTool::YtDlp && in_array('-f', $call['arguments'], true))['arguments'];
+    expect($download[array_search('-f', $download, true) + 1])->toEndWith('/bv*[height<=1080]/b');
+});
+
+it('never writes its copy through an entry the account left at that name', function () {
+    $isolation = new YtDlpIsolation(fn (): bool => true, fn (): bool => true, fn (): bool => true);
+    $directory = makeScratchDir('ytdlp-take').'/download-abc.d';
+    mkdir($directory, 0o700);
+    $victim = dirname($directory).'/victim.txt';
+    file_put_contents($victim, 'the worker\'s own file');
+
+    try {
+        file_put_contents($directory.'/download.mp4', 'the video');
+        symlink($victim, $directory.'/taken.mp4');
+        Exceptions::fake();
+
+        expect($isolation->take($directory, $directory.'/download.mp4'))->toBeNull()
+            ->and(file_get_contents($victim))->toBe('the worker\'s own file');
+    } finally {
+        removeScratchDir(dirname($directory));
+    }
 });

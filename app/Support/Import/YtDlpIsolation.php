@@ -5,6 +5,7 @@ namespace App\Support\Import;
 use App\Enums\MediaTool;
 use App\Services\Media\Exceptions\MediaToolUnavailableException;
 use App\Services\Media\VideoIngestPolicy;
+use App\Support\Media\ExclusiveFileCopy;
 use Closure;
 use RuntimeException;
 use Symfony\Component\Process\Process;
@@ -148,7 +149,12 @@ final class YtDlpIsolation
 
         $copy = $directory.'/'.self::TAKEN.'.'.pathinfo($written, PATHINFO_EXTENSION);
 
-        if (! copy($written, $copy)) {
+        // Created afresh, never through anything at that name: an entry the
+        // account left there — a link to a file the worker may write — fails
+        // the exclusive create rather than being written through.
+        $copied = ExclusiveFileCopy::copy($written, $copy);
+
+        if (! $copied) {
             report(new RuntimeException('A file yt-dlp wrote could not be copied into the worker\'s own.'));
 
             return null;

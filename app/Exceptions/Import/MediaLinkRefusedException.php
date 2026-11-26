@@ -33,6 +33,12 @@ final class MediaLinkRefusedException extends RuntimeException
         return new self(__('import.errors.fetch_failed'));
     }
 
+    /** A carousel with a video among its photos: one of several is not taken. */
+    public static function carouselWithVideo(): self
+    {
+        return new self(__('import.errors.unsupported'));
+    }
+
     /** Nothing on the page to take: no video, no picture. */
     public static function nothingToTake(): self
     {
