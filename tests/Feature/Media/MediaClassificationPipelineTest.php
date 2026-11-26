@@ -622,9 +622,10 @@ it('queues a job for a failure cleared after its last look but before it let the
     $recorded = false;
     $retriedNow = false;
     DB::listen(function (QueryExecuted $query) use (&$recorded, &$retriedNow): void {
-        if (str_starts_with($query->sql, 'insert into "media_classifications"')) {
+        // Either quoting: PostgreSQL's and SQLite's, or MariaDB's.
+        if (preg_match('/^insert into [`"]?media_classifications[`"]?/i', $query->sql) === 1) {
             $recorded = true;
-        } elseif ($recorded && ! $retriedNow && str_contains($query->sql, 'from "media_classifications"') && in_array('retried', $query->bindings, true)) {
+        } elseif ($recorded && ! $retriedNow && preg_match('/from [`"]?media_classifications[`"]?/i', $query->sql) === 1 && in_array('retried', $query->bindings, true)) {
             $retriedNow = true;
             Artisan::call('media:classify', ['--retry-failed' => true]);
         }
