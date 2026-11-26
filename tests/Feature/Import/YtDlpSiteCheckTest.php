@@ -390,3 +390,19 @@ it('writes its results and checks it still holds its lock as one transaction, on
         expect($lockReads[0])->toContain('for update');
     }
 });
+
+it('refuses to run with the cache store\'s lock on another connection than its results, which it could not fence', function () {
+    committedConnection('site_check_locks');
+    config(['cache.stores.database.lock_connection' => 'site_check_locks']);
+    Cache::forgetDriver('database');
+    importedVideoFrom('https://coub.com/view/1');
+    $runner = ytDlpAnswering([]);
+
+    try {
+        expect(fn () => app(YtDlpSiteCheck::class)->run())->toThrow(LogicException::class, 'one connection');
+        expect($runner->asked)->toBe([]);
+    } finally {
+        Cache::forgetDriver('database');
+        DB::purge('site_check_locks');
+    }
+});

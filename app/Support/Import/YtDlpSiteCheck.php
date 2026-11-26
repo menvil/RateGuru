@@ -17,6 +17,7 @@ use Illuminate\Contracts\Cache\Lock;
 use Illuminate\Contracts\Cache\LockProvider;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
+use LogicException;
 use Throwable;
 
 /**
@@ -66,6 +67,14 @@ final class YtDlpSiteCheck
     public function run(): ?array
     {
         $store = Cache::store('database')->getStore();
+
+        // The save is fenced by writing the results and checking the lock in
+        // one transaction, which needs them on one connection: a lock kept on
+        // another (DB_CACHE_LOCK_CONNECTION) could not be, so it is refused.
+        if ($store instanceof DatabaseStore && $store->getLockConnection() !== null && $store->getLockConnection() !== $store->getConnection()) {
+            throw new LogicException('The yt-dlp site check keeps its lock and its results on one connection: the database cache store\'s lock_connection must be unset, or the same as its connection.');
+        }
+
         $lock = $store instanceof LockProvider ? $store->lock(self::LOCK_NAME, self::LOCK_SECONDS) : null;
 
         if ($lock !== null && ! $lock->get()) {
@@ -202,16 +211,12 @@ final class YtDlpSiteCheck
             return true;
         }
 
-        $connection = $store->getLockConnection() ?? $store->getConnection();
-        // Results kept on another connection than the lock's are written
-        // after the check instead, while the lock's row is held.
-        $together = $connection === $store->getConnection();
+        // The lock's own connection, which run() made sure is the results' too.
+        $connection = $store->getConnection();
         $connection->beginTransaction();
 
         try {
-            if ($together) {
-                Cache::store('database')->forever(self::CACHE_KEY, $results);
-            }
+            Cache::store('database')->forever(self::CACHE_KEY, $results);
 
             $held = $connection->table((string) (config('cache.stores.database.lock_table') ?: 'cache_locks'))
                 ->where('key', $store->getPrefix().self::LOCK_NAME)
@@ -219,10 +224,6 @@ final class YtDlpSiteCheck
                 ->where('expiration', '>', now()->getTimestamp())
                 ->lockForUpdate()
                 ->value('owner') !== null;
-
-            if ($held && ! $together) {
-                Cache::store('database')->forever(self::CACHE_KEY, $results);
-            }
 
             $held ? $connection->commit() : $connection->rollBack();
 

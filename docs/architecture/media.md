@@ -666,7 +666,9 @@ most likely broke.
     transaction ends: PostgreSQL and MariaDB hold the lock's row, and on
     SQLite the write holds its one writer's lock. A run paused after its
     check therefore never writes over a later one
-    (`tests/Feature/Concurrency/YtDlpSiteCheckRaceTest.php`).
+    (`tests/Feature/Concurrency/YtDlpSiteCheckRaceTest.php`). That needs the
+    cache's locks on its own connection: the check refuses to run with
+    `DB_CACHE_LOCK_CONNECTION` set to another.
 - **Reported** (`YtDlpSiteBrokenException`: Sentry, and Nightwatch where it
   runs), only once the run's results are saved:
   - a site taking nothing on two calendar days running, once a day however
