@@ -1,0 +1,22 @@
+app/Support/Import/YtDlp.php
+  s_1f43f39fbe0537::t_bc3fc1c6858a1e 234,236
+  s_1f43f39fbe0537::t_e4aaa67c0330fd 70-72,74,80-81,83-84,86-87,90,96,217-230
+tests/Feature/Import/YtDlpImportTest.php
+  s_1f43f39fbe0537::t_e4aaa67c0330fd 506-509
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "727c26623b6fa8e679a6c6867876f1676453d34b",
+  "prompts": {},
+  "sessions": {
+    "s_1f43f39fbe0537": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "526787d0-f443-4ad7-9610-cf9811fec895",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
