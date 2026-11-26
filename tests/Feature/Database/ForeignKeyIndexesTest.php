@@ -19,6 +19,8 @@ it('indexes the foreign keys that reads go through', function (string $table, ar
     expect($indexed)->toBeTrue();
 })->with([
     'a post\'s comments' => ['comments', ['post_id', 'parent_id']],
+    'a person\'s comments' => ['comments', ['user_id']],
+    'the votes a person cast on comments' => ['comment_votes', ['user_id']],
     'a comment\'s replies' => ['comments', ['parent_id']],
     'a category\'s posts' => ['posts', ['category_id']],
     'the posts with a picture' => ['posts', ['image_asset_id']],

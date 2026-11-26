@@ -2,6 +2,7 @@
 
 namespace App\Actions\Settings;
 
+use App\Actions\Users\ForgetKeptIpAddressesAction;
 use App\Data\Settings\ProjectPresetApplicationResult;
 use App\Exceptions\Settings\ProjectPresetAlreadyAppliedException;
 use App\Exceptions\Settings\ProjectPresetHasContentException;
@@ -32,6 +33,7 @@ class ApplyProjectPresetAction
 
     public function __construct(
         private readonly ProjectSettingsManager $manager,
+        private readonly ForgetKeptIpAddressesAction $forgetIpAddresses,
     ) {}
 
     public function handle(string $presetKey, bool $force = false): ProjectPresetApplicationResult
@@ -80,7 +82,10 @@ class ApplyProjectPresetAction
 
             // An existing project keeps the languages it offers and its static
             // pages, forced or not: neither is the preset's to replace.
+            $keptIpAddresses = ForgetKeptIpAddressesAction::kept($existingSettings);
             $existingSettings->fill($appliedSettings)->save();
+            // A preset's flags replace every flag: one that doesn't keep IP addresses forgets those kept so far.
+            $this->forgetIpAddresses->ifSwitchedOff($keptIpAddresses, $existingSettings);
 
             [$categories, $deactivatedCategories] = $this->applyCategories($preset['categories'] ?? null);
             [$ratingGroups, $ratingOptions] = $this->applyRatingGroups($preset['rating_groups'] ?? null);

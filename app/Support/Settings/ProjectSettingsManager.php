@@ -59,6 +59,10 @@ class ProjectSettingsManager
             // administrator switches it on, so a game can be prepared,
             // published and previewed before anyone reaches it.
             'allow_games' => false,
+            // The IP address a member signed up from and the one their latest visit started from, beside the
+            // country, the city and the hash always kept (RecordMemberPlaceAction): off until an administrator, the
+            // privacy page saying so first, switches it on.
+            'keep_ip_addresses' => false,
         ],
         // How the feed and the threads put the viewer's language first: LanguageRankingSettings::DEFAULTS, read
         // under what the row holds as the flags are, so a key added later reaches every installation.

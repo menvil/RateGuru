@@ -2,6 +2,7 @@
 
 namespace App\Actions\Settings;
 
+use App\Actions\Users\ForgetKeptIpAddressesAction;
 use App\Models\ProjectSettings;
 use App\Support\Settings\ProjectSettingsManager;
 use App\Support\Translations\TranslatableField;
@@ -12,6 +13,7 @@ final class SaveProjectSettingsAction
 {
     public function __construct(
         private readonly ProjectSettingsManager $manager,
+        private readonly ForgetKeptIpAddressesAction $forgetIpAddresses,
     ) {}
 
     /**
@@ -47,6 +49,7 @@ final class SaveProjectSettingsAction
             // which is why the row is the manager's to produce, not this
             // action's.
             $row = $this->manager->lockedRow();
+            $keptIpAddresses = ForgetKeptIpAddressesAction::kept($row);
 
             if ($pages !== null) {
                 // The other languages as stored now, under this row's lock — never as the caller last saw them.
@@ -73,6 +76,7 @@ final class SaveProjectSettingsAction
             }
 
             $row->fill($settings)->save();
+            $this->forgetIpAddresses->ifSwitchedOff($keptIpAddresses, $row);
 
             return $row;
         });

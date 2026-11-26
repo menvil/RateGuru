@@ -5926,6 +5926,108 @@
     }
 
     /* Users (ListUsers) and a person's editor (UserEditor) */
+    /*
+     * The Users list's columns: the person, their email, where they signed up,
+     * role, status, trust, posts, post votes, comments, comment votes, reports
+     * filed, the reports on their content and the actions. As the card
+     * narrows the less needed give way first — reports filed, role, comment
+     * votes, trust, post votes, comments, posts, then the place — until the
+     * person, their email, status, reports and actions are left and the card
+     * scrolls sideways. Measured on the card, so a collapsed sidebar shows more.
+     */
+    .rg-admin-users__table {
+        container-type: inline-size;
+    }
+
+    .rg-admin-users__grid {
+        --rg-admin-table-columns: minmax(160px, 1fr) 170px 220px 96px 124px 120px repeat(6, 84px) 104px;
+        --rg-admin-table-min-width: 642px;
+    }
+
+    .rg-admin-users__grid .rg-admin-table__row--head .rg-admin-table__cell--numeric {
+        white-space: normal;
+    }
+
+    @container (max-width: 1497.98px) {
+        .rg-admin-users__grid {
+            --rg-admin-table-columns: minmax(160px, 1fr) 170px 220px 96px 124px 120px repeat(5, 84px) 104px;
+        }
+
+        .rg-admin-users__col--reports-filed {
+            display: none;
+        }
+    }
+
+    @container (max-width: 1413.98px) {
+        .rg-admin-users__grid {
+            --rg-admin-table-columns: minmax(160px, 1fr) 170px 220px 124px 120px repeat(5, 84px) 104px;
+        }
+
+        .rg-admin-users__col--role {
+            display: none;
+        }
+    }
+
+    @container (max-width: 1317.98px) {
+        .rg-admin-users__grid {
+            --rg-admin-table-columns: minmax(160px, 1fr) 170px 220px 124px 120px repeat(4, 84px) 104px;
+        }
+
+        .rg-admin-users__col--comment-votes {
+            display: none;
+        }
+    }
+
+    @container (max-width: 1233.98px) {
+        .rg-admin-users__grid {
+            --rg-admin-table-columns: minmax(160px, 1fr) 170px 220px 124px repeat(4, 84px) 104px;
+        }
+
+        .rg-admin-users__col--trust {
+            display: none;
+        }
+    }
+
+    @container (max-width: 1113.98px) {
+        .rg-admin-users__grid {
+            --rg-admin-table-columns: minmax(160px, 1fr) 170px 220px 124px repeat(3, 84px) 104px;
+        }
+
+        .rg-admin-users__col--post-votes {
+            display: none;
+        }
+    }
+
+    @container (max-width: 1029.98px) {
+        .rg-admin-users__grid {
+            --rg-admin-table-columns: minmax(160px, 1fr) 170px 220px 124px repeat(2, 84px) 104px;
+        }
+
+        .rg-admin-users__col--comments {
+            display: none;
+        }
+    }
+
+    @container (max-width: 945.98px) {
+        .rg-admin-users__grid {
+            --rg-admin-table-columns: minmax(160px, 1fr) 170px 220px 124px 84px 104px;
+        }
+
+        .rg-admin-users__col--posts {
+            display: none;
+        }
+    }
+
+    @container (max-width: 861.98px) {
+        .rg-admin-users__grid {
+            --rg-admin-table-columns: minmax(160px, 1fr) 170px 124px 84px 104px;
+        }
+
+        .rg-admin-users__col--location {
+            display: none;
+        }
+    }
+
     .rg-admin-users__username {
         font-weight: var(--rg-admin-weight-medium);
     }
@@ -5982,6 +6084,32 @@
         color: var(--rg-admin-text-tertiary);
         font-size: var(--rg-admin-text-micro);
         line-height: var(--rg-admin-leading-micro);
+    }
+
+    /*
+     * Where a person signed up and last visited from: the place, then the address and who shares it under it — a
+     * row of two lines, given room above and below so it reads apart from its neighbours. With nothing under the
+     * place it is a row like any other.
+     */
+    .rg-admin-user__place-row {
+        padding: var(--rg-admin-space-2) 0;
+    }
+
+    .rg-admin-user__place {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+        gap: var(--rg-admin-space-1);
+        min-width: 0;
+        line-height: 20px;
+        text-align: right;
+        /* The row's value keeps to one line; a visit's time and place wraps in a narrow drawer instead. */
+        white-space: normal;
+        overflow-wrap: anywhere;
+    }
+
+    .rg-admin-user__ip {
+        font-family: var(--rg-admin-font-mono);
     }
 
     .rg-admin-user__title-row {

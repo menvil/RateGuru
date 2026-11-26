@@ -376,4 +376,5 @@ on, add to the privacy page (Project settings → Static pages), for example:
 year: which site or link brought you, the pages and posts you open, and
 whether you sign up and come back. We keep which posts a browser opened for
 90 days and the rest of a visit for 400 days. Nothing is shared with an
-analytics company, and we don't keep your IP address."
+analytics company, and we don't keep your IP address." — drop that last clause
+once Project settings keep IP addresses (`docs/admin/project-settings.md`).

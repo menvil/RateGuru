@@ -1730,9 +1730,12 @@ editor — or the list on them where they are not the viewer's to edit.
   (`?suspicious=1`): shadowbanned, or with reported posts or comments.
 - **Table (TBL-01):** the avatar, the username — which opens the person's editor for whoever may edit it — the name
   and when they joined, to the minute; the email address (“Removed on deletion” for a deleted account), with “Not
-  confirmed” under an address nobody confirmed (never a persona’s); the role, staff as an
-  outline badge; the status (STS-01); trust as a two-step bar and its word (Trusted, Not trusted); posts; the
-  reports on their posts and comments (STS-02); Edit and the row menu.
+  confirmed” under an address nobody confirmed (never a persona’s); Location — the flag, city and country the
+  account was made from, and under it “Last visit: …” with its day when the latest visit started somewhere else; the
+  role, staff as an outline badge; the status (STS-01); trust as a two-step bar and its word (Trusted, Not trusted); posts,
+  post votes, comments, comment votes and reports filed; the reports on their posts and comments (STS-02, “Reports
+  received”); Edit and the row menu. As the card narrows the less needed columns give way — reports filed, role,
+  comment votes, trust, post votes, comments, posts, then Location — before the card scrolls sideways.
 - **Row menu (TBL-04):** the person, their status and trust as its caption; Edit user, View posts (the Posts list
   on them), then Mark trusted, Restore access, Limit, Shadowban and Ban as their status allows — each unavailable
   one kept with why: “This is your account”, “Administrators can’t be sanctioned”, “Administrators only”, “Already
@@ -1755,7 +1758,9 @@ editor — or the list on them where they are not the viewer's to edit.
   Edit in Content Studio and Close.
 - **Where they stand:** Status — the badge, since when and by whom (the decision that set it, with its reason),
   that status is changed only by a moderation action, and those actions; Account — sign-in methods, language,
-  joined (to the minute), the email address confirmed and when — or not, and for an account the cleanup of
+  joined (to the minute), Signed up from and Last visit (when it started) — the flag, city and country, the IP
+  address while Project settings keep them, “N other accounts from this IP” leading to the list searched for it, or
+  “From the visits recorded” for an account made before places were kept — and Last seen, the email address confirmed and when — or not, and for an account the cleanup of
   unconfirmed accounts removes, when it does — posts by status; Moderation history (DOM-02) — the moderation of the person and of their posts and
   comments, newest first, then when the account was created.
 - **Access:** moderators see the list; editing an account and every moderation action are an administrator's,

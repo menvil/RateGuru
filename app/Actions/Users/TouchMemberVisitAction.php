@@ -11,6 +11,8 @@ use Carbon\CarbonImmutable;
  * fresh from (FreshWindow). Kept on the account, not the session, so a second device and a tab left open for days
  * both see the visit the member is on.
  *
+ * A visit started also keeps where it started from, by the request's address (RecordMemberPlaceAction).
+ *
  * Two conditional statements on the member's row, outside any transaction and without a lock: of two requests
  * racing to start the same visit, the second finds last_seen_at already moved and changes nothing.
  */
@@ -19,7 +21,9 @@ final class TouchMemberVisitAction
     /** A member away for longer than this is on a new visit when they come back. */
     public const VISIT_GAP_MINUTES = 60;
 
-    public function handle(User $user, CarbonImmutable $now): void
+    public function __construct(private readonly RecordMemberPlaceAction $places) {}
+
+    public function handle(User $user, CarbonImmutable $now, ?string $ip = null): void
     {
         $seen = $user->last_seen_at === null ? null : CarbonImmutable::instance($user->last_seen_at);
 
@@ -31,6 +35,7 @@ final class TouchMemberVisitAction
 
             if ($started > 0) {
                 $this->remember($user, $seen, $now);
+                $this->places->visitStarted($user, $ip, $now);
 
                 return;
             }
