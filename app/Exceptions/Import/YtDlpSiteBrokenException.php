@@ -23,4 +23,9 @@ final class YtDlpSiteBrokenException extends RuntimeException
     {
         return new self('yt-dlp could not be run, so no site was checked.');
     }
+
+    public static function outOfTime(): self
+    {
+        return new self('The yt-dlp site check ran out of time, so no site was counted.');
+    }
 }

@@ -656,7 +656,11 @@ most likely broke.
   is still found. A site is asked about its three newest at most.
 - **A slow page** is passed over for the next.
 - **One run at a time:** a lock holds the check from reading the last counts
-  to saving the new ones, whether the schedule or a person started it.
+  to saving the new ones, whether the schedule or a person started it. The
+  lock lasts 30 minutes:
+  - a run asks no page after 20, and then counts, saves and says nothing,
+    reporting only that it ran out of time;
+  - a run whose lock lapsed anyway saves and says nothing.
 - **Reported** (`YtDlpSiteBrokenException`: Sentry, and Nightwatch where it
   runs), only once the run's results are saved:
   - a site taking nothing on two calendar days running, once a day however

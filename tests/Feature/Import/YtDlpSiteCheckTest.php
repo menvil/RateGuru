@@ -47,6 +47,11 @@ function ytDlpAnswering(array $videoByUrl): object
             $this->asked[] = $url;
             $answer = $this->videoByUrl[$url] ?? false;
 
+            // Something that happens while this page is asked, then its answer.
+            if ($answer instanceof Closure) {
+                $answer = $answer();
+            }
+
             if ($answer instanceof Throwable) {
                 throw $answer;
             }
@@ -269,7 +274,10 @@ it('reads the imports in as many queries for many as for few', function () {
         DB::flushQueryLog();
         DB::enableQueryLog();
         app(YtDlpSiteCheck::class)->run();
-        $count = count(DB::getQueryLog());
+        // The lock's own queries aside: its store prunes expired locks by
+        // lottery, one query more now and then.
+        $queries = array_filter(DB::getQueryLog(), fn (array $query): bool => ! str_contains($query['query'], 'cache_locks'));
+        $count = count($queries);
         DB::disableQueryLog();
 
         return $count;
@@ -306,4 +314,42 @@ it('names on Media Diagnostics each site with nothing recent to ask about, and h
     Livewire\Livewire::test(MediaDiagnosticsPage::class)
         ->assertSee('Nothing to check')
         ->assertSee('No recent imports: RedGifs, Instagram (failing before)');
+});
+
+it('asks no page once its time is up, counting and saving nothing, and says so', function () {
+    importedVideoFrom('https://coub.com/view/older');
+    importedVideoFrom('https://coub.com/view/slow');
+    $runner = ytDlpAnswering(['https://coub.com/view/slow' => function (): bool {
+        $this->travel(21)->minutes();
+
+        return false;
+    }]);
+
+    expect(app(YtDlpSiteCheck::class)->run())->toBe([])
+        ->and($runner->asked)->toBe(['https://coub.com/view/slow'])
+        ->and(YtDlpSiteCheck::results())->toBe([]);
+    Exceptions::assertReportedCount(1);
+    Exceptions::assertReported(fn (YtDlpSiteBrokenException $exception): bool => str_contains($exception->getMessage(), 'ran out of time'));
+});
+
+it('drops a run whose lock lapsed and another took, leaving that one\'s results and saying nothing', function () {
+    config(['import.ytdlp.sites' => ['coub.com' => 'Coub']]);
+    importedVideoFrom('https://coub.com/view/1');
+    ytDlpAnswering([]);
+    app(YtDlpSiteCheck::class)->run();
+    $this->travel(1)->day();
+    $theirs = YtDlpSiteCheck::results();
+
+    // While this run asks, its lock lapses and another run takes it.
+    ytDlpAnswering(['https://coub.com/view/1' => function (): bool {
+        $store = Cache::store('database');
+        $store->lock(YtDlpSiteCheck::CACHE_KEY.':running')->forceRelease();
+        $store->lock(YtDlpSiteCheck::CACHE_KEY.':running', 600)->get();
+
+        return false;
+    }]);
+
+    expect(app(YtDlpSiteCheck::class)->run())->toBe($theirs)
+        ->and(YtDlpSiteCheck::results())->toBe($theirs);
+    Exceptions::assertNothingReported();
 });

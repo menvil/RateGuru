@@ -10,6 +10,9 @@ use App\Models\MediaAsset;
 use App\Models\Post;
 use App\Services\Media\Exceptions\MediaToolTimedOutException;
 use App\Services\Media\Exceptions\MediaToolUnavailableException;
+use Carbon\CarbonInterface;
+use Illuminate\Cache\Lock as CacheLock;
+use Illuminate\Contracts\Cache\Lock;
 use Illuminate\Contracts\Cache\LockProvider;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
@@ -33,8 +36,15 @@ final class YtDlpSiteCheck
     /** Days running a site takes nothing before it is reported. */
     public const int REPORT_AFTER_DAYS = 2;
 
-    /** Longer than any run may take: a run that died frees it in time. */
+    /** How long one run holds the check: a run that died frees it in time. */
     private const int LOCK_SECONDS = 1800;
+
+    /**
+     * How long a run may go on asking: it asks no page after this. With the
+     * page asked last (import.ytdlp.check_timeout_seconds at most) it still
+     * ends well inside LOCK_SECONDS.
+     */
+    private const int RUN_SECONDS = 1200;
 
     public function __construct(
         private readonly YtDlp $ytDlp,
@@ -58,7 +68,7 @@ final class YtDlpSiteCheck
         }
 
         try {
-            return $this->check();
+            return $this->check($lock);
         } finally {
             $lock?->release();
         }
@@ -76,8 +86,9 @@ final class YtDlpSiteCheck
     }
 
     /** @return array<string, array{status: string, checked_at: string, failures: int, failed_on: ?string}> */
-    private function check(): array
+    private function check(?Lock $lock): array
     {
+        $deadline = now()->addSeconds(self::RUN_SECONDS);
         $previous = self::results();
         $samples = $this->samples();
         $results = [];
@@ -99,12 +110,20 @@ final class YtDlpSiteCheck
             }
 
             try {
-                $works = $this->anyGivesVideo($samples[$extractor]);
+                $works = $this->anyGivesVideo($samples[$extractor], $deadline);
             } catch (MediaToolUnavailableException) {
                 // Not the sites: yt-dlp itself. Nothing is counted or said of
                 // any site — not even one already asked — and it is said once,
                 // as what it is.
                 report(YtDlpSiteBrokenException::toolUnavailable());
+
+                return $previous;
+            }
+
+            // Out of time: a run this slow may outlast its lock, so it
+            // counts and says nothing of any site — and says that once.
+            if ($works === null) {
+                report(YtDlpSiteBrokenException::outOfTime());
 
                 return $previous;
             }
@@ -131,6 +150,14 @@ final class YtDlpSiteCheck
             }
         }
 
+        // A run whose lock lapsed — another may have run since — leaves that
+        // one's results as they are, and says nothing.
+        if ($lock instanceof CacheLock && ! $lock->isOwnedByCurrentProcess()) {
+            Log::warning('YtDlpSiteCheck: the run outlasted its lock; its results are dropped.');
+
+            return self::results();
+        }
+
         Cache::store('database')->forever(self::CACHE_KEY, $results);
 
         // Only once the run is saved: one that gave up on the tool part way
@@ -151,7 +178,8 @@ final class YtDlpSiteCheck
     }
 
     /**
-     * Whether any of the pages still gives a video. A page that times out is
+     * Whether any of the pages still gives a video, or null when the run's
+     * time was up before a page it needed to ask. A page that times out is
      * passed over for the next; yt-dlp failing to start at all is not the
      * site's doing, and goes up.
      *
@@ -159,9 +187,13 @@ final class YtDlpSiteCheck
      *
      * @throws MediaToolUnavailableException
      */
-    private function anyGivesVideo(array $samples): bool
+    private function anyGivesVideo(array $samples, CarbonInterface $deadline): ?bool
     {
         foreach ($samples as $url) {
+            if (now()->greaterThan($deadline)) {
+                return null;
+            }
+
             try {
                 if ($this->ytDlp->probe($url, max(1, (int) config('import.ytdlp.check_timeout_seconds'))) !== null) {
                     return true;
