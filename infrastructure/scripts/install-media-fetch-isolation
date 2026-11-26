@@ -214,17 +214,24 @@ load_sources() {
 # retired target's stays in the table: a yt-dlp it started may still run, and
 # without the table it would reach this host's network.
 load_filtered_users() {
-    local name
+    local name accounts
+    # Listed first, its failure stopping everything: a list cut short would
+    # render a table without a retired account whose yt-dlp may still run.
+    accounts="$("${GETENT_BIN}" passwd)" \
+        || fail "the host's accounts could not be listed (getent passwd) — refusing to render a table that might leave a media fetch account out. Nothing was changed"
+    [[ -n "${accounts}" ]] \
+        || fail "getent passwd listed no account at all — refusing to render a table that might leave a media fetch account out. Nothing was changed"
+
     FILTERED_USERS=()
     while IFS= read -r name; do
         [[ -n "${name}" ]] && FILTERED_USERS+=("${name}")
     done < <(
         {
             printf '%s\n' "${FETCH_USERS[@]}"
-            "${GETENT_BIN}" passwd 2>/dev/null | awk -F: -v suffix="${FETCH_SUFFIX}" -v home="${FETCH_HOME}" -v shell="${FETCH_SHELL}" '
+            awk -F: -v suffix="${FETCH_SUFFIX}" -v home="${FETCH_HOME}" -v shell="${FETCH_SHELL}" '
                 length($1) > length(suffix) && substr($1, length($1) - length(suffix) + 1) == suffix \
                     && $5 == "RateGuru media fetch for " substr($1, 1, length($1) - length(suffix)) " (yt-dlp)" \
-                    && $6 == home && $7 == shell { print $1 }'
+                    && $6 == home && $7 == shell { print $1 }' <<<"${accounts}"
         } | sort -u
     )
 }

@@ -27,8 +27,8 @@ function mediaFetchHost(array $options = []): array
         'getent' => <<<'SH'
             #!/bin/bash
             file="$STATE/$1"; [[ -f "$file" ]] || exit 2
-            # No key: every entry, as getent enumerates them.
-            [[ -z "${2:-}" ]] && { cat "$file"; exit; }
+            # No key: every entry, as getent enumerates them — or failing to.
+            [[ -z "${2:-}" ]] && { [[ -f "$STATE/getent-list-fail" ]] && exit 2; cat "$file"; exit; }
             grep -m1 "^$2:" "$file" || exit 2
             SH,
         'useradd' => <<<'SH'
@@ -396,3 +396,24 @@ it('refuses to apply while the distribution\'s nftables.service is enabled or ru
         ->and(file_exists($host['state'].'/table'))->toBeFalse()
         ->and(file_exists($host['fs'].'/etc/sudoers.d/rateguru-media-fetch'))->toBeFalse();
 })->with(['enabled' => ['nftables-enabled'], 'running' => ['nftables-active']]);
+
+it('stops, changing nothing, when the host\'s accounts cannot be listed, rather than leave a retired account out of the table', function () {
+    $retired = 'rateguru-retired-fetch:x:950:950:RateGuru media fetch for rateguru-retired (yt-dlp):/nonexistent:/usr/sbin/nologin';
+    $host = $this->mediaFetchHosts[] = mediaFetchHost([
+        'passwd' => "root:x:0:0:root:/root:/bin/bash\n{$retired}\n",
+        'shadow' => "root:*:19000:0:99999:7:::\nrateguru-retired-fetch:!:19000::::::\n",
+    ]);
+    [$status, $output] = mediaFetchRun($host, 'apply');
+    expect($status)->toBe(0, $output);
+    $table = (string) file_get_contents($host['state'].'/table');
+    $ruleset = (string) file_get_contents($host['fs'].'/etc/rateguru/media-fetch.nft');
+
+    touch($host['state'].'/getent-list-fail');
+    [$status, $output] = mediaFetchRun($host, 'apply');
+
+    expect($status)->not->toBe(0)
+        ->and($output)->toContain('could not be listed')
+        ->and((string) file_get_contents($host['state'].'/table'))->toBe($table)
+        ->and((string) file_get_contents($host['fs'].'/etc/rateguru/media-fetch.nft'))->toBe($ruleset)
+        ->and($ruleset)->toContain('"rateguru-retired-fetch"');
+});
