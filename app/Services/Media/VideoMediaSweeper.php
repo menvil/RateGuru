@@ -8,6 +8,7 @@ use App\Enums\MediaType;
 use App\Enums\PostStatus;
 use App\Models\MediaAsset;
 use App\Models\Post;
+use App\Support\Media\MediaAssetMetadata;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Log;
 use Throwable;
@@ -106,7 +107,7 @@ final class VideoMediaSweeper
                     }
 
                     $asset->variants()->delete();
-                    $asset->forceFill(['metadata' => [...($asset->metadata ?? []), 'files_removed_at' => now()->toIso8601ZuluString()]])->save();
+                    MediaAssetMetadata::change((int) $asset->id, fn (array $metadata): array => [...$metadata, 'files_removed_at' => now()->toIso8601ZuluString()]);
                     $removed++;
                 }
             });
@@ -120,9 +121,7 @@ final class VideoMediaSweeper
         $failed = 0;
 
         MediaAsset::query()
-            ->whereIn('media_type', self::VIDEO_TYPES)
-            ->where('status', MediaStatus::Processing)
-            ->where('created_at', '<=', now()->subHours((int) config('media.lifecycle.video_stuck_after_hours')))
+            ->videosProcessingSince(now()->subHours((int) config('media.lifecycle.video_stuck_after_hours')))
             ->chunkById(200, function ($assets) use (&$failed): void {
                 foreach ($assets as $asset) {
                     // The processor's own lock: a run working on it now is
@@ -226,9 +225,10 @@ final class VideoMediaSweeper
 
     private function forgetOriginal(MediaAsset $asset): void
     {
-        $metadata = $asset->metadata ?? [];
-        unset($metadata['original']);
+        MediaAssetMetadata::change((int) $asset->id, function (array $metadata): array {
+            unset($metadata['original']);
 
-        $asset->forceFill(['metadata' => [...$metadata, 'original_deleted_at' => now()->toIso8601ZuluString()]])->save();
+            return [...$metadata, 'original_deleted_at' => now()->toIso8601ZuluString()];
+        });
     }
 }

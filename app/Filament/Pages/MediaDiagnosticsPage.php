@@ -7,8 +7,6 @@ use App\Enums\MediaAuditIssueType;
 use App\Enums\MediaAuditRunStatus;
 use App\Enums\MediaHealthStatus;
 use App\Enums\MediaPurgeOutcome;
-use App\Enums\MediaStatus;
-use App\Enums\MediaType;
 use App\Filament\Support\AdminNavigationGroup;
 use App\Filament\Support\ListPageNumber;
 use App\Filament\Support\ModerationListFormat;
@@ -407,9 +405,7 @@ final class MediaDiagnosticsPage extends Page
             // started at once could make: delayed, or lost — media:sweep-videos
             // fails the lost ones a day on.
             'stuck_videos' => MediaAsset::query()
-                ->whereIn('media_type', [MediaType::Video, MediaType::Animation])
-                ->where('status', MediaStatus::Processing)
-                ->where('created_at', '<=', now()->subMinutes((int) config('uploads.videos.processing_window_minutes')))
+                ->videosProcessingSince(now()->subMinutes((int) config('uploads.videos.processing_window_minutes')))
                 ->count(),
             'total_assets' => MediaAsset::withTrashed()->count(),
             'total_variants' => MediaVariant::query()->count(),

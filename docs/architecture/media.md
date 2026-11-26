@@ -1057,6 +1057,18 @@ settles them:
 
 A file that will not delete fails the run, as it fails `media:purge`.
 
+An asset's `metadata` has several writers.
+- **While the asset is Processing:** the processor and the import write
+  their keys, before anything below can touch it.
+- **Once it is settled:** these sweeps' markers and the author notices'
+  claims change only their own keys, through `MediaAssetMetadata::change`.
+  It reads the column under a lock on the row and writes it back in the same
+  transaction. Two of them meeting on one asset take turns, and neither
+  writes back a copy older than the other's key.
+
+A marker never moves `updated_at`, which the sweeps read as the time an
+upload failed.
+
 The rest of the lifecycle knows about video files too:
 
 - `MediaLifecycleService::purge()` deletes a video's kept original with its

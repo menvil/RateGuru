@@ -17,6 +17,7 @@ use App\Services\Media\MediaOrphanScanner;
 use App\Services\Media\MediaStorage;
 use App\Services\Media\VideoAssetProcessor;
 use App\Services\Media\VideoMediaSweeper;
+use App\Support\Media\MediaAssetMetadata;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Notification;
@@ -197,6 +198,23 @@ it('publishes a ready video\'s draft left behind and tells its author, but leave
     expect($draft->refresh()->status)->toBe(PostStatus::Published)
         ->and($ready->refresh()->metadata['ready_notified_at'] ?? null)->not->toBeNull()
         ->and($old->refresh()->metadata['failure_notified_at'] ?? null)->toBeNull();
+    Notification::assertSentToTimes($author, VideoPostProcessedNotification::class, 1);
+});
+
+it('keeps the markers others wrote meanwhile when it claims a notice, and moves no one\'s updated_at', function () {
+    $author = User::factory()->create();
+    $asset = MediaAsset::factory()->create(['owner_user_id' => $author->id, 'media_type' => MediaType::Video, 'status' => MediaStatus::Failed, 'metadata' => ['original' => ['disk' => 'local', 'path' => 'x']], 'updated_at' => now()->subDays(8)]);
+    Post::factory()->for($author)->create(['status' => PostStatus::Draft, 'image_asset_id' => $asset->id]);
+    $stale = $asset->fresh();
+    $failedAt = $stale->updated_at->toIso8601ZuluString();
+    // The sweeper marks the files gone after the notice's writer read the row.
+    MediaAssetMetadata::change($asset->id, fn (array $metadata): array => [...$metadata, 'files_removed_at' => '2026-11-26T00:00:00Z']);
+
+    app(FinalizePostMediaAction::class)->failed($stale);
+
+    $asset->refresh();
+    expect($asset->metadata)->toHaveKeys(['original', 'files_removed_at', 'failure_notified_at'])
+        ->and($asset->updated_at->toIso8601ZuluString())->toBe($failedAt);
     Notification::assertSentToTimes($author, VideoPostProcessedNotification::class, 1);
 });
 

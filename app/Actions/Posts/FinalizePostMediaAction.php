@@ -10,6 +10,7 @@ use App\Models\Concerns\LocksActorForWrite;
 use App\Models\MediaAsset;
 use App\Models\Post;
 use App\Notifications\VideoPostProcessedNotification;
+use App\Support\Media\MediaAssetMetadata;
 use App\Support\Observability\DomainLogger;
 use App\Support\Posts\PostPublicationRule;
 use Carbon\CarbonImmutable;
@@ -140,12 +141,13 @@ final class FinalizePostMediaAction
     private function tellAuthorOnce(MediaAsset $asset, Post $post, string $claim): bool
     {
         return DB::transaction(function () use ($asset, $post, $claim): bool {
-            $claimed = MediaAsset::query()
-                ->whereKey($asset->id)
-                ->whereNull("metadata->{$claim}")
-                ->update(['metadata' => json_encode([...(MediaAsset::query()->whereKey($asset->id)->value('metadata') ?? []), $claim => now()->toIso8601ZuluString()])]);
+            // Its own key only, under the row's lock: the sweeper's markers
+            // written meanwhile stay.
+            $claimed = MediaAssetMetadata::change((int) $asset->id, fn (array $metadata): ?array => isset($metadata[$claim])
+                ? null
+                : [...$metadata, $claim => now()->toIso8601ZuluString()]);
 
-            if ($claimed !== 1) {
+            if (! $claimed) {
                 return false;
             }
 
