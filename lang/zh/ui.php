@@ -297,6 +297,8 @@ return [
         'uploading_progress' => '正在上传… :percent%',
         'selected_image_alt' => '所选图片预览',
         'url_image_alt' => '图片预览',
+        'link_reading' => '正在读取链接…',
+        'link_preview_video' => '视频',
     ],
     'a11y' => [
         'switch_language' => '切换语言',

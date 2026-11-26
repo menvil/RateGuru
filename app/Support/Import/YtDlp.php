@@ -107,6 +107,7 @@ final class YtDlp
             title: is_string($info['title'] ?? null) ? $info['title'] : null,
             durationSeconds: is_numeric($info['duration'] ?? null) ? (int) ceil((float) $info['duration']) : null,
             approximateBytes: is_numeric($info['filesize'] ?? $info['filesize_approx'] ?? null) ? (int) ($info['filesize'] ?? $info['filesize_approx']) : null,
+            thumbnail: is_string($info['thumbnail'] ?? null) && str_starts_with($info['thumbnail'], 'https://') ? $info['thumbnail'] : null,
         );
     }
 

@@ -307,6 +307,8 @@ return [
         'uploading_progress' => 'جارٍ الرفع… :percent%',
         'selected_image_alt' => 'معاينة الصورة المختارة',
         'url_image_alt' => 'معاينة الصورة',
+        'link_reading' => 'جارٍ قراءة الرابط…',
+        'link_preview_video' => 'فيديو',
     ],
     'a11y' => [
         'switch_language' => 'تغيير اللغة',

@@ -297,6 +297,8 @@ return [
         'uploading_progress' => 'Yükleniyor… %:percent',
         'selected_image_alt' => 'Seçilen görselin önizlemesi',
         'url_image_alt' => 'Görsel önizlemesi',
+        'link_reading' => 'Bağlantı okunuyor…',
+        'link_preview_video' => 'Video',
     ],
     'a11y' => [
         'switch_language' => 'Dili değiştir',

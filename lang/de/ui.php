@@ -297,6 +297,8 @@ return [
         'uploading_progress' => 'Wird hochgeladen… :percent %',
         'selected_image_alt' => 'Vorschau des ausgewählten Bildes',
         'url_image_alt' => 'Bildvorschau',
+        'link_reading' => 'Link wird gelesen…',
+        'link_preview_video' => 'Video',
     ],
     'a11y' => [
         'switch_language' => 'Sprache wechseln',

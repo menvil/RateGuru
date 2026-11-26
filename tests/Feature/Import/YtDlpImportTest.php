@@ -527,3 +527,56 @@ it('logs why a page could not be read: yt-dlp\'s last error line, or what was wr
 
     Log::shouldHaveReceived('warning')->with('YtDlp: a page could not be read.', ['extractor' => 'Instagram', 'why' => 'ERROR: [Instagram] ABC123: Requested content is not available, rate-limit reached or login required']);
 });
+
+it('shows a pasted page\'s video before posting — its still and length — and posts it without reading the link again', function () {
+    $runner = ytDlpStandIn(ytDlpVideoJson(['thumbnail' => 'https://media.redgifs.com/a-poster.jpg']));
+    $probes = fn (): int => collect($runner->calls)->filter(fn (array $call): bool => in_array('--dump-single-json', $call['arguments'], true))->count();
+
+    $form = Livewire::actingAs(User::factory()->create())
+        ->test(UploadPostForm::class)
+        ->call('previewLink', ' https://www.redgifs.com/watch/aloop ')
+        ->assertHasNoErrors()
+        ->assertSet('linkPreview', ['video' => true, 'image' => 'https://media.redgifs.com/a-poster.jpg', 'duration' => '0:13'])
+        ->assertSeeText(__('ui.upload.link_preview_video').' · 0:13')
+        ->assertSeeHtml('src="https://media.redgifs.com/a-poster.jpg"');
+    expect($probes())->toBe(1);
+
+    // Read once: the same link again shows the same, and posting it reads nothing more.
+    $form->call('previewLink', 'https://www.redgifs.com/watch/aloop')
+        ->set('title', 'Previewed')
+        ->set('importedImageUrl', 'https://www.redgifs.com/watch/aloop')
+        ->call('submit')
+        ->assertSet('submitError', null);
+
+    expect($probes())->toBe(1)
+        ->and(Post::query()->where('title', 'Previewed')->sole()->imageAsset->metadata['import']['url'])->toBe('https://www.redgifs.com/watch/aloop');
+});
+
+it('says at once, by the link, why a pasted link cannot be posted, and shows a picture\'s link as the picture', function () {
+    ytDlpStandIn(ytDlpVideoJson(['duration' => 9999]));
+
+    Livewire::actingAs(User::factory()->create())
+        ->test(UploadPostForm::class)
+        ->call('previewLink', 'https://www.redgifs.com/watch/long')
+        ->assertHasErrors(['importedImageUrl' => __('ui.upload.error_video_too_long', ['seconds' => (int) config('uploads.videos.max_duration_seconds')])])
+        ->assertSet('linkPreview', null)
+        // A picture's own link needs no reading: it is shown as itself.
+        ->call('previewLink', 'https://cdn.example.com/photo.jpg')
+        ->assertHasNoErrors()
+        ->assertSet('linkPreview', ['video' => false, 'image' => 'https://cdn.example.com/photo.jpg', 'duration' => null])
+        // Emptied: nothing shown.
+        ->call('previewLink', '')
+        ->assertSet('linkPreview', null)
+        ->assertSet('previewedLink', '');
+});
+
+it('reads nothing for a guest, nor for an account that may not post', function () {
+    $runner = ytDlpStandIn(ytDlpVideoJson());
+
+    Livewire::actingAs(User::factory()->unverified()->create())
+        ->test(UploadPostForm::class)
+        ->call('previewLink', 'https://www.redgifs.com/watch/aloop')
+        ->assertSet('linkPreview', null);
+
+    expect($runner->calls)->toBe([]);
+});

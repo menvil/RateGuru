@@ -299,6 +299,8 @@ return [
         'uploading_progress' => 'Įkeliama… :percent %',
         'selected_image_alt' => 'Pasirinkto paveikslėlio peržiūra',
         'url_image_alt' => 'Paveikslėlio peržiūra',
+        'link_reading' => 'Skaitome nuorodą…',
+        'link_preview_video' => 'Vaizdo įrašas',
     ],
     'a11y' => [
         'switch_language' => 'Keisti kalbą',

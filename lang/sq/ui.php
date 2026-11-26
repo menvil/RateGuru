@@ -297,6 +297,8 @@ return [
         'uploading_progress' => 'Po ngarkohet… :percent%',
         'selected_image_alt' => 'Parapamja e imazhit të zgjedhur',
         'url_image_alt' => 'Parapamja e imazhit',
+        'link_reading' => 'Po lexojmë lidhjen…',
+        'link_preview_video' => 'Video',
     ],
     'a11y' => [
         'switch_language' => 'Ndrysho gjuhën',

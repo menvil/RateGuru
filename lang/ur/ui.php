@@ -305,6 +305,8 @@ return [
         'uploading_progress' => 'اپ لوڈ ہو رہا ہے… :percent%',
         'selected_image_alt' => 'منتخب تصویر کا پیش نظارہ',
         'url_image_alt' => 'تصویر کا پیش نظارہ',
+        'link_reading' => 'لنک پڑھا جا رہا ہے…',
+        'link_preview_video' => 'ویڈیو',
     ],
     'a11y' => [
         'switch_language' => 'زبان تبدیل کریں',

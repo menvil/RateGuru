@@ -68,7 +68,7 @@ final class ResolveMediaLinkAction
         $provider = $this->detector->detect($url);
 
         if ($provider === 'direct_image') {
-            return new ResolvedMediaLink($url, null, null);
+            return new ResolvedMediaLink($url, null, null, previewImageUrl: $url);
         }
 
         // A link to a video file goes to the plain download, whatever site
@@ -88,7 +88,7 @@ final class ResolveMediaLinkAction
                 throw MediaLinkRefusedException::tooLong($maxSeconds);
             }
 
-            return new ResolvedMediaLink(null, $url, self::withoutQuery($url));
+            return new ResolvedMediaLink(null, $url, self::withoutQuery($url), previewImageUrl: $pageVideo->thumbnail, durationSeconds: $pageVideo->durationSeconds);
         }
 
         // A site where every page is a video: none found is a failure, never
@@ -108,7 +108,13 @@ final class ResolveMediaLinkAction
             throw MediaLinkRefusedException::nothingToTake();
         }
 
-        return new ResolvedMediaLink($imageUrl, $videoUrl, in_array($provider, self::SOURCE_PROVIDERS, true) ? self::withoutQuery($url) : null);
+        return new ResolvedMediaLink(
+            $imageUrl,
+            $videoUrl,
+            in_array($provider, self::SOURCE_PROVIDERS, true) ? self::withoutQuery($url) : null,
+            // A picture shows as itself; a video by its post's still, where it has one.
+            previewImageUrl: $imageUrl ?? $preview->imageUrl,
+        );
     }
 
     /**

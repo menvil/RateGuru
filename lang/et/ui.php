@@ -297,6 +297,8 @@ return [
         'uploading_progress' => 'Üleslaadimine… :percent%',
         'selected_image_alt' => 'Valitud pildi eelvaade',
         'url_image_alt' => 'Pildi eelvaade',
+        'link_reading' => 'Loeme linki…',
+        'link_preview_video' => 'Video',
     ],
     'a11y' => [
         'switch_language' => 'Vaheta keelt',

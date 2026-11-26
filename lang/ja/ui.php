@@ -297,6 +297,8 @@ return [
         'uploading_progress' => 'アップロード中… :percent%',
         'selected_image_alt' => '選択した画像のプレビュー',
         'url_image_alt' => '画像のプレビュー',
+        'link_reading' => 'リンクを読み込んでいます…',
+        'link_preview_video' => '動画',
     ],
     'a11y' => [
         'switch_language' => '言語を切り替える',

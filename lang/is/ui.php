@@ -297,6 +297,8 @@ return [
         'uploading_progress' => 'Hleður upp… :percent%',
         'selected_image_alt' => 'Forskoðun valinnar myndar',
         'url_image_alt' => 'Forskoðun myndar',
+        'link_reading' => 'Les tengilinn…',
+        'link_preview_video' => 'Myndband',
     ],
     'a11y' => [
         'switch_language' => 'Skipta um tungumál',

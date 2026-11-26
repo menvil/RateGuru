@@ -297,6 +297,8 @@ return [
         'uploading_progress' => 'Μεταφόρτωση… :percent%',
         'selected_image_alt' => 'Προεπισκόπηση επιλεγμένης εικόνας',
         'url_image_alt' => 'Προεπισκόπηση εικόνας',
+        'link_reading' => 'Διαβάζουμε τον σύνδεσμο…',
+        'link_preview_video' => 'Βίντεο',
     ],
     'a11y' => [
         'switch_language' => 'Αλλαγή γλώσσας',

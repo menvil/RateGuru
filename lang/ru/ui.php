@@ -301,6 +301,8 @@ return [
         'uploading_progress' => 'Загрузка… :percent%',
         'selected_image_alt' => 'Предпросмотр выбранного изображения',
         'url_image_alt' => 'Предпросмотр изображения',
+        'link_reading' => 'Читаем ссылку…',
+        'link_preview_video' => 'Видео',
     ],
     'a11y' => [
         'switch_language' => 'Переключить язык',
