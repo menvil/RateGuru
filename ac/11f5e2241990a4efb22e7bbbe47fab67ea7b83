@@ -1,0 +1,30 @@
+app/Services/Media/Classification/MediaClassificationRecorder.php
+  s_1f43f39fbe0537::t_e79965f5bc5df8 150-153,156
+app/Services/Media/Classification/MediaClassifierRegistry.php
+  s_1f43f39fbe0537::t_e79965f5bc5df8 17-19,39-42
+app/Services/Media/Classification/ClassificationFrameSampler.php
+  s_1f43f39fbe0537::t_e79965f5bc5df8 68-74
+app/Jobs/ClassifyMediaAssetJob.php
+  s_1f43f39fbe0537::t_e79965f5bc5df8 60-64,117,121-127,130-131,137,143,173-174
+tests/Feature/Media/MediaClassificationPipelineTest.php
+  s_1f43f39fbe0537::t_778df7292b8c0e 150-151,164
+  s_1f43f39fbe0537::t_bfc9ad21836ec2 21-22,158-163,165-167,379-386,557-605
+docs/architecture/content-rating.md
+  ai_agent 130-133,149-157
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "ac11f5e2241990a4efb22e7bbbe47fab67ea7b83",
+  "prompts": {},
+  "sessions": {
+    "s_1f43f39fbe0537": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "526787d0-f443-4ad7-9610-cf9811fec895",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
