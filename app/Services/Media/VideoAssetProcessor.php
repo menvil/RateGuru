@@ -237,7 +237,7 @@ final class VideoAssetProcessor
     private static function clearStaleWorkDirectories(): void
     {
         foreach (glob(sys_get_temp_dir().'/rateguru-video-*', GLOB_ONLYDIR) ?: [] as $stale) {
-            if (filemtime($stale) < time() - 7200 && ! str_ends_with($stale, '-import')) {
+            if (filemtime($stale) < time() - 7200) {
                 exec('rm -rf '.escapeshellarg($stale));
             }
         }

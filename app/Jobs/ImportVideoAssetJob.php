@@ -19,6 +19,7 @@ use App\Support\Import\YtDlpSites;
 use App\Support\Media\ImageOrientationClassifier;
 use App\Support\Media\MediaQueue;
 use App\Support\Media\VideoUploadStorer;
+use App\Support\Media\WorkerTemporaryDirectory;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Support\Facades\DB;
@@ -209,29 +210,13 @@ final class ImportVideoAssetJob implements RunsOnMediaQueue, ShouldQueue
 
     /**
      * A new, empty file only this user may read (tempnam: created
-     * exclusively, mode 0600), in a directory of its own. A download a timeout
-     * killed mid-way never reached its clean-up, so any file there older than
-     * an hour goes first.
+     * exclusively, mode 0600), in this worker's own directory. A download a
+     * timeout killed mid-way never reached its clean-up, so anything there
+     * older than an hour goes first.
      */
     private static function temporaryFile(): string
     {
-        $directory = sys_get_temp_dir().'/rateguru-video-import';
-
-        if (! file_exists($directory) && ! @mkdir($directory, 0o700) && ! is_dir($directory)) {
-            throw new RuntimeException('Could not create the directory videos are downloaded into.');
-        }
-
-        // Ours, and a directory — not a link someone else left at that name,
-        // whose target the clean-up below would otherwise empty.
-        if (is_link($directory) || ! is_dir($directory) || fileowner($directory) !== posix_geteuid()) {
-            throw new RuntimeException('The directory videos are downloaded into is not this worker\'s own.');
-        }
-
-        foreach (glob($directory.'/*') ?: [] as $stale) {
-            if (filemtime($stale) < time() - 3600) {
-                exec('rm -rf '.escapeshellarg($stale));
-            }
-        }
+        $directory = WorkerTemporaryDirectory::prepare('video-import', 3600);
 
         $file = tempnam($directory, 'download-');
 
