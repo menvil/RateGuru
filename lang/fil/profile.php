@@ -14,6 +14,8 @@ return [
     'followers' => 'Mga tagasunod',
     'following' => 'Sinusundan',
     'no_posts' => 'Wala pang na-publish na post',
+    'processing_videos' => 'Mga video na pinoproseso',
+    'processing_video' => 'Pinoproseso',
     'no_posts_description' => 'Wala pang na-publish na post ang user na ito.',
     'no_activity' => 'Wala pang aktibidad',
     'activity_private' => 'Pribado ang aktibidad ng user na ito.',

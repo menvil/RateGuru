@@ -14,6 +14,8 @@ return [
     'followers' => 'Подписчики',
     'following' => 'Подписки',
     'no_posts' => 'Нет опубликованных постов',
+    'processing_videos' => 'Видео в обработке',
+    'processing_video' => 'Обрабатывается',
     'no_posts_description' => 'Пользователь ещё не опубликовал ни одного поста.',
     'no_activity' => 'Нет активности',
     'activity_private' => 'Активность этого пользователя скрыта.',

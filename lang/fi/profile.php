@@ -14,6 +14,8 @@ return [
     'followers' => 'Seuraajat',
     'following' => 'Seurattavat',
     'no_posts' => 'Ei vielä julkaisuja',
+    'processing_videos' => 'Käsiteltävät videot',
+    'processing_video' => 'Käsitellään',
     'no_posts_description' => 'Tämä käyttäjä ei ole vielä julkaissut mitään.',
     'no_activity' => 'Ei vielä toimintaa',
     'activity_private' => 'Tämän käyttäjän toiminta on yksityistä.',

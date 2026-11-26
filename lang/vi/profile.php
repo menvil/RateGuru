@@ -14,6 +14,8 @@ return [
     'followers' => 'Người theo dõi',
     'following' => 'Đang theo dõi',
     'no_posts' => 'Chưa có bài đăng nào',
+    'processing_videos' => 'Video đang được xử lý',
+    'processing_video' => 'Đang xử lý',
     'no_posts_description' => 'Người dùng này chưa đăng bài nào.',
     'no_activity' => 'Chưa có hoạt động nào',
     'activity_private' => 'Hoạt động của người dùng này được đặt ở chế độ riêng tư.',

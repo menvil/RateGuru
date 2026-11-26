@@ -14,6 +14,8 @@ return [
     'followers' => 'Follower',
     'following' => 'Seguiti',
     'no_posts' => 'Ancora nessun post pubblicato',
+    'processing_videos' => 'Video in elaborazione',
+    'processing_video' => 'In elaborazione',
     'no_posts_description' => 'Questo utente non ha ancora pubblicato nessun post.',
     'no_activity' => 'Ancora nessuna attività',
     'activity_private' => 'L\'attività di questo utente è privata.',

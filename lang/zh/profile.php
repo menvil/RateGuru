@@ -14,6 +14,8 @@ return [
     'followers' => '粉丝',
     'following' => '关注',
     'no_posts' => '暂无已发布的帖子',
+    'processing_videos' => '处理中的视频',
+    'processing_video' => '处理中',
     'no_posts_description' => '该用户尚未发布任何帖子。',
     'no_activity' => '暂无动态',
     'activity_private' => '该用户的动态不公开。',

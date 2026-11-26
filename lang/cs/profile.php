@@ -14,6 +14,8 @@ return [
     'followers' => 'Sledující',
     'following' => 'Sledovaní',
     'no_posts' => 'Zatím žádné zveřejněné příspěvky',
+    'processing_videos' => 'Zpracovávaná videa',
+    'processing_video' => 'Zpracovává se',
     'no_posts_description' => 'Tento uživatel zatím nezveřejnil žádné příspěvky.',
     'no_activity' => 'Zatím žádná aktivita',
     'activity_private' => 'Aktivita tohoto uživatele je soukromá.',

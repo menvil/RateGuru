@@ -14,6 +14,8 @@ return [
     'followers' => 'Sekotāji',
     'following' => 'Seko',
     'no_posts' => 'Vēl nav publicētu ierakstu',
+    'processing_videos' => 'Video apstrādē',
+    'processing_video' => 'Apstrādē',
     'no_posts_description' => 'Šis lietotājs vēl nav publicējis nevienu ierakstu.',
     'no_activity' => 'Vēl nav aktivitātes',
     'activity_private' => 'Šī lietotāja aktivitāte ir privāta.',

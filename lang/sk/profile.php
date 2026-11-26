@@ -14,6 +14,8 @@ return [
     'followers' => 'Sledovatelia',
     'following' => 'Sledované',
     'no_posts' => 'Zatiaľ žiadne zverejnené príspevky',
+    'processing_videos' => 'Spracúvané videá',
+    'processing_video' => 'Spracúva sa',
     'no_posts_description' => 'Tento používateľ zatiaľ nezverejnil žiadne príspevky.',
     'no_activity' => 'Zatiaľ žiadna aktivita',
     'activity_private' => 'Aktivita tohto používateľa je súkromná.',

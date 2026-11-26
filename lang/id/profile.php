@@ -14,6 +14,8 @@ return [
     'followers' => 'Pengikut',
     'following' => 'Mengikuti',
     'no_posts' => 'Belum ada postingan yang dipublikasikan',
+    'processing_videos' => 'Video yang sedang diproses',
+    'processing_video' => 'Sedang diproses',
     'no_posts_description' => 'Pengguna ini belum memublikasikan postingan apa pun.',
     'no_activity' => 'Belum ada aktivitas',
     'activity_private' => 'Aktivitas pengguna ini bersifat privat.',

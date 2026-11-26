@@ -14,6 +14,8 @@ return [
     'followers' => 'Sekėjai',
     'following' => 'Sekama',
     'no_posts' => 'Paskelbtų įrašų dar nėra',
+    'processing_videos' => 'Apdorojami vaizdo įrašai',
+    'processing_video' => 'Apdorojama',
     'no_posts_description' => 'Šis naudotojas dar nepaskelbė jokių įrašų.',
     'no_activity' => 'Veiklos dar nėra',
     'activity_private' => 'Šio naudotojo veikla privati.',

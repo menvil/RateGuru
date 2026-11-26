@@ -14,6 +14,8 @@ return [
     'followers' => 'Jälgijad',
     'following' => 'Jälgitavad',
     'no_posts' => 'Avaldatud postitusi veel pole',
+    'processing_videos' => 'Töötlemisel videod',
+    'processing_video' => 'Töötlemisel',
     'no_posts_description' => 'See kasutaja pole veel ühtegi postitust avaldanud.',
     'no_activity' => 'Tegevust veel pole',
     'activity_private' => 'Selle kasutaja tegevus on privaatne.',

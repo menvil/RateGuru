@@ -14,6 +14,8 @@ return [
     'followers' => 'Следбеници',
     'following' => 'Следени',
     'no_posts' => 'Сè уште нема објави',
+    'processing_videos' => 'Видеа во обработка',
+    'processing_video' => 'Во обработка',
     'no_posts_description' => 'Овој корисник сè уште нема објавено ништо.',
     'no_activity' => 'Сè уште нема активност',
     'activity_private' => 'Активноста на овој корисник е приватна.',

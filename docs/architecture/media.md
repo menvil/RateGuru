@@ -571,6 +571,12 @@ The link is kept as the post's source when the author named none. Until it
 is downloaded the asset has no file, which the media audit does not count as
 a missing master.
 
+Where the author sees it: on their own profile, on the first page of their
+posts, each video or GIF post still processing is listed with a
+"Processing" mark (`AuthorProcessingVideosQuery`). It is shown to the
+author alone; a draft is nobody else's. One whose processing failed leaves
+the list, and its author hears of it in their notifications.
+
 #### From a site's page, with yt-dlp
 
 A link to a page on one of the sites in `import.ytdlp.sites` (RedGifs and
@@ -683,8 +689,6 @@ most likely broke.
 The fix is usually a newer pinned
 yt-dlp (`infrastructure/config/external-runtimes/versions.env`), installed by
 the Prepare host workflows.
-
-How the draft and its processing state appear to its author come later.
 
 ## Responsive media variants
 

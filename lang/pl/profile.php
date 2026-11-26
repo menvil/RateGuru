@@ -14,6 +14,8 @@ return [
     'followers' => 'Obserwujący',
     'following' => 'Obserwowani',
     'no_posts' => 'Brak opublikowanych postów',
+    'processing_videos' => 'Filmy w trakcie przetwarzania',
+    'processing_video' => 'Przetwarzanie',
     'no_posts_description' => 'Ten użytkownik nie opublikował jeszcze żadnych postów.',
     'no_activity' => 'Brak aktywności',
     'activity_private' => 'Aktywność tego użytkownika jest prywatna.',

@@ -14,6 +14,8 @@ return [
     'followers' => 'フォロワー',
     'following' => 'フォロー中',
     'no_posts' => '公開された投稿はまだありません',
+    'processing_videos' => '処理中の動画',
+    'processing_video' => '処理中',
     'no_posts_description' => 'このユーザーはまだ投稿を公開していません。',
     'no_activity' => 'アクティビティはまだありません',
     'activity_private' => 'このユーザーのアクティビティは非公開です。',

@@ -14,6 +14,8 @@ return [
     'followers' => 'Fylgjendur',
     'following' => 'Fylgist með',
     'no_posts' => 'Engar birtar færslur enn',
+    'processing_videos' => 'Myndbönd í vinnslu',
+    'processing_video' => 'Í vinnslu',
     'no_posts_description' => 'Þessi notandi hefur ekki birt neinar færslur enn.',
     'no_activity' => 'Engin virkni enn',
     'activity_private' => 'Virkni þessa notanda er lokuð.',

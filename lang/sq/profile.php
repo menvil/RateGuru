@@ -14,6 +14,8 @@ return [
     'followers' => 'Ndjekës',
     'following' => 'Të ndjekur',
     'no_posts' => 'Ende nuk ka postime të publikuara',
+    'processing_videos' => 'Video në përpunim',
+    'processing_video' => 'Në përpunim',
     'no_posts_description' => 'Ky përdorues nuk ka publikuar ende asnjë postim.',
     'no_activity' => 'Ende nuk ka aktivitet',
     'activity_private' => 'Aktiviteti i këtij përdoruesi është privat.',
