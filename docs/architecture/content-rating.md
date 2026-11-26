@@ -129,8 +129,10 @@ configuration is read by the job, never by the upload.
   - Before a run ends it looks again for who is still to answer, and asks
     them from the same frames, up to three passes. A failure `--retry-failed`
     cleared while it ran, for a retry that found the asset held, is asked by
-    that run. Anyone still left after the last pass is asked by a job the run
-    queues once it has let the asset go.
+    that run. Once it has let the asset go it looks once more, and queues a
+    job of its own for anyone still to answer. A failure cleared after that
+    look finds the asset free for the job `--retry-failed` queued with it, so
+    no retry falls between.
   - A job that runs after another finds every answer there and asks no one,
     so a queue that kept one waiting past its lock costs nothing.
 - A classifier that already answered for the asset at its model version is

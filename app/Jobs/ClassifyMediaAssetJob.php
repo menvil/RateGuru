@@ -58,8 +58,8 @@ final class ClassifyMediaAssetJob implements RunsOnMediaQueue, ShouldBeUniqueUnt
     private const int DELIVERY_WINDOW_SECONDS = 960;
 
     /**
-     * How often a run asks who is still to answer before it ends; anyone left
-     * after the last is asked by a job of its own.
+     * How often a run asks who is still to answer before it lets the asset
+     * go; anyone left then is asked by a job of its own.
      */
     public const int PASSES = 3;
 
@@ -114,33 +114,43 @@ final class ClassifyMediaAssetJob implements RunsOnMediaQueue, ShouldBeUniqueUnt
         }
 
         try {
-            $left = $this->classify($registry, $sampler, $recorder);
+            $this->classify($registry, $sampler, $recorder);
         } finally {
             $lock->release();
         }
 
-        // Still someone to answer after every pass — failures cleared again
-        // and again while it ran: a job of its own asks them, once this run
-        // has let the asset go.
-        if ($left) {
+        // Looked at once the asset is let go, so no failure cleared while
+        // this run held it slips between: one cleared before now is found
+        // here, and a job of its own asks it; one cleared after finds the
+        // asset free for the job --retry-failed queued with it.
+        $asset = $this->classifiable();
+
+        if ($asset !== null && self::unanswered($registry, $asset) !== []) {
             self::dispatch($this->mediaAssetId);
         }
     }
 
-    /** @return bool whether a classifier was still to answer when it stopped looking */
-    private function classify(MediaClassifierRegistry $registry, ClassificationFrameSampler $sampler, MediaClassificationRecorder $recorder): bool
+    /** The asset, while it is a post's media ready to be classified. */
+    private function classifiable(): ?MediaAsset
     {
         $asset = MediaAsset::query()->find($this->mediaAssetId);
 
+        return $asset !== null && $asset->status === MediaStatus::Ready && $asset->kind === MediaKind::PostImage ? $asset : null;
+    }
+
+    private function classify(MediaClassifierRegistry $registry, ClassificationFrameSampler $sampler, MediaClassificationRecorder $recorder): void
+    {
         // Gone, not ready yet, or not a post's: nothing to classify.
-        if ($asset === null || $asset->status !== MediaStatus::Ready || $asset->kind !== MediaKind::PostImage) {
-            return false;
+        $asset = $this->classifiable();
+
+        if ($asset === null) {
+            return;
         }
 
         $pending = self::unanswered($registry, $asset);
 
         if ($pending === []) {
-            return false;
+            return;
         }
 
         $directory = self::workDirectory();
@@ -171,7 +181,6 @@ final class ClassifyMediaAssetJob implements RunsOnMediaQueue, ShouldBeUniqueUnt
             File::deleteDirectory($directory);
         }
 
-        return $pending !== [];
     }
 
     /**

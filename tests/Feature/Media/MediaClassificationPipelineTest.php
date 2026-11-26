@@ -25,6 +25,7 @@ use App\Services\Media\MediaToolRunner;
 use App\Services\Media\StoredMedia;
 use App\Support\Media\MediaAssetCreator;
 use App\Support\Media\WorkerTemporaryDirectory;
+use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Cache;
@@ -603,4 +604,36 @@ it('queues a job of its own for a classifier cleared during its last pass, once 
     // Each asked once — the last by the job its run queued after letting go.
     expect(collect($chain)->map(fn ($classifier): int => $classifier->asked)->unique()->all())->toBe([1 => 1])
         ->and(MediaClassification::query()->where('status', ClassificationStatus::Succeeded)->count())->toBe($count);
+});
+
+it('queues a job for a failure cleared after its last look but before it let the asset go', function () {
+    config(['media.classification.run_wait_seconds' => 0]);
+    $asked = standInClassifier(['sex_toy' => 0.1], name: 'asked');
+    $retried = standInClassifier(['breast_exposed' => 0.2], name: 'retried');
+    configureClassifiers(['test.asked' => [$asked, 'shadow'], 'test.retried' => [$retried, 'shadow']]);
+    framesWrittenByFfmpeg();
+    $asset = readyVideoAsset();
+    MediaClassification::factory()->create(['media_asset_id' => $asset->id, 'classifier' => 'retried', 'model_version' => 'v1', 'status' => ClassificationStatus::Failed]);
+
+    // Right after the run's last look at who is still to answer — the
+    // retried one's failure seen as its answer — and before it lets the
+    // asset go, the operator retries failures: the command clears it and
+    // queues a job, which finds the asset held and leaves it to the run.
+    $recorded = false;
+    $retriedNow = false;
+    DB::listen(function (QueryExecuted $query) use (&$recorded, &$retriedNow): void {
+        if (str_starts_with($query->sql, 'insert into "media_classifications"')) {
+            $recorded = true;
+        } elseif ($recorded && ! $retriedNow && str_contains($query->sql, 'from "media_classifications"') && in_array('retried', $query->bindings, true)) {
+            $retriedNow = true;
+            Artisan::call('media:classify', ['--retry-failed' => true]);
+        }
+    });
+
+    dispatch((new ClassifyMediaAssetJob($asset->id))->onConnection('sync'));
+
+    expect($retriedNow)->toBeTrue()
+        ->and($asked->shown)->toHaveCount(1)
+        ->and($retried->shown)->toHaveCount(1)
+        ->and(MediaClassification::query()->where('classifier', 'retried')->pluck('status')->all())->toBe([ClassificationStatus::Succeeded]);
 });
