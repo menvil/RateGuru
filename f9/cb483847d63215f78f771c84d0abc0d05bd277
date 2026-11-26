@@ -1,0 +1,27 @@
+config/media.php
+  s_1f43f39fbe0537::t_3b1fb069797797 194-196
+tests/Feature/Media/MediaClassificationPipelineTest.php
+  s_1f43f39fbe0537::t_195bd1ffbabd60 364,382-386,389,392,395,399-406,412-414,440-441,448-450,457,464-466,469-470,473-475,477,479-480,482-484,487,489,491-494
+docs/architecture/content-rating.md
+  ai_agent 123-128,151-156
+app/Jobs/ClassifyMediaAssetJob.php
+  s_1f43f39fbe0537::t_3b1fb069797797 15,33-40,61,71,97-105,129-130
+app/Console/Commands/MediaClassifyCommand.php
+  s_1f43f39fbe0537::t_3b1fb069797797 14,24-25,70-93
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "f9cb483847d63215f78f771c84d0abc0d05bd277",
+  "prompts": {},
+  "sessions": {
+    "s_1f43f39fbe0537": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "526787d0-f443-4ad7-9610-cf9811fec895",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
