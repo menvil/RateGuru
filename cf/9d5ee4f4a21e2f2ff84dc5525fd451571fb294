@@ -1,0 +1,35 @@
+tests/Feature/Architecture/InstallMediaFetchIsolationTest.php
+  s_1f43f39fbe0537::t_25b46f3fc7c4cc 1-274
+infrastructure/config/required-clis.txt
+  s_1f43f39fbe0537::t_25b46f3fc7c4cc 17
+tests/Feature/Architecture/InstallBootstrapRuntimeTest.php
+  s_1f43f39fbe0537::t_25b46f3fc7c4cc 107,144
+infrastructure/scripts/install-media-fetch-isolation
+  s_1f43f39fbe0537::t_25b46f3fc7c4cc 1-520
+tests/Pest.php
+  s_1f43f39fbe0537::t_25b46f3fc7c4cc 10284,10532,10596,12048,12344,12377
+infrastructure/scripts/install-bootstrap-runtime
+  s_1f43f39fbe0537::t_25b46f3fc7c4cc 355,421
+infrastructure/runbooks/bootstrap-services.md
+  s_1f43f39fbe0537::t_25b46f3fc7c4cc 45,290
+infrastructure/runbooks/bootstrap-host.md
+  s_1f43f39fbe0537::t_25b46f3fc7c4cc 1112-1158
+infrastructure/scripts/install-bootstrap-services
+  s_1f43f39fbe0537::t_25b46f3fc7c4cc 52-55,285,2158-2161,2543,3380-3392,3708
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "cf9d5ee4f4a21e2f2ff84dc5525fd451571fb294",
+  "prompts": {},
+  "sessions": {
+    "s_1f43f39fbe0537": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "526787d0-f443-4ad7-9610-cf9811fec895",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
