@@ -493,3 +493,14 @@ it('never writes its copy through an entry the account left at that name', funct
         removeScratchDir(dirname($directory));
     }
 });
+
+it('takes an answer that names no media for no answer at all, never for a page without a video', function (string $answer) {
+    ytDlpStandIn($answer);
+
+    expect(fn () => app(YtDlp::class)->probe('https://www.instagram.com/reel/ABC123/'))->toThrow(YtDlpProbeException::class);
+})->with([
+    'an empty object' => ['{}'],
+    'a carousel listing nothing' => ['{"_type":"playlist","extractor_key":"Instagram"}'],
+    'a carousel of no entries' => ['{"_type":"playlist","entries":[]}'],
+    'an answer of another kind' => ['{"_type":"url","url":"https://www.instagram.com/p/X/"}'],
+]);

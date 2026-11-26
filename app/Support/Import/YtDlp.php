@@ -64,11 +64,20 @@ final class YtDlp
             throw YtDlpProbeException::failed($extractor);
         }
 
+        $type = $info['_type'] ?? 'video';
+
         // A carousel: photos alone go on as a photo post; one with a video
-        // among them is refused, never posted as its first picture.
-        if (($info['_type'] ?? 'video') === 'playlist') {
-            foreach (is_array($info['entries'] ?? null) ? $info['entries'] : [] as $entry) {
-                if (is_array($entry) && self::hasVideo($entry)) {
+        // among them is refused, never posted as its first picture. One that
+        // lists nothing says nothing.
+        if ($type === 'playlist') {
+            $entries = is_array($info['entries'] ?? null) ? array_values(array_filter($info['entries'], 'is_array')) : [];
+
+            if ($entries === []) {
+                throw YtDlpProbeException::failed($extractor);
+            }
+
+            foreach ($entries as $entry) {
+                if (self::hasVideo($entry)) {
                     throw YtDlpProbeException::carouselWithVideo($extractor);
                 }
             }
@@ -76,7 +85,14 @@ final class YtDlp
             return null;
         }
 
-        if (($info['_type'] ?? 'video') !== 'video' || ! self::hasVideo($info)) {
+        // Only an answer that lists the page's media can say there is no
+        // video among it: an answer of another kind, or one naming no media
+        // at all, is no answer.
+        if ($type !== 'video' || ! (is_array($info['formats'] ?? null) || isset($info['url']) || isset($info['requested_formats']))) {
+            throw YtDlpProbeException::failed($extractor);
+        }
+
+        if (! self::hasVideo($info)) {
             return null;
         }
 
