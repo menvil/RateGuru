@@ -22,14 +22,14 @@ return [
     'ytdlp' => [
         'binary' => 'yt-dlp',
         // The probe runs while the author waits, in a web worker: short, one
-        // per author, two on the host at once (UploadPostForm::pageVideo).
+        // per author, two on the host at once (ResolveMediaLinkAction).
         'probe_timeout_seconds' => 15,
         'probe_slots' => 2,
         'download_timeout_seconds' => 240,
+        // The sites yt-dlp may take a video from, each with the one extractor
+        // it may use there — the project's choice, reviewed site by site.
         'sites' => [
             'redgifs.com' => 'RedGifs',
-            'youporn.com' => 'YouPorn',
-            'coub.com' => 'Coub',
             'instagram.com' => 'Instagram',
         ],
         // The sites whose pages may hold a photo instead: when yt-dlp finds

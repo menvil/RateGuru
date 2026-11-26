@@ -1,5 +1,6 @@
 <?php
 
+use App\Actions\Import\StoreImportedImageAction;
 use App\Actions\Posts\CreatePostAction;
 use App\Actions\Posts\FinalizePostMediaAction;
 use App\Data\Posts\CreatePostData;
@@ -17,6 +18,7 @@ use App\Support\Import\SafeImportHttpClient;
 use App\Support\Import\YtDlp;
 use App\Support\Import\YtDlpSites;
 use App\Support\Media\VideoUploadStorer;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
@@ -94,7 +96,10 @@ it('gives yt-dlp only links to its sites, over https, and only their own extract
     $sites = app(YtDlpSites::class);
 
     expect($sites->extractorFor('https://www.redgifs.com/watch/aloop'))->toBe('RedGifs')
-        ->and($sites->extractorFor('https://coub.com/view/1'))->toBe('Coub')
+        ->and($sites->extractorFor('https://www.instagram.com/reel/ABC123/'))->toBe('Instagram')
+        // Not on the list, whatever yt-dlp could do there.
+        ->and($sites->extractorFor('https://coub.com/view/1'))->toBeNull()
+        ->and($sites->extractorFor('https://www.youporn.com/watch/1/'))->toBeNull()
         ->and($sites->extractorFor('http://www.redgifs.com/watch/aloop'))->toBeNull()
         ->and($sites->extractorFor('https://evilredgifs.com/watch/aloop'))->toBeNull()
         ->and($sites->extractorFor('https://example.com/video'))->toBeNull();
@@ -158,15 +163,15 @@ it('says a page\'s video is too long before anything is downloaded', function ()
 
 it('downloads a page\'s video through yt-dlp within the upload limits, then hands it on', function () {
     $runner = ytDlpStandIn();
-    $post = app(CreatePostAction::class)->handle(User::factory()->create(), new CreatePostData(title: 'From Coub', videoUrl: 'https://coub.com/view/1'));
+    $post = app(CreatePostAction::class)->handle(User::factory()->create(), new CreatePostData(title: 'From RedGifs', videoUrl: 'https://www.redgifs.com/watch/aloop'));
 
     (new ImportVideoAssetJob((int) $post->image_asset_id))->handle(app(SafeImportHttpClient::class), app(VideoUploadStorer::class), app(FinalizePostMediaAction::class));
 
     $download = collect($runner->calls)->first(fn (array $call): bool => $call['tool'] === MediaTool::YtDlp)['arguments'];
     $asset = MediaAsset::query()->findOrFail($post->image_asset_id);
 
-    expect($download)->toContain('--use-extractors', 'Coub', '--max-filesize', '100M', '--match-filters', 'duration<=90', '--merge-output-format', 'mp4', '--no-playlist')
-        ->and(array_slice($download, -2))->toBe(['--', 'https://coub.com/view/1'])
+    expect($download)->toContain('--use-extractors', 'RedGifs', '--max-filesize', '100M', '--match-filters', 'duration<=90', '--merge-output-format', 'mp4', '--no-playlist')
+        ->and(array_slice($download, -2))->toBe(['--', 'https://www.redgifs.com/watch/aloop'])
         ->and($asset->metadata['import'])->toHaveKey('downloaded_at');
     Storage::disk('local')->assertExists($asset->path);
     Queue::assertPushed(ProcessVideoAssetJob::class);
@@ -175,7 +180,7 @@ it('downloads a page\'s video through yt-dlp within the upload limits, then hand
 
 it('fails the post\'s media when yt-dlp takes nothing from the page', function () {
     ytDlpStandIn(downloads: false);
-    $post = app(CreatePostAction::class)->handle(User::factory()->create(), new CreatePostData(title: 'Gone', videoUrl: 'https://coub.com/view/2'));
+    $post = app(CreatePostAction::class)->handle(User::factory()->create(), new CreatePostData(title: 'Gone', videoUrl: 'https://www.redgifs.com/watch/gone'));
 
     (new ImportVideoAssetJob((int) $post->image_asset_id))->handle(app(SafeImportHttpClient::class), app(VideoUploadStorer::class), app(FinalizePostMediaAction::class));
 
@@ -226,9 +231,9 @@ it('refuses a page\'s video whose length the site does not say, and leaves a vid
         ->and(MediaAsset::query()->sole()->metadata['import']['url'])->toBe('https://media.redgifs.com/AFile.mp4');
 });
 
-it('takes a page\'s video whose codec yt-dlp was not told — Coub\'s null, RedGifs\' none at all — and refuses only an explicit none', function () {
-    ytDlpStandIn(ytDlpVideoJson(['extractor_key' => 'Coub', 'formats' => [['format_id' => 'html5', 'vcodec' => null, 'ext' => 'mp4']]]));
-    expect(app(YtDlp::class)->probe('https://coub.com/view/1'))->not->toBeNull();
+it('takes a page\'s video whose codec yt-dlp was not told — null, or none at all — and refuses only an explicit none', function () {
+    ytDlpStandIn(ytDlpVideoJson(['formats' => [['format_id' => 'html5', 'vcodec' => null, 'ext' => 'mp4']]]));
+    expect(app(YtDlp::class)->probe('https://www.redgifs.com/watch/aloop'))->not->toBeNull();
 
     ytDlpStandIn(ytDlpVideoJson(['formats' => [['format_id' => 'img', 'vcodec' => 'none', 'acodec' => 'none']]]));
     expect(app(YtDlp::class)->probe('https://www.redgifs.com/watch/aloop'))->toBeNull();
@@ -248,8 +253,8 @@ it('says a video-only site\'s page gave nothing, rather than posting its poster,
 
     // Instagram: no video on a photo post, so its photo is taken instead.
     Http::fake(['www.instagram.com/*' => Http::response('<html><img class="EmbeddedMediaImage" src="https://www.instagram.com/photo.jpg" srcset="https://www.instagram.com/photo.jpg 1080w"></html>', 200, ['Content-Type' => 'text/html'])]);
-    $this->mock(App\Actions\Import\StoreImportedImageAction::class, function ($mock): void {
-        $mock->shouldReceive('download')->once()->andReturn(Illuminate\Http\UploadedFile::fake()->image('photo.jpg', 800, 600));
+    $this->mock(StoreImportedImageAction::class, function ($mock): void {
+        $mock->shouldReceive('download')->once()->andReturn(UploadedFile::fake()->image('photo.jpg', 800, 600));
         $mock->shouldReceive('cleanup')->once();
     });
 

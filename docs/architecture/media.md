@@ -573,8 +573,8 @@ a missing master.
 
 #### From a site's page, with yt-dlp
 
-A link to a page on one of the sites in `import.ytdlp.sites` (RedGifs,
-YouPorn, Coub, Instagram to begin with; which sites, the project's call) is
+A link to a page on one of the sites in `import.ytdlp.sites` (RedGifs and
+Instagram to begin with; which sites, the project's call) is
 asked of yt-dlp first (`App\Support\Import\YtDlp`): its video's length and
 size are read before anything is downloaded, so a clip that is too long is
 refused while posting. A page with no video it may take — an Instagram photo
