@@ -22,7 +22,7 @@ Schedule::command('media:sweep-videos')->hourly()->withoutOverlapping();
 
 // Whether yt-dlp still takes videos from each site it may import from; a site
 // broken two days running is reported.
-Schedule::command('import:check-ytdlp-sites')->dailyAt('04:20')->withoutOverlapping();
+Schedule::command('import:check-ytdlp-sites')->dailyAt('04:20')->withoutOverlapping(30)->runInBackground();
 
 // The Hot feed's stored score decays with a post's age, but a vote or a
 // comment is what recalculates it: without this sweep a post nobody touches

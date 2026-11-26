@@ -24,6 +24,7 @@ use App\Services\Media\MediaAssetInspector;
 use App\Services\Media\MediaHealthResolver;
 use App\Services\Media\MediaLifecycleService;
 use App\Support\Import\YtDlpSiteCheck;
+use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
 use Filament\Pages\Page;
 use Filament\Support\Enums\Width;
@@ -554,12 +555,20 @@ final class MediaDiagnosticsPage extends Page
         $results = YtDlpSiteCheck::results();
         $broken = array_keys(array_filter($results, fn (array $result): bool => $result['status'] === 'broken'));
         $working = count(array_filter($results, fn (array $result): bool => $result['status'] === 'ok'));
+        // Reported from the second day running; the first may be the site's
+        // own bad day.
+        $reported = array_filter($results, fn (array $result): bool => $result['status'] === 'broken' && $result['failures'] >= 2) !== [];
+        $checked = collect($results)->pluck('checked_at')->filter()->max();
 
         return [
             'label' => 'yt-dlp sites',
             'value' => $results === [] ? 'Not checked' : number_format($working).' working',
-            'note' => $broken !== [] ? 'Taking nothing: '.implode(', ', $broken) : ($results === [] ? 'Checked daily' : 'No site taking nothing'),
-            'badge' => $broken !== [] ? ['label' => 'Broken', 'tone' => 'danger'] : null,
+            'note' => match (true) {
+                $results === [] => 'Checked daily',
+                $broken !== [] => 'Taking nothing: '.implode(', ', $broken),
+                default => 'Checked '.ModerationListFormat::when(CarbonImmutable::parse((string) $checked)),
+            },
+            'badge' => $broken === [] ? null : ($reported ? ['label' => 'Broken', 'tone' => 'danger'] : ['label' => 'Failing', 'tone' => 'warning']),
             'filter' => null,
         ];
     }

@@ -32,7 +32,7 @@ final class YtDlp
      *                             answered nothing readable), or found a carousel with a video
      *                             among its photos — never taken for a page with no video
      */
-    public function probe(string $url): ?YtDlpProbeResult
+    public function probe(string $url, ?int $timeoutSeconds = null): ?YtDlpProbeResult
     {
         $extractor = $this->sites->extractorFor($url);
 
@@ -46,7 +46,7 @@ final class YtDlp
             '--skip-download',
             '--',
             $url,
-        ], max(1, (int) config('import.ytdlp.probe_timeout_seconds')));
+        ], max(1, $timeoutSeconds ?? (int) config('import.ytdlp.probe_timeout_seconds')));
 
         if (! $result->succeeded()) {
             // yt-dlp's own answer for a post with no video in it — an

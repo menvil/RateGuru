@@ -647,9 +647,22 @@ catches up. `import:check-ytdlp-sites` (`YtDlpSiteCheck`, daily at 04:20)
 asks each site about the pages its videos were last imported from — real
 links that worked, so no list of reference pages is kept: one still giving a
 video means the site works; the last few all giving none means its extractor
-most likely broke. Two failed checks running are reported
-(`YtDlpSiteBrokenException`: Sentry, and Nightwatch where it runs), and Media
-Diagnostics shows every site's last result. The fix is usually a newer pinned
+most likely broke.
+
+- **Which pages:** only those yt-dlp itself took (never a link straight to a
+  file), and only those of posts still on the site, so a source taken down is
+  never asked for again. They are found in one pass over the newest imports,
+  so a site imported from rarely is still found.
+- **A slow page** is passed over for the next.
+- **Reported** (`YtDlpSiteBrokenException`: Sentry, and Nightwatch where it
+  runs):
+  - a site taking nothing on two days running, once a day however often the
+    check runs;
+  - yt-dlp itself failing to start, said as that and counted against no site.
+- **Media Diagnostics** shows every site's last result and when it was
+  checked.
+
+The fix is usually a newer pinned
 yt-dlp (`infrastructure/config/external-runtimes/versions.env`), installed by
 the Prepare host workflows.
 
