@@ -12,11 +12,11 @@ use App\Services\Media\Classification\MediaClassificationRecorder;
 use App\Services\Media\Classification\MediaClassifierRegistry;
 use App\Support\Media\MediaQueue;
 use App\Support\Media\WorkerTemporaryDirectory;
-use Carbon\CarbonImmutable;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Foundation\Queue\Queueable;
+use Illuminate\Queue\Middleware\WithoutOverlapping;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Log;
 use RuntimeException;
@@ -57,12 +57,12 @@ final class ClassifyMediaAssetJob implements RunsOnMediaQueue, ShouldBeUnique, S
     private const int STALE_AFTER_SECONDS = 7200;
 
     /**
-     * @param  int|null  $retryFailuresBefore  media:classify --retry-failed: a classifier's failure recorded before this moment (a Unix time) is asked again — one this job's own earlier attempt recorded is not
+     * @param  int|null  $retryFailuresThrough  media:classify --retry-failed: a classifier's failure recorded up to this answer id — the last there was when the command ran — is asked again; one recorded since, by this job's own earlier attempt among others, is not
      * @param  int  $delaySeconds  how long after its dispatch it becomes available (media:classify spreads them out)
      */
     public function __construct(
         public readonly int $mediaAssetId,
-        public readonly ?int $retryFailuresBefore = null,
+        public readonly ?int $retryFailuresThrough = null,
         public readonly int $delaySeconds = 0,
     ) {
         $this->onConnection(MediaQueue::connection());
@@ -73,10 +73,28 @@ final class ClassifyMediaAssetJob implements RunsOnMediaQueue, ShouldBeUnique, S
         return (string) $this->mediaAssetId;
     }
 
-    /** Held through its delay too, and as long as the media connection could then deliver it. */
+    /**
+     * Held through its delay too, and as long as the media connection could
+     * then deliver it. It keeps a second job from being queued meanwhile; it
+     * cannot outlast a queue that makes the job wait longer, and need not:
+     * the middleware below never lets two run at once for one asset, and a
+     * job that runs after another finds every answer there and asks no one.
+     */
     public function uniqueFor(): int
     {
         return max(0, $this->delaySeconds) + self::DELIVERY_WINDOW_SECONDS;
+    }
+
+    /**
+     * One run per asset at a time, whatever was queued: a job arriving while
+     * another runs for its asset is dropped, not run alongside it — that one
+     * asks every classifier still to answer.
+     *
+     * @return list<object>
+     */
+    public function middleware(): array
+    {
+        return [(new WithoutOverlapping((string) $this->mediaAssetId))->dontRelease()->expireAfter($this->timeout + 60)];
     }
 
     public function handle(MediaClassifierRegistry $registry, ClassificationFrameSampler $sampler, MediaClassificationRecorder $recorder): void
@@ -97,8 +115,8 @@ final class ClassifyMediaAssetJob implements RunsOnMediaQueue, ShouldBeUnique, S
                 // again for one recorded before it was asked.
                 ->orWhere(fn (Builder $failure): Builder => $failure
                     ->where('status', ClassificationStatus::Failed)
-                    ->when($this->retryFailuresBefore !== null, fn (Builder $recent): Builder => $recent
-                        ->where('created_at', '>=', CarbonImmutable::createFromTimestamp((int) $this->retryFailuresBefore)))))
+                    ->when($this->retryFailuresThrough !== null, fn (Builder $recent): Builder => $recent
+                        ->where('id', '>', (int) $this->retryFailuresThrough))))
             ->exists()));
 
         if ($pending === []) {

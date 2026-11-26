@@ -379,9 +379,9 @@ it('never asks a classifier again for a failure it recorded, on the job\'s own r
     expect($broken->shown)->toHaveCount(1)
         ->and($working->shown)->toHaveCount(2);
 
-    // Asked again for what failed before, once: its own retry asks no more.
-    $this->travel(1)->seconds();
-    $retry = new ClassifyMediaAssetJob($asset->id, now()->getTimestamp());
+    // Asked again for what failed before — in the very same second — once:
+    // its own retry asks no more.
+    $retry = new ClassifyMediaAssetJob($asset->id, (int) MediaClassification::query()->max('id'));
     app()->call([$retry, 'handle']);
     app()->call([$retry, 'handle']);
 
@@ -398,14 +398,14 @@ it('hands its jobs the retry it was asked for, and holds each one\'s lock throug
     $this->artisan('media:classify')->assertSuccessful();
     $jobs = collect(Queue::pushed(ClassifyMediaAssetJob::class));
 
-    expect($jobs->pluck('retryFailuresBefore')->all())->toBe([null, null])
+    expect($jobs->pluck('retryFailuresThrough')->all())->toBe([null, null])
         ->and($jobs->map(fn (ClassifyMediaAssetJob $job): int => $job->uniqueFor())->all())->toBe([960, 960 + MediaClassifyCommand::SPACING_SECONDS]);
 
     Queue::fake();
     Cache::flush();
     $this->artisan('media:classify', ['--retry-failed' => true])->assertSuccessful();
 
-    expect(collect(Queue::pushed(ClassifyMediaAssetJob::class))->pluck('retryFailuresBefore')->unique()->all())->toBe([now()->getTimestamp()]);
+    expect(collect(Queue::pushed(ClassifyMediaAssetJob::class))->pluck('retryFailuresThrough')->unique()->all())->toBe([(int) MediaClassification::query()->max('id')]);
 });
 
 it('stops asking for frames once its time is up, and shows the ones it took', function () {
@@ -429,4 +429,28 @@ it('stops asking for frames once its time is up, and shows the ones it took', fu
 
     expect($input->frames)->toHaveCount(2)
         ->and($runner->calls)->toBe(2);
+});
+
+it('never runs two jobs for one asset at once, and one queued after the other\'s lock expired asks no one again', function () {
+    $classifier = standInClassifier(name: 'only');
+    configureClassifiers(['test.only' => [$classifier, 'shadow']]);
+    framesWrittenByFfmpeg();
+    $asset = readyVideoAsset();
+    $job = fn (): ClassifyMediaAssetJob => (new ClassifyMediaAssetJob($asset->id))->onConnection('sync');
+
+    // A second job, queued once the first one's unique lock had expired,
+    // arrives while the first still runs: it is dropped, not run alongside.
+    $running = Cache::lock($job()->middleware()[0]->getLockKey($job()), 960);
+    $running->get();
+    dispatch($job());
+    expect($classifier->shown)->toBe([]);
+    $running->release();
+    Cache::flush();
+
+    // The first runs; another arriving after it finds the answer there.
+    dispatch($job());
+    Cache::flush();
+    dispatch($job());
+
+    expect($classifier->shown)->toHaveCount(1);
 });

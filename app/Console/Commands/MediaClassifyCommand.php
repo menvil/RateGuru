@@ -7,6 +7,7 @@ use App\Enums\MediaKind;
 use App\Enums\MediaStatus;
 use App\Jobs\ClassifyMediaAssetJob;
 use App\Models\MediaAsset;
+use App\Models\MediaClassification;
 use App\Services\Media\Classification\MediaClassifierRegistry;
 use Illuminate\Console\Command;
 use Illuminate\Database\Eloquent\Builder;
@@ -46,9 +47,10 @@ final class MediaClassifyCommand extends Command
 
         $limit = max(1, (int) $this->option('limit'));
         $retryFailed = (bool) $this->option('retry-failed');
-        // What failed before now is asked again; a failure the job records
-        // itself is not, on its own retry either.
-        $retryFailuresBefore = $retryFailed ? now()->getTimestamp() : null;
+        // What failed up to the last answer there is now is asked again; a
+        // failure recorded since — by the job itself, on its own retry
+        // too — is not.
+        $retryFailuresThrough = $retryFailed ? (int) MediaClassification::query()->max('id') : null;
         $queued = 0;
 
         MediaAsset::query()
@@ -67,9 +69,9 @@ final class MediaClassifyCommand extends Command
             ->orderByDesc('id')
             ->limit($limit)
             ->pluck('id')
-            ->each(function (int $id) use (&$queued, $retryFailuresBefore): void {
+            ->each(function (int $id) use (&$queued, $retryFailuresThrough): void {
                 $delay = $queued * self::SPACING_SECONDS;
-                ClassifyMediaAssetJob::dispatch($id, $retryFailuresBefore, $delay)->delay(now()->addSeconds($delay));
+                ClassifyMediaAssetJob::dispatch($id, $retryFailuresThrough, $delay)->delay(now()->addSeconds($delay));
                 $queued++;
             });
 

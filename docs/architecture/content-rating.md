@@ -119,7 +119,10 @@ configuration is read by the job, never by the upload.
 **The job:**
 - It runs on the media queue, one at a time per asset (`ShouldBeUnique`).
   The lock is held through a delay it was queued with, then as long as the
-  media connection could still deliver it.
+  media connection could still deliver it. A queue that makes the job wait
+  longer can let a second one in; that second one never runs alongside the
+  first (`WithoutOverlapping`: it is dropped), and one that runs after it
+  finds every answer there and asks no one.
 - A classifier that already answered for the asset at its model version is
   not asked again, so an upload, a redelivered video job and
   `media:classify` meeting on one asset ask each classifier once, and a paid
@@ -140,9 +143,10 @@ media:classify --limit=N` queues it, newest first, for every configured
 classifier that has not answered for it yet. Use it, for example, to try a
 classifier in shadow mode on real uploads.
 - An asset a classifier failed on counts as answered unless
-  `--retry-failed` is given. Then a failure recorded before the command ran
-  is asked again, once: a failure the job records itself is not asked again
-  on its own retry. A classifier that has not answered is asked either way.
+  `--retry-failed` is given. Then a failure recorded up to the last answer
+  there was when the command ran (by answer id, not by time) is asked again,
+  once: a failure the job records itself is not asked again on its own
+  retry. A classifier that has not answered is asked either way.
 - The jobs become available ten seconds apart, so the videos waiting on the
   same media queue are never stuck behind a whole batch.
 

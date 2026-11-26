@@ -34,7 +34,6 @@ use App\Support\Media\PostImagePresenter;
 use App\Support\Moderation\ModerationReason;
 use Filament\Resources\Pages\Page;
 use Filament\Support\Enums\Width;
-use Illuminate\Database\Query\Builder as QueryBuilder;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Number;
 use Illuminate\Support\Str;
@@ -597,7 +596,7 @@ final class ListPosts extends Page
         // limit: one answering often never pushes another's out.
         return $asset->classifications()
             ->select(['id', 'classifier', 'mode', 'status', 'scores'])
-            ->whereNotExists(fn (QueryBuilder $newer): QueryBuilder => $newer
+            ->whereNotExists(MediaClassification::query()
                 ->from('media_classifications as newer')
                 ->whereColumn('newer.media_asset_id', 'media_classifications.media_asset_id')
                 ->whereColumn('newer.classifier', 'media_classifications.classifier')
