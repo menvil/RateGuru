@@ -1,0 +1,97 @@
+resources/views/filament/pages/rating-groups/legend.blade.php
+  ai_agent 6-8
+tests/Browser/AdminProjectSettingsBrowserTest.php
+  ai_agent 74-84
+resources/views/components/admin/ui/number-stepper.blade.php
+  ai_agent 55-57,90,95-96
+resources/views/filament/pages/languages/missing.blade.php
+  ai_agent 57,59-62
+tests/Feature/Filament/RatingGroupOptionsTest.php
+  ai_agent 186-197
+tests/Browser/AdminTranslationCenterBrowserTest.php
+  s_0f80700cf0b8c6::t_6c4b8908546753 238-239,266-303
+tests/Feature/Filament/RatingGroupResourceTest.php
+  ai_agent 52-67
+app/Filament/Pages/TranslationCenterPage.php
+  s_0f80700cf0b8c6::t_001e3943416f32 204-206,218-234
+resources/views/filament/pages/reports/panel.blade.php
+  ai_agent 26-28
+resources/views/filament/pages/studio-action-queue/row.blade.php
+  ai_agent 130-131
+resources/views/filament/pages/translation-center/row.blade.php
+  s_0f80700cf0b8c6::t_5a3e11f295b771 50-51
+resources/views/filament/pages/rating-group/confirmation.blade.php
+  ai_agent 85-90
+tests/Feature/Filament/ModerationFinalizeUiTest.php
+  ai_agent 82-85
+tests/Feature/Filament/StudioActionQueueTest.php
+  ai_agent 69-82
+resources/views/filament/pages/personas/row.blade.php
+  ai_agent 9-10,27,53,57
+tests/Feature/I18n/ProjectTranslationGenerationReviewTest.php
+  s_0f80700cf0b8c6::t_9384b82514b215 197-209
+tests/Feature/Filament/LanguagesPageTest.php
+  ai_agent 894-909,1012
+  s_0f80700cf0b8c6::t_54ffa18bc30d48 910-911
+resources/views/filament/pages/tags/drawer.blade.php
+  s_0f80700cf0b8c6::t_9c60255f676452 15-17,20
+tests/Browser/AdminStudioPlanPostVotesBrowserTest.php
+  ai_agent 57-72
+tests/Browser/AdminPersonasBrowserTest.php
+  ai_agent 113-129
+app/Filament/Pages/StudioActionQueue.php
+  ai_agent 317
+tests/Feature/Filament/TranslationCenterPageTest.php
+  ai_agent 315-318
+tests/Feature/ViewComponents/AdminUiComponentsTest.php
+  ai_agent 742,747
+resources/views/filament/pages/moderation/reason.blade.php
+  ai_agent 30-37,39
+app/Filament/Resources/StudioPlans/StudioActionPlan.php
+  ai_agent 312-317
+resources/views/filament/pages/translation-center/script.blade.php
+  s_0f80700cf0b8c6::t_569454ea4584ad 59,109-110,651,673-676,737-738,746,924-927
+  s_0f80700cf0b8c6::t_001e3943416f32 759
+resources/views/filament/pages/tags/row.blade.php
+  ai_agent 21-22
+tests/Feature/Filament/TranslationAiPageTest.php
+  s_0f80700cf0b8c6::t_8064136e7007bd 205-206,208-216
+  s_0f80700cf0b8c6::t_d8abafd62e96be 207
+tests/Feature/Admin/AdminInPlaceLinksTest.php
+  ai_agent 1-13,15-20
+tests/Browser/AdminStudioPlansBrowserTest.php
+  ai_agent 203-226
+tests/Browser/AdminTranslationCenterGenerationBrowserTest.php
+  s_0f80700cf0b8c6::t_2a57301fcc4002 4-5,344-364
+  s_0f80700cf0b8c6::t_dc31083a26d861 367-399
+resources/views/components/admin/ui/toast-stack.blade.php
+  ai_agent 57-58,66-70
+tests/Browser/AdminReportsBrowserTest.php
+  ai_agent 71-74
+resources/views/filament/pages/users/row.blade.php
+  ai_agent 8-10,22,66,75
+tests/Feature/Filament/TagResourceFormTest.php
+  s_0f80700cf0b8c6::t_0fe6854820e11f 170-182
+resources/views/filament/pages/project-settings.blade.php
+  ai_agent 54-55
+tests/Browser/AdminUiKitBrowserTest.php
+  ai_agent 182-206
+resources/views/components/admin/ui/date-time-field.blade.php
+  ai_agent 342-343,345,347,350-351,353,359
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "eb85ca1a5ef75d88a20cc2bec313834c2ec79cf4",
+  "prompts": {},
+  "sessions": {
+    "s_0f80700cf0b8c6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9c487690-cbdd-45b4-bfb3-e59a0da356a9",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}

@@ -1,0 +1,25 @@
+tests/Feature/Livewire/ProfileProcessingVideosTest.php
+  s_1f43f39fbe0537::t_b586f7fd85619c 15,18,31,53-72
+tests/Pest.php
+  s_1f43f39fbe0537::t_b586f7fd85619c 16009-16013,16015,16017,16019-16022,16025-16031
+resources/views/livewire/profile/profile-page.blade.php
+  s_1f43f39fbe0537::t_b586f7fd85619c 150
+lang/de/profile.php
+  s_1f43f39fbe0537::t_b586f7fd85619c 17
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "cd049dcbbafd07a480698f5ae7275e7dc9d8d605",
+  "prompts": {},
+  "sessions": {
+    "s_1f43f39fbe0537": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "526787d0-f443-4ad7-9610-cf9811fec895",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
