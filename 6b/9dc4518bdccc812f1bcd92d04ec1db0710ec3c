@@ -1,0 +1,21 @@
+resources/css/app.css
+  s_1f43f39fbe0537::t_0dc097c0bda8d0 920-929
+resources/views/components/media/post-image.blade.php
+  s_1f43f39fbe0537::t_0dc097c0bda8d0 96,109
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "6b9dc4518bdccc812f1bcd92d04ec1db0710ec3c",
+  "prompts": {},
+  "sessions": {
+    "s_1f43f39fbe0537": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "526787d0-f443-4ad7-9610-cf9811fec895",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
