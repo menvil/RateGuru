@@ -1,0 +1,45 @@
+tests/Feature/Filament/PostResourceTest.php
+  s_1f43f39fbe0537::t_c9749e5778c5b5 245-255
+resources/js/post-video.js
+  s_1f43f39fbe0537::t_5929668ed64d56 10-11,60-62,66
+app/Queries/Games/GamePostPickerQuery.php
+  s_1f43f39fbe0537::t_5929668ed64d56 26-33
+resources/views/filament/pages/posts/viewer.blade.php
+  s_1f43f39fbe0537::t_958733bf870f7b 21
+resources/views/livewire/posts/post-show.blade.php
+  s_1f43f39fbe0537::t_958733bf870f7b 101-105,253-257
+tests/Browser/PostVideoBrowserTest.php
+  s_1f43f39fbe0537::t_6095a72367b0b4 40,43-44,49,51
+resources/views/livewire/feed/post-drawer-content.blade.php
+  s_1f43f39fbe0537::t_958733bf870f7b 72-76,192-196
+tests/Feature/Queries/GamePostPickerQueryTest.php
+  s_1f43f39fbe0537::t_5310e611cbe5b7 88-92,94-101
+  s_1f43f39fbe0537::t_69e6f6dfac7aa4 93
+app/Filament/Resources/Posts/Pages/ListPosts.php
+  s_1f43f39fbe0537::t_958733bf870f7b 530,538-540,542
+app/Filament/Resources/Games/Pages/EditGameContent.php
+  s_1f43f39fbe0537::t_c9749e5778c5b5 24
+  s_1f43f39fbe0537::t_5929668ed64d56 367
+resources/views/components/feed/post-card.blade.php
+  s_1f43f39fbe0537::t_958733bf870f7b 87-91,248-252
+tests/Feature/Media/PostVideoPlaybackTest.php
+  s_1f43f39fbe0537::t_6095a72367b0b4 115-137
+resources/views/components/media/post-image.blade.php
+  s_1f43f39fbe0537::t_5929668ed64d56 57-59,61
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "97f7d6bb32717104019673921e8dd248030dd1f5",
+  "prompts": {},
+  "sessions": {
+    "s_1f43f39fbe0537": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "526787d0-f443-4ad7-9610-cf9811fec895",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}

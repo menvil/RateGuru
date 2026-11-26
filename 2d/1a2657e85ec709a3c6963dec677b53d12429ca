@@ -1,0 +1,28 @@
+tests/Feature/Import/VideoImportTest.php
+  s_1f43f39fbe0537::t_570ffdc52a0203 27,192
+app/Services/Media/VideoAssetProcessor.php
+  s_1f43f39fbe0537::t_fad7c5af19bf46 240
+tests/Feature/Media/WorkerTemporaryDirectoryTest.php
+  s_1f43f39fbe0537::t_570ffdc52a0203 1-52
+app/Jobs/ImportVideoAssetJob.php
+  s_1f43f39fbe0537::t_fad7c5af19bf46 159-161,165
+  s_1f43f39fbe0537::t_570ffdc52a0203 20
+app/Support/Media/WorkerTemporaryDirectory.php
+  s_1f43f39fbe0537::t_fad7c5af19bf46 1-46
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "2d1a2657e85ec709a3c6963dec677b53d12429ca",
+  "prompts": {},
+  "sessions": {
+    "s_1f43f39fbe0537": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "526787d0-f443-4ad7-9610-cf9811fec895",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}

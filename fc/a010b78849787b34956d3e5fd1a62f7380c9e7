@@ -1,0 +1,32 @@
+tests/Feature/Livewire/NotificationPreferencesFormTest.php
+  s_0f80700cf0b8c6::t_ab85db1882e865 3
+  s_0f80700cf0b8c6::t_e8e4fd7aaf722f 50-67
+  s_0f80700cf0b8c6::t_4f35d9878cdc85 68-74
+resources/views/livewire/settings/notification-preferences-form.blade.php
+  s_0f80700cf0b8c6::t_8c9051e0685d4f 24-30
+  s_0f80700cf0b8c6::t_6c3ea31199cf6a 11
+tests/Feature/Settings/GuestViewingTest.php
+  s_0f80700cf0b8c6::t_9b96119b3e13f9 1-2,4-63,78
+  s_0f80700cf0b8c6::t_4f35d9878cdc85 3,65-77
+tests/Feature/Livewire/ProfileTabsTest.php
+  ai_agent 4,38-39
+  s_0f80700cf0b8c6::t_6c3ea31199cf6a 48-49,59
+app/Livewire/Feed/PostDrawer.php
+  s_0f80700cf0b8c6::t_6c3ea31199cf6a 126-131
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "fca010b78849787b34956d3e5fd1a62f7380c9e7",
+  "prompts": {},
+  "sessions": {
+    "s_0f80700cf0b8c6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9c487690-cbdd-45b4-bfb3-e59a0da356a9",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}

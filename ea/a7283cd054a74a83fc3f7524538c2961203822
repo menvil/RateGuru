@@ -1,0 +1,29 @@
+app/Exceptions/Import/YtDlpSiteBrokenException.php
+  s_1f43f39fbe0537::t_944259607b2082 1-19
+tests/Feature/Import/YtDlpSiteCheckTest.php
+  ai_agent 6-100
+app/Console/Commands/ImportCheckYtDlpSitesCommand.php
+  s_1f43f39fbe0537::t_944259607b2082 1-27
+app/Support/Import/YtDlpSiteCheck.php
+  s_1f43f39fbe0537::t_944259607b2082 1-117
+routes/console.php
+  s_1f43f39fbe0537::t_944259607b2082 23-25
+app/Filament/Pages/MediaDiagnosticsPage.php
+  ai_agent 28
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "eaa7283cd054a74a83fc3f7524538c2961203822",
+  "prompts": {},
+  "sessions": {
+    "s_1f43f39fbe0537": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "526787d0-f443-4ad7-9610-cf9811fec895",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}

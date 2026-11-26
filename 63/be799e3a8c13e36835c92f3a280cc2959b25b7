@@ -1,0 +1,21 @@
+tests/Feature/Services/Media/VideoMediaSweeperTest.php
+  s_1f43f39fbe0537::t_18f67135072965 118-119,122,156,164,166,169-170,180,182,184-185,191,193
+app/Services/Media/VideoMediaSweeper.php
+  s_1f43f39fbe0537::t_e4b0888b683db0 33
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "63be799e3a8c13e36835c92f3a280cc2959b25b7",
+  "prompts": {},
+  "sessions": {
+    "s_1f43f39fbe0537": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "526787d0-f443-4ad7-9610-cf9811fec895",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
