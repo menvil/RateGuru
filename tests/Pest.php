@@ -37,9 +37,11 @@ use App\Enums\GameEventType;
 use App\Enums\GameFlowStepType;
 use App\Enums\GameStatus;
 use App\Enums\MediaResizeMode;
+use App\Enums\MediaStatus;
 use App\Enums\MediaTool;
 use App\Enums\MediaType;
 use App\Enums\MediaVariantName;
+use App\Enums\PostStatus;
 use App\Enums\ReportStatus;
 use App\Enums\StudioActionStatus;
 use App\Enums\StudioActionType;
@@ -16056,4 +16058,27 @@ function reachedVisits(TrafficSource $source, string $day, int $visits, int $ope
 function accountCreditedKeysMigration(): object
 {
     return require database_path('migrations/2026_11_22_120000_add_credited_keys_to_account_attributions_table.php');
+}
+
+/**
+ * A video post waiting for its media, whose asset is now in $status — a GIF
+ * with MediaType::Animation — with the post's own $attributes on top.
+ *
+ * @return array{0: Post, 1: MediaAsset}
+ */
+function draftVideoPost(User $author, MediaStatus $status, MediaType $type = MediaType::Video, array $attributes = []): array
+{
+    $asset = MediaAsset::factory()->create([
+        'owner_user_id' => $author->id,
+        'media_type' => $type,
+        'status' => $status,
+    ]);
+    $post = Post::factory()->for($author)->create([
+        'status' => PostStatus::Draft,
+        'published_at' => null,
+        'image_asset_id' => $asset->id,
+        ...$attributes,
+    ]);
+
+    return [$post, $asset];
 }

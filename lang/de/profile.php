@@ -14,7 +14,7 @@ return [
     'followers' => 'Follower',
     'following' => 'Folge ich',
     'no_posts' => 'Noch keine veröffentlichten Beiträge',
-    'processing_videos' => 'Videos in Bearbeitung',
+    'processing_videos' => 'Videos werden verarbeitet',
     'processing_video' => 'Wird verarbeitet',
     'no_posts_description' => 'Dieser Nutzer hat noch keine Beiträge veröffentlicht.',
     'no_activity' => 'Noch keine Aktivität',
