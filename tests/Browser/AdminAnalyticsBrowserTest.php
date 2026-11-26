@@ -160,7 +160,9 @@ it('changes the period, the device and the source, with the chip and a source ro
             return [card.querySelector('.rg-admin-card__title')?.textContent.trim(), getComputedStyle(row('Google')).opacity, getComputedStyle(row('Reddit')).opacity].join('|');
         })()
         JS;
-    expect($page->script($sourcesCard))->toBe('All traffic sources|1|0.45');
+    // The pointer off the rows first: a row pointed at is drawn in full, and the click left it over one.
+    $page->hover('[data-testid="analytics-sources"] .rg-admin-card__title');
+    waitForScript($page, $sourcesCard, 'All traffic sources|1|0.45', 10.0);
 
     $page->click('.rg-admin-analytics__source-row .rg-admin-analytics__source-name:has-text("Google")');
     waitForScript($page, "document.querySelector('.rg-admin-analytics__kpi-value')?.textContent.trim()", '61', 10.0);
