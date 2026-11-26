@@ -12,31 +12,11 @@ beforeEach(function () {
         'mobile.twitter.com' => ['104.244.42.129'],
         'cdn.syndication.twimg.com' => ['151.101.0.157'],
         'pbs.twimg.com' => ['151.101.64.159'],
+        'video.twimg.com' => ['151.101.128.158'],
         'intranet.example' => ['10.0.0.5'],
     ]);
     Http::preventStrayRequests();
 });
-
-/**
- * What the embed widget's endpoint returns for a post with one photo,
- * trimmed to the fields the adapter reads.
- *
- * @param  array<string, mixed>  $overrides
- */
-function xSyndicatedPost(array $overrides = []): string
-{
-    return json_encode(array_replace([
-        '__typename' => 'Tweet',
-        'id_str' => '440322224407314432',
-        'text' => "If only Bradley's arm was longer. Best photo ever. #oscars http://t.co/C9U5NOtGap",
-        'user' => ['name' => 'The Ellen Show', 'screen_name' => 'TheEllenShow'],
-        'mediaDetails' => [[
-            'type' => 'photo',
-            'indices' => [59, 81],
-            'media_url_https' => 'https://pbs.twimg.com/media/BhxWutnCEAAtEQ6.jpg',
-        ]],
-    ], $overrides), JSON_THROW_ON_ERROR);
-}
 
 it('imports the first picture of a post on X at its large size, with the post text and its author', function () {
     Http::fake(['cdn.syndication.twimg.com/*' => Http::response(xSyndicatedPost(), 200, ['Content-Type' => 'application/json'])]);
@@ -131,4 +111,37 @@ it('reads a link that is not a post from its page, without taking an avatar for 
         ->and($preview->title)->toBe('The Ellen Show (@TheEllenShow) on X');
 
     Http::assertNotSent(fn (Request $request): bool => str_contains($request->url(), 'cdn.syndication.twimg.com'));
+});
+
+it('takes the video a post leads with, at the highest bitrate no larger than 1080, with its poster as the picture', function () {
+    Http::fake(['cdn.syndication.twimg.com/*' => Http::response(xSyndicatedPost(['mediaDetails' => [[
+        'type' => 'video',
+        'indices' => [0, 0],
+        'media_url_https' => 'https://pbs.twimg.com/ext_tw_video_thumb/1/pu/img/thumb.jpg',
+        'video_info' => ['variants' => [
+            ['content_type' => 'application/x-mpegURL', 'url' => 'https://video.twimg.com/ext_tw_video/1/pu/pl/playlist.m3u8'],
+            ['content_type' => 'video/mp4', 'bitrate' => 832000, 'url' => 'https://video.twimg.com/ext_tw_video/1/pu/vid/avc1/480x852/a.mp4'],
+            ['content_type' => 'video/mp4', 'bitrate' => 2176000, 'url' => 'https://video.twimg.com/ext_tw_video/1/pu/vid/avc1/720x1280/b.mp4'],
+            ['content_type' => 'video/mp4', 'bitrate' => 10368000, 'url' => 'https://video.twimg.com/ext_tw_video/1/pu/vid/avc1/1440x2560/c.mp4'],
+        ]],
+    ]]]), 200)]);
+
+    $preview = app(XPostImportAdapter::class)->preview('https://x.com/someone/status/1');
+
+    expect($preview->videoUrl)->toBe('https://video.twimg.com/ext_tw_video/1/pu/vid/avc1/720x1280/b.mp4')
+        ->and($preview->imageUrl)->toBe('https://pbs.twimg.com/ext_tw_video_thumb/1/pu/img/thumb.jpg');
+});
+
+it('takes the MP4 X serves for an animated GIF, and nothing for a post that leads with a photo', function () {
+    Http::fake(['cdn.syndication.twimg.com/*' => Http::sequence()
+        ->push(xSyndicatedPost(['mediaDetails' => [[
+            'type' => 'animated_gif',
+            'indices' => [0, 0],
+            'media_url_https' => 'https://pbs.twimg.com/tweet_video_thumb/g.jpg',
+            'video_info' => ['variants' => [['content_type' => 'video/mp4', 'bitrate' => 0, 'url' => 'https://video.twimg.com/tweet_video/g.mp4']]],
+        ]]]), 200)
+        ->push(xSyndicatedPost(), 200)]);
+
+    expect(app(XPostImportAdapter::class)->preview('https://x.com/someone/status/2')->videoUrl)->toBe('https://video.twimg.com/tweet_video/g.mp4')
+        ->and(app(XPostImportAdapter::class)->preview('https://x.com/someone/status/3')->videoUrl)->toBeNull();
 });

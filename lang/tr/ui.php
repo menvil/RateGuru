@@ -268,6 +268,7 @@ return [
         'image_drop_hint' => 'JPEG, PNG, GIF; en fazla 5 MB',
         'image_browse' => 'Dosya seç',
         'image_url_placeholder' => 'https://example.com/image.jpg',
+        'media_url_hint' => 'Bir resme veya videoya ya da bir gönderiye bağlantı: site izin veriyorsa videosu veya GIF\'i, aksi halde fotoğrafı alınır.',
         'source_url' => 'Kaynak URL',
         'source_url_placeholder' => 'https://example.com/original',
         'tags' => 'Etiketler',

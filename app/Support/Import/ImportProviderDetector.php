@@ -4,7 +4,10 @@ namespace App\Support\Import;
 
 class ImportProviderDetector
 {
-    private const IMAGE_EXTENSIONS = ['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp'];
+    private const IMAGE_EXTENSIONS = ['jpg', 'jpeg', 'png', 'webp', 'bmp'];
+
+    // A GIF is taken as an animation: it becomes a looping video.
+    private const VIDEO_EXTENSIONS = ['mp4', 'm4v', 'mov', 'webm', 'gif'];
 
     private const SOCIAL_HOST_PATTERNS = [
         'instagram' => ['instagram.com'],
@@ -31,6 +34,10 @@ class ImportProviderDetector
 
         if (in_array($extension, self::IMAGE_EXTENSIONS, true)) {
             return 'direct_image';
+        }
+
+        if (in_array($extension, self::VIDEO_EXTENSIONS, true)) {
+            return 'direct_video';
         }
 
         return 'open_graph';

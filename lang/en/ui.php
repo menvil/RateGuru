@@ -268,6 +268,7 @@ return [
         'image_drop_hint' => 'JPEG, PNG, GIF up to 5MB',
         'image_browse' => 'Browse File',
         'image_url_placeholder' => 'https://example.com/image.jpg',
+        'media_url_hint' => 'A link to a picture or a video, or to a post: its video or GIF where the site allows, otherwise its photo.',
         'source_url' => 'Source URL',
         'source_url_placeholder' => 'https://example.com/original',
         'tags' => 'Tags',

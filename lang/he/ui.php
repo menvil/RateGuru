@@ -275,6 +275,7 @@ return [
         'image_drop_hint' => 'JPEG, PNG, GIF עד 5MB',
         'image_browse' => 'בחירת קובץ',
         'image_url_placeholder' => 'https://example.com/image.jpg',
+        'media_url_hint' => 'קישור לתמונה או לסרטון, או לפוסט: נלקחים הסרטון או ה-GIF שלו היכן שהאתר מאפשר, אחרת התמונה שלו.',
         'source_url' => 'כתובת המקור',
         'source_url_placeholder' => 'https://example.com/original',
         'tags' => 'תגיות',
