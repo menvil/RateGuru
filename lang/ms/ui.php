@@ -65,6 +65,7 @@ return [
         'video_sound_on' => 'Hidupkan bunyi',
         'video_sound_off' => 'Matikan bunyi',
         'video_open' => 'Buka video skrin penuh',
+        'video_play' => 'Main video',
         'image_preview' => 'Pratonton imej',
         'unavailable' => 'Siaran ini tidak lagi tersedia.',
         'not_found_title' => 'Siaran tidak ditemui',

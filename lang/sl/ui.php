@@ -65,6 +65,7 @@ return [
         'video_sound_on' => 'Vklopi zvok',
         'video_sound_off' => 'Izklopi zvok',
         'video_open' => 'Odpri video v celozaslonskem načinu',
+        'video_play' => 'Predvajaj video',
         'image_preview' => 'Predogled slike',
         'unavailable' => 'Ta objava ni več na voljo.',
         'not_found_title' => 'Objave ni mogoče najti',

@@ -65,6 +65,7 @@ return [
         'video_sound_on' => 'Bật âm thanh',
         'video_sound_off' => 'Tắt âm thanh',
         'video_open' => 'Mở video toàn màn hình',
+        'video_play' => 'Phát video',
         'image_preview' => 'Xem trước hình ảnh',
         'unavailable' => 'Bài đăng này không còn khả dụng.',
         'not_found_title' => 'Không tìm thấy bài đăng',

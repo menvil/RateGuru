@@ -65,6 +65,7 @@ return [
         'video_sound_on' => 'সাউন্ড চালু করুন',
         'video_sound_off' => 'সাউন্ড বন্ধ করুন',
         'video_open' => 'ভিডিও ফুলস্ক্রিনে খুলুন',
+        'video_play' => 'ভিডিও চালান',
         'image_preview' => 'ছবির প্রিভিউ',
         'unavailable' => 'এই পোস্টটি আর পাওয়া যাচ্ছে না।',
         'not_found_title' => 'পোস্ট পাওয়া যায়নি',

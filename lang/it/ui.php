@@ -65,6 +65,7 @@ return [
         'video_sound_on' => 'Attiva audio',
         'video_sound_off' => 'Disattiva audio',
         'video_open' => 'Apri il video a schermo intero',
+        'video_play' => 'Riproduci il video',
         'image_preview' => 'Anteprima immagine',
         'unavailable' => 'Questo post non è più disponibile.',
         'not_found_title' => 'Post non trovato',

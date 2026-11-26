@@ -65,6 +65,7 @@ return [
         'video_sound_on' => 'Slå på ljud',
         'video_sound_off' => 'Stäng av ljud',
         'video_open' => 'Öppna video i helskärm',
+        'video_play' => 'Spela upp video',
         'image_preview' => 'Förhandsvisning av bild',
         'unavailable' => 'Det här inlägget är inte längre tillgängligt.',
         'not_found_title' => 'Inlägget hittades inte',

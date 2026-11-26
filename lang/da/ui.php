@@ -65,6 +65,7 @@ return [
         'video_sound_on' => 'Slå lyd til',
         'video_sound_off' => 'Slå lyd fra',
         'video_open' => 'Åbn video i fuld skærm',
+        'video_play' => 'Afspil video',
         'image_preview' => 'Forhåndsvisning af billede',
         'unavailable' => 'Dette opslag er ikke længere tilgængeligt.',
         'not_found_title' => 'Opslaget blev ikke fundet',

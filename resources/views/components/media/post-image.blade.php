@@ -47,9 +47,12 @@
 
 @if($video)
     @php
-        // An eager video (the first in a feed, the post page's) has its file
-        // and poster from the start; any other — the rest of a feed, a closed
-        // viewer's — gets them from rgPostVideo once it comes near the screen.
+        // Nothing plays until asked, and no video is fetched before: an eager
+        // one (the first in a feed, the post page's) has its poster from the
+        // start, any other gets it from rgPostVideo once it comes near the
+        // screen. The file is set when it is played — or, where the browser's
+        // own controls start it (the post page, the viewer), up front with
+        // preload="none", so they have something to play and fetch nothing yet.
         $videoPoster = $video->poster ?? $imageUrl;
         $eagerVideo = $loading === null;
         $withControls = in_array($context, ['standalone', 'fullscreen'], true);
@@ -60,7 +63,7 @@
     <div
         wire:key="post-video-{{ $context }}-{{ $post?->id }}-{{ substr(md5($video->src), 0, 12) }}"
         {{ $attributes->class([$containerClasses]) }}
-        x-data="rgPostVideo({ src: @js($video->src), poster: @js($videoPoster) })"
+        x-data="rgPostVideo({ src: @js($video->src), poster: @js($videoPoster), controls: @js($withControls) })"
         x-on:rg-video-sound.window="if ($event.detail !== $root) quiet()"
         x-on:rg-video-playing.window="if ($event.detail !== $root) pause()"
         data-testid="post-video"
@@ -69,13 +72,14 @@
         <div class="relative inline-flex max-w-full">
         <video
             x-ref="video"
-            @if($eagerVideo) src="{{ $video->src }}" @if($videoPoster) poster="{{ $videoPoster }}" @endif @endif
+            @if($eagerVideo && $withControls) src="{{ $video->src }}" @endif
+            @if($eagerVideo && $videoPoster) poster="{{ $videoPoster }}" @endif
             @if($video->width) width="{{ $video->width }}" @endif
             @if($video->height) height="{{ $video->height }}" @endif
             muted
             playsinline
             loop
-            preload="{{ $eagerVideo ? 'metadata' : 'none' }}"
+            preload="none"
             @if($withControls)
                 controls
             @else
@@ -88,6 +92,20 @@
             @if($imageTestid) data-testid="{{ $imageTestid }}" @endif
             class="{{ $imageClasses }} focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent"
         ></video>
+
+        @unless($withControls)
+            {{-- Started only by this, or a tap on the video: never by itself. --}}
+            <button
+                type="button"
+                x-show="! playing"
+                x-on:click.stop="toggle()"
+                aria-label="{{ __('ui.post.video_play') }}"
+                data-testid="post-video-play"
+                class="absolute inset-0 m-auto grid size-14 place-items-center rg-post-video__control rounded-rgPill backdrop-blur-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent"
+            >
+                <x-ui.icon name="play" class="size-6" />
+            </button>
+        @endunless
 
         @if($video->hasAudio && ! $withControls)
             <button

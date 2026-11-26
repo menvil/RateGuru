@@ -65,6 +65,7 @@ return [
         'video_sound_on' => 'Activer le son',
         'video_sound_off' => 'Couper le son',
         'video_open' => 'Ouvrir la vidéo en plein écran',
+        'video_play' => 'Lire la vidéo',
         'image_preview' => 'Aperçu de l\'image',
         'unavailable' => 'Cette publication n\'est plus disponible.',
         'not_found_title' => 'Publication introuvable',

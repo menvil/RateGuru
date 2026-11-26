@@ -65,6 +65,7 @@ return [
         'video_sound_on' => 'Laita ääni päälle',
         'video_sound_off' => 'Mykistä ääni',
         'video_open' => 'Avaa video koko näytölle',
+        'video_play' => 'Toista video',
         'image_preview' => 'Kuvan esikatselu',
         'unavailable' => 'Tämä julkaisu ei ole enää saatavilla.',
         'not_found_title' => 'Julkaisua ei löytynyt',

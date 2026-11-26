@@ -65,6 +65,7 @@ return [
         'video_sound_on' => 'Pornește sunetul',
         'video_sound_off' => 'Oprește sunetul',
         'video_open' => 'Deschide videoclipul pe tot ecranul',
+        'video_play' => 'Redă videoclipul',
         'image_preview' => 'Previzualizare imagine',
         'unavailable' => 'Această postare nu mai este disponibilă.',
         'not_found_title' => 'Postarea nu a fost găsită',

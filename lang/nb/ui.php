@@ -65,6 +65,7 @@ return [
         'video_sound_on' => 'Slå på lyd',
         'video_sound_off' => 'Slå av lyd',
         'video_open' => 'Åpne video i fullskjerm',
+        'video_play' => 'Spill av video',
         'image_preview' => 'Forhåndsvisning av bilde',
         'unavailable' => 'Dette innlegget er ikke lenger tilgjengelig.',
         'not_found_title' => 'Fant ikke innlegget',

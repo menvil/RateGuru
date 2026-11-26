@@ -65,6 +65,7 @@ return [
         'video_sound_on' => 'Включи звука',
         'video_sound_off' => 'Изключи звука',
         'video_open' => 'Отвори видеото на цял екран',
+        'video_play' => 'Пусни видеото',
         'image_preview' => 'Преглед на изображението',
         'unavailable' => 'Този пост вече не е достъпен.',
         'not_found_title' => 'Постът не е намерен',

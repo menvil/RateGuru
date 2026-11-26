@@ -65,6 +65,7 @@ return [
         'video_sound_on' => 'Sesi aç',
         'video_sound_off' => 'Sesi kapat',
         'video_open' => 'Videoyu tam ekranda aç',
+        'video_play' => 'Videoyu oynat',
         'image_preview' => 'Görsel önizlemesi',
         'unavailable' => 'Bu gönderi artık kullanılamıyor.',
         'not_found_title' => 'Gönderi bulunamadı',

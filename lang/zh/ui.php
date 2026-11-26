@@ -65,6 +65,7 @@ return [
         'video_sound_on' => '开启声音',
         'video_sound_off' => '关闭声音',
         'video_open' => '全屏打开视频',
+        'video_play' => '播放视频',
         'image_preview' => '图片预览',
         'unavailable' => '此帖子已不可用。',
         'not_found_title' => '未找到帖子',

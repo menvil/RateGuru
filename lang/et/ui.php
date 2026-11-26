@@ -65,6 +65,7 @@ return [
         'video_sound_on' => 'Lülita heli sisse',
         'video_sound_off' => 'Lülita heli välja',
         'video_open' => 'Ava video täisekraanil',
+        'video_play' => 'Esita video',
         'image_preview' => 'Pildi eelvaade',
         'unavailable' => 'See postitus pole enam saadaval.',
         'not_found_title' => 'Postitust ei leitud',

@@ -65,6 +65,7 @@ return [
         'video_sound_on' => 'Aktivizo zërin',
         'video_sound_off' => 'Çaktivizo zërin',
         'video_open' => 'Hape videon në ekran të plotë',
+        'video_play' => 'Luaje videon',
         'image_preview' => 'Parapamja e imazhit',
         'unavailable' => 'Ky postim nuk është më i disponueshëm.',
         'not_found_title' => 'Postimi nuk u gjet',

@@ -65,6 +65,7 @@ return [
         'video_sound_on' => 'Zapnout zvuk',
         'video_sound_off' => 'Vypnout zvuk',
         'video_open' => 'Otevřít video na celou obrazovku',
+        'video_play' => 'Přehrát video',
         'image_preview' => 'Náhled obrázku',
         'unavailable' => 'Tento příspěvek už není dostupný.',
         'not_found_title' => 'Příspěvek nenalezen',

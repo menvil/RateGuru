@@ -65,6 +65,7 @@ return [
         'video_sound_on' => 'Kveikja á hljóði',
         'video_sound_off' => 'Slökkva á hljóði',
         'video_open' => 'Opna myndband á öllum skjánum',
+        'video_play' => 'Spila myndband',
         'image_preview' => 'Forskoðun myndar',
         'unavailable' => 'Þessi færsla er ekki lengur aðgengileg.',
         'not_found_title' => 'Færsla fannst ekki',

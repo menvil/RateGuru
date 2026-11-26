@@ -65,6 +65,7 @@ return [
         'video_sound_on' => 'Ton einschalten',
         'video_sound_off' => 'Ton ausschalten',
         'video_open' => 'Video im Vollbild öffnen',
+        'video_play' => 'Video abspielen',
         'image_preview' => 'Bildvorschau',
         'unavailable' => 'Dieser Beitrag ist nicht mehr verfügbar.',
         'not_found_title' => 'Beitrag nicht gefunden',

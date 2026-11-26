@@ -46,6 +46,7 @@
         'volume' => '<path d="M11 5 6 9H2v6h4l5 4V5Z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/><path d="M19 5a10 10 0 0 1 0 14"/>',
         'volume-off' => '<path d="M11 5 6 9H2v6h4l5 4V5Z"/><path d="m22 9-6 6"/><path d="m16 9 6 6"/>',
         'expand' => '<path d="M15 3h6v6"/><path d="M9 21H3v-6"/><path d="m21 3-7 7"/><path d="m3 21 7-7"/>',
+        'play' => '<polygon points="6 3 20 12 6 21 6 3"/>',
     ];
 
     // The icons that point along the line of text — on, back, reply, undo, a

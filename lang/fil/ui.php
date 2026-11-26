@@ -65,6 +65,7 @@ return [
         'video_sound_on' => 'I-on ang tunog',
         'video_sound_off' => 'I-off ang tunog',
         'video_open' => 'Buksan ang video nang fullscreen',
+        'video_play' => 'I-play ang video',
         'image_preview' => 'Preview ng larawan',
         'unavailable' => 'Hindi na available ang post na ito.',
         'not_found_title' => 'Hindi nahanap ang post',

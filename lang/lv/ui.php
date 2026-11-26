@@ -65,6 +65,7 @@ return [
         'video_sound_on' => 'Ieslēgt skaņu',
         'video_sound_off' => 'Izslēgt skaņu',
         'video_open' => 'Atvērt video pilnekrānā',
+        'video_play' => 'Atskaņot video',
         'image_preview' => 'Attēla priekšskatījums',
         'unavailable' => 'Šis ieraksts vairs nav pieejams.',
         'not_found_title' => 'Ieraksts nav atrasts',

@@ -62,7 +62,7 @@ it('plays nothing for a photo, for media still processing, for a private file', 
     }
 });
 
-it('plays a video muted in the feed, with a sound button only when it has sound, and a button to open it fullscreen', function () {
+it('plays a video in the feed only when asked, muted, with a play button, a sound button only when it has sound, and a button to open it fullscreen', function () {
     fullVideoPost();
     fullVideoPost(['media_type' => MediaType::Animation, 'has_audio' => false]);
 
@@ -73,11 +73,14 @@ it('plays a video muted in the feed, with a sound button only when it has sound,
     // Two cards, each with its viewer's player.
     expect($videos)->toHaveCount(4)
         ->and($html)->toContain('x-data="rgPostVideo({ src: ')
-        // The first card plays at once: its file and poster are in the page,
-        // muted, inline, looping.
-        ->and($html)->toMatch('/<video\s[^>]*src="[^"]+video_720\.mp4"\s+poster="[^"]+"[^>]*\smuted\s/s')
-        // Every other player loads nothing until it comes near the screen.
-        ->and(substr_count($html, 'preload="none"'))->toBe(3)
+        // The first card shows its poster from the start, muted, inline,
+        // looping — but no file: nothing is fetched until it is played.
+        ->and($html)->toMatch('/<video\s[^>]*poster="[^"]+"[^>]*\smuted\s/s')
+        ->and($html)->not->toMatch('/<video\s[^>]*\ssrc="/s')
+        ->and(substr_count($html, 'preload="none"'))->toBe(4)
+        // Started by its play button, never by itself.
+        ->and(substr_count($html, 'data-testid="post-video-play"'))->toBe(2)
+        ->and($html)->toContain('aria-label="'.e(__('ui.post.video_play')).'"')
         ->and(substr_count($html, 'data-testid="post-video-sound"'))->toBe(1)
         ->and($html)->toContain('aria-label="'.e(__('ui.post.video_open')).'"')
         // A feed video is a control of its own: a tap or a key plays or pauses it.
@@ -89,8 +92,10 @@ it('gives the post page and the viewer the browser\'s controls, still muted', fu
 
     $html = Livewire::test(PostShow::class, ['post' => $post])->html();
 
-    expect($html)->toMatch('/<video\s[^>]*\smuted\s+playsinline\s+loop\s+preload="metadata"\s+controls/s')
-        ->and($html)->not->toContain('data-testid="post-video-sound"');
+    // The file is there for the controls to play, under preload="none": nothing is fetched until they do.
+    expect($html)->toMatch('/<video\s[^>]*src="[^"]+"[^>]*\smuted\s+playsinline\s+loop\s+preload="none"\s+controls/s')
+        ->and($html)->not->toContain('data-testid="post-video-sound"')
+        ->and($html)->not->toContain('data-testid="post-video-play"');
 });
 
 it('still shows a photo post as a picture', function () {
