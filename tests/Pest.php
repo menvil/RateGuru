@@ -8521,8 +8521,41 @@ function waitForScript(mixed $page, string $expression, mixed $expected = true, 
 
     $outcome = "[{$expression}] did not become ".var_export($expected, true)." within {$timeoutSeconds}s";
 
+    if ($scriptError !== null || $actual !== $expected) {
+        $outcome .= waitForScriptDiagnosis($page);
+    }
+
     expect($scriptError)->toBeNull("{$outcome}: {$scriptError}");
     expect($actual)->toBe($expected, $outcome);
+}
+
+/**
+ * What a page that never reached its state can still tell about itself, for
+ * waitForScript()'s failure: which of the site's scripts and stylesheets never
+ * loaded (watchBrowserJavaScriptErrors() keeps them on the page), and a
+ * screenshot under tests/Browser/Screenshots, which CI uploads when the job
+ * fails. Nothing it reads can hide the failure it explains.
+ */
+function waitForScriptDiagnosis(mixed $page): string
+{
+    $diagnosis = '';
+
+    try {
+        $failed = $page->script("(window.__rgFailedLoads ?? []).join(', ')");
+        $diagnosis .= is_string($failed) && $failed !== '' ? "; never loaded: {$failed}" : '; every script and stylesheet loaded';
+    } catch (Throwable) {
+        $diagnosis .= '; the page could not be read';
+    }
+
+    try {
+        $name = 'wait-'.Str::slug(Str::limit((string) test()->name(), 80, '')).'-'.substr(md5((string) microtime(true)), 0, 6);
+        $page->screenshot(true, $name);
+        $diagnosis .= "; screenshot tests/Browser/Screenshots/{$name}.png";
+    } catch (Throwable) {
+        // A page that cannot be drawn is already said by the failure itself.
+    }
+
+    return $diagnosis;
 }
 
 /**
@@ -8644,6 +8677,21 @@ function watchBrowserJavaScriptErrors(Application $app): ArrayObject
             };
 
             window.addEventListener('error', (event) => report('error', event.message, `${event.filename}:${event.lineno}:${event.colno}`));
+
+            // A script or stylesheet of this site that never loaded — a request
+            // the network dropped — named for what it is: the ReferenceErrors
+            // that follow it would not say which file was missing. A failed
+            // load does not bubble, so it is caught on its way down; it is
+            // also kept on the page for waitForScript() to read when it gives up.
+            window.addEventListener('error', (event) => {
+                const target = event.target;
+                const url = target instanceof HTMLScriptElement ? target.src : (target instanceof HTMLLinkElement && target.rel === 'stylesheet' ? target.href : '');
+
+                if (url !== '' && new URL(url, location.href).origin === location.origin) {
+                    (window.__rgFailedLoads ??= []).push(url);
+                    report('failed load', 'did not load', url);
+                }
+            }, true);
             window.addEventListener('unhandledrejection', (event) => report('unhandledrejection', event.reason?.stack ?? event.reason?.message ?? event.reason, ''));
 
             const consoleError = console.error;
@@ -12953,18 +13001,23 @@ function visitTranslationCenter(string $url, int $width, int $height): mixed
 {
     $page = visit($url)->resize($width, $height);
 
+    // Said by what is not ready yet, so a page that never gets there fails naming it.
     waitForScript($page, <<<'JS'
         (async () => {
             if (! document.querySelector('.rg-admin-translation-center')?._x_dataStack) {
-                return false
+                return 'Alpine has not started the screen'
             }
 
             // A tick asked for now runs after the one init() asked for.
             await Alpine.nextTick()
 
-            return document.querySelector('[x-cloak]') === null && document.fonts.status === 'loaded'
+            if (document.querySelector('[x-cloak]') !== null) {
+                return 'an x-cloak element is still hidden'
+            }
+
+            return document.fonts.status === 'loaded' ? 'ready' : 'the fonts are still loading'
         })()
-    JS);
+    JS, 'ready');
 
     return $page;
 }
