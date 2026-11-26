@@ -1,0 +1,40 @@
+app/Jobs/ProcessVideoAssetJob.php
+  s_1f43f39fbe0537::t_22b80f0855d1e6 83-84,87
+tests/Feature/Media/MediaClassificationPipelineTest.php
+  s_1f43f39fbe0537::t_8002f08dbc443c 23,421
+  s_1f43f39fbe0537::t_21e857dcef5fa9 363-420,422-432
+tests/Feature/Filament/PostResourceTest.php
+  s_1f43f39fbe0537::t_21e857dcef5fa9 284-295
+app/Services/Media/Classification/ClassificationFrameSampler.php
+  s_1f43f39fbe0537::t_22b80f0855d1e6 44-51,112,115-120
+tests/Feature/Actions/FinalizePostMediaActionTest.php
+  s_1f43f39fbe0537::t_22b80f0855d1e6 13,96,127,129
+app/Console/Commands/MediaClassifyCommand.php
+  s_1f43f39fbe0537::t_22b80f0855d1e6 49-51,70-72
+app/Jobs/ClassifyMediaAssetJob.php
+  s_1f43f39fbe0537::t_22b80f0855d1e6 15,18,35-38,53-54,59-67,76-81,94-101
+tests/Feature/Services/Media/VideoAssetProcessorTest.php
+  s_1f43f39fbe0537::t_21e857dcef5fa9 308-316,318-323
+  s_1f43f39fbe0537::t_8002f08dbc443c 9,13-14,21,317
+docs/architecture/content-rating.md
+  s_1f43f39fbe0537::t_3d1bdeb16239e5 97-99,115-117,121-122,133-134,143-145
+app/Filament/Resources/Posts/Pages/ListPosts.php
+  s_1f43f39fbe0537::t_22b80f0855d1e6 596-599,605-607
+  s_1f43f39fbe0537::t_c00aae1c5d2707 37,600-604
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "b8a1055834f8da1253268fb81cf2c45673bf200b",
+  "prompts": {},
+  "sessions": {
+    "s_1f43f39fbe0537": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "526787d0-f443-4ad7-9610-cf9811fec895",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
