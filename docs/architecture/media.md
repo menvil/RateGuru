@@ -545,8 +545,14 @@ posting. A link that names no file and gives nothing to take is tried as a
 picture's, as it always was. Instagram gives a post's photo; its videos wait
 for the yt-dlp import.
 
+What a link brings is decided by `ResolveMediaLinkAction`: a picture to
+fetch now, a video to download once the post exists, and the post's source.
+It counts the link against the author's link imports first, and refuses
+with `MediaLinkRefusedException` when there is nothing it may take. The form
+keeps the field's validation and what the author is told.
+
 ```text
-UploadPostForm -> CreatePostData::videoUrl -> CreatePostAction
+UploadPostForm -> ResolveMediaLinkAction -> CreatePostData::videoUrl -> CreatePostAction
   asset Processing, private, under a reserved path, metadata.import.url;
   the post a Draft; the per-author and import limits count it
   -> ImportVideoAssetJob (media queue)

@@ -3,7 +3,7 @@
 namespace App\Livewire\Feed;
 
 use App\Actions\Analytics\RecordUserActivityAction;
-use App\Actions\Import\ImportFromUrlAction;
+use App\Actions\Import\ResolveMediaLinkAction;
 use App\Actions\Import\StoreImportedImageAction;
 use App\Actions\Posts\CreatePostAction;
 use App\Data\Posts\CreatePostData;
@@ -11,6 +11,7 @@ use App\Enums\ImageInputSource;
 use App\Enums\PostStatus;
 use App\Enums\UserActivity;
 use App\Exceptions\Abuse\RateLimitExceededException;
+use App\Exceptions\Import\MediaLinkRefusedException;
 use App\Exceptions\Import\UnsafeImportUrlException;
 use App\Exceptions\Import\UrlImportDisabledException;
 use App\Exceptions\Posts\CannotCreatePostException;
@@ -20,36 +21,22 @@ use App\Models\Tag;
 use App\Models\User;
 use App\Queries\Categories\ActiveCategoriesQuery;
 use App\Services\Media\Exceptions\ImageIngestException;
-use App\Services\Media\Exceptions\MediaToolInterruptedException;
-use App\Services\Media\Exceptions\MediaToolTimedOutException;
-use App\Services\Media\Exceptions\MediaToolUnavailableException;
 use App\Services\Media\Exceptions\VideoIngestException;
 use App\Services\Media\Exceptions\VideoTooLargeException;
 use App\Services\Media\Exceptions\VideoTooLongException;
-use App\Support\AbuseGuards\ActionRateLimiter;
-use App\Support\AbuseGuards\RateLimitKey;
 use App\Support\Games\Play\GameVisitorResolver;
-use App\Support\Import\ImportProviderDetector;
-use App\Support\Import\UrlImportValidator;
-use App\Support\Import\YtDlp;
-use App\Support\Import\YtDlpProbeResult;
-use App\Support\Import\YtDlpSites;
 use App\Support\Posts\PostContentRules;
 use App\Support\Rating\RatingConfigurationManager;
 use App\Support\Settings\ProjectSettingsManager;
 use Carbon\CarbonImmutable;
-use Illuminate\Contracts\Cache\Lock;
-use Illuminate\Contracts\Cache\LockProvider;
 use Illuminate\Contracts\View\View;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Http\UploadedFile;
-use Illuminate\Support\Facades\Cache;
 use Illuminate\Validation\Rule;
 use Livewire\Attributes\On;
 use Livewire\Component;
 use Livewire\Features\SupportFileUploads\TemporaryUploadedFile;
 use Livewire\WithFileUploads;
-use RuntimeException;
 
 final class UploadPostForm extends Component
 {
@@ -157,84 +144,14 @@ final class UploadPostForm extends Component
             $this->validateOnly('importedImageUrl');
 
             try {
-                // A link to a picture is fetched as one, as it always was.
-                // Any other — a video file, or a post on X, Instagram or
-                // another site — is read for what it carries: a video or GIF
-                // is downloaded in the background once the post exists, a
-                // picture now.
-                $imageUrl = $this->importedImageUrl;
+                // What the link brings — a picture now, or a video once the
+                // post exists — and where it came from, decided by the Action.
+                $resolved = app(ResolveMediaLinkAction::class)->handle(auth()->user(), $this->importedImageUrl);
+                $videoUrl = $resolved->videoUrl;
+                $imageUrl = $resolved->imageUrl;
 
-                // Counted before anything is fetched from outside.
-                app(ActionRateLimiter::class)->hitOrFail(
-                    key: RateLimitKey::userAction('link-import', auth()->user()),
-                    maxAttempts: (int) config('rate_limits.link_import.max_attempts'),
-                    decaySeconds: (int) config('rate_limits.link_import.decay_seconds'),
-                    message: __('ui.rate_limit.uploading'),
-                );
-
-                $provider = app(ImportProviderDetector::class)->detect($this->importedImageUrl);
-
-                // A page on one of the sites yt-dlp may take a video from
-                // (RedGifs, Coub, an Instagram reel …): asked first, through
-                // that site's extractor alone. A page with no video it may
-                // take — an Instagram photo post — goes on as any link.
-                // A link to a video file goes to the plain download, whatever
-                // site serves it.
-                $extractor = in_array($provider, ['direct_image', 'direct_video'], true) ? null : app(YtDlpSites::class)->extractorFor($this->importedImageUrl);
-                $pageVideo = $extractor === null ? null : $this->pageVideo($this->importedImageUrl);
-
-                // A site where every page is a video: none found is a failure,
-                // never the page's poster frame posted in its place.
-                if ($extractor !== null && $pageVideo === null && ! in_array($extractor, (array) config('import.ytdlp.photo_fallback', []), true)) {
-                    $this->submitError = __('import.errors.fetch_failed');
-
-                    return;
-                }
-
-                if ($pageVideo !== null) {
-                    $maxSeconds = (int) config('uploads.videos.max_duration_seconds');
-
-                    // A length the site does not say would only fail later:
-                    // the download takes no clip it cannot hold to the limit.
-                    if ($pageVideo->durationSeconds === null) {
-                        $this->submitError = __('ui.upload.error_invalid_video');
-
-                        return;
-                    }
-
-                    if ($pageVideo->durationSeconds > $maxSeconds) {
-                        $this->submitError = __('ui.upload.error_video_too_long', ['seconds' => $maxSeconds]);
-
-                        return;
-                    }
-
-                    $videoUrl = $this->importedImageUrl;
-                    $imageUrl = null;
-
-                    if (blank($this->sourceUrl)) {
-                        $linkSource = strtok($this->importedImageUrl, '?#') ?: null;
-                    }
-                } elseif ($provider !== 'direct_image') {
-                    $preview = app(ImportFromUrlAction::class)->handle($this->importedImageUrl);
-                    $videoUrl = $preview->videoUrl;
-                    // A link that names no file and is no known site's post may
-                    // still be a picture's (an image CDN's, "copy image
-                    // address"): with nothing else to take, it is tried as
-                    // one, as it always was.
-                    $imageUrl = $videoUrl === null ? ($preview->imageUrl ?? ($provider === 'open_graph' ? $this->importedImageUrl : null)) : null;
-
-                    if ($videoUrl === null && $imageUrl === null) {
-                        $this->submitError = __('import.errors.unsupported');
-
-                        return;
-                    }
-
-                    // A post on a social site is where it came from, unless the
-                    // author named a source — without its query, which may
-                    // carry a token or tracking, never meant to be public.
-                    if (blank($this->sourceUrl) && in_array($provider, ['x', 'instagram', 'facebook', 'pinterest'], true)) {
-                        $linkSource = strtok($this->importedImageUrl, '?#') ?: null;
-                    }
+                if (blank($this->sourceUrl)) {
+                    $linkSource = $resolved->source;
                 }
 
                 $this->linksToVideo = $videoUrl !== null;
@@ -244,6 +161,10 @@ final class UploadPostForm extends Component
                     $importedTempFile = $this->image;
                     $imageSource = ImageInputSource::UrlImport;
                 }
+            } catch (MediaLinkRefusedException $e) {
+                $this->submitError = $e->getMessage();
+
+                return;
             } catch (UrlImportDisabledException) {
                 $this->submitError = __('import.errors.feature_disabled');
 
@@ -350,74 +271,6 @@ final class UploadPostForm extends Component
                 }
             }
         }
-    }
-
-    /**
-     * The video yt-dlp finds on a page of one of its sites, or null — a link
-     * to another site, a page with no video, yt-dlp unavailable or failing:
-     * the link then goes on as any link. URL imports must be on, and the link
-     * a public address, before yt-dlp is given it.
-     */
-    private function pageVideo(string $url): ?YtDlpProbeResult
-    {
-        if (app(YtDlpSites::class)->extractorFor($url) === null) {
-            return null;
-        }
-
-        if (! app(ProjectSettingsManager::class)->featureEnabled('allow_url_imports')) {
-            throw new UrlImportDisabledException;
-        }
-
-        app(UrlImportValidator::class)->validate($url);
-
-        // A probe holds a web worker while the author waits: one per author,
-        // and only as many on the host at once as import.ytdlp.probe_slots,
-        // so a few accounts cannot take every worker the site has.
-        $author = self::probeLock('ytdlp-probe:user:'.auth()->id());
-        $slot = $author->get() ? $this->probeSlot() : null;
-
-        if ($slot === null) {
-            $author->release();
-
-            throw RateLimitExceededException::make(__('ui.rate_limit.uploading'), 30);
-        }
-
-        try {
-            return app(YtDlp::class)->probe($url);
-        } catch (MediaToolTimedOutException|MediaToolUnavailableException|MediaToolInterruptedException $exception) {
-            report($exception);
-
-            return null;
-        } finally {
-            $slot->release();
-            $author->release();
-        }
-    }
-
-    /** A free one of the host's probe slots, held, or null when all are taken. */
-    private function probeSlot(): ?Lock
-    {
-        for ($slot = 1; $slot <= max(1, (int) config('import.ytdlp.probe_slots')); $slot++) {
-            $lock = self::probeLock("ytdlp-probe:slot:{$slot}");
-
-            if ($lock->get()) {
-                return $lock;
-            }
-        }
-
-        return null;
-    }
-
-    /** A lock on the database store, which every web worker on every host shares. */
-    private static function probeLock(string $key): Lock
-    {
-        $store = Cache::store('database')->getStore();
-
-        if (! $store instanceof LockProvider) {
-            throw new RuntimeException('The "database" cache store does not support locks.');
-        }
-
-        return $store->lock($key, 30);
     }
 
     /**
