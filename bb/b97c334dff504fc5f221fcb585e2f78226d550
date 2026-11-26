@@ -1,0 +1,23 @@
+app/Support/Translations/ConfirmedEnglishLines.php
+  s_4b9dc6ab6b25d3::t_35c6afdb51d8a7 64-66,82-92
+docs/design/admin/design-contract.md
+  s_4b9dc6ab6b25d3::t_35c6afdb51d8a7 768
+tests/Feature/I18n/ConfirmedEnglishLinesTest.php
+  s_4b9dc6ab6b25d3::t_35c6afdb51d8a7 56-68
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "bbb97c334dff504fc5f221fcb585e2f78226d550",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
