@@ -120,11 +120,12 @@ configuration is read by the job, never by the upload.
 - It runs on the media queue.
   - **Queued:** one at a time per asset (`ShouldBeUniqueUntilProcessing`),
     through a delay it was queued with, then as long as the media connection
-    could still deliver it. A retry of failures is queued apart, so a plain
-    job waiting for the asset never keeps it out.
-  - **Running:** one run per asset at a time, by a lock of its own. A plain
-    job meeting another run leaves the work to it. A retry of failures, which
-    that run skips, comes back a minute later instead of being lost.
+    could still deliver it.
+  - **Running:** one run per asset at a time, by a lock of its own. A job
+    meeting another run waits for it
+    (`media.classification.run_wait_seconds`, 120 s), then asks only who is
+    still to answer. If that run outlasts the wait, the job leaves the asset
+    to it: it never runs alongside, and never queues itself again.
   - A job that runs after another finds every answer there and asks no one,
     so a queue that kept one waiting past its lock costs nothing.
 - A classifier that already answered for the asset at its model version is
@@ -147,10 +148,12 @@ media:classify --limit=N` queues it, newest first, for every configured
 classifier that has not answered for it yet. Use it, for example, to try a
 classifier in shadow mode on real uploads.
 - An asset a classifier failed on counts as answered unless
-  `--retry-failed` is given. Then a failure recorded up to the last answer
-  there was when the command ran (by answer id, not by time) is asked again,
-  once: a failure the job records itself is not asked again on its own
-  retry. A classifier that has not answered is asked either way.
+  `--retry-failed` is given. Then the command clears those failures (the
+  configured classifiers' own, at their model version, on the assets it
+  queues), so whichever job runs next for each asset asks them, whether its
+  own or one already waiting. A classifier left unanswered because a long
+  run outlasted the wait has no answer, and the next `media:classify` queues
+  it.
 - The jobs become available ten seconds apart, so the videos waiting on the
   same media queue are never stuck behind a whole batch.
 

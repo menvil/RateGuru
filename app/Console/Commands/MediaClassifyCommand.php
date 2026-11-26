@@ -11,6 +11,7 @@ use App\Models\MediaClassification;
 use App\Services\Media\Classification\MediaClassifierRegistry;
 use Illuminate\Console\Command;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Collection;
 
 /**
  * Queues post media stored before a classifier was configured — the newest
@@ -20,7 +21,8 @@ use Illuminate\Database\Eloquent\Builder;
  *
  * An asset a classifier failed on counts as answered unless --retry-failed
  * says otherwise, so a file nothing can be taken from never keeps the head
- * of the list. The jobs are spread out, ten seconds apart, so the videos
+ * of the list. --retry-failed clears those failures for the assets it
+ * queues, so they are asked again by whatever job runs next for each. The jobs are spread out, ten seconds apart, so the videos
  * waiting to be processed on the same media queue are never stuck behind a
  * whole batch.
  */
@@ -47,10 +49,6 @@ final class MediaClassifyCommand extends Command
 
         $limit = max(1, (int) $this->option('limit'));
         $retryFailed = (bool) $this->option('retry-failed');
-        // What failed up to the last answer there is now is asked again; a
-        // failure recorded since — by the job itself, on its own retry
-        // too — is not.
-        $retryFailuresThrough = $retryFailed ? (int) MediaClassification::query()->max('id') : null;
         $queued = 0;
 
         MediaAsset::query()
@@ -69,10 +67,30 @@ final class MediaClassifyCommand extends Command
             ->orderByDesc('id')
             ->limit($limit)
             ->pluck('id')
-            ->each(function (int $id) use (&$queued, $retryFailuresThrough): void {
-                $delay = $queued * self::SPACING_SECONDS;
-                ClassifyMediaAssetJob::dispatch($id, $retryFailuresThrough, $delay)->delay(now()->addSeconds($delay));
-                $queued++;
+            ->chunk(500)
+            ->each(function (Collection $ids) use (&$queued, $classifiers, $retryFailed): void {
+                // Asked again by clearing what they failed: whichever job
+                // runs next for the asset — this one, or one already
+                // waiting for it — finds them unanswered and asks them.
+                if ($retryFailed) {
+                    MediaClassification::query()
+                        ->whereIn('media_asset_id', $ids->all())
+                        ->where('status', ClassificationStatus::Failed)
+                        ->where(function (Builder $configured) use ($classifiers): void {
+                            foreach ($classifiers as $entry) {
+                                $configured->orWhere(fn (Builder $one): Builder => $one
+                                    ->where('classifier', $entry['classifier']->name())
+                                    ->where('model_version', $entry['classifier']->modelVersion()));
+                            }
+                        })
+                        ->delete();
+                }
+
+                foreach ($ids as $id) {
+                    $delay = $queued * self::SPACING_SECONDS;
+                    ClassifyMediaAssetJob::dispatch((int) $id, $delay)->delay(now()->addSeconds($delay));
+                    $queued++;
+                }
             });
 
         $this->info("Queued {$queued} asset(s) for classification.");

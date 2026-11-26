@@ -12,9 +12,9 @@ use App\Services\Media\Classification\MediaClassificationRecorder;
 use App\Services\Media\Classification\MediaClassifierRegistry;
 use App\Support\Media\MediaQueue;
 use App\Support\Media\WorkerTemporaryDirectory;
+use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Contracts\Queue\ShouldBeUniqueUntilProcessing;
 use Illuminate\Contracts\Queue\ShouldQueue;
-use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\File;
@@ -30,13 +30,14 @@ use Throwable;
  *
  * One queued at a time per asset (ShouldBeUniqueUntilProcessing), one
  * running at a time per asset (its run lock), and a classifier that already
- * answered for it at its model version is not asked again: an upload, a
- * redelivered video job and media:classify meeting on one asset ask each
- * classifier once — a paid one is never paid twice. What a classifier fails
- * at is recorded, not retried — on the job's own retry neither — unless
- * media:classify --retry-failed asks again; so is media nothing can be taken
- * from. What fails the job is the host — ffmpeg missing, the database —
- * retried once.
+ * answered for it at its model version — or failed — is not asked again: an
+ * upload, a redelivered video job and media:classify meeting on one asset ask
+ * each classifier once, and a paid one is never paid twice. What a
+ * classifier fails at is recorded, not retried, on the job's own retry
+ * neither; so is media nothing can be taken from. media:classify
+ * --retry-failed asks again by clearing those failures, so whichever job
+ * runs next for the asset asks. What fails the job is the host — ffmpeg
+ * missing, the database — retried once.
  */
 final class ClassifyMediaAssetJob implements RunsOnMediaQueue, ShouldBeUniqueUntilProcessing, ShouldQueue
 {
@@ -54,28 +55,20 @@ final class ClassifyMediaAssetJob implements RunsOnMediaQueue, ShouldBeUniqueUnt
     /** How long after it becomes available the media connection could still deliver the job. */
     private const int DELIVERY_WINDOW_SECONDS = 960;
 
-    /** How soon a retry that found another run for its asset comes back. */
-    private const int BUSY_RETRY_SECONDS = 60;
-
     /** A run its timeout killed left its frames; cleared once past every run's time. */
     private const int STALE_AFTER_SECONDS = 7200;
 
-    /**
-     * @param  int|null  $retryFailuresThrough  media:classify --retry-failed: a classifier's failure recorded up to this answer id — the last there was when the command ran — is asked again; one recorded since, by this job's own earlier attempt among others, is not
-     * @param  int  $delaySeconds  how long after its dispatch it becomes available (media:classify spreads them out)
-     */
+    /** @param  int  $delaySeconds  how long after its dispatch it becomes available (media:classify spreads them out) */
     public function __construct(
         public readonly int $mediaAssetId,
-        public readonly ?int $retryFailuresThrough = null,
         public readonly int $delaySeconds = 0,
     ) {
         $this->onConnection(MediaQueue::connection());
     }
 
-    /** A retry of failures is queued apart: a plain job waiting for the asset never keeps it out. */
     public function uniqueId(): string
     {
-        return $this->mediaAssetId.($this->retryFailuresThrough === null ? '' : ':retry');
+        return (string) $this->mediaAssetId;
     }
 
     /**
@@ -101,14 +94,15 @@ final class ClassifyMediaAssetJob implements RunsOnMediaQueue, ShouldBeUniqueUnt
     {
         $lock = Cache::lock(self::runLockKey($this->mediaAssetId), $this->timeout + 60);
 
-        // Another run for this asset: it asks every classifier still to
-        // answer, so a plain job has nothing left to do. A retry of failures
-        // — which that run skips — comes back after it, never lost.
-        if (! $lock->get()) {
-            if ($this->retryFailuresThrough !== null) {
-                self::dispatch($this->mediaAssetId, $this->retryFailuresThrough, self::BUSY_RETRY_SECONDS)
-                    ->delay(now()->addSeconds(self::BUSY_RETRY_SECONDS));
-            }
+        // Another run for this asset: this one waits for it, then asks only
+        // who is still to answer. One that ran longer than the wait asks
+        // everyone who had not answered when it began; a classifier left
+        // unanswered since (a failure --retry-failed cleared meanwhile) has
+        // no answer, and the next media:classify queues it.
+        try {
+            $lock->block(max(0, (int) config('media.classification.run_wait_seconds')));
+        } catch (LockTimeoutException) {
+            Log::info('ClassifyMediaAssetJob: another run for the asset outlasted the wait; left to it.', ['media_asset_id' => $this->mediaAssetId]);
 
             return;
         }
@@ -132,14 +126,8 @@ final class ClassifyMediaAssetJob implements RunsOnMediaQueue, ShouldBeUniqueUnt
         $pending = array_values(array_filter($registry->configured(), fn (array $entry): bool => ! $asset->classifications()
             ->where('classifier', $entry['classifier']->name())
             ->where('model_version', $entry['classifier']->modelVersion())
-            ->where(fn (Builder $answer): Builder => $answer
-                ->where('status', ClassificationStatus::Succeeded)
-                // A failure is an answer too, unless --retry-failed asks
-                // again for one recorded before it was asked.
-                ->orWhere(fn (Builder $failure): Builder => $failure
-                    ->where('status', ClassificationStatus::Failed)
-                    ->when($this->retryFailuresThrough !== null, fn (Builder $recent): Builder => $recent
-                        ->where('id', '>', (int) $this->retryFailuresThrough))))
+            // A failure is an answer too, until --retry-failed clears it.
+            ->whereIn('status', [ClassificationStatus::Succeeded, ClassificationStatus::Failed])
             ->exists()));
 
         if ($pending === []) {

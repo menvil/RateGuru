@@ -191,5 +191,8 @@ return [
 
     'classification' => [
         'classifiers' => [],
+        // How long a job waits for another run for the same asset to finish
+        // before leaving the asset to it (ClassifyMediaAssetJob).
+        'run_wait_seconds' => 120,
     ],
 ];
