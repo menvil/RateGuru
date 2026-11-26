@@ -54,6 +54,14 @@ final class ImportVideoAssetJob implements RunsOnMediaQueue, ShouldQueue
         $asset = MediaAsset::query()->find($this->mediaAssetId);
         $url = $asset?->metadata['import']['url'] ?? null;
 
+        // Failed by an earlier attempt whose notice could not be written:
+        // its author hears now — once, whichever attempt it is.
+        if ($asset !== null && $asset->status === MediaStatus::Failed) {
+            $finalize->failed($asset);
+
+            return;
+        }
+
         if ($asset === null || $asset->status !== MediaStatus::Processing || ! is_string($url)) {
             return;
         }
@@ -168,7 +176,13 @@ final class ImportVideoAssetJob implements RunsOnMediaQueue, ShouldQueue
         $asset = MediaAsset::query()->find($this->mediaAssetId);
 
         if ($asset !== null && $asset->status === MediaStatus::Processing) {
-            $this->failImport($asset, app(FinalizePostMediaAction::class), 'The video could not be downloaded.');
+            // No attempt comes after this one to retry a notice that could
+            // not be written: it is reported instead.
+            try {
+                $this->failImport($asset, app(FinalizePostMediaAction::class), 'The video could not be downloaded.');
+            } catch (Throwable $notice) {
+                report($notice);
+            }
         }
     }
 

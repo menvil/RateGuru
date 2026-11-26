@@ -19,6 +19,7 @@ use App\Models\Post;
 use App\Models\User;
 use App\Notifications\VideoPostProcessedNotification;
 use App\Services\Media\MediaAuditService;
+use App\Services\Media\MediaToolResult;
 use App\Support\Import\ImportHttpTransport;
 use App\Support\Import\ImportProviderDetector;
 use App\Support\Import\ImportTransportResponse;
@@ -27,6 +28,7 @@ use App\Support\Media\VideoUploadStorer;
 use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Testing\Fakes\NotificationFake;
 
 beforeEach(function () {
     bindFakeHostResolver(['videos.example' => ['93.184.216.40'], 'intranet.example' => ['10.0.0.5']]);
@@ -235,4 +237,33 @@ it('hands a video downloaded already on to processing when its job comes again, 
 
     expect(MediaAsset::query()->findOrFail($other->image_asset_id)->status)->toBe(MediaStatus::Failed);
     Notification::assertSentTo($other->user, VideoPostProcessedNotification::class);
+});
+
+it('tells the author of a failed download on the next attempt when the first could not write the notice', function () {
+    $author = User::factory()->create();
+    $post = app(CreatePostAction::class)->handle($author, new CreatePostData(title: 'From a link', videoUrl: 'https://videos.example/not-a-video.mp4'));
+    // A file ffprobe cannot read: the file's fault, final at once.
+    app()->instance(ImportHttpTransport::class, new ScriptedImportHttpTransport([new ImportTransportResponse(200, [], 'not a video')]));
+    bindRecordingMediaToolRunner([new MediaToolResult(1, '', 'Invalid data')]);
+    Notification::swap($notices = new class extends NotificationFake
+    {
+        public int $failures = 1;
+
+        public function send($notifiables, $notification)
+        {
+            if ($this->failures-- > 0) {
+                throw new RuntimeException('The notifications table would not take it.');
+            }
+
+            parent::send($notifiables, $notification);
+        }
+    });
+
+    expect(fn () => app()->call([new ImportVideoAssetJob((int) $post->image_asset_id), 'handle']))->toThrow(RuntimeException::class);
+    expect(MediaAsset::query()->findOrFail($post->image_asset_id)->status)->toBe(MediaStatus::Failed);
+
+    app()->call([new ImportVideoAssetJob((int) $post->image_asset_id), 'handle']);
+    app()->call([new ImportVideoAssetJob((int) $post->image_asset_id), 'handle']);
+
+    $notices->assertSentToTimes($author, VideoPostProcessedNotification::class, 1);
 });
