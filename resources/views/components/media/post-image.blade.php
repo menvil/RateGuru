@@ -93,7 +93,7 @@
                 x-bind:aria-label="muted ? @js(__('ui.post.video_sound_on')) : @js(__('ui.post.video_sound_off'))"
                 aria-label="{{ __('ui.post.video_sound_on') }}"
                 data-testid="post-video-sound"
-                class="absolute bottom-2 end-2 grid size-10 place-items-center rounded-rgPill bg-black/55 text-white backdrop-blur-sm transition hover:bg-black/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent"
+                class="absolute bottom-2 end-2 grid size-10 place-items-center rg-post-video__control rounded-rgPill backdrop-blur-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent"
             >
                 <x-ui.icon name="volume-off" class="size-4" x-show="muted" />
                 <x-ui.icon name="volume" class="size-4" x-show="! muted" x-cloak />
@@ -106,7 +106,7 @@
                 x-on:click.stop="pause(); {{ $openFullscreen }}"
                 @if($testid) data-testid="{{ $testid }}" @endif
                 aria-label="{{ __('ui.post.video_open') }}"
-                class="absolute top-2 end-2 grid size-10 place-items-center rounded-rgPill bg-black/55 text-white backdrop-blur-sm transition hover:bg-black/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent"
+                class="absolute top-2 end-2 grid size-10 place-items-center rg-post-video__control rounded-rgPill backdrop-blur-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent"
             >
                 <x-ui.icon name="expand" class="size-4" />
             </button>
