@@ -72,6 +72,10 @@
             @if ($current['translate'] !== null)
                 <a href="{{ $current['translate'] }}" class="rg-admin-link rg-admin-link--arrow">Translate <x-admin.ui.icon name="arrow-right" :size="14" /></a>
             @endif
+            @if ($current['update'] !== null)
+                {{-- A translation made from English since changed: Translation Center's Needs update, on the first. --}}
+                <a href="{{ $current['update'] }}" class="rg-admin-link rg-admin-link--arrow" data-testid="settings-translations-update">Update <x-admin.ui.icon name="arrow-right" :size="14" /></a>
+            @endif
         </x-slot:footer>
     </x-admin.ui.card>
 </div>

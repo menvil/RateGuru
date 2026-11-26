@@ -116,7 +116,9 @@ made from (`docs/architecture/translation-engine.md`). Once that English
 changes, the translation still shows, but it needs an update: Translation
 Center marks it **English changed**, shows what changed sentence by sentence,
 and lists it under **Needs update**; Languages and the Categories, Tags and
-Rating groups screens count it beside what is missing. The figures on
+Rating groups screens count it beside what is missing, and Project settings
+says it of each group of settings and each static page, with Update leading
+to it. The figures on
 completeness below count presence only, so an outdated translation counts as
 translated there.
 

@@ -84,6 +84,9 @@ final class ProjectSettingsPage extends Page
     /** The text fields a project cannot leave blank. */
     public const REQUIRED = ['site_name', 'object_singular_name', 'object_plural_name', 'upload_cta_label', 'feed_title'];
 
+    /** How many languages a translation summary names in one group before counting the rest. */
+    private const int LISTED_LANGUAGES = 3;
+
     /** Each feature flag and what it does. */
     public const FLAGS = [
         'show_comments' => 'Comment threads under posts. Turning this off hides existing comments without deleting them.',
@@ -491,7 +494,7 @@ final class ProjectSettingsPage extends Page
      * Translation Center on the first missing one.
      *
      * @param  list<string>  $fields
-     * @return array{text: string, url: ?string}
+     * @return array{text: string, url: ?string, update: ?string}
      */
     private function settingsTranslations(?ProjectSettings $settings, ContentTranslationStatus $status, array $fields): array
     {
@@ -503,9 +506,12 @@ final class ProjectSettingsPage extends Page
             }
         }
 
+        $outdated = $status->outdatedUnits(array_keys($units));
+
         return [
-            'text' => self::translationSummary($status, $units, fn (string $unit): string => Str::lower(self::fieldLabel(Str::after($unit, ':')))),
+            'text' => self::translationSummary($status, $units, fn (string $unit): string => Str::lower(self::fieldLabel(Str::after($unit, ':'))), $outdated),
             'url' => $units === [] || $status->languages() === [] ? null : $status->translateUnitsUrl(ProjectContentSection::ProjectSettings, $units),
+            'update' => $status->canTranslate() ? $status->updateUrl(ProjectContentSection::ProjectSettings, $outdated) : null,
         ];
     }
 
@@ -513,7 +519,7 @@ final class ProjectSettingsPage extends Page
      * Each static page: its title, how many offered languages miss its title
      * or content, and Translation Center on the first missing one.
      *
-     * @return array<string, array{label: string, url: string, missing: int, translations: string, translate: ?string}>
+     * @return array<string, array{label: string, url: string, missing: int, translations: string, translate: ?string, update: ?string}>
      */
     private function staticPages(?ProjectSettings $settings, ContentTranslationStatus $status): array
     {
@@ -534,13 +540,15 @@ final class ProjectSettingsPage extends Page
             }
 
             $missing = count(array_filter(array_keys($status->languages()), fn (string $locale): bool => collect($units)->contains(fn (array $chips): bool => collect($chips)->firstWhere('code', $locale)['value'] === null)));
+            $outdated = $status->outdatedUnits(array_keys($units));
 
             $pages[$key] = [
                 'label' => __("admin.static_pages.{$key}"),
                 'url' => route("pages.{$key}"),
                 'missing' => $missing,
-                'translations' => self::translationSummary($status, $units, fn (string $unit): string => Str::afterLast($unit, ':')),
+                'translations' => self::translationSummary($status, $units, fn (string $unit): string => Str::afterLast($unit, ':'), $outdated),
                 'translate' => $status->languages() === [] ? null : $status->translateUnitsUrl(ProjectContentSection::StaticPages, $units),
+                'update' => $status->canTranslate() ? $status->updateUrl(ProjectContentSection::StaticPages, $outdated) : null,
             ];
         }
 
@@ -549,13 +557,17 @@ final class ProjectSettingsPage extends Page
 
     /**
      * “Translations: Русский and Deutsch complete · Български missing the
-     * description.” — the offered languages that have every unit, then each
-     * that misses some, naming the one it misses or counting them.
+     * description · to update in Русский.” — the offered languages that have
+     * every unit current, each that misses some (naming the one it misses or
+     * counting them), and those with a translation made from English since
+     * changed. One line however many languages are offered: past
+     * LISTED_LANGUAGES, a group names the first ones and counts the rest.
      *
      * @param  array<string, list<array{code: string, native: string, value: ?string}>>  $units
      * @param  callable(string): string  $name
+     * @param  array<string, list<string>>  $outdated  the units to update in each language (ContentTranslationStatus::outdatedUnits())
      */
-    private static function translationSummary(ContentTranslationStatus $status, array $units, callable $name): string
+    private static function translationSummary(ContentTranslationStatus $status, array $units, callable $name, array $outdated = []): string
     {
         if ($status->languages() === []) {
             return 'English is the only language visitors are offered.';
@@ -567,23 +579,48 @@ final class ProjectSettingsPage extends Page
 
         $complete = [];
         $missing = [];
+        $toUpdate = [];
 
         foreach ($status->languages() as $code => $language) {
             $absent = array_keys(array_filter($units, fn (array $chips): bool => collect($chips)->firstWhere('code', $code)['value'] === null));
 
-            if ($absent === []) {
+            if (isset($outdated[$code])) {
+                $toUpdate[] = $language['native'];
+            }
+
+            if ($absent !== []) {
+                $missing[$language['native']] = count($absent) === 1 ? 'the '.$name($absent[0]) : (string) count($absent);
+            } elseif (! isset($outdated[$code])) {
                 $complete[] = $language['native'];
-            } else {
-                $missing[] = $language['native'].' missing '.(count($absent) === 1 ? 'the '.$name($absent[0]) : count($absent));
             }
         }
 
         $parts = array_filter([
-            $complete === [] ? null : Str::of(implode(', ', array_slice($complete, 0, -1)))->whenNotEmpty(fn ($list) => $list->append(' and '))->append(end($complete)).' complete',
-            ...$missing,
+            match (true) {
+                $complete === [] => null,
+                count($complete) > self::LISTED_LANGUAGES => count($complete).' languages complete',
+                default => self::listed($complete).' complete',
+            },
+            ...(count($missing) > self::LISTED_LANGUAGES
+                ? ['missing in '.self::listed(array_keys($missing))]
+                : array_map(fn (string $language, string $what): string => "{$language} missing {$what}", array_keys($missing), $missing)),
+            $toUpdate === [] ? null : 'to update in '.self::listed($toUpdate),
         ]);
 
         return 'Translations: '.implode(' · ', $parts).'.';
+    }
+
+    /** “A”, “A and B”, “A, B and C” — or past LISTED_LANGUAGES, “A, B, C and 17 more”. */
+    private static function listed(array $names): string
+    {
+        $named = array_slice($names, 0, self::LISTED_LANGUAGES);
+        $more = count($names) - count($named);
+
+        if ($more > 0) {
+            return implode(', ', $named)." and {$more} more";
+        }
+
+        return count($named) === 1 ? $named[0] : implode(', ', array_slice($named, 0, -1)).' and '.end($named);
     }
 
     /**

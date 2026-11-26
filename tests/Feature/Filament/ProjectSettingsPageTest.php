@@ -1,10 +1,12 @@
 <?php
 
+use App\Actions\Translations\UpdateProjectTranslationAction;
 use App\Filament\Pages\ProjectSettingsPage;
 use App\Filament\Pages\TranslationCenterPage;
 use App\Filament\Support\TranslationSourceEditor;
 use App\Models\ProjectSettings;
 use App\Models\User;
+use App\Support\Locale\LocaleManager;
 use App\Support\Settings\ProjectSettingsManager;
 use App\Support\Studio\StudioVerifiedAdults;
 use App\Support\Translations\ProjectTranslationCatalog;
@@ -290,6 +292,61 @@ it('says which offered languages miss which settings, and leads to Translation C
 
     expect($translations['text'])->toBe('Translations: '.config("locales.supported.{$first}.native").' complete · '.$second['native'].' missing the description.')
         ->and($translations['url'])->toBe(TranslationCenterPage::getUrl(['locale' => twoTranslatedLocales()[1], 'section' => 'project_settings', 'unit' => 'project_settings:site_description']));
+});
+
+it('says which offered languages have a setting to update since its English changed, and leads to it', function () {
+    [$first, $second] = twoTranslatedLocales();
+    offerLocales([$first, $second]);
+    ProjectSettings::query()->sole()->update(['site_name' => 'Pawrank', 'site_tagline' => 'Rate pets', 'site_description' => 'About pets']);
+    $admin = User::query()->whereKey(auth()->id())->firstOrFail();
+
+    foreach (['site_name', 'site_tagline', 'site_description'] as $field) {
+        foreach ([$first, $second] as $locale) {
+            app(UpdateProjectTranslationAction::class)->handle($admin, "project_settings:{$field}", $locale, "{$field} in {$locale}");
+        }
+    }
+
+    // The English of the tagline changes after both translations were made.
+    ProjectSettings::query()->sole()->update(['site_tagline' => 'Rate every pet']);
+    app(ProjectSettingsManager::class)->flush();
+
+    $translations = Livewire::test(ProjectSettingsPage::class)->viewData('translations')['identity'];
+    $native = fn (string $code): string => config("locales.supported.{$code}.native");
+
+    expect($translations['text'])->toBe("Translations: to update in {$native($first)} and {$native($second)}.")
+        ->and($translations['update'])->toBe(TranslationCenterPage::getUrl(['locale' => $first, 'section' => 'project_settings', 'mode' => 'outdated', 'unit' => 'project_settings:site_tagline']));
+});
+
+it('keeps the summary to one line however many languages are offered, naming three and counting the rest', function () {
+    $locales = array_slice(translatedLocales(), 0, 5);
+    offerLocales($locales);
+    ProjectSettings::query()->sole()->update(['site_name' => 'Pawrank', 'site_tagline' => null, 'site_description' => null, 'site_name_translations' => null]);
+    app(ProjectSettingsManager::class)->flush();
+
+    $offered = array_values(array_filter(array_keys(app(LocaleManager::class)->enabled()), fn (string $code): bool => $code !== 'en'));
+    $named = array_map(fn (string $code): string => config("locales.supported.{$code}.native"), array_slice($offered, 0, 3));
+
+    expect(Livewire::test(ProjectSettingsPage::class)->viewData('translations')['identity']['text'])
+        ->toBe('Translations: missing in '.implode(', ', $named).' and '.(count($offered) - 3).' more.');
+});
+
+it('says a static page has translations to update once its English changed', function () {
+    [$first] = twoTranslatedLocales();
+    offerLocales([$first]);
+    $admin = User::query()->whereKey(auth()->id())->firstOrFail();
+    app(UpdateProjectTranslationAction::class)->handle($admin, 'static_pages:privacy:title', $first, 'Privacy (translated)');
+    app(UpdateProjectTranslationAction::class)->handle($admin, 'static_pages:privacy:content', $first, 'We keep little (translated).');
+    $pages = ProjectSettings::query()->sole()->static_pages;
+    $pages['privacy']['en']['content'] = 'We now keep the IP address you sign up from.';
+    ProjectSettings::query()->sole()->update(['static_pages' => $pages]);
+    app(ProjectSettingsManager::class)->flush();
+
+    $privacy = Livewire::withQueryParams(['tab' => 'pages', 'page' => 'privacy'])->test(ProjectSettingsPage::class)
+        ->assertSeeHtml('data-testid="settings-translations-update"')
+        ->viewData('pages')['privacy'];
+
+    expect($privacy['translations'])->toBe('Translations: to update in '.config("locales.supported.{$first}.native").'.')
+        ->and($privacy['update'])->toBe(TranslationCenterPage::getUrl(['locale' => $first, 'section' => 'static_pages', 'mode' => 'outdated', 'unit' => 'static_pages:privacy:content']));
 });
 
 it('lists the static pages with their translations, and edits the one chosen', function () {
