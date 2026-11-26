@@ -1,0 +1,9 @@
+app/Services/Media/Classification/MediaClassificationRecorder.php
+  ai_agent 76-77
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "ef38a4df8b29419a9ba8679ef81df44bd7bd9882",
+  "prompts": {}
+}
