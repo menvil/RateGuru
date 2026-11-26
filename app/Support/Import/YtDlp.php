@@ -67,28 +67,33 @@ final class YtDlp
         $type = $info['_type'] ?? 'video';
 
         // A carousel: photos alone go on as a photo post; one with a video
-        // among them is refused, never posted as its first picture. One that
-        // lists nothing says nothing.
+        // among them is refused, never posted as its first picture. A
+        // carousel that lists nothing, or an entry naming no media of its
+        // own, says nothing.
         if ($type === 'playlist') {
-            $entries = is_array($info['entries'] ?? null) ? array_values(array_filter($info['entries'], 'is_array')) : [];
+            $entries = is_array($info['entries'] ?? null) ? array_values($info['entries']) : [];
 
             if ($entries === []) {
                 throw YtDlpProbeException::failed($extractor);
             }
 
+            $video = false;
+
             foreach ($entries as $entry) {
-                if (self::hasVideo($entry)) {
-                    throw YtDlpProbeException::carouselWithVideo($extractor);
+                if (! is_array($entry) || ! self::listsMedia($entry)) {
+                    throw YtDlpProbeException::failed($extractor);
                 }
+
+                $video = $video || self::hasVideo($entry);
             }
 
-            return null;
+            return $video ? throw YtDlpProbeException::carouselWithVideo($extractor) : null;
         }
 
         // Only an answer that lists the page's media can say there is no
         // video among it: an answer of another kind, or one naming no media
         // at all, is no answer.
-        if ($type !== 'video' || ! (is_array($info['formats'] ?? null) || isset($info['url']) || isset($info['requested_formats']))) {
+        if ($type !== 'video' || ! self::listsMedia($info)) {
             throw YtDlpProbeException::failed($extractor);
         }
 
@@ -210,11 +215,25 @@ final class YtDlp
     }
 
     /**
+     * Whether an answer names media of its own — a format, a requested
+     * format, an address — and so can say whether any of it is video.
+     *
+     * @param  array<mixed>  $info
+     */
+    private static function listsMedia(array $info): bool
+    {
+        $formats = is_array($info['formats'] ?? null) ? array_filter($info['formats'], 'is_array') : [];
+        $requested = is_array($info['requested_formats'] ?? null) ? array_filter($info['requested_formats'], 'is_array') : [];
+
+        return $formats !== [] || $requested !== [] || (is_string($info['url'] ?? null) && $info['url'] !== '');
+    }
+
+    /**
      * yt-dlp's own reading: a codec it was not told is unknown — there may
      * well be a picture — and only an explicit 'none' means there is none.
-     * RedGifs and YouPorn give their MP4s no codec at all, Coub gives null.
+     * RedGifs gives its MP4s no codec at all.
      *
-     * @param  array<string, mixed>  $info
+     * @param  array<mixed>  $info
      */
     private static function hasVideo(array $info): bool
     {

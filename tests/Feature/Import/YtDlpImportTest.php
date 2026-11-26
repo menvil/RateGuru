@@ -503,4 +503,8 @@ it('takes an answer that names no media for no answer at all, never for a page w
     'a carousel listing nothing' => ['{"_type":"playlist","extractor_key":"Instagram"}'],
     'a carousel of no entries' => ['{"_type":"playlist","entries":[]}'],
     'an answer of another kind' => ['{"_type":"url","url":"https://www.instagram.com/p/X/"}'],
+    'a video answer with no formats in its list' => ['{"_type":"video","formats":[]}'],
+    'a carousel with an empty entry' => ['{"_type":"playlist","entries":[{}]}'],
+    'a carousel with one photo and an empty entry' => ['{"_type":"playlist","entries":[{"formats":[{"vcodec":"none","url":"https://x/1.jpg"}]},{}]}'],
+    'a carousel with an entry that is no object' => ['{"_type":"playlist","entries":["x"]}'],
 ]);
