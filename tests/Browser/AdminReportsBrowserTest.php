@@ -36,21 +36,31 @@ function reportsLayout(mixed $page): array
     JS);
 }
 
-it('docks the first report\'s chain beside a condensed list where the window leaves room', function () {
+it('opens no report by itself, and docks a chosen one beside a condensed list where the window leaves room', function () {
     $page = visitAdminEditor('/admin/reports', 1440);
+    waitForScript($page, "document.readyState === 'complete' && !! window.Livewire && window.Livewire.all().length > 0");
+
+    // Read as drawn: the headers are in capitals.
+    expect(reportsLayout($page))->toBe([
+        'docked' => false,
+        'panel' => null,
+        'columns' => ['TYPE', 'TARGET', 'REASON', 'REPORTER', 'STATUS', 'CREATED', 'ACTIONS'],
+        'overflow' => false,
+    ]);
+
+    $page->click("#rg-admin-report-{$this->first->id} .rg-admin-reports__target");
     waitForScript($page, "document.getElementById('rg-admin-report-panel-title')?.textContent.trim()", "Report #{$this->first->id}");
 
     expect(reportsLayout($page))->toBe([
         'docked' => true,
         'panel' => "Report #{$this->first->id}",
-        // Read as drawn: the headers are in capitals.
         'columns' => ['TARGET', 'REASON · REPORTER', 'STATUS', 'CREATED'],
         'overflow' => false,
     ]);
 });
 
 it('keeps every column where the window is narrower, and opens the chain over the list', function (int $width) {
-    // Opened afresh at this width: the browser starts wider, where the first report opens on its own.
+    // Opened afresh at this width, so the layout is read as the page first draws it there.
     $page = visitAdminEditor('/admin/reports', $width);
     $page->script('window.__rgBeforeNavigation = true');
     navigatePageTo($page, '/admin/reports');

@@ -1691,7 +1691,7 @@ resource keeps the route, the navigation item — with the open reports, warning
   the report's id; Type (All, Posts, Comments, People) as a filter dropdown (FRM-10); “n reports”.
 - **Docked or over the list:** where the main column leaves 1048 for the list, the open report's chain docks
   beside it as the 448 panel, sticky as the page scrolls, and the list condenses to Target · Reason · reporter ·
-  Status · Created — opened wide with nothing chosen, the first report opens. Otherwise the list keeps Type ·
+  Status · Created; no report opens by itself, so the page opens on the full list. Otherwise the list keeps Type ·
   Target · Reason · Reporter · Status · Created · Actions (Resolve and Ignore on an open report, Open details),
   scrolling inside its card, and the chain floats over it on the right, 472 wide with its card's shadow. A report's
   target opens its chain; the report is in the address (`?report=2284`).
@@ -1891,6 +1891,7 @@ checks the files of the one asset it shows. The page keeps its route, its naviga
 | Report ids | “R-2284”, the target's “P-48090” | “Report #2284”, the target's “#48090” (“@name” for a person) | the ids as stored, as the other lists show them |
 | Report targets | posts and comments | posts, comments and people, with Type: People | a person can be reported, and their report reads as their chain |
 | Report order | oldest first in every tab | Open oldest first; Resolved, Ignored and All newest first | the queue waits oldest first, and a closed report is looked up by when it came in |
+| The first report's chain open on arrival | nothing open until a report is chosen (a click, J or K, or `?report=`); closing one still opens the next open one | no admin row or panel opens by itself, the owner's decision |
 | Hide target reasons | “Shared with the author.”; pet-specific chips | “Stored in the moderation log.”; the reasons visitors report with | a hide's reason is not sent to the author |
 | Ban reasons | Repeated spam, Harassment, Animal sale, Ban evasion | Repeated spam, Harassment, Scam, Ban evasion | for a project about anything |
 | What a ban does | “Signs them out everywhere and blocks sign-in.” | “They can still sign in, browse and manage their account.”, and no new posts, comments, votes, reports or follows | a ban stops participation and never locks anyone out of their account (docs/architecture/user-lifecycle.md) |
