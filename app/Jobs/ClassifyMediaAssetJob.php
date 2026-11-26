@@ -12,8 +12,10 @@ use App\Services\Media\Classification\MediaClassificationRecorder;
 use App\Services\Media\Classification\MediaClassifierRegistry;
 use App\Support\Media\MediaQueue;
 use App\Support\Media\WorkerTemporaryDirectory;
+use Carbon\CarbonImmutable;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Log;
@@ -30,8 +32,10 @@ use Throwable;
  * answered for it at its model version is not asked again: an upload, a
  * redelivered video job and media:classify meeting on one asset ask each
  * classifier once — a paid one is never paid twice. What a classifier fails
- * at is recorded, not retried; so is media nothing can be taken from. What
- * fails the job is the host — ffmpeg missing, the database — retried once.
+ * at is recorded, not retried — on the job's own retry neither — unless
+ * media:classify --retry-failed asks again; so is media nothing can be taken
+ * from. What fails the job is the host — ffmpeg missing, the database —
+ * retried once.
  */
 final class ClassifyMediaAssetJob implements RunsOnMediaQueue, ShouldBeUnique, ShouldQueue
 {
@@ -46,20 +50,33 @@ final class ClassifyMediaAssetJob implements RunsOnMediaQueue, ShouldBeUnique, S
 
     public bool $failOnTimeout = true;
 
-    /** Held as long as the media connection could still deliver the job. */
-    public int $uniqueFor = 960;
+    /** How long after it becomes available the media connection could still deliver the job. */
+    private const int DELIVERY_WINDOW_SECONDS = 960;
 
     /** A run its timeout killed left its frames; cleared once past every run's time. */
     private const int STALE_AFTER_SECONDS = 7200;
 
-    public function __construct(public readonly int $mediaAssetId)
-    {
+    /**
+     * @param  int|null  $retryFailuresBefore  media:classify --retry-failed: a classifier's failure recorded before this moment (a Unix time) is asked again — one this job's own earlier attempt recorded is not
+     * @param  int  $delaySeconds  how long after its dispatch it becomes available (media:classify spreads them out)
+     */
+    public function __construct(
+        public readonly int $mediaAssetId,
+        public readonly ?int $retryFailuresBefore = null,
+        public readonly int $delaySeconds = 0,
+    ) {
         $this->onConnection(MediaQueue::connection());
     }
 
     public function uniqueId(): string
     {
         return (string) $this->mediaAssetId;
+    }
+
+    /** Held through its delay too, and as long as the media connection could then deliver it. */
+    public function uniqueFor(): int
+    {
+        return max(0, $this->delaySeconds) + self::DELIVERY_WINDOW_SECONDS;
     }
 
     public function handle(MediaClassifierRegistry $registry, ClassificationFrameSampler $sampler, MediaClassificationRecorder $recorder): void
@@ -74,7 +91,14 @@ final class ClassifyMediaAssetJob implements RunsOnMediaQueue, ShouldBeUnique, S
         $pending = array_values(array_filter($registry->configured(), fn (array $entry): bool => ! $asset->classifications()
             ->where('classifier', $entry['classifier']->name())
             ->where('model_version', $entry['classifier']->modelVersion())
-            ->where('status', ClassificationStatus::Succeeded)
+            ->where(fn (Builder $answer): Builder => $answer
+                ->where('status', ClassificationStatus::Succeeded)
+                // A failure is an answer too, unless --retry-failed asks
+                // again for one recorded before it was asked.
+                ->orWhere(fn (Builder $failure): Builder => $failure
+                    ->where('status', ClassificationStatus::Failed)
+                    ->when($this->retryFailuresBefore !== null, fn (Builder $recent): Builder => $recent
+                        ->where('created_at', '>=', CarbonImmutable::createFromTimestamp((int) $this->retryFailuresBefore)))))
             ->exists()));
 
         if ($pending === []) {

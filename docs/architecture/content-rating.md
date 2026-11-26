@@ -94,7 +94,9 @@ is queued at all.
 commit that made the media ready:
 - a photo as it is stored (`MediaAssetCreator`), from wherever it was
   uploaded: posts, Content Studio, game rounds;
-- a video or GIF when its processing finishes (`ProcessVideoAssetJob`).
+- a video or GIF when its processing finishes (`ProcessVideoAssetJob`),
+  before the author is told, so a notice that fails to be written never
+  leaves ready media unclassified.
 
 The upload never pays for it. A queue that will not take the job is
 reported, not thrown back into an upload that has already committed. The
@@ -110,9 +112,14 @@ configuration is read by the job, never by the upload.
   - Each frame is a short ffmpeg run of its own
     (`media.video.frame_timeout_seconds`, 30 s). A frame ffmpeg cannot take
     is left out.
+  - All of them together get five minutes. Past that no further frame is
+    asked for, and the frames taken are shown, so seeks stalling one after
+    another never use up the job's time before a classifier is asked.
 
 **The job:**
 - It runs on the media queue, one at a time per asset (`ShouldBeUnique`).
+  The lock is held through a delay it was queued with, then as long as the
+  media connection could still deliver it.
 - A classifier that already answered for the asset at its model version is
   not asked again, so an upload, a redelivered video job and
   `media:classify` meeting on one asset ask each classifier once, and a paid
@@ -123,7 +130,8 @@ configuration is read by the job, never by the upload.
   killed the run first, a later run removes it.
 - **Failures that are recorded, not retried:** a classifier failing, and
   media nothing can be taken from (unreadable, undecodable, no frame). The
-  latter is recorded for each classifier that was to see it.
+  latter is recorded for each classifier that was to see it. A recorded
+  failure counts as the classifier's answer, on the job's own retry too.
 - **Failures that are retried once:** the host's (ffmpeg missing, the
   database).
 
@@ -132,7 +140,9 @@ media:classify --limit=N` queues it, newest first, for every configured
 classifier that has not answered for it yet. Use it, for example, to try a
 classifier in shadow mode on real uploads.
 - An asset a classifier failed on counts as answered unless
-  `--retry-failed` is given.
+  `--retry-failed` is given. Then a failure recorded before the command ran
+  is asked again, once: a failure the job records itself is not asked again
+  on its own retry. A classifier that has not answered is asked either way.
 - The jobs become available ten seconds apart, so the videos waiting on the
   same media queue are never stuck behind a whole batch.
 

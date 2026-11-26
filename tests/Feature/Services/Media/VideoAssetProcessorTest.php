@@ -6,15 +6,19 @@ use App\Enums\MediaTool;
 use App\Enums\MediaType;
 use App\Enums\MediaVariantName;
 use App\Enums\MediaVisibility;
+use App\Enums\PostStatus;
 use App\Jobs\ClassifyMediaAssetJob;
 use App\Jobs\ProcessVideoAssetJob;
 use App\Models\MediaAsset;
+use App\Models\Post;
+use App\Models\User;
 use App\Services\Media\Classification\QueueMediaClassification;
 use App\Services\Media\Exceptions\MediaToolInterruptedException;
 use App\Services\Media\MediaToolResult;
 use App\Services\Media\MediaToolRunner;
 use App\Services\Media\VideoAssetProcessor;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
+use Illuminate\Notifications\DatabaseNotification;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
@@ -300,4 +304,20 @@ it('queues the content classifiers once processing leaves a video ready, and nev
         ->and($refused->refresh()->status)->toBe(MediaStatus::Failed);
     Queue::assertPushed(ClassifyMediaAssetJob::class, 1);
     Queue::assertPushed(ClassifyMediaAssetJob::class, fn ($job): bool => $job->mediaAssetId === $ready->id);
+});
+
+it('queues the classifiers before the author\'s notice, so a notice that cannot be written leaves no ready video unclassified', function () {
+    $this->dir = requireRealFfmpeg();
+    Queue::fake();
+    app()->instance('test.classifier', standInClassifier());
+    config(['media.classification.classifiers' => [['classifier' => 'test.classifier', 'mode' => 'shadow']]]);
+    makeWithRealFfmpeg(['-f', 'lavfi', '-i', 'testsrc=duration=2:size=320x240:rate=25', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', $this->dir.'/clip.mp4']);
+    $asset = processingVideoAsset((string) file_get_contents($this->dir.'/clip.mp4'), 'mp4');
+    Post::factory()->create(['user_id' => User::factory()->create()->id, 'image_asset_id' => $asset->id, 'status' => PostStatus::Draft, 'published_at' => null]);
+    DatabaseNotification::creating(fn () => throw new RuntimeException('the notice could not be written'));
+
+    expect(fn () => app()->call([new ProcessVideoAssetJob($asset->id), 'handle']))->toThrow(RuntimeException::class, 'the notice could not be written');
+
+    expect($asset->refresh()->status)->toBe(MediaStatus::Ready);
+    Queue::assertPushed(ClassifyMediaAssetJob::class, fn ($job): bool => $job->mediaAssetId === $asset->id);
 });

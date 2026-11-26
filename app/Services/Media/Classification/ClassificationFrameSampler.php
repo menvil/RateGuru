@@ -41,6 +41,14 @@ final class ClassificationFrameSampler
     /** One frame per this many seconds, until a long clip reaches MAX_FRAMES. */
     public const int SECONDS_PER_FRAME = 2;
 
+    /**
+     * How long a video's frames may take in all. Past it no further frame is
+     * asked for, and the ones taken are shown: with the last frame's own
+     * timeout, well inside the job's, so the classifiers still have their
+     * time.
+     */
+    public const int SAMPLING_BUDGET_SECONDS = 300;
+
     public function __construct(
         private readonly MediaStorage $storage,
         private readonly ImageVariantProcessor $images,
@@ -101,8 +109,15 @@ final class ClassificationFrameSampler
         $this->storage->copyToFile(new MediaLocation($asset->disk, $asset->path), $video);
 
         $frames = [];
+        $deadline = now()->addSeconds(self::SAMPLING_BUDGET_SECONDS);
 
         foreach (self::times($asset->duration_ms) as $index => [$atMs, $label]) {
+            // Out of time — seeks stalling one after another: what was taken
+            // is shown, rather than nothing once the job's timeout kills it.
+            if (now()->greaterThan($deadline)) {
+                break;
+            }
+
             $path = sprintf('%s/frame-%02d.jpg', $directory, $index);
 
             try {

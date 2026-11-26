@@ -10,6 +10,7 @@ use App\Jobs\ProcessVideoAssetJob;
 use App\Models\Post;
 use App\Models\User;
 use App\Notifications\VideoPostProcessedNotification;
+use App\Services\Media\Classification\QueueMediaClassification;
 use App\Services\Media\MediaToolResult;
 use App\Services\Media\VideoAssetProcessor;
 use Illuminate\Support\Facades\Notification;
@@ -92,7 +93,7 @@ it('finalizes the post from the job: whenever its asset is ready, and once the l
     [$post, $asset] = draftVideoPost($author, MediaStatus::Ready);
     $runner = bindRecordingMediaToolRunner();
 
-    (new ProcessVideoAssetJob($asset->id))->handle(app(VideoAssetProcessor::class), app(FinalizePostMediaAction::class), app(App\Services\Media\Classification\QueueMediaClassification::class));
+    (new ProcessVideoAssetJob($asset->id))->handle(app(VideoAssetProcessor::class), app(FinalizePostMediaAction::class), app(QueueMediaClassification::class));
 
     expect($post->refresh()->status)->toBe(PostStatus::Published)
         ->and($runner->calls)->toBe([]);
@@ -123,9 +124,9 @@ it('tells the author of a failure once per asset, whichever run settles it', fun
     Storage::fake('local')->put($asset->path, 'not a video');
     bindRecordingMediaToolRunner([new MediaToolResult(1, '', 'Invalid data')]);
 
-    (new ProcessVideoAssetJob($asset->id))->handle(app(VideoAssetProcessor::class), app(FinalizePostMediaAction::class), app(App\Services\Media\Classification\QueueMediaClassification::class));
+    (new ProcessVideoAssetJob($asset->id))->handle(app(VideoAssetProcessor::class), app(FinalizePostMediaAction::class), app(QueueMediaClassification::class));
     // Redelivered: the asset is Failed already.
-    (new ProcessVideoAssetJob($asset->id))->handle(app(VideoAssetProcessor::class), app(FinalizePostMediaAction::class), app(App\Services\Media\Classification\QueueMediaClassification::class));
+    (new ProcessVideoAssetJob($asset->id))->handle(app(VideoAssetProcessor::class), app(FinalizePostMediaAction::class), app(QueueMediaClassification::class));
 
     expect($asset->refresh()->status)->toBe(MediaStatus::Failed)
         ->and($post->refresh()->status)->toBe(PostStatus::Draft);

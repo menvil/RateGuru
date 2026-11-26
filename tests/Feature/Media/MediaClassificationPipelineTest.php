@@ -20,6 +20,7 @@ use App\Services\Media\MediaToolRunner;
 use App\Services\Media\StoredMedia;
 use App\Support\Media\MediaAssetCreator;
 use App\Support\Media\WorkerTemporaryDirectory;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Exceptions;
@@ -358,4 +359,74 @@ it('says there is nothing to queue with no classifier configured, and refuses a 
 
     config(['media.classification.classifiers' => [['classifier' => 'x', 'mode' => 'benchmark']]]);
     expect(fn () => app(MediaClassifierRegistry::class)->configured())->toThrow(InvalidArgumentException::class);
+});
+
+it('never asks a classifier again for a failure it recorded, on the job\'s own retry neither, unless --retry-failed asks for one recorded before', function () {
+    Exceptions::fake();
+    $broken = standInClassifier(failure: new RuntimeException('bug'), name: 'broken');
+    $working = standInClassifier(['sex_toy' => 0.3], name: 'working');
+    configureClassifiers(['test.broken' => [$broken, 'shadow'], 'test.working' => [$working, 'shadow']]);
+    framesWrittenByFfmpeg();
+    $asset = readyVideoAsset();
+    $job = new ClassifyMediaAssetJob($asset->id);
+
+    app()->call([$job, 'handle']);
+    // The other's answer lost to the database, the job is retried: the
+    // failure recorded is the broken one's answer.
+    MediaClassification::query()->where('classifier', 'working')->delete();
+    app()->call([$job, 'handle']);
+
+    expect($broken->shown)->toHaveCount(1)
+        ->and($working->shown)->toHaveCount(2);
+
+    // Asked again for what failed before, once: its own retry asks no more.
+    $this->travel(1)->seconds();
+    $retry = new ClassifyMediaAssetJob($asset->id, now()->getTimestamp());
+    app()->call([$retry, 'handle']);
+    app()->call([$retry, 'handle']);
+
+    expect($broken->shown)->toHaveCount(2)
+        ->and($working->shown)->toHaveCount(2);
+});
+
+it('hands its jobs the retry it was asked for, and holds each one\'s lock through its delay', function () {
+    $this->freezeTime();
+    Queue::fake();
+    configureClassifiers(['test.trial' => [standInClassifier(name: 'trial'), 'shadow']]);
+    MediaAsset::factory()->count(2)->create();
+
+    $this->artisan('media:classify')->assertSuccessful();
+    $jobs = collect(Queue::pushed(ClassifyMediaAssetJob::class));
+
+    expect($jobs->pluck('retryFailuresBefore')->all())->toBe([null, null])
+        ->and($jobs->map(fn (ClassifyMediaAssetJob $job): int => $job->uniqueFor())->all())->toBe([960, 960 + MediaClassifyCommand::SPACING_SECONDS]);
+
+    Queue::fake();
+    Cache::flush();
+    $this->artisan('media:classify', ['--retry-failed' => true])->assertSuccessful();
+
+    expect(collect(Queue::pushed(ClassifyMediaAssetJob::class))->pluck('retryFailuresBefore')->unique()->all())->toBe([now()->getTimestamp()]);
+});
+
+it('stops asking for frames once its time is up, and shows the ones it took', function () {
+    $runner = new class implements MediaToolRunner
+    {
+        public int $calls = 0;
+
+        public function run(MediaTool $tool, array $arguments, int $timeoutSeconds): MediaToolResult
+        {
+            $this->calls++;
+            file_put_contents((string) end($arguments), 'jpeg');
+            // Each frame takes past half the budget: a third is never asked for.
+            Carbon::setTestNow(now()->addSeconds(intdiv(ClassificationFrameSampler::SAMPLING_BUDGET_SECONDS, 2) + 1));
+
+            return new MediaToolResult(0, '', '');
+        }
+    };
+    app()->instance(MediaToolRunner::class, $runner);
+
+    $input = app(ClassificationFrameSampler::class)->sample(readyVideoAsset(20000), $this->scratch);
+
+    expect($input->frames)->toHaveCount(2)
+        ->and($runner->calls)->toBe(2);
 });

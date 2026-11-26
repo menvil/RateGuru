@@ -46,6 +46,9 @@ final class MediaClassifyCommand extends Command
 
         $limit = max(1, (int) $this->option('limit'));
         $retryFailed = (bool) $this->option('retry-failed');
+        // What failed before now is asked again; a failure the job records
+        // itself is not, on its own retry either.
+        $retryFailuresBefore = $retryFailed ? now()->getTimestamp() : null;
         $queued = 0;
 
         MediaAsset::query()
@@ -64,8 +67,9 @@ final class MediaClassifyCommand extends Command
             ->orderByDesc('id')
             ->limit($limit)
             ->pluck('id')
-            ->each(function (int $id) use (&$queued): void {
-                ClassifyMediaAssetJob::dispatch($id)->delay(now()->addSeconds($queued * self::SPACING_SECONDS));
+            ->each(function (int $id) use (&$queued, $retryFailuresBefore): void {
+                $delay = $queued * self::SPACING_SECONDS;
+                ClassifyMediaAssetJob::dispatch($id, $retryFailuresBefore, $delay)->delay(now()->addSeconds($delay));
                 $queued++;
             });
 

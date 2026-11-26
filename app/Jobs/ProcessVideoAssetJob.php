@@ -80,9 +80,11 @@ final class ProcessVideoAssetJob implements RunsOnMediaQueue, ShouldQueue
         // Both are safe to repeat — only a draft is published, and the author
         // hears of each outcome once per asset — so a settled asset always
         // reaches them, also when an earlier run stopped between the two.
+        // Classification first: it never throws, and a notice that fails to
+        // be written must not leave ready media unclassified.
         if ($asset->status === MediaStatus::Ready) {
-            $finalize->ready($asset);
             $classification->ready($asset);
+            $finalize->ready($asset);
         } elseif ($asset->status === MediaStatus::Failed) {
             $finalize->failed($asset);
         }

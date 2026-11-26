@@ -281,3 +281,15 @@ it('shows in the viewer the post\'s content rating and what each classifier last
     $asset->forceFill(['content_rating' => ContentRating::Nsfw, 'content_rating_source' => ContentRatingSource::Moderator])->save();
     Livewire::withQueryParams(['status' => 'all'])->test(ListPosts::class)->call('view', $post->id)->assertSee('NSFW · by a moderator');
 });
+
+it('shows each classifier\'s latest answer, however often another answered since', function () {
+    Storage::fake('public');
+    $this->actingAs(User::factory()->admin()->create());
+    $post = videoPostWithPosterVariants([], MediaVariantName::PostDetail1920);
+    MediaClassification::factory()->create(['media_asset_id' => $post->image_asset_id, 'classifier' => 'cloud', 'mode' => ClassificationMode::Active, 'scores' => ['sex_toy' => 0.5]]);
+    MediaClassification::factory()->count(60)->create(['media_asset_id' => $post->image_asset_id, 'classifier' => 'nudenet', 'mode' => ClassificationMode::Shadow, 'scores' => ['breast_exposed' => 0.91]]);
+
+    Livewire::withQueryParams(['status' => 'all'])->test(ListPosts::class)->call('view', $post->id)
+        ->assertSee('cloud: Sex toy 0.50')
+        ->assertSee('nudenet (shadow): Breast 0.91');
+});
