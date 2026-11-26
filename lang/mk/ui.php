@@ -268,6 +268,7 @@ return [
         'image_drop_hint' => 'JPEG, PNG, GIF до 5 MB',
         'image_browse' => 'Избери датотека',
         'image_url_placeholder' => 'https://example.com/image.jpg',
+        'media_url_hint' => 'Врска до слика или видео, или до објава: се зема нејзиното видео или GIF каде што страницата дозволува, инаку нејзината фотографија.',
         'source_url' => 'URL на изворот',
         'source_url_placeholder' => 'https://example.com/original',
         'tags' => 'Ознаки',

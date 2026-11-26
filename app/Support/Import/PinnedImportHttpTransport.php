@@ -53,6 +53,21 @@ final class PinnedImportHttpTransport implements ImportHttpTransport
 
     public function get(ResolvedImportTarget $target, ImportFetchPolicy $policy): ImportTransportResponse
     {
+        return $this->fetch($target, $policy, null);
+    }
+
+    /**
+     * The body goes to $path as it arrives (Guzzle's sink, given a path: Http::fake()
+     * writes its stub body there too), under the same caps — the progress
+     * callback still aborts past maxBytes, so a file never grows past it.
+     */
+    public function download(ResolvedImportTarget $target, ImportFetchPolicy $policy, string $path): ImportTransportResponse
+    {
+        return $this->fetch($target, $policy, $path);
+    }
+
+    private function fetch(ResolvedImportTarget $target, ImportFetchPolicy $policy, ?string $sink): ImportTransportResponse
+    {
         if (! ($this->curlAvailabilityCheck)()) {
             // Without ext-curl, Guzzle's handler selection (Utils::
             // chooseHandler()) falls back to its pure-PHP StreamHandler,
@@ -121,6 +136,7 @@ final class PinnedImportHttpTransport implements ImportHttpTransport
 
                     return false;
                 },
+                ...($sink !== null ? ['sink' => $sink] : []),
                 'curl' => [
                     // Connects to the exact IP UrlImportValidator already
                     // resolved and validated for this hop, instead of
@@ -129,6 +145,10 @@ final class PinnedImportHttpTransport implements ImportHttpTransport
                     // fix. The URL, Host header, and TLS SNI/certificate
                     // verification all still use $target->host untouched.
                     CURLOPT_RESOLVE => ["{$target->host}:{$target->port}:{$target->ip}"],
+                    // A download that trickles — under 32 KB a second for 20
+                    // seconds — is cut off rather than holding a worker for
+                    // its whole time.
+                    ...($sink !== null ? [CURLOPT_LOW_SPEED_LIMIT => 32 * 1024, CURLOPT_LOW_SPEED_TIME => 20] : []),
                 ],
             ])
                 ->timeout($policy->timeoutSeconds)
@@ -170,9 +190,14 @@ final class PinnedImportHttpTransport implements ImportHttpTransport
             throw ImportFetchException::connectionError($target->url, $e->getMessage());
         }
 
-        $body = $response->body();
+        $body = $sink === null ? $response->body() : '';
+        if ($sink !== null) {
+            clearstatcache(true, $sink);
+        }
 
-        if (strlen($body) > $policy->maxBytes) {
+        $received = $sink === null ? strlen($body) : (int) @filesize($sink);
+
+        if ($received > $policy->maxBytes) {
             throw ImportFetchException::responseTooLarge($target->url, $policy->maxBytes);
         }
 

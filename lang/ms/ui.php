@@ -268,6 +268,7 @@ return [
         'image_drop_hint' => 'JPEG, PNG, GIF sehingga 5MB',
         'image_browse' => 'Semak imbas fail',
         'image_url_placeholder' => 'https://example.com/image.jpg',
+        'media_url_hint' => 'Pautan ke gambar atau video, atau ke siaran: video atau GIF siaran itu diambil jika laman membenarkan, jika tidak fotonya.',
         'source_url' => 'URL sumber',
         'source_url_placeholder' => 'https://example.com/original',
         'tags' => 'Tag',

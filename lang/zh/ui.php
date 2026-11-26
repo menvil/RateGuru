@@ -268,6 +268,7 @@ return [
         'image_drop_hint' => '支持 JPEG、PNG、GIF，最大 5MB',
         'image_browse' => '浏览文件',
         'image_url_placeholder' => 'https://example.com/image.jpg',
+        'media_url_hint' => '图片或视频的链接，或帖子的链接：网站允许时获取其视频或 GIF，否则获取其照片。',
         'source_url' => '来源网址',
         'source_url_placeholder' => 'https://example.com/original',
         'tags' => '标签',

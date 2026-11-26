@@ -532,8 +532,40 @@ UploadPostForm: mimetypes (uploads.videos.mimetypes), <= 100 MB;
   unreadable); a draft says it is being processed; the notification says
   published, waiting for moderation, or not processed.
 
-How the draft, the processing state and the player appear on pages, and the
-lifecycle of originals, come next.
+### A video by link
+
+The form's link takes a picture's link, as it always did, and also a video
+file's or a post's on another site — X, Instagram, any page with Open Graph
+tags. A post is read for what it carries (`ImportFromUrlAction`): X's
+syndication data gives the video or GIF a post leads with (the highest MP4
+bitrate no larger than 1080 on its short side); otherwise its picture is
+fetched at once, as a picture link is. A video file's link (`direct_video`:
+`.mp4`, `.m4v`, `.mov`, `.webm`, `.gif`) fetches nothing at all while
+posting. A link that names no file and gives nothing to take is tried as a
+picture's, as it always was. Instagram gives a post's photo; its videos wait
+for the yt-dlp import.
+
+```text
+UploadPostForm -> CreatePostData::videoUrl -> CreatePostAction
+  asset Processing, private, under a reserved path, metadata.import.url;
+  the post a Draft; the per-author and import limits count it
+  -> ImportVideoAssetJob (media queue)
+       SafeImportHttpClient::download(): every hop validated and pinned, the
+       body streamed to a file, never past the upload limit
+       (import.video_timeout_seconds for the time it takes)
+       VideoUploadStorer::storeFile(): ffprobe and the policy on what arrived
+       -> the asset as any upload's, metadata.import.downloaded_at
+       -> ProcessVideoAssetJob, and from there as any video
+     a file refused, or a link still failing on the second try: the asset
+     fails and the author is told; a redelivered job that finds the file
+     downloaded hands it on to processing
+```
+
+The link is kept as the post's source when the author named none. Until it
+is downloaded the asset has no file, which the media audit does not count as
+a missing master.
+
+How the draft and its processing state appear to its author come later.
 
 ## Responsive media variants
 

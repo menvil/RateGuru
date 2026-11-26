@@ -82,6 +82,8 @@ final class VideoAssetProcessor
                 return true;
             }
 
+            self::clearStaleWorkDirectories();
+
             if (! @mkdir($work, 0o700)) {
                 throw new RuntimeException('Could not create a work directory for video processing.');
             }
@@ -226,6 +228,19 @@ final class VideoAssetProcessor
             height: $probe->height,
             durationMs: $probe->durationMs,
         );
+    }
+
+    /**
+     * A run its job's timeout killed never reached its clean-up: any work
+     * directory older than two hours — past every run's time — goes.
+     */
+    private static function clearStaleWorkDirectories(): void
+    {
+        foreach (glob(sys_get_temp_dir().'/rateguru-video-*', GLOB_ONLYDIR) ?: [] as $stale) {
+            if (filemtime($stale) < time() - 7200 && ! str_ends_with($stale, '-import')) {
+                exec('rm -rf '.escapeshellarg($stale));
+            }
+        }
     }
 
     /**

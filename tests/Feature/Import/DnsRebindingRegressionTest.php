@@ -76,6 +76,14 @@ final class RecordingImportHttpTransport implements ImportHttpTransport
 
         return $next;
     }
+
+    public function download(ResolvedImportTarget $target, ImportFetchPolicy $policy, string $path): ImportTransportResponse
+    {
+        $response = $this->get($target, $policy);
+        file_put_contents($path, $response->body);
+
+        return new ImportTransportResponse($response->status, $response->headers, '');
+    }
 }
 
 it('resolves DNS exactly once per hop, and the transport connects to precisely that resolved IP — no second, uncontrolled lookup', function () {

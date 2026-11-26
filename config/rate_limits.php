@@ -8,6 +8,19 @@ return [
         'decay_seconds' => EnvironmentValue::integer(env('RATE_LIMIT_UPLOAD_DECAY_SECONDS'), 600),
     ],
 
+    // Links read for a post (a page's or a post's on another site): each
+    // fetches from the outside, so they are counted before anything is.
+    'link_import' => [
+        'max_attempts' => 20,
+        'decay_seconds' => 600,
+    ],
+
+    // Videos downloaded for an author, each a worker's minutes at most.
+    'video_import' => [
+        'max_attempts' => 6,
+        'decay_seconds' => 3600,
+    ],
+
     'comment' => [
         'max_attempts' => EnvironmentValue::integer(env('RATE_LIMIT_COMMENT_ATTEMPTS'), 10),
         'decay_seconds' => EnvironmentValue::integer(env('RATE_LIMIT_COMMENT_DECAY_SECONDS'), 60),

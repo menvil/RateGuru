@@ -268,6 +268,7 @@ return [
         'image_drop_hint' => 'JPEG, PNG, GIF de până la 5 MB',
         'image_browse' => 'Alege fișierul',
         'image_url_placeholder' => 'https://example.com/image.jpg',
+        'media_url_hint' => 'Un link către o imagine sau un videoclip ori către o postare: se preia videoclipul sau GIF-ul ei acolo unde site-ul permite, altfel fotografia.',
         'source_url' => 'URL sursă',
         'source_url_placeholder' => 'https://example.com/original',
         'tags' => 'Etichete',

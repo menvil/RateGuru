@@ -11,6 +11,9 @@ return [
 
     'timeout_seconds' => 5,
     'connect_timeout_seconds' => 2,
+    // A video downloaded by ImportVideoAssetJob, in the background: up to
+    // 100 MB needs far longer than a page or a picture.
+    'video_timeout_seconds' => 120,
     'max_redirects' => 3,
 
     // Bounds how many DNS answers a single A/AAAA lookup is allowed to
