@@ -1,0 +1,42 @@
+tests/Pest.php
+  s_0f80700cf0b8c6::t_31cb4a2d957618 23,43,93,13205,13225-13236,13242-13249,13240
+  s_0f80700cf0b8c6::t_5b4c545873ea40 13237-13239,13241
+app/Filament/Pages/ProjectSettingsPage.php
+  s_0f80700cf0b8c6::t_72d76f57551eda 291-294,303-332,139-140,142-144,146
+  s_0f80700cf0b8c6::t_82d6b1304cfe70 137-138,141,145,178,296-299
+tests/Feature/Actions/UpdateProjectLocaleSettingsActionTest.php
+  s_0f80700cf0b8c6::t_ffbfd55a25f6df 96-98,102-116
+  s_0f80700cf0b8c6::t_538b145a406038 99-101
+tests/Feature/Filament/CommentResourceActionsTest.php
+  s_0f80700cf0b8c6::t_cdedb71cfae1fe 84-87,89-93,95
+  s_0f80700cf0b8c6::t_31cb4a2d957618 88,94
+  s_0f80700cf0b8c6::t_5b4c545873ea40 96-99
+tests/Feature/Filament/UserResourceTest.php
+  s_0f80700cf0b8c6::t_eba7f73c121f76 15-16,146-189
+  s_0f80700cf0b8c6::t_f32fe10af72e34 522-533
+  s_0f80700cf0b8c6::t_5b4c545873ea40 190-193
+tests/Feature/Filament/ProjectSettingsPageTest.php
+  s_0f80700cf0b8c6::t_8bd2da170bc205 74-93,99-108
+  s_0f80700cf0b8c6::t_7e91df05770544 121-124
+  s_0f80700cf0b8c6::t_538b145a406038 94-98
+tests/Feature/Filament/ReportResourceActionsTest.php
+  s_0f80700cf0b8c6::t_fe99b0d1aa62fe 142-146,148-151,153
+  s_0f80700cf0b8c6::t_31cb4a2d957618 147,152
+  s_0f80700cf0b8c6::t_5b4c545873ea40 154-157
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "0007eaeb5875e5436f3739018fc62561c82b5e5e",
+  "prompts": {},
+  "sessions": {
+    "s_0f80700cf0b8c6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9c487690-cbdd-45b4-bfb3-e59a0da356a9",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
