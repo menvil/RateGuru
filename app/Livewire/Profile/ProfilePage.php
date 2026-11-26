@@ -90,8 +90,10 @@ final class ProfilePage extends Component
      */
     public function getProcessingVideosProperty(): Collection
     {
-        return $this->isOwner && auth()->user() instanceof User
-            ? app(AuthorProcessingVideosQuery::class)->forAuthor(auth()->user())
+        $viewer = auth()->user();
+
+        return $viewer instanceof User && $viewer->can('viewDrafts', $this->profileUser)
+            ? app(AuthorProcessingVideosQuery::class)->forAuthor($viewer)
             : new Collection;
     }
 

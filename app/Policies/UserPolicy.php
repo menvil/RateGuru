@@ -70,6 +70,15 @@ class UserPolicy
         return $actor->canReport() && $actor->id !== $target->id;
     }
 
+    /**
+     * Whether the actor may see the author's drafts — a video post still
+     * being processed among them: the author alone, never another member.
+     */
+    public function viewDrafts(User $actor, User $author): bool
+    {
+        return $actor->id === $author->id;
+    }
+
     public function viewAdmin(User $actor): bool
     {
         return in_array($actor->role, [UserRole::Admin, UserRole::Moderator], true);

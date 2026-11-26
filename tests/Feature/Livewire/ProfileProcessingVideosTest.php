@@ -71,3 +71,10 @@ it('lists them on the first page of the posts only', function () {
     $this->actingAs($owner)->get(route('profile.show', ['username' => 'owner']))->assertSee('Still processing');
     $this->actingAs($owner)->get(route('profile.show', ['username' => 'owner', 'page' => 2]))->assertOk()->assertDontSee('Still processing');
 });
+
+it('lets the author alone see their drafts, by policy', function () {
+    [$author, $other] = User::factory()->count(2)->create();
+
+    expect($author->can('viewDrafts', $author))->toBeTrue()
+        ->and($other->can('viewDrafts', $author))->toBeFalse();
+});
