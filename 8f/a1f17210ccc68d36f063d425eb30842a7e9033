@@ -1,0 +1,40 @@
+app/Support/Translations/ConfirmedEnglishLines.php
+  s_4b9dc6ab6b25d3::t_a90297ba536a1e 84-92
+app/Filament/Support/ContentTranslationStatus.php
+  s_4b9dc6ab6b25d3::t_066deb693244f6 81-82,89-107
+app/Support/Translations/EnglishChange.php
+  s_4b9dc6ab6b25d3::t_1cc8ddf9e0c95b 59,64-69,139-171
+tests/Feature/I18n/OutdatedTranslationsShownTest.php
+  s_4b9dc6ab6b25d3::t_a90297ba536a1e 3,7,10-11,58,63-73
+resources/views/filament/pages/translation-center/row.blade.php
+  s_4b9dc6ab6b25d3::t_c5da4d68306259 90-92,100,102-103
+tests/Feature/Filament/TranslationCenterPageTest.php
+  s_4b9dc6ab6b25d3::t_a90297ba536a1e 432-446,497-499
+tests/Unit/Support/Translations/EnglishChangeTest.php
+  s_4b9dc6ab6b25d3::t_5ed400c87abc04 18,64
+  s_4b9dc6ab6b25d3::t_a90297ba536a1e 57-63,65-68
+tests/Feature/I18n/ConfirmedEnglishLinesTest.php
+  s_4b9dc6ab6b25d3::t_a90297ba536a1e 24-29,40-41,43
+resources/views/filament/pages/translation-center.blade.php
+  s_4b9dc6ab6b25d3::t_066deb693244f6 10
+app/Queries/Translations/ProjectTranslationSourcesQuery.php
+  s_4b9dc6ab6b25d3::t_066deb693244f6 71
+resources/views/filament/pages/languages.blade.php
+  s_4b9dc6ab6b25d3::t_066deb693244f6 45
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "8fa1f17210ccc68d36f063d425eb30842a7e9033",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
