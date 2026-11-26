@@ -135,8 +135,15 @@ final class VideoMediaSweeper
 
                     if ($changed === 1) {
                         Log::warning('VideoMediaSweeper: video upload never processed; failed it.', ['media_asset_id' => $asset->id]);
-                        $this->finalize->failed($asset->refresh());
                         $failed++;
+
+                        // A notice that could not be written leaves its claim
+                        // free, and the sweep goes on to the next upload.
+                        try {
+                            $this->finalize->failed($asset->refresh());
+                        } catch (Throwable $exception) {
+                            report($exception);
+                        }
                     }
                 }
             });

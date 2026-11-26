@@ -17,9 +17,11 @@ use App\Services\Media\MediaStorage;
 use App\Services\Media\VideoAssetProcessor;
 use App\Services\Media\VideoMediaSweeper;
 use Illuminate\Console\Scheduling\Schedule;
+use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use Illuminate\Support\Testing\Fakes\NotificationFake;
 
 beforeEach(function () {
     Storage::fake('public');
@@ -120,6 +122,36 @@ it('fails an upload still processing a day on and tells its author, but leaves o
     // The job, arriving late, finds it failed: the author is not told twice.
     app(FinalizePostMediaAction::class)->failed($lost->refresh());
     Notification::assertSentToTimes($author, VideoPostProcessedNotification::class, 1);
+});
+
+it('goes on to the next lost upload when a notice cannot be written, leaving its claim free', function () {
+    Exceptions::fake();
+    $author = User::factory()->create();
+    $lost = collect(range(1, 2))->map(function () use ($author): MediaAsset {
+        $asset = MediaAsset::factory()->create(['owner_user_id' => $author->id, 'media_type' => MediaType::Video, 'status' => MediaStatus::Processing, 'created_at' => now()->subHours(25)]);
+        Post::factory()->for($author)->create(['status' => PostStatus::Draft, 'image_asset_id' => $asset->id]);
+
+        return $asset;
+    });
+    Notification::swap($notices = new class extends NotificationFake
+    {
+        public int $failures = 1;
+
+        public function send($notifiables, $notification)
+        {
+            if ($this->failures-- > 0) {
+                throw new RuntimeException('The notifications table would not take it.');
+            }
+
+            parent::send($notifiables, $notification);
+        }
+    });
+
+    expect(app(VideoMediaSweeper::class)->failStuck())->toBe(2)
+        ->and($lost->map(fn (MediaAsset $asset): MediaStatus => $asset->refresh()->status)->unique()->all())->toBe([MediaStatus::Failed])
+        ->and($lost->filter(fn (MediaAsset $asset): bool => isset($asset->refresh()->metadata['failure_notified_at']))->count())->toBe(1);
+    $notices->assertSentToTimes($author, VideoPostProcessedNotification::class, 1);
+    Exceptions::assertReported(RuntimeException::class);
 });
 
 it('purges a video\'s kept original with the asset', function () {
