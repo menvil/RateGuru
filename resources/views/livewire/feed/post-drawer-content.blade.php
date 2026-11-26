@@ -69,7 +69,11 @@
             @endif
 
             <div class="mt-4">
-                @if($post->public_image_url)
+                @php
+                    // A video plays without its poster's file too: it still shows.
+                    $drawerImageVideo = $postImagePresenter->video($post, \App\Enums\PostImageContext::Drawer);
+                @endphp
+                @if($post->public_image_url || $drawerImageVideo)
                     @php
                         $drawerImage = $postImagePresenter->responsive($post, \App\Enums\PostImageContext::Drawer);
                     @endphp
@@ -80,6 +84,7 @@
                         :sizes="$drawerImage?->sizes"
                         :width="$drawerImage?->width"
                         :height="$drawerImage?->height"
+                        :video="$drawerImageVideo"
                         context="drawer"
                         open-fullscreen="imageOpen = true"
                         testid="post-drawer-image-open"
@@ -184,7 +189,11 @@
             </x-ui.modal>
             @endif
 
-            @if($post->public_image_url)
+            @php
+                // A video plays without its poster's file too: it still shows.
+                $fullscreenImageVideo = $postImagePresenter->video($post, \App\Enums\PostImageContext::Fullscreen);
+            @endphp
+            @if($post->public_image_url || $fullscreenImageVideo)
                 @php
                     $fullscreenImage = $postImagePresenter->responsive($post, \App\Enums\PostImageContext::Fullscreen);
                 @endphp
@@ -196,6 +205,7 @@
                         :sizes="$fullscreenImage?->sizes"
                         :width="$fullscreenImage?->width"
                         :height="$fullscreenImage?->height"
+                        :video="$fullscreenImageVideo"
                         context="fullscreen"
                         image-testid="post-fullscreen-image"
                         loading="lazy"

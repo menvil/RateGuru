@@ -1047,9 +1047,13 @@ render_fpm_pool() {
         "php_admin_value[memory_limit] = 256M" \
         "php_admin_value[max_execution_time] = 120" \
         "php_admin_value[max_input_time] = 120" \
-        "php_admin_value[upload_max_filesize] = 64M" \
-        "php_admin_value[post_max_size] = 64M"
+        "php_admin_value[upload_max_filesize] = 128M" \
+        "php_admin_value[post_max_size] = 128M"
 }
+
+# How often a media worker on a release without the redis-media connection
+# looks again for one that has it (see render_supervisor_program).
+MEDIA_QUEUE_WAIT_SECONDS=60
 
 # The exit code a rendered production queue program uses to say "there is no
 # release to work in yet". It is deliberately not 0: 0 is what the worker
@@ -1064,6 +1068,61 @@ QUEUE_PRE_DEPLOY_SETTLE_SECONDS=5
 
 render_supervisor_program() {
     local target_id="$1"
+    local program="${TGT_SUPERVISOR_PROGRAM[${target_id}]}"
+    local queue="${TGT_QUEUE[${target_id}]}"
+    local root="${TGT_ROOT[${target_id}]}"
+
+    printf '%s\n' \
+        "; RateGuru target ${target_id} — queue workers." \
+        ";" \
+        "; Rendered from infrastructure/config/deployment-targets.json by" \
+        "; install-bootstrap-services. Do not edit on the host." \
+        ";" \
+        "; Two workers in one group, which every operation addresses together as" \
+        "; ${program}:* — the default queue's, and the media queue's long jobs" \
+        "; (video transcoding) on the redis-media connection, whose retry window" \
+        "; outlasts them. The media worker runs at a lower CPU priority, so a" \
+        "; transcode never crowds out the site it shares the host with." \
+        ";" \
+        "; Safe to load before the first deployment: with no current/ either" \
+        "; worker exits ${QUEUE_NOTHING_TO_RUN_EXIT} and stays EXITED." \
+        ""
+
+    render_supervisor_worker "${target_id}" "${program}-default" \
+        "queue:work redis --queue=${queue} --sleep=3 --tries=3 --timeout=120 --max-time=3600 --max-jobs=1000" \
+        130 queue-worker.log "" "" true
+
+    printf '\n'
+
+    # A stop signals only the PHP worker (stopasgroup=false): ffmpeg, its
+    # child, is never told to quit halfway — it would exit non-zero and the
+    # file would read as refused. The worker stops after its job, or after
+    # stopwaitsecs both are killed together (killasgroup) and the job runs
+    # again once the connection's retry window passes. Short on purpose: a
+    # restore, a recovery or a PHP upgrade waits a minute, not a transcode.
+    # Deployments signal queue:restart instead, which lets the job finish.
+    #
+    # A release older than the redis-media connection has nothing for it to
+    # run: it waits, RUNNING, until current/ has one, so rolling back below
+    # that release — or installing the group before it — changes nothing for
+    # the checks that want every worker RUNNING.
+    render_supervisor_worker "${target_id}" "${program}-media" \
+        "queue:work redis-media --queue=${queue}-media --sleep=3 --tries=2 --timeout=900 --max-time=3600 --max-jobs=50 --memory=512" \
+        60 media-worker.log "/usr/bin/nice -n 10 " \
+        "while ! grep -qs redis-media ${root}/current/config/queue.php; do sleep ${MEDIA_QUEUE_WAIT_SECONDS}; done; " \
+        false
+
+    printf '%s\n' \
+        "" \
+        "[group:${program}]" \
+        "programs=${program}-default,${program}-media"
+}
+
+# render_supervisor_worker TARGET NAME WORK STOPWAITSECS LOGFILE PREFIX WAIT STOPASGROUP —
+# one [program:NAME] of the target's group, running `artisan WORK` (behind
+# PREFIX, e.g. nice) in current/, once the shell fragment WAIT has returned.
+render_supervisor_worker() {
+    local target_id="$1" name="$2" work="$3" stopwait="$4" logfile="$5" prefix="$6" wait="$7" stopasgroup="$8"
     local logs="${TGT_ROOT[${target_id}]}/${SERVICE_LOG_SUBPATH}"
 
     local root="${TGT_ROOT[${target_id}]}"
@@ -1108,17 +1167,10 @@ render_supervisor_program() {
     # be broken out of. It is data inside a fixed program, never a rendered
     # shell fragment.
     local guarded_command
-    guarded_command="/bin/bash -c 'if [ ! -d ${root}/current ]; then sleep ${QUEUE_PRE_DEPLOY_SETTLE_SECONDS}; exit ${QUEUE_NOTHING_TO_RUN_EXIT}; fi; cd ${root}/current && exec ${PHP_BIN_EXPECTED} artisan queue:work redis --queue=${TGT_QUEUE[${target_id}]} --sleep=3 --tries=3 --timeout=120 --max-time=3600 --max-jobs=1000'"
+    guarded_command="/bin/bash -c 'if [ ! -d ${root}/current ]; then sleep ${QUEUE_PRE_DEPLOY_SETTLE_SECONDS}; exit ${QUEUE_NOTHING_TO_RUN_EXIT}; fi; ${wait}cd ${root}/current && exec ${prefix}${PHP_BIN_EXPECTED} artisan ${work}'"
 
     printf '%s\n' \
-        "; RateGuru target ${target_id} — queue worker." \
-        ";" \
-        "; Rendered from infrastructure/config/deployment-targets.json by" \
-        "; install-bootstrap-services. Do not edit on the host." \
-        ";" \
-        "; Safe to load before the first deployment: with no current/ the" \
-        "; worker is never started, the program exits ${QUEUE_NOTHING_TO_RUN_EXIT} and stays EXITED." \
-        "[program:${TGT_SUPERVISOR_PROGRAM[${target_id}]}]" \
+        "[program:${name}]" \
         "process_name=%(program_name)s_%(process_num)02d" \
         "" \
         "directory=${root}" \
@@ -1134,12 +1186,12 @@ render_supervisor_program() {
         "startsecs=3" \
         "startretries=5" \
         "" \
-        "stopasgroup=true" \
+        "stopasgroup=${stopasgroup}" \
         "killasgroup=true" \
-        "stopwaitsecs=130" \
+        "stopwaitsecs=${stopwait}" \
         "" \
         "redirect_stderr=true" \
-        "stdout_logfile=${logs}/queue-worker.log" \
+        "stdout_logfile=${logs}/${logfile}" \
         "stdout_logfile_maxbytes=10MB" \
         "stdout_logfile_backups=5" \
         "" \
@@ -1335,8 +1387,14 @@ validate_service_sources() {
         grep -Fq "${log_dir}/" "${fpm_src}" \
             || fail "committed PHP-FPM pool ${fpm_src} does not log under ${log_dir} — the service-support directory contract would be pointless"
 
-        grep -Fxq "[program:${TGT_SUPERVISOR_PROGRAM[${target_id}]}]" "${supervisor_src}" \
-            || fail "committed Supervisor config ${supervisor_src} does not declare [program:${TGT_SUPERVISOR_PROGRAM[${target_id}]}] — registry/config drift"
+        local program="${TGT_SUPERVISOR_PROGRAM[${target_id}]}"
+        grep -Fxq "[group:${program}]" "${supervisor_src}" \
+            && grep -Fxq "programs=${program}-default,${program}-media" "${supervisor_src}" \
+            && grep -Fxq "[program:${program}-default]" "${supervisor_src}" \
+            && grep -Fxq "[program:${program}-media]" "${supervisor_src}" \
+            || fail "committed Supervisor config ${supervisor_src} does not declare the group [group:${program}] of ${program}-default and ${program}-media — registry/config drift"
+        grep -Fq "queue:work redis-media --queue=${TGT_QUEUE[${target_id}]}-media " "${supervisor_src}" \
+            || fail "committed Supervisor config ${supervisor_src} has no media worker on the redis-media connection for ${TGT_QUEUE[${target_id}]}-media — registry/config drift"
         assert_supervisor_runs_in_current "${supervisor_src}" "${root}"
         grep -Eq "^user *= *${runtime_user}$" "${supervisor_src}" \
             || fail "committed Supervisor config ${supervisor_src} does not run as ${runtime_user} — registry/config drift"

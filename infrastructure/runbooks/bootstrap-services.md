@@ -64,7 +64,7 @@ reload:
 |---|---|---|
 | `/etc/nginx/sites-available/rateguru-staging` (+ `sites-enabled` symlink) | `infrastructure/config/nginx/rateguru-staging` | `nginx -t` |
 | `/etc/php/8.5/fpm/pool.d/rateguru-staging.conf` | `infrastructure/config/php-fpm/rateguru-staging.conf` | `php-fpm8.5 -t` |
-| `/etc/supervisor/conf.d/rateguru-staging-queue.conf` | `infrastructure/config/supervisor/rateguru-staging-queue.conf` | `supervisorctl reread` (validation only — nothing applied) |
+| `/etc/supervisor/conf.d/rateguru-staging-queue.conf` | `infrastructure/config/supervisor/rateguru-staging-queue.conf` (the group of the default and media workers; see [provision-target.md](provision-target.md#two-workers-one-group)) | `supervisorctl reread` (validation only — nothing applied) |
 | `/etc/cron.d/rateguru-staging-scheduler` | `infrastructure/config/cron/rateguru-staging-scheduler` | structural cron validation + user/php-binary existence |
 | `/etc/ssh/sshd_config.d/70-rateguru-deploy.conf` (host-global) | `infrastructure/config/ssh/70-rateguru-deploy.conf` | `sshd -t` |
 | `/etc/postgresql/18/main/conf.d/70-rateguru.conf` (host-global) | `infrastructure/config/postgresql/70-rateguru.conf` | `postgres -C` (the server's own parse of every configuration file) |

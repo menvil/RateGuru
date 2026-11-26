@@ -1,6 +1,7 @@
 <?php
 
 use App\Enums\MediaTool;
+use App\Services\Media\Exceptions\MediaToolInterruptedException;
 use App\Services\Media\Exceptions\MediaToolTimedOutException;
 use App\Services\Media\Exceptions\MediaToolUnavailableException;
 use App\Services\Media\ProcessMediaToolRunner;
@@ -49,6 +50,24 @@ it('returns a failed run with its exit code and both outputs, for the caller to 
         ->and($result->exitCode)->toBe(3)
         ->and($result->output)->toBe("out\n")
         ->and($result->errorOutput)->toBe("err\n");
+});
+
+it('says a tool stopped by a signal was interrupted, not that the file is bad', function () {
+    config(['media.video.ffprobe_binary' => standInMediaTool($this->bin, 'ffprobe', 'kill -TERM $$')]);
+
+    expect(fn () => (new ProcessMediaToolRunner)->run(MediaTool::Ffprobe, [], 5))
+        ->toThrow(MediaToolInterruptedException::class, 'ffprobe was stopped by a signal before it finished.');
+
+    // ffmpeg catches the signal itself and exits 255, which says the same.
+    config(['media.video.ffmpeg_binary' => standInMediaTool($this->bin, 'ffmpeg', 'exit 255')]);
+
+    expect(fn () => (new ProcessMediaToolRunner)->run(MediaTool::Ffmpeg, [], 5))
+        ->toThrow(MediaToolInterruptedException::class);
+
+    // From ffprobe, 255 is only an exit code, for the caller to judge.
+    config(['media.video.ffprobe_binary' => standInMediaTool($this->bin, 'ffprobe', 'exit 255')]);
+
+    expect((new ProcessMediaToolRunner)->run(MediaTool::Ffprobe, [], 5)->exitCode)->toBe(255);
 });
 
 it('stops a tool that runs past its time', function () {

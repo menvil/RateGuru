@@ -90,3 +90,11 @@ it('does not add any new lifecycle model events to MediaAsset or MediaVariant', 
             ->not->toContain('ObservedBy');
     }
 });
+
+it('does not call the Storage facade (or an equivalent filesystem API) directly from VideoMediaSweeper', function () {
+    assertLifecycleCodeDoesNotReferenceFilesystem('Services/Media/VideoMediaSweeper.php');
+});
+
+it('does not call the Storage facade (or an equivalent filesystem API) directly from MediaSweepVideosCommand', function () {
+    assertLifecycleCodeDoesNotReferenceFilesystem('Console/Commands/MediaSweepVideosCommand.php');
+});

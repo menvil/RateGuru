@@ -5457,9 +5457,24 @@
 
     /* Posts (ListPosts): the thumbnail, the title and author cells, Final, and the image viewer */
     .rg-admin-posts__thumb {
+        position: relative;
         overflow: hidden;
         padding: 0;
         cursor: zoom-in;
+    }
+
+    /* A video's or animation's poster: a play mark over it. */
+    .rg-admin-posts__thumb-badge {
+        position: absolute;
+        inset-inline-end: 2px;
+        bottom: 2px;
+        display: grid;
+        place-items: center;
+        width: 16px;
+        height: 16px;
+        border-radius: 999px;
+        background: rgb(0 0 0 / 0.6);
+        color: #fff;
     }
 
     .rg-admin-posts__thumb:hover {
@@ -5532,7 +5547,8 @@
         background: var(--rg-admin-surface-pill);
     }
 
-    .rg-admin-viewer__image img {
+    .rg-admin-viewer__image img,
+    .rg-admin-viewer__image video {
         max-width: 100%;
         max-height: 100%;
         object-fit: contain;

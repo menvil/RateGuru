@@ -55,6 +55,9 @@ final class VideoTranscoder
             '-dn',
             '-map_metadata', '-1',
             '-map_chapters', '-1',
+            // Never longer than an upload may play, whatever length the
+            // container claimed when it was probed.
+            '-t', (string) (int) config('uploads.videos.max_duration_seconds'),
             // The index at the front, so playback starts before the file is in.
             '-movflags', '+faststart',
             // Before the input it bounds decoding; here, the encoder.
@@ -93,6 +96,8 @@ final class VideoTranscoder
      */
     private function run(array $arguments): void
     {
+        $timeout = max(1, (int) config('media.video.transcode_timeout_seconds'));
+
         $result = $this->runner->run(MediaTool::Ffmpeg, [
             '-nostdin',
             '-hide_banner',
@@ -101,8 +106,12 @@ final class VideoTranscoder
             // The scale filter takes every core unless told otherwise.
             '-filter_threads', (string) self::THREADS,
             '-threads', (string) self::THREADS,
+            // Its own bound in CPU time, with room for both threads: the
+            // runner's timeout dies with the worker, and an ffmpeg orphaned by
+            // a killed worker still stops by itself.
+            '-timelimit', (string) ($timeout * self::THREADS),
             ...$arguments,
-        ], max(1, (int) config('media.video.transcode_timeout_seconds')));
+        ], $timeout);
 
         if (! $result->succeeded()) {
             throw VideoUnreadableException::transcodeFailed();

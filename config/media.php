@@ -17,6 +17,11 @@ return [
 
     'disks' => [
         'public' => env('MEDIA_PUBLIC_DISK', 'public'),
+        // Uploads nobody may fetch yet: a video as it arrived, until it has
+        // been processed into what pages play. Laravel's own private disk,
+        // on every target alike, so it is no key a target's environment has
+        // to supply.
+        'private' => 'local',
     ],
 
     /*
@@ -89,6 +94,15 @@ return [
         'purge_lock' => [
             'ttl_seconds' => max(1, EnvironmentValue::integer(env('MEDIA_PURGE_LOCK_TTL_SECONDS'), 60)),
         ],
+        // How long a video's original is kept after it was processed, and
+        // the files of one that failed: long enough to look into a complaint
+        // or a failure, then gone (media:sweep-videos).
+        'video_original_retention_days' => 7,
+        // How long an upload may stay Processing before media:sweep-videos
+        // takes its job for lost and fails it. Far past every retry a job
+        // makes, so a worker that was down or a queue that backed up for a
+        // few hours delays uploads rather than failing them.
+        'video_stuck_after_hours' => 24,
     ],
 
     /*

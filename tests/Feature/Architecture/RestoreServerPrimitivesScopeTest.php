@@ -350,7 +350,10 @@ it('leaves the host-global backup services untouched', function () {
     // another needle and the negation passes on any file — the diagnostic
     // belongs in a comment, not in the call.
     foreach ([
-        'infrastructure/config/supervisor/rateguru-staging-queue.conf',
+        // The staging Supervisor program is not here: it became a group of the
+        // default and media workers, which every restore and recovery path
+        // already addresses as <program>:*. DeploymentTargetRegistryTest
+        // asserts what it declares.
         'infrastructure/config/cron/rateguru-staging-scheduler',
     ] as $untouched) {
         expect($changed)->not->toContain($untouched);

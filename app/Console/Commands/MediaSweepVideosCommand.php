@@ -1,0 +1,38 @@
+<?php
+
+namespace App\Console\Commands;
+
+use App\Services\Media\VideoMediaSweeper;
+use Illuminate\Console\Command;
+
+/**
+ * Settles what video processing leaves behind: originals kept their
+ * retention period, the files of failed uploads, and uploads whose job was
+ * lost (VideoMediaSweeper). Scheduled hourly.
+ */
+final class MediaSweepVideosCommand extends Command
+{
+    protected $signature = 'media:sweep-videos';
+
+    protected $description = 'Delete expired video originals and failed uploads\' files, fail uploads never processed, and tell authors what the job could not';
+
+    public function handle(VideoMediaSweeper $sweeper): int
+    {
+        $stuck = $sweeper->failStuck();
+        $told = $sweeper->tellUntold();
+        $originals = $sweeper->deleteExpiredOriginals();
+        $failed = $sweeper->removeFailedFiles();
+
+        $this->info("Failed {$stuck} upload(s) never processed; settled {$told} untold outcome(s); deleted {$originals} original(s); removed the files of {$failed} failed upload(s).");
+
+        // As media:purge does: a file that would not delete fails the run, so
+        // the schedule says so instead of only the log.
+        if ($sweeper->failures() > 0) {
+            $this->error("{$sweeper->failures()} file(s) could not be deleted; see the log.");
+
+            return self::FAILURE;
+        }
+
+        return self::SUCCESS;
+    }
+}

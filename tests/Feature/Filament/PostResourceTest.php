@@ -226,3 +226,30 @@ it('keeps the confirmation and the open image on the server', function (string $
         'the confirmation' => ['confirming', ['action' => 'hide', 'ids' => [1]]],
         'the open image' => ['viewing', 1],
     ]);
+
+it('marks a video post in the list and plays its master in the viewer, under its poster', function () {
+    Storage::fake('public');
+    $this->actingAs(User::factory()->admin()->create());
+    $post = videoPostWithPosterVariants([], MediaVariantName::PostFeed640, MediaVariantName::PostDetail1920, MediaVariantName::Video720);
+
+    $page = Livewire::withQueryParams(['status' => 'all'])->test(ListPosts::class);
+
+    expect($page->html())->toContain('data-testid="admin-post-video-badge"')
+        ->toContain('aria-label="Open the original video of');
+
+    $page->call('view', $post->id)
+        ->assertSeeHtml('<video src="'.Storage::disk('public')->url($post->imageAsset->path).'"')
+        ->assertSeeHtml('poster="'.Storage::disk('public')->url($post->imageAsset->variants->firstWhere('name', MediaVariantName::PostDetail1920)->path).'"')
+        ->assertSeeHtml('15 s');
+});
+
+it('opens a video in the viewer even when its poster files are missing', function () {
+    Storage::fake('public');
+    $this->actingAs(User::factory()->admin()->create());
+    $post = videoPostWithPosterVariants([], MediaVariantName::Video720);
+
+    Livewire::withQueryParams(['status' => 'all'])->test(ListPosts::class)
+        ->call('view', $post->id)
+        ->assertSeeHtml('<video src="'.Storage::disk('public')->url($post->imageAsset->path).'"')
+        ->assertDontSeeHtml('poster="');
+});

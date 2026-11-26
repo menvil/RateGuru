@@ -484,8 +484,56 @@ the original (private disk, media/originals/Y/m/<uuid>.<ext>), asset Processing
   cleanup as `write()`, which now also takes the source's MIME type when the
   bytes are not the asset's own file (the poster, a PNG, for a video asset).
 
-Not wired to an upload yet — the post that waits for its video, the upload
-form, a media worker on the hosts and the lifecycle of originals come next.
+### A video post
+
+The upload form takes a video or animated GIF in place of a picture
+(`UploadPostForm::$video`; the dropzone sends each file to its own field by
+type). From there:
+
+```text
+UploadPostForm: mimetypes (uploads.videos.mimetypes), <= 100 MB;
+                the browser checks a clip's length from its metadata first
+  -> CreatePostAction
+       VideoUploadStorer: size limit, ffprobe + VideoIngestPolicy on what the
+         file really is, then the original as it arrived on the private disk
+         (media.disks.private, media/originals/Y/m/<uuid>.<ext>)
+       MediaAssetCreator::createProcessing: asset Processing, private
+       the post: Draft, published_at null
+       ProcessVideoAssetJob dispatched after commit (no variant job, no
+         follower notification yet)
+  -> ProcessVideoAssetJob -> VideoAssetProcessor (above)
+  -> FinalizePostMediaAction
+       Ready:  the draft is published at once or sent to moderation under
+               PostPublicationRule, decided on the author's row as it is now;
+               followers and the first-post bonus as for any published post
+       Failed: the post stays a draft
+       either way the author gets VideoPostProcessedNotification
+```
+
+- **One rule for every new post:** `PostPublicationRule` (trusted, confirmed
+  address or staff, never a Persona) decides both a picture post at creation
+  and a video post once its media is ready. A post deleted meanwhile, or an
+  author who may no longer post, publishes nothing.
+- **Safe to repeat:** only a draft is ever published, so a settled asset
+  always reaches the finalize step — also when an earlier run stopped between
+  the two — and changes nothing a second time.
+- **The author hears of each outcome once per asset**, ready or failed,
+  whichever run settles it. The notice is claimed on the asset
+  (`metadata.ready_notified_at`, `metadata.failure_notified_at`) in the same
+  transaction that writes it. A notice that cannot be written takes the claim
+  back and fails the job, so its next attempt sends it; the post's status is
+  never undone for it.
+- **Fair use of the one media worker:** an author may have at most
+  `uploads.videos.max_processing_per_author` (2) videos processing at once,
+  checked before the file is read and again under the author's lock.
+  Livewire's temporary uploads take up to 100 MB
+  (`livewire.temporary_file_upload.rules`), 15 minutes, and 20 a minute.
+- **What the author is told:** a refused file says why (too long, too large,
+  unreadable); a draft says it is being processed; the notification says
+  published, waiting for moderation, or not processed.
+
+How the draft, the processing state and the player appear on pages, and the
+lifecycle of originals, come next.
 
 ## Responsive media variants
 
@@ -990,6 +1038,47 @@ lock) are what make it safe, not any absence of destruction. Only that
 default mode is scheduled — never `--orphans`, never `--force`. Physical-
 orphan deletion stays a deliberate, human-triggered `--orphans --force`
 operation, on purpose.
+
+### Video files
+
+A video upload leaves more files behind than a photo: its original on the
+private disk (`media.disks.private`, `media/originals/…`), recorded in
+`metadata.original` once processing moves the asset to its public master;
+the master under `media/post-videos/`; its renditions and poster variants.
+`media:sweep-videos` (`VideoMediaSweeper`, hourly, never overlapping)
+settles them:
+
+| What | When | What happens |
+|---|---|---|
+| A processed video's original | `media.lifecycle.video_original_retention_days` (7) after `metadata.processed_at` | the file is deleted; `metadata.original` gives way to `original_deleted_at` |
+| A failed upload's files — original, any master and variants written before it failed | the same period after it failed | the files and variant rows go; the row stays, `metadata.files_removed_at` set, since the draft post that holds it still points at it — and the audit counts no missing master for it |
+| An upload still Processing a day after it arrived (`media.lifecycle.video_stuck_after_hours`) | each run | its job was lost: it fails, unless the processor's own lock (`VideoAssetProcessor::lockFor`) shows a run working on it now, and its author is told (`FinalizePostMediaAction::failed`, once per asset). A worker down or a queue backed up for a few hours delays uploads; it does not fail them |
+| An outcome its author was not told of — ready or failed, its notice unclaimed because it could not be written on the job's last attempt | within `VideoMediaSweeper::UNTOLD_WITHIN_HOURS` (48) of it, each run | the author is told, once per asset; a ready video's draft still waiting is published on the way. A notice that cannot be written again stays unclaimed for the next run |
+
+A file that will not delete fails the run, as it fails `media:purge`.
+
+An asset's `metadata` has several writers.
+- **While the asset is Processing:** the processor and the import write
+  their keys, before anything below can touch it.
+- **Once it is settled:** these sweeps' markers and the author notices'
+  claims change only their own keys, through `MediaAssetMetadata::change`.
+  It reads the column under a lock on the row and writes it back in the same
+  transaction. Two of them meeting on one asset take turns, and neither
+  writes back a copy older than the other's key.
+
+A marker never moves `updated_at`, which the sweeps read as the time an
+upload failed.
+
+The rest of the lifecycle knows about video files too:
+
+- `MediaLifecycleService::purge()` deletes a video's kept original with its
+  master and variants (`VideoOriginal`).
+- `MediaOrphanScanner` also scans the private disk's originals, and counts a
+  processed video's kept original as known.
+- Media Diagnostics shows the videos still processing past the per-author
+  window (`uploads.videos.processing_window_minutes`). Its failed-jobs list
+  stays the image jobs': its retry regenerates image variants, which is no
+  retry for a video.
 
 ## Media observability and admin diagnostics
 

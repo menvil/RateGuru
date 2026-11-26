@@ -1,13 +1,18 @@
 <?php
 
+use App\Actions\Posts\FinalizePostMediaAction;
 use App\Enums\MediaStatus;
+use App\Enums\MediaTool;
 use App\Enums\MediaType;
 use App\Enums\MediaVariantName;
 use App\Enums\MediaVisibility;
 use App\Jobs\ProcessVideoAssetJob;
 use App\Models\MediaAsset;
+use App\Services\Media\Exceptions\MediaToolInterruptedException;
 use App\Services\Media\MediaToolResult;
+use App\Services\Media\MediaToolRunner;
 use App\Services\Media\VideoAssetProcessor;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -193,7 +198,7 @@ it('stops an asset waiting once the job has failed for the last time, and leaves
 it('skips an asset that no longer exists', function () {
     $runner = bindRecordingMediaToolRunner();
 
-    (new ProcessVideoAssetJob(999_999))->handle(app(VideoAssetProcessor::class));
+    (new ProcessVideoAssetJob(999_999))->handle(app(VideoAssetProcessor::class), app(FinalizePostMediaAction::class));
 
     expect($runner->calls)->toBe([]);
 });
@@ -206,7 +211,7 @@ it('sends the job back to wait when another run holds the asset, rather than ack
 
     try {
         $job = (new ProcessVideoAssetJob($asset->id))->withFakeQueueInteractions();
-        $job->handle(app(VideoAssetProcessor::class));
+        $job->handle(app(VideoAssetProcessor::class), app(FinalizePostMediaAction::class));
 
         $job->assertReleased(ProcessVideoAssetJob::BUSY_RETRY_SECONDS);
         expect($runner->calls)->toBe([])
@@ -214,4 +219,45 @@ it('sends the job back to wait when another run holds the asset, rather than ack
     } finally {
         $held->release();
     }
+});
+
+it('leaves the asset waiting when a tool was interrupted, for the job to run it again', function () {
+    app()->instance(MediaToolRunner::class, new class implements MediaToolRunner
+    {
+        public function run(MediaTool $tool, array $arguments, int $timeoutSeconds): MediaToolResult
+        {
+            throw MediaToolInterruptedException::bySignal($tool);
+        }
+    });
+    $asset = processingVideoAsset('x', 'mp4');
+
+    expect(fn () => app(VideoAssetProcessor::class)->process($asset))
+        ->toThrow(MediaToolInterruptedException::class);
+
+    expect($asset->refresh()->status)->toBe(MediaStatus::Processing)
+        ->and($asset->processing_error)->toBeNull();
+});
+
+it('reads the asset again once it holds the lock, and leaves one another run settled meanwhile', function () {
+    $runner = bindRecordingMediaToolRunner();
+    $asset = processingVideoAsset('x', 'mp4');
+    MediaAsset::query()->whereKey($asset->id)->update(['status' => MediaStatus::Ready]);
+
+    // $asset still says Processing in memory.
+    expect(app(VideoAssetProcessor::class)->process($asset))->toBeTrue()
+        ->and($runner->calls)->toBe([])
+        ->and($asset->status)->toBe(MediaStatus::Ready);
+});
+
+it('lets go of the lock when the asset cannot be read again under it', function () {
+    bindRecordingMediaToolRunner();
+    $asset = processingVideoAsset('x', 'mp4');
+    // Gone between the job loading it and the lock: the read under the lock fails.
+    MediaAsset::query()->whereKey($asset->id)->forceDelete();
+
+    expect(fn () => app(VideoAssetProcessor::class)->process($asset))->toThrow(ModelNotFoundException::class);
+
+    $lock = Cache::store('database')->getStore()->lock("media-video-process:{$asset->id}", 60);
+    expect($lock->get())->toBeTrue();
+    $lock->release();
 });

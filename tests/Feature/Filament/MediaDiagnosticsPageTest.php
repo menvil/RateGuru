@@ -3,6 +3,8 @@
 use App\Enums\MediaAuditIssueType;
 use App\Enums\MediaAuditRunStatus;
 use App\Enums\MediaHealthStatus;
+use App\Enums\MediaStatus;
+use App\Enums\MediaType;
 use App\Filament\Pages\MediaDiagnosticsPage;
 use App\Jobs\GenerateMediaVariantsJob;
 use App\Jobs\RunMediaAuditJob;
@@ -25,6 +27,8 @@ use Livewire\Livewire;
 
 beforeEach(function () {
     Storage::fake('public');
+    // The orphan scan reads the private disk's originals too: never this machine's real files.
+    Storage::fake('local');
 });
 
 // --- Authorization ---------------------------------------------------------
@@ -146,6 +150,34 @@ it('computes totals from aggregate SQL, never scanning the filesystem, and shows
 
     expect($page->instance()->totals()['total_assets'])->toBe(1);
     expect($page->instance()->health())->toBe(MediaHealthStatus::Unknown);
+});
+
+it('counts the videos and GIFs still processing past the per-author window, and flags any', function () {
+    $this->freezeTime();
+    config(['uploads.videos.processing_window_minutes' => 30]);
+    $admin = User::factory()->admin()->create();
+    $processing = fn (MediaType $type, int $minutesAgo, MediaStatus $status = MediaStatus::Processing) => MediaAsset::factory()->create(['media_type' => $type, 'status' => $status, 'created_at' => now()->subMinutes($minutesAgo)]);
+
+    $stuckTile = fn ($page): array => collect($page->viewData('tiles'))->firstWhere('label', 'Videos stuck processing');
+
+    $page = Livewire::actingAs($admin)->test(MediaDiagnosticsPage::class);
+    expect($page->instance()->totals()['stuck_videos'])->toBe(0)
+        ->and($stuckTile($page))->toMatchArray(['value' => '0', 'badge' => null]);
+
+    $processing(MediaType::Video, 31);
+    $processing(MediaType::Animation, 30);
+    // Not yet past the window, a picture, or settled: not stuck.
+    $processing(MediaType::Video, 29);
+    $processing(MediaType::Image, 90);
+    $processing(MediaType::Video, 90, MediaStatus::Ready);
+    $processing(MediaType::Video, 90, MediaStatus::Failed);
+
+    $page = Livewire::actingAs($admin)->test(MediaDiagnosticsPage::class);
+    expect($page->instance()->totals()['stuck_videos'])->toBe(2)
+        ->and($stuckTile($page))->toMatchArray(['value' => '2', 'badge' => ['label' => 'Warning', 'tone' => 'warning']]);
+
+    config(['uploads.videos.processing_window_minutes' => 120]);
+    expect(Livewire::actingAs($admin)->test(MediaDiagnosticsPage::class)->instance()->totals()['stuck_videos'])->toBe(0);
 });
 
 it('does not issue a filesystem existence check while rendering the page', function () {

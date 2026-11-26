@@ -2,6 +2,7 @@
 
 namespace App\Jobs;
 
+use App\Actions\Posts\FinalizePostMediaAction;
 use App\Enums\MediaStatus;
 use App\Models\MediaAsset;
 use App\Services\Media\VideoAssetProcessor;
@@ -19,6 +20,9 @@ use Throwable;
  * queue as a failure is a host problem (storage, a stalled tool), retried
  * once a minute later, then left Failed for the author to upload again. A
  * job that finds another run holding the asset is released to come back.
+ *
+ * Its post waits as a draft meanwhile; FinalizePostMediaAction publishes it
+ * once the media is Ready, or tells the author it Failed.
  */
 final class ProcessVideoAssetJob implements RunsOnMediaQueue, ShouldQueue
 {
@@ -51,7 +55,7 @@ final class ProcessVideoAssetJob implements RunsOnMediaQueue, ShouldQueue
         $this->onConnection(MediaQueue::connection());
     }
 
-    public function handle(VideoAssetProcessor $processor): void
+    public function handle(VideoAssetProcessor $processor, FinalizePostMediaAction $finalize): void
     {
         $asset = MediaAsset::query()->find($this->mediaAssetId);
 
@@ -66,6 +70,19 @@ final class ProcessVideoAssetJob implements RunsOnMediaQueue, ShouldQueue
             // acknowledge a job whose asset still waits: if that run dies, its
             // lock expires before this one returns.
             $this->release(self::BUSY_RETRY_SECONDS);
+
+            return;
+        }
+
+        $asset->refresh();
+
+        // Both are safe to repeat — only a draft is published, and the author
+        // hears of each outcome once per asset — so a settled asset always
+        // reaches them, also when an earlier run stopped between the two.
+        if ($asset->status === MediaStatus::Ready) {
+            $finalize->ready($asset);
+        } elseif ($asset->status === MediaStatus::Failed) {
+            $finalize->failed($asset);
         }
     }
 
@@ -81,9 +98,34 @@ final class ProcessVideoAssetJob implements RunsOnMediaQueue, ShouldQueue
             'exception_class' => $exception === null ? null : $exception::class,
         ]);
 
-        MediaAsset::query()
+        $failed = MediaAsset::query()
             ->whereKey($this->mediaAssetId)
             ->where('status', MediaStatus::Processing)
             ->update(['status' => MediaStatus::Failed, 'processing_error' => 'The video could not be processed.']);
+
+        $asset = MediaAsset::query()->find($this->mediaAssetId);
+
+        if ($asset === null) {
+            return;
+        }
+
+        // No attempt follows this one to retry a notice that could not be
+        // written: reported, and left unclaimed for media:sweep-videos.
+        if ($failed === 1) {
+            try {
+                app(FinalizePostMediaAction::class)->failed($asset);
+            } catch (Throwable $exception) {
+                report($exception);
+            }
+        } elseif ($asset->status === MediaStatus::Ready) {
+            // The media was made and only publishing failed, every time: one
+            // more try, so the post does not stay a draft with nothing left
+            // to move it.
+            try {
+                app(FinalizePostMediaAction::class)->ready($asset);
+            } catch (Throwable $exception) {
+                report($exception);
+            }
+        }
     }
 }
