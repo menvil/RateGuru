@@ -11,6 +11,7 @@ use App\Models\Post;
 use App\Services\Media\Exceptions\MediaToolTimedOutException;
 use App\Services\Media\Exceptions\MediaToolUnavailableException;
 use Carbon\CarbonInterface;
+use Illuminate\Cache\DatabaseStore;
 use Illuminate\Cache\Lock as CacheLock;
 use Illuminate\Contracts\Cache\Lock;
 use Illuminate\Contracts\Cache\LockProvider;
@@ -29,6 +30,9 @@ use Illuminate\Support\Facades\Log;
 final class YtDlpSiteCheck
 {
     public const string CACHE_KEY = 'import:ytdlp-site-check';
+
+    /** The lock one run holds the check by. */
+    public const string LOCK_NAME = self::CACHE_KEY.':running';
 
     /** The recent pages a site is asked about, newest first. */
     private const int SAMPLES = 3;
@@ -61,7 +65,7 @@ final class YtDlpSiteCheck
     public function run(): ?array
     {
         $store = Cache::store('database')->getStore();
-        $lock = $store instanceof LockProvider ? $store->lock(self::CACHE_KEY.':running', self::LOCK_SECONDS) : null;
+        $lock = $store instanceof LockProvider ? $store->lock(self::LOCK_NAME, self::LOCK_SECONDS) : null;
 
         if ($lock !== null && ! $lock->get()) {
             return null;
@@ -152,13 +156,11 @@ final class YtDlpSiteCheck
 
         // A run whose lock lapsed — another may have run since — leaves that
         // one's results as they are, and says nothing.
-        if ($lock instanceof CacheLock && ! $lock->isOwnedByCurrentProcess()) {
+        if (! $this->saveWhileHeld($lock, $results)) {
             Log::warning('YtDlpSiteCheck: the run outlasted its lock; its results are dropped.');
 
             return self::results();
         }
-
-        Cache::store('database')->forever(self::CACHE_KEY, $results);
 
         // Only once the run is saved: one that gave up on the tool part way
         // never said anything of a site it had asked.
@@ -175,6 +177,45 @@ final class YtDlpSiteCheck
         $results = Cache::store('database')->get(self::CACHE_KEY);
 
         return is_array($results) ? $results : [];
+    }
+
+    /**
+     * Saves the run's results only while it still holds its lock — checked
+     * and written as one: the lock's row is held (FOR UPDATE) from the check
+     * until the results are written and committed, so another run can take
+     * the lock only after this one's results are in, and reads them. A run
+     * paused after the check therefore never writes over a later one.
+     *
+     * @param  array<string, array{status: string, checked_at: string, failures: int, failed_on: ?string}>  $results
+     */
+    private function saveWhileHeld(?Lock $lock, array $results): bool
+    {
+        $store = Cache::store('database')->getStore();
+
+        if (! $lock instanceof CacheLock || ! $store instanceof DatabaseStore) {
+            Cache::store('database')->forever(self::CACHE_KEY, $results);
+
+            return true;
+        }
+
+        $connection = $store->getLockConnection() ?? $store->getConnection();
+
+        return (bool) $connection->transaction(function () use ($connection, $store, $lock, $results): bool {
+            $held = $connection->table((string) (config('cache.stores.database.lock_table') ?: 'cache_locks'))
+                ->where('key', $store->getPrefix().self::LOCK_NAME)
+                ->where('owner', $lock->owner())
+                ->where('expiration', '>', now()->getTimestamp())
+                ->lockForUpdate()
+                ->value('owner');
+
+            if ($held === null) {
+                return false;
+            }
+
+            Cache::store('database')->forever(self::CACHE_KEY, $results);
+
+            return true;
+        });
     }
 
     /**

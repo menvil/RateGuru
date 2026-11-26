@@ -660,7 +660,10 @@ most likely broke.
   lock lasts 30 minutes:
   - a run asks no page after 20, and then counts, saves and says nothing,
     reporting only that it ran out of time;
-  - a run whose lock lapsed anyway saves and says nothing.
+  - a run whose lock lapsed anyway saves and says nothing. The check that it
+    still holds the lock and the write of its results are one transaction,
+    holding the lock's row until the results are in, so a run paused between
+    them never writes over a later one.
 - **Reported** (`YtDlpSiteBrokenException`: Sentry, and Nightwatch where it
   runs), only once the run's results are saved:
   - a site taking nothing on two calendar days running, once a day however

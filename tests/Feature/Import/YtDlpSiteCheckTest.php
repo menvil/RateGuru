@@ -15,8 +15,12 @@ use App\Services\Media\MediaToolRunner;
 use App\Support\Import\YtDlpSiteCheck;
 use Carbon\CarbonImmutable;
 use Illuminate\Console\Scheduling\Schedule;
+use Illuminate\Database\Events\QueryExecuted;
+use Illuminate\Database\Events\TransactionBeginning;
+use Illuminate\Database\Events\TransactionCommitted;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Exceptions;
 
 /** An imported video from $url, downloaded already, on a post in the state given. */
@@ -188,7 +192,7 @@ it('says on Media Diagnostics when the sites were last found working, or that th
 it('runs one check at a time, however it is started, and the command says so', function () {
     importedVideoFrom('https://coub.com/view/1');
     $runner = ytDlpAnswering([]);
-    $held = Cache::store('database')->lock(YtDlpSiteCheck::CACHE_KEY.':running', 60);
+    $held = Cache::store('database')->lock(YtDlpSiteCheck::LOCK_NAME, 60);
     $held->get();
 
     try {
@@ -343,8 +347,8 @@ it('drops a run whose lock lapsed and another took, leaving that one\'s results 
     // While this run asks, its lock lapses and another run takes it.
     ytDlpAnswering(['https://coub.com/view/1' => function (): bool {
         $store = Cache::store('database');
-        $store->lock(YtDlpSiteCheck::CACHE_KEY.':running')->forceRelease();
-        $store->lock(YtDlpSiteCheck::CACHE_KEY.':running', 600)->get();
+        $store->lock(YtDlpSiteCheck::LOCK_NAME)->forceRelease();
+        $store->lock(YtDlpSiteCheck::LOCK_NAME, 600)->get();
 
         return false;
     }]);
@@ -352,4 +356,29 @@ it('drops a run whose lock lapsed and another took, leaving that one\'s results 
     expect(app(YtDlpSiteCheck::class)->run())->toBe($theirs)
         ->and(YtDlpSiteCheck::results())->toBe($theirs);
     Exceptions::assertNothingReported();
+});
+
+it('checks that it still holds its lock and writes its results as one, holding the lock\'s row until they are in', function () {
+    config(['import.ytdlp.sites' => ['coub.com' => 'Coub']]);
+    importedVideoFrom('https://coub.com/view/1');
+    ytDlpAnswering([]);
+    $events = [];
+    Event::listen(TransactionBeginning::class, function () use (&$events): void {
+        $events[] = 'begin';
+    });
+    Event::listen(TransactionCommitted::class, function () use (&$events): void {
+        $events[] = 'commit';
+    });
+    DB::listen(function (QueryExecuted $query) use (&$events): void {
+        if (str_contains($query->sql, 'cache_locks') && str_contains($query->sql, 'for update')) {
+            $events[] = 'hold the lock\'s row';
+        } elseif (str_starts_with($query->sql, 'insert into "cache"')) {
+            $events[] = 'write the results';
+        }
+    });
+
+    app(YtDlpSiteCheck::class)->run();
+
+    expect($events)->toBe(['begin', 'hold the lock\'s row', 'write the results', 'commit'])
+        ->and(YtDlpSiteCheck::results()['Coub']['status'])->toBe('broken');
 });
