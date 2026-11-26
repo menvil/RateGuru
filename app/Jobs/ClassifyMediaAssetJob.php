@@ -57,8 +57,11 @@ final class ClassifyMediaAssetJob implements RunsOnMediaQueue, ShouldBeUniqueUnt
     /** How long after it becomes available the media connection could still deliver the job. */
     private const int DELIVERY_WINDOW_SECONDS = 960;
 
-    /** How often a run looks again for who is still to answer before it ends. */
-    private const int PASSES = 3;
+    /**
+     * How often a run asks who is still to answer before it ends; anyone left
+     * after the last is asked by a job of its own.
+     */
+    public const int PASSES = 3;
 
     /** A run its timeout killed left its frames; cleared once past every run's time. */
     private const int STALE_AFTER_SECONDS = 7200;
@@ -111,25 +114,33 @@ final class ClassifyMediaAssetJob implements RunsOnMediaQueue, ShouldBeUniqueUnt
         }
 
         try {
-            $this->classify($registry, $sampler, $recorder);
+            $left = $this->classify($registry, $sampler, $recorder);
         } finally {
             $lock->release();
         }
+
+        // Still someone to answer after every pass — failures cleared again
+        // and again while it ran: a job of its own asks them, once this run
+        // has let the asset go.
+        if ($left) {
+            self::dispatch($this->mediaAssetId);
+        }
     }
 
-    private function classify(MediaClassifierRegistry $registry, ClassificationFrameSampler $sampler, MediaClassificationRecorder $recorder): void
+    /** @return bool whether a classifier was still to answer when it stopped looking */
+    private function classify(MediaClassifierRegistry $registry, ClassificationFrameSampler $sampler, MediaClassificationRecorder $recorder): bool
     {
         $asset = MediaAsset::query()->find($this->mediaAssetId);
 
         // Gone, not ready yet, or not a post's: nothing to classify.
         if ($asset === null || $asset->status !== MediaStatus::Ready || $asset->kind !== MediaKind::PostImage) {
-            return;
+            return false;
         }
 
         $pending = self::unanswered($registry, $asset);
 
         if ($pending === []) {
-            return;
+            return false;
         }
 
         $directory = self::workDirectory();
@@ -159,6 +170,8 @@ final class ClassifyMediaAssetJob implements RunsOnMediaQueue, ShouldBeUniqueUnt
         } finally {
             File::deleteDirectory($directory);
         }
+
+        return $pending !== [];
     }
 
     /**

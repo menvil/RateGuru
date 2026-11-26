@@ -127,8 +127,10 @@ configuration is read by the job, never by the upload.
     still to answer. If that run outlasts the wait, the job leaves the asset
     to it: it never runs alongside, and never queues itself again.
   - Before a run ends it looks again for who is still to answer, and asks
-    them from the same frames. A failure `--retry-failed` cleared while it
-    ran, for a retry that found the asset held, is asked by that run.
+    them from the same frames, up to three passes. A failure `--retry-failed`
+    cleared while it ran, for a retry that found the asset held, is asked by
+    that run. Anyone still left after the last pass is asked by a job the run
+    queues once it has let the asset go.
   - A job that runs after another finds every answer there and asks no one,
     so a queue that kept one waiting past its lock costs nothing.
 - A classifier that already answered for the asset at its model version is
@@ -144,7 +146,15 @@ configuration is read by the job, never by the upload.
   latter is recorded for each classifier that was to see it. A recorded
   failure counts as the classifier's answer, on the job's own retry too.
 - **Failures that are retried once:** the host's (ffmpeg missing, the
-  database).
+  database, a read of the media file that failed part way while the file is
+  there). Only a file that is gone is recorded as media nothing can be taken
+  from.
+
+**A classifier's identity:** its answers are found by its name and model
+version as their columns hold them, at most 64 characters each. A classifier
+whose name or version is longer is refused when the configuration is read,
+so it is never asked at all, rather than asked on every run because its own
+answer never matches.
 
 **Media stored before a classifier was configured:** `php artisan
 media:classify --limit=N` queues it, newest first, for every configured

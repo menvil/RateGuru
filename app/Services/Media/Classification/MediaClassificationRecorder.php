@@ -147,10 +147,13 @@ final class MediaClassificationRecorder
         return str_contains($class, '@anonymous') ? (get_parent_class($exception) ?: 'anonymous') : $class;
     }
 
-    /** A name or version as its column holds it: at most 64 characters. */
+    /**
+     * A name or version as its column holds it. The registry refuses a
+     * classifier whose identity is longer, so this only guards a direct call.
+     */
     private static function bounded(?string $value): ?string
     {
-        return $value === null ? null : mb_substr($value, 0, 64);
+        return $value === null ? null : mb_substr($value, 0, MediaClassifierRegistry::IDENTITY_LENGTH);
     }
 
     private static function millisecondsSince(int|float $started): int

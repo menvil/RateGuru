@@ -18,6 +18,8 @@ use App\Services\Media\Classification\MediaClassificationFailedException;
 use App\Services\Media\Classification\MediaClassifierRegistry;
 use App\Services\Media\Classification\MediaContentClassifier;
 use App\Services\Media\Classification\QueueMediaClassification;
+use App\Services\Media\Exceptions\MediaStorageException;
+use App\Services\Media\MediaStorage;
 use App\Services\Media\MediaToolResult;
 use App\Services\Media\MediaToolRunner;
 use App\Services\Media\StoredMedia;
@@ -145,12 +147,23 @@ it('leaves out a frame ffmpeg cannot take, and shows the rest', function () {
 
 it('says so when no frame could be taken, or the file cannot be read or decoded', function () {
     bindRecordingMediaToolRunner();
-    expect(fn () => app(ClassificationFrameSampler::class)->sample(readyVideoAsset(), $this->scratch))
+    $video = readyVideoAsset();
+    expect(fn () => app(ClassificationFrameSampler::class)->sample($video, $this->scratch))
         ->toThrow(MediaClassificationFailedException::class, 'No frame');
 
     $missing = MediaAsset::factory()->create(['path' => 'posts/gone.jpg']);
     expect(fn () => app(ClassificationFrameSampler::class)->sample($missing, $this->scratch))
         ->toThrow(MediaClassificationFailedException::class, 'could not be read');
+
+    // A read that fails part way through a file that is there is the
+    // host's: it goes up, for the job to try again, never recorded as final.
+    $storage = Mockery::mock(MediaStorage::class);
+    $storage->shouldReceive('copyToFile')->andThrow(MediaStorageException::couldNotReadStream('public', 'posts/clip.mp4'));
+    $storage->shouldReceive('exists')->andReturnTrue();
+    app()->instance(MediaStorage::class, $storage);
+    expect(fn () => app(ClassificationFrameSampler::class)->sample($video, $this->scratch))
+        ->toThrow(MediaStorageException::class);
+    app()->forgetInstance(MediaStorage::class);
 
     $garbled = MediaAsset::factory()->create(['path' => 'posts/garbled.jpg']);
     Storage::disk('public')->put('posts/garbled.jpg', 'not a picture');
@@ -363,6 +376,14 @@ it('says there is nothing to queue with no classifier configured, and refuses a 
 
     config(['media.classification.classifiers' => [['classifier' => 'x', 'mode' => 'benchmark']]]);
     expect(fn () => app(MediaClassifierRegistry::class)->configured())->toThrow(InvalidArgumentException::class);
+
+    // A name or version longer than its column would never match its own
+    // answer again — asked on every run: refused before it is asked at all.
+    $long = str_repeat('n', MediaClassifierRegistry::IDENTITY_LENGTH + 1);
+    configureClassifiers(['test.long' => [standInClassifier(name: $long), 'shadow']]);
+    expect(fn () => app(MediaClassifierRegistry::class)->configured())->toThrow(InvalidArgumentException::class, 'more than 64 characters');
+    configureClassifiers(['test.fits' => [standInClassifier(name: str_repeat('n', MediaClassifierRegistry::IDENTITY_LENGTH)), 'shadow']]);
+    expect(app(MediaClassifierRegistry::class)->configured())->toHaveCount(1);
 });
 
 it('never asks a classifier again for a failure it recorded, on the job\'s own retry neither, until --retry-failed clears it', function () {
@@ -532,4 +553,54 @@ it('asks before it ends a classifier whose failure --retry-failed cleared while 
 
     expect($retried->shown)->toHaveCount(1)
         ->and(MediaClassification::query()->where('classifier', 'retried')->pluck('status')->all())->toBe([ClassificationStatus::Succeeded]);
+});
+
+it('queues a job of its own for a classifier cleared during its last pass, once it lets the asset go', function () {
+    config(['media.classification.run_wait_seconds' => 0]);
+    // A chain: each one asked clears the next one's failure, as an operator
+    // retrying failures over and over while the run goes on would — one more
+    // than the run has passes.
+    $chain = [];
+    $count = ClassifyMediaAssetJob::PASSES + 1;
+    for ($i = 1; $i <= $count; $i++) {
+        $chain[$i] = new class("link{$i}", $i < $count ? 'link'.($i + 1) : null) implements MediaContentClassifier
+        {
+            public int $asked = 0;
+
+            public function __construct(private string $name, private ?string $clears) {}
+
+            public function name(): string
+            {
+                return $this->name;
+            }
+
+            public function modelVersion(): ?string
+            {
+                return 'v1';
+            }
+
+            public function classify(ClassificationInput $input): ClassificationResult
+            {
+                $this->asked++;
+
+                if ($this->clears !== null) {
+                    MediaClassification::query()->where('classifier', $this->clears)->where('status', ClassificationStatus::Failed)->delete();
+                }
+
+                return new ClassificationResult(['sex_toy' => 0.1], [], [], 10, 100);
+            }
+        };
+    }
+    configureClassifiers(collect($chain)->mapWithKeys(fn ($classifier, int $i): array => ["test.link{$i}" => [$classifier, 'shadow']])->all());
+    framesWrittenByFfmpeg();
+    $asset = readyVideoAsset();
+    for ($i = 2; $i <= $count; $i++) {
+        MediaClassification::factory()->create(['media_asset_id' => $asset->id, 'classifier' => "link{$i}", 'model_version' => 'v1', 'status' => ClassificationStatus::Failed]);
+    }
+
+    dispatch((new ClassifyMediaAssetJob($asset->id))->onConnection('sync'));
+
+    // Each asked once — the last by the job its run queued after letting go.
+    expect(collect($chain)->map(fn ($classifier): int => $classifier->asked)->unique()->all())->toBe([1 => 1])
+        ->and(MediaClassification::query()->where('status', ClassificationStatus::Succeeded)->count())->toBe($count);
 });

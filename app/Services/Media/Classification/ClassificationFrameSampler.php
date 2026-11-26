@@ -65,7 +65,13 @@ final class ClassificationFrameSampler
             $frames = $asset->media_type === MediaType::Image
                 ? [$this->still($asset, $directory)]
                 : $this->frames($asset, $directory);
-        } catch (MediaStorageException) {
+        } catch (MediaStorageException $exception) {
+            // A file that is gone stays gone: said once, as final. A read
+            // that failed part way is the host's, and the job tries again.
+            if ($this->storage->exists(new MediaLocation((string) $asset->disk, (string) $asset->path))) {
+                throw $exception;
+            }
+
             throw new MediaClassificationFailedException('The media file could not be read.');
         } catch (MediaVariantGenerationException) {
             throw new MediaClassificationFailedException('The picture could not be decoded.');

@@ -14,6 +14,9 @@ use InvalidArgumentException;
  */
 final class MediaClassifierRegistry
 {
+    /** The most a classifier's name, or its model version, may be: what their columns hold. */
+    public const int IDENTITY_LENGTH = 64;
+
     /** @return list<array{classifier: MediaContentClassifier, mode: ClassificationMode}> */
     public function configured(): array
     {
@@ -31,6 +34,12 @@ final class MediaClassifierRegistry
 
             if (! $classifier instanceof MediaContentClassifier) {
                 throw new InvalidArgumentException("{$binding} is not a media content classifier.");
+            }
+
+            // Its answers are found by name and model version as their columns
+            // hold them: one longer would never match its own answer again.
+            if (mb_strlen($classifier->name()) > self::IDENTITY_LENGTH || mb_strlen((string) $classifier->modelVersion()) > self::IDENTITY_LENGTH) {
+                throw new InvalidArgumentException("{$binding} names itself, or its model version, in more than ".self::IDENTITY_LENGTH.' characters.');
             }
 
             $configured[] = ['classifier' => $classifier, 'mode' => $mode];
