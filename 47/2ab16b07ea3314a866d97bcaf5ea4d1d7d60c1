@@ -1,0 +1,26 @@
+infrastructure/runbooks/bootstrap-host.md
+  s_1f43f39fbe0537::t_334c880c09b2cb 1121,1125,1131-1144,1153-1157,1176-1178
+infrastructure/scripts/install-bootstrap-services
+  s_1f43f39fbe0537::t_334c880c09b2cb 2263
+infrastructure/scripts/install-media-fetch-isolation
+  s_1f43f39fbe0537::t_04da35d7b638d0 37-45,107,175,183-185,208-238,259,375-378,382,391-408,413-421,445-449,480,482-485,494-495,610-614,655-657
+  s_1f43f39fbe0537::t_a5e7d930136615 581-582
+tests/Feature/Architecture/InstallMediaFetchIsolationTest.php
+  s_1f43f39fbe0537::t_a5e7d930136615 30-31,292-294,363-398
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "472ab16b07ea3314a866d97bcaf5ea4d1d7d60c1",
+  "prompts": {},
+  "sessions": {
+    "s_1f43f39fbe0537": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "526787d0-f443-4ad7-9610-cf9811fec895",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
