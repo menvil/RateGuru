@@ -1,0 +1,9 @@
+docs/architecture/media.md
+  ai_agent 548-553,555,618
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "24e7d968c9636162cb7137c6e39bfbfe82f415ed",
+  "prompts": {}
+}
