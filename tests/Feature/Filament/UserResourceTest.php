@@ -11,13 +11,19 @@ use App\Filament\Resources\Users\Pages\ListUsers;
 use App\Filament\Resources\Users\UserResource;
 use App\Filament\Support\AdminNavigationGroup;
 use App\Livewire\Admin\UserEditor;
+use App\Models\AccountAttribution;
+use App\Models\AccountBrowser;
 use App\Models\Comment;
 use App\Models\CommentVote;
 use App\Models\ModerationLog;
 use App\Models\Post;
 use App\Models\PostVote;
+use App\Models\ProjectSettings;
 use App\Models\Report;
+use App\Models\TrafficVisit;
 use App\Models\User;
+use App\Support\Privacy\IpAddressHash;
+use App\Support\Settings\ProjectSettingsManager;
 use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
@@ -344,6 +350,107 @@ it('counts a person\'s posts and comments, each beside the votes they cast on it
 
     expect($page->viewData('person'))->toMatchArray(['posts' => '1', 'postVotes' => '3', 'comments' => '0', 'commentVotes' => '1', 'reportsFiled' => '2', 'reportsReceived' => '1']);
     $page->assertSeeInOrder(['Posts', 'Post votes', 'Comments', 'Comment votes', 'Reports filed', 'Reports received']);
+
+    // The list counts the same, each person's row on its own.
+    $list = Livewire::test(ListUsers::class)->assertSeeInOrder(['Posts', 'Post votes', 'Comments', 'Comment votes', 'Reports filed', 'Reports received']);
+
+    expect(listedRow($list, $person))->toMatchArray(['posts' => 1, 'postVotes' => 3, 'comments' => 0, 'commentVotes' => 1, 'reportsFiled' => 2, 'reports' => 1]);
+});
+
+it('shows where a person signed up and last visited from, each address while kept and the other accounts sharing it', function () {
+    $this->actingAs(User::factory()->admin()->create());
+    ProjectSettings::factory()->create(['feature_flags' => ['keep_ip_addresses' => true]]);
+    $key = (string) config('app.key');
+    $london = IpAddressHash::of('81.2.69.142', $key);
+    $milton = IpAddressHash::of('216.160.83.56', $key);
+    $person = User::factory()->create([
+        'signup_ip' => '81.2.69.142', 'signup_ip_hash' => $london, 'signup_country' => 'GB', 'signup_city' => 'London',
+        'visit_started_at' => '2026-11-26 09:12:00', 'visit_ip' => null, 'visit_ip_hash' => $milton, 'visit_country' => 'US', 'visit_city' => 'Milton',
+        'last_seen_at' => '2026-11-26 11:40:00',
+    ]);
+    // Two more accounts made from London, one of them later visiting from Milton too.
+    User::factory()->create(['signup_ip_hash' => $london, 'signup_country' => 'GB']);
+    User::factory()->create(['signup_ip_hash' => $london, 'visit_ip_hash' => $milton]);
+
+    $view = Livewire::test(UserEditor::class, ['userId' => $person->id])->viewData('person');
+
+    expect($view['signupPlace'])->toBe([
+        'where' => '🇬🇧 London, United Kingdom', 'when' => $person->created_at->format('d M Y, H:i'), 'ip' => '81.2.69.142',
+        // The way to the others goes by the address's hash, never the address: a link lands in histories and logs.
+        'others' => '2 other accounts from this IP', 'othersUrl' => ListUsers::getUrl(['q' => $london]), 'fromVisits' => false,
+    ])
+        // The address not kept: none shown.
+        ->and($view['visitPlace'])->toBe([
+            'where' => '🇺🇸 Milton, United States', 'when' => '26 Nov 2026, 09:12', 'ip' => null,
+            'others' => '1 other account from this IP', 'othersUrl' => ListUsers::getUrl(['q' => $milton]), 'fromVisits' => false,
+        ])
+        ->and($view['lastSeen'])->toBe('26 Nov 2026, 11:40');
+
+    // Both ways lead to the accounts sharing the address, the person among them.
+    $listed = fn (string $search): array => array_column(Livewire::withQueryParams(['q' => $search])->test(ListUsers::class)->viewData('rows'), 'id');
+
+    expect($listed('81.2.69.142'))->toHaveCount(3)->toContain($person->id)
+        ->and($listed($london))->toHaveCount(3)->toContain($person->id)
+        ->and($listed($milton))->toHaveCount(2)->toContain($person->id)
+        ->and($listed('10.0.0.1'))->toBe([]);
+
+    // An IPv6 address finds its account however it is spelled: the hash is of one spelling.
+    $sixth = User::factory()->create(['visit_ip_hash' => IpAddressHash::of('2a02:6b8::1', $key)]);
+
+    expect($listed('2A02:06B8:0:0:0:0:0:1'))->toBe([$sixth->id]);
+
+    // While Project settings keep no address, none is shown, whatever an account still holds.
+    ProjectSettings::query()->update(['feature_flags' => ['keep_ip_addresses' => false]]);
+    app(ProjectSettingsManager::class)->flush();
+
+    expect(Livewire::test(UserEditor::class, ['userId' => $person->id])->viewData('person')['signupPlace'])
+        ->toMatchArray(['ip' => null, 'others' => '2 other accounts from this IP', 'othersUrl' => ListUsers::getUrl(['q' => $london])]);
+});
+
+it('shows where an account made before places were kept signed up and last visited from, by the visits recorded', function () {
+    $this->actingAs(User::factory()->admin()->create());
+    $person = User::factory()->create();
+    $signup = TrafficVisit::factory()->unpaid()->create(['country' => 'DE', 'city' => 'Berlin', 'arrived_at' => '2026-11-20 10:00:00']);
+    AccountAttribution::factory()->create(['user_id' => $person->id, 'visitor_hash' => $signup->visitor_hash, 'credited_visit_id' => $signup->id]);
+    AccountBrowser::factory()->create(['user_id' => $person->id, 'visitor_hash' => $signup->visitor_hash]);
+    TrafficVisit::factory()->unpaid()->create(['visitor_hash' => $signup->visitor_hash, 'country' => 'FR', 'city' => null, 'arrived_at' => '2026-11-24 18:30:00']);
+    // Someone else's visit, later still.
+    TrafficVisit::factory()->unpaid()->create(['country' => 'JP', 'arrived_at' => '2026-11-25 10:00:00']);
+
+    $view = Livewire::test(UserEditor::class, ['userId' => $person->id])->viewData('person');
+
+    expect($view['signupPlace'])->toMatchArray(['where' => '🇩🇪 Berlin, Germany', 'ip' => null, 'others' => null, 'fromVisits' => true])
+        ->and($view['visitPlace'])->toMatchArray(['where' => '🇫🇷 France', 'when' => '24 Nov 2026, 18:30', 'fromVisits' => true])
+        ->and($view['lastSeen'])->toBe('Not seen yet')
+        ->and(listedRow(Livewire::test(ListUsers::class), $person))->toMatchArray(['location' => '🇩🇪 Berlin, Germany', 'locationFromVisits' => true, 'lastVisit' => null]);
+
+    // A later visit from an address the IP database doesn't know is still the latest: Unknown, at its own time.
+    TrafficVisit::factory()->unpaid()->create(['visitor_hash' => $signup->visitor_hash, 'country' => null, 'city' => null, 'arrived_at' => '2026-11-24 21:00:00']);
+
+    expect(Livewire::test(UserEditor::class, ['userId' => $person->id])->viewData('person')['visitPlace'])->toMatchArray(['where' => 'Unknown', 'when' => '24 Nov 2026, 21:00', 'fromVisits' => true]);
+
+    // Nothing recorded at all: unknown.
+    $nobody = User::factory()->create();
+
+    expect(Livewire::test(UserEditor::class, ['userId' => $nobody->id])->viewData('person')['signupPlace']['where'])->toBe('Unknown')
+        ->and(listedRow(Livewire::test(ListUsers::class), $nobody))->toMatchArray(['location' => 'Unknown', 'locationFromVisits' => false]);
+
+    // A deleted account's places went with it: the visit its sign-up was credited to is never read back.
+    $deleted = User::factory()->tombstoned()->create();
+    AccountAttribution::factory()->create(['user_id' => $deleted->id, 'visitor_hash' => null, 'credited_visit_id' => $signup->id]);
+
+    expect(listedRow(Livewire::withQueryParams(['status' => 'deleted'])->test(ListUsers::class), $deleted))->toMatchArray(['location' => 'Unknown', 'locationFromVisits' => false]);
+});
+
+it('lists where each person signed up from, and their latest visit when it started somewhere else', function () {
+    $this->actingAs(User::factory()->admin()->create());
+    $moved = User::factory()->create(['signup_country' => 'GB', 'signup_city' => 'London', 'visit_started_at' => '2026-11-26 09:12:00', 'visit_country' => 'US', 'visit_city' => 'Milton']);
+    $stayed = User::factory()->create(['signup_country' => 'GB', 'signup_city' => 'London', 'visit_started_at' => '2026-11-26 09:12:00', 'visit_country' => 'GB', 'visit_city' => 'London']);
+
+    $page = Livewire::test(ListUsers::class)->assertSeeInOrder(['Email', 'Location', 'Role']);
+
+    expect(listedRow($page, $moved))->toMatchArray(['location' => '🇬🇧 London, United Kingdom', 'lastVisit' => 'Last visit: 🇺🇸 Milton · 26 Nov', 'lastVisitTitle' => 'Last visit: 🇺🇸 Milton, United States · 26 Nov 2026, 09:12'])
+        ->and(listedRow($page, $stayed))->toMatchArray(['location' => '🇬🇧 London, United Kingdom', 'lastVisit' => null]);
 });
 
 it('opens a person found by global search in their drawer, or the list where they are not the viewer\'s to edit', function () {

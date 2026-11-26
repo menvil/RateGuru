@@ -268,6 +268,7 @@ return [
         'image_drop_hint' => 'JPEG, PNG, GIF, legfeljebb 5 MB',
         'image_browse' => 'Fájl kiválasztása',
         'image_url_placeholder' => 'https://example.com/image.jpg',
+        'media_url_hint' => 'Hivatkozás egy képre vagy videóra, vagy egy bejegyzésre: a videója vagy GIF-je kerül át, ahol az oldal engedi, különben a fotója.',
         'source_url' => 'Forrás URL-je',
         'source_url_placeholder' => 'https://example.com/original',
         'tags' => 'Címkék',

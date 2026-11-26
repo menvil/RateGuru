@@ -21,4 +21,13 @@ interface ImportHttpTransport
      * @throws ImportFetchException
      */
     public function get(ResolvedImportTarget $target, ImportFetchPolicy $policy): ImportTransportResponse;
+
+    /**
+     * get() for a body too large to hold in memory — a video: the same pin,
+     * caps and refusals, the body written to $path as it arrives instead of
+     * returned (the response's body is empty).
+     *
+     * @throws ImportFetchException
+     */
+    public function download(ResolvedImportTarget $target, ImportFetchPolicy $policy, string $path): ImportTransportResponse;
 }

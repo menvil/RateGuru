@@ -472,7 +472,8 @@ it('says a picture link is no web address before trying to fetch it', function (
 ]);
 
 it('tries a picture link as long as a link may be', function () {
-    $link = 'https://example.com/'.str_repeat('a', PostContentRules::SOURCE_URL_LIMIT - 20);
+    // A picture's link (one that names a picture file): fetched as one.
+    $link = 'https://example.com/'.str_repeat('a', PostContentRules::SOURCE_URL_LIMIT - 24).'.jpg';
     $import = $this->mock(StoreImportedImageAction::class);
     $import->shouldReceive('download')->once()->with($link)->andThrow(new RuntimeException('unreachable'));
 

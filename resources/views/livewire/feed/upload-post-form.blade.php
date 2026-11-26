@@ -271,11 +271,14 @@
                     data-testid="upload-image-url-input"
                     x-on:input="previewUrl = $event.target.value || null"
                 />
+                <p class="text-xs text-rg-muted" data-testid="upload-link-hint">{{ __('ui.upload.media_url_hint') }}</p>
                 <div data-testid="field-error-image-url">
                     <x-input-error :messages="$errors->get('importedImageUrl')" />
                 </div>
+                {{-- A link to a picture shows it here; a post's or a video's link has nothing to show
+                     until it is read, so a picture that does not load is simply not shown. --}}
                 <template x-if="previewUrl && imageTab === 'url'">
-                    <img :src="previewUrl" alt="{{ __('ui.upload.url_image_alt') }}" decoding="async" class="max-h-48 w-full rounded-rgMedia object-contain" />
+                    <img :src="previewUrl" alt="{{ __('ui.upload.url_image_alt') }}" decoding="async" x-on:error="previewUrl = null" class="max-h-48 w-full rounded-rgMedia object-contain" />
                 </template>
             </div>
             @endif

@@ -3,6 +3,7 @@
 namespace App\Services\Traffic;
 
 use App\Support\Geo\GeoLookup;
+use App\Support\Privacy\IpAddressHash;
 use App\Support\Traffic\Capture\BotSignals;
 use App\Support\Traffic\Capture\ChannelClassifier;
 use App\Support\Traffic\Capture\DeviceClassifier;
@@ -36,7 +37,7 @@ final readonly class RequestSignals
             device: DeviceClassifier::classify($agent, $this->request->headers->get('sec-ch-ua-mobile'), $this->request->headers->get('sec-ch-ua-platform')),
             botFlags: BotSignals::of($agent, $headers),
             location: $this->geo->lookup($ip),
-            ipHash: $ip === null ? null : hash_hmac('sha256', $ip, (string) config('app.key')),
+            ipHash: $ip === null ? null : IpAddressHash::of($ip, (string) config('app.key')),
             os: self::os($agent),
             browser: self::browser($agent),
             language: self::language($this->request->headers->get('accept-language')),

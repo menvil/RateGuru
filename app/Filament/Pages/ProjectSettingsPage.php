@@ -97,6 +97,7 @@ final class ProjectSettingsPage extends Page
         'allow_guest_viewing' => 'Visitors can browse without an account. Off means every page asks to sign in.',
         'guest_actions_open_sign_up' => 'A guest who votes, rates or votes on a comment is offered sign-up instead of sign-in, if no account has used their browser before. Off, they are asked to sign in, as before.',
         'allow_games' => 'Live games can be played at /games/… Off, every game page answers that it does not exist; games are still edited, published and previewed here.',
+        'keep_ip_addresses' => 'Keeps the IP address each member signed up from and the one their latest visit started from, for admins to see who shares an address. Update the privacy page first: it may say the site keeps no IP address. Off, only the country, the city and a one-way hash of the address are kept, which still finds the accounts that share one. Switching it off forgets the addresses kept so far.',
         'content_studio_verified_adults' => 'Everyone shown in the photos Content Studio uses is a verified adult (18+) who agreed to their publication. On, the texts and discussions it writes may flirt with and compliment the people shown — never graphic. Off, they keep to the situation. Applying a preset switches it off.',
     ];
 

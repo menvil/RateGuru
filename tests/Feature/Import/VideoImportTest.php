@@ -1,0 +1,368 @@
+<?php
+
+use App\Actions\Import\ImportFromUrlAction;
+use App\Actions\Posts\CreatePostAction;
+use App\Actions\Posts\FinalizePostMediaAction;
+use App\Data\Posts\CreatePostData;
+use App\Enums\ImportProvider;
+use App\Enums\MediaStatus;
+use App\Enums\MediaType;
+use App\Enums\PostStatus;
+use App\Exceptions\Abuse\RateLimitExceededException;
+use App\Exceptions\Import\ImportFetchException;
+use App\Exceptions\Import\UnsafeImportUrlException;
+use App\Exceptions\Posts\CannotCreatePostException;
+use App\Jobs\ImportVideoAssetJob;
+use App\Jobs\ProcessVideoAssetJob;
+use App\Models\MediaAsset;
+use App\Models\Post;
+use App\Models\User;
+use App\Notifications\VideoPostProcessedNotification;
+use App\Services\Media\MediaAuditService;
+use App\Services\Media\MediaToolResult;
+use App\Support\Import\ImportHttpTransport;
+use App\Support\Import\ImportProviderDetector;
+use App\Support\Import\ImportTransportResponse;
+use App\Support\Import\SafeImportHttpClient;
+use App\Support\Media\VideoUploadStorer;
+use Illuminate\Support\Facades\Notification;
+use Illuminate\Support\Facades\Queue;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Testing\Fakes\NotificationFake;
+
+beforeEach(function () {
+    bindFakeHostResolver(['videos.example' => ['93.184.216.40'], 'intranet.example' => ['10.0.0.5']]);
+    Storage::fake('local');
+    Storage::fake('public');
+    Queue::fake();
+    Notification::fake();
+});
+
+it('takes a link to a video file or a GIF for a video to fetch, and nothing else', function () {
+    $detector = app(ImportProviderDetector::class);
+
+    expect($detector->detect('https://videos.example/clip.mp4'))->toBe('direct_video')
+        ->and($detector->detect('https://videos.example/loop.GIF'))->toBe('direct_video')
+        ->and($detector->detect('https://videos.example/photo.jpg'))->toBe('direct_image');
+
+    $preview = app(ImportFromUrlAction::class)->handle('https://videos.example/clip.mp4');
+
+    expect($preview->provider)->toBe(ImportProvider::DirectVideo)
+        ->and($preview->videoUrl)->toBe('https://videos.example/clip.mp4')
+        ->and($preview->title)->toBe('clip')
+        ->and($preview->imageUrl)->toBeNull();
+});
+
+it('downloads a video to a file through the same validated, pinned hops, and refuses a hop to a private address', function () {
+    $transport = new ScriptedImportHttpTransport([
+        new ImportTransportResponse(302, ['location' => 'https://videos.example/real.mp4'], 'moved'),
+        new ImportTransportResponse(200, ['content-type' => 'video/mp4'], 'the video bytes'),
+    ]);
+    app()->instance(ImportHttpTransport::class, $transport);
+    $path = sys_get_temp_dir().'/video-import-test-'.uniqid();
+
+    try {
+        $response = app(SafeImportHttpClient::class)->download('https://videos.example/clip.mp4', 1024, $path);
+
+        expect(file_get_contents($path))->toBe('the video bytes')
+            ->and($response->body)->toBe('')
+            ->and($response->finalUrl)->toBe('https://videos.example/real.mp4')
+            ->and($transport->calls[1]->ip)->toBe('93.184.216.40');
+    } finally {
+        @unlink($path);
+    }
+
+    app()->instance(ImportHttpTransport::class, new ScriptedImportHttpTransport([
+        new ImportTransportResponse(302, ['location' => 'https://intranet.example/secret.mp4'], ''),
+    ]));
+
+    expect(fn () => app(SafeImportHttpClient::class)->download('https://videos.example/clip.mp4', 1024, $path))
+        ->toThrow(UnsafeImportUrlException::class);
+});
+
+it('keeps a linked video post as a draft, its asset waiting for the download, and queues it', function () {
+    $author = User::factory()->create();
+
+    $post = app(CreatePostAction::class)->handle($author, new CreatePostData(title: 'From a link', videoUrl: 'https://videos.example/clip.mp4'));
+    $asset = MediaAsset::query()->findOrFail($post->image_asset_id);
+
+    expect($post->status)->toBe(PostStatus::Draft)
+        ->and($asset->status)->toBe(MediaStatus::Processing)
+        ->and($asset->metadata['import']['url'])->toBe('https://videos.example/clip.mp4')
+        ->and($asset->disk)->toBe('local');
+    Queue::assertPushed(ImportVideoAssetJob::class, fn (ImportVideoAssetJob $job): bool => $job->mediaAssetId === $asset->id);
+    Queue::assertNotPushed(ProcessVideoAssetJob::class);
+});
+
+it('fetches the video, stores it as an upload\'s original and hands it to processing', function () {
+    $author = User::factory()->create();
+    $post = app(CreatePostAction::class)->handle($author, new CreatePostData(title: 'From a link', videoUrl: 'https://videos.example/clip.mp4'));
+    app()->instance(ImportHttpTransport::class, new ScriptedImportHttpTransport([
+        new ImportTransportResponse(200, ['content-type' => 'video/mp4'], 'the video bytes'),
+    ]));
+    bindRecordingMediaToolRunner([acceptableFfprobeResult()]);
+
+    (new ImportVideoAssetJob((int) $post->image_asset_id))->handle(app(SafeImportHttpClient::class), app(VideoUploadStorer::class), app(FinalizePostMediaAction::class));
+
+    $asset = MediaAsset::query()->findOrFail($post->image_asset_id);
+    expect($asset->status)->toBe(MediaStatus::Processing)
+        ->and($asset->media_type)->toBe(MediaType::Video)
+        ->and([$asset->width, $asset->height, $asset->duration_ms])->toBe([1080, 1920, 15_000])
+        ->and($asset->path)->toEndWith('.mp4')
+        ->and($asset->metadata['import'])->toHaveKey('downloaded_at');
+    Storage::disk('local')->assertExists($asset->path);
+    Queue::assertPushed(ProcessVideoAssetJob::class, fn (ProcessVideoAssetJob $job): bool => $job->mediaAssetId === $asset->id);
+});
+
+it('fails the post\'s media and tells the author when the link cannot be fetched or the file is refused', function (Closure $script, Closure $probe) {
+    $author = User::factory()->create();
+    $post = app(CreatePostAction::class)->handle($author, new CreatePostData(title: 'From a link', videoUrl: 'https://videos.example/clip.mp4'));
+    app()->instance(ImportHttpTransport::class, new ScriptedImportHttpTransport([$script()]));
+    bindRecordingMediaToolRunner([$probe()]);
+
+    // Its last attempt: a link still failing is given up on.
+    $job = (new ImportVideoAssetJob((int) $post->image_asset_id))->withFakeQueueInteractions();
+    $job->job->attempts = 2;
+    $job->handle(app(SafeImportHttpClient::class), app(VideoUploadStorer::class), app(FinalizePostMediaAction::class));
+
+    expect(MediaAsset::query()->findOrFail($post->image_asset_id)->status)->toBe(MediaStatus::Failed)
+        ->and($post->refresh()->status)->toBe(PostStatus::Draft);
+    Notification::assertSentTo($author, VideoPostProcessedNotification::class);
+    Queue::assertNotPushed(ProcessVideoAssetJob::class);
+})->with([
+    'gone' => [fn () => new ImportTransportResponse(404, [], ''), fn () => acceptableFfprobeResult()],
+    'too long' => [fn () => new ImportTransportResponse(200, [], 'bytes'), fn () => acceptableFfprobeResult(['duration' => '300.000000'])],
+]);
+
+it('counts a linked video against the author\'s processing limit', function () {
+    config(['uploads.videos.max_processing_per_author' => 1]);
+    $author = User::factory()->create();
+    app(CreatePostAction::class)->handle($author, new CreatePostData(title: 'One', videoUrl: 'https://videos.example/a.mp4'));
+
+    expect(fn () => app(CreatePostAction::class)->handle($author, new CreatePostData(title: 'Two', videoUrl: 'https://videos.example/b.mp4')))
+        ->toThrow(CannotCreatePostException::class);
+
+    expect(Post::query()->count())->toBe(1);
+});
+
+it('counts no missing master for a linked video before it was downloaded', function () {
+    $post = app(CreatePostAction::class)->handle(User::factory()->create(), new CreatePostData(title: 'From a link', videoUrl: 'https://videos.example/clip.mp4'));
+
+    expect(app(MediaAuditService::class)->run()->missingMasters)->toBe(0)
+        ->and(MediaAsset::query()->findOrFail($post->image_asset_id)->status)->toBe(MediaStatus::Processing);
+});
+
+it('spends one byte budget and one deadline on all of a download\'s hops', function () {
+    $this->freezeTime();
+    $policies = [];
+    app()->instance(ImportHttpTransport::class, new ScriptedImportHttpTransport([
+        function ($target, $policy) use (&$policies) {
+            $policies[] = $policy;
+            // The first hop takes 70 of the download's 120 seconds.
+            $this->travel(70)->seconds();
+
+            return new ImportTransportResponse(302, ['location' => 'https://videos.example/real.mp4'], str_repeat('r', 600));
+        },
+        function ($target, $policy) use (&$policies) {
+            $policies[] = $policy;
+
+            return new ImportTransportResponse(200, [], 'video');
+        },
+    ]));
+    config(['import.video_timeout_seconds' => 120]);
+    $path = sys_get_temp_dir().'/video-import-budget-'.uniqid();
+
+    try {
+        app(SafeImportHttpClient::class)->download('https://videos.example/clip.mp4', 1000, $path);
+    } finally {
+        @unlink($path);
+    }
+
+    expect($policies[0]->maxBytes)->toBe(1000)
+        ->and($policies[0]->timeoutSeconds)->toBe(120)
+        // The redirect's own 600 bytes count against the file's limit, and
+        // its 70 seconds against the time: the deadline is never reset.
+        ->and($policies[1]->maxBytes)->toBe(400)
+        ->and($policies[1]->timeoutSeconds)->toBe(50);
+});
+
+it('asks no further hop once the download\'s deadline has passed', function () {
+    $this->freezeTime();
+    $asked = 0;
+    app()->instance(ImportHttpTransport::class, new ScriptedImportHttpTransport([
+        function () use (&$asked) {
+            $asked++;
+            $this->travel(121)->seconds();
+
+            return new ImportTransportResponse(302, ['location' => 'https://videos.example/real.mp4'], '');
+        },
+        function () use (&$asked) {
+            $asked++;
+
+            return new ImportTransportResponse(200, [], 'video');
+        },
+    ]));
+    config(['import.video_timeout_seconds' => 120]);
+    $path = sys_get_temp_dir().'/video-import-deadline-'.uniqid();
+
+    try {
+        expect(fn () => app(SafeImportHttpClient::class)->download('https://videos.example/clip.mp4', 1000, $path))->toThrow(ImportFetchException::class);
+    } finally {
+        @unlink($path);
+    }
+
+    expect($asked)->toBe(1);
+});
+
+it('leaves an asset another run of the job settled meanwhile as that run left it, and removes its own file', function () {
+    $post = app(CreatePostAction::class)->handle(User::factory()->create(), new CreatePostData(title: 'From a link', videoUrl: 'https://videos.example/clip.mp4'));
+    $assetId = (int) $post->image_asset_id;
+    app()->instance(ImportHttpTransport::class, new ScriptedImportHttpTransport([
+        function () use ($assetId) {
+            // Another run downloads it first and points the asset at its file.
+            MediaAsset::query()->whereKey($assetId)->update(['path' => 'media/originals/the-other-run.mp4', 'metadata' => json_encode(['import' => ['url' => 'https://videos.example/clip.mp4', 'downloaded_at' => now()->toIso8601ZuluString()]])]);
+
+            return new ImportTransportResponse(200, [], 'the video bytes');
+        },
+    ]));
+    bindRecordingMediaToolRunner([acceptableFfprobeResult()]);
+
+    app()->call([new ImportVideoAssetJob($assetId), 'handle']);
+
+    expect(MediaAsset::query()->findOrFail($assetId)->path)->toBe('media/originals/the-other-run.mp4')
+        // This run's original went: nothing names it.
+        ->and(Storage::disk('local')->allFiles('media/originals'))->toBe([]);
+    Queue::assertNotPushed(ProcessVideoAssetJob::class);
+});
+
+it('tells the author from the last attempt of a download an earlier attempt failed without telling', function () {
+    $author = User::factory()->create();
+    $post = app(CreatePostAction::class)->handle($author, new CreatePostData(title: 'From a link', videoUrl: 'https://videos.example/clip.mp4'));
+    MediaAsset::query()->whereKey($post->image_asset_id)->update(['status' => MediaStatus::Failed]);
+
+    (new ImportVideoAssetJob((int) $post->image_asset_id))->failed(new RuntimeException('disk full'));
+    (new ImportVideoAssetJob((int) $post->image_asset_id))->failed(new RuntimeException('disk full'));
+
+    Notification::assertSentToTimes($author, VideoPostProcessedNotification::class, 1);
+});
+
+it('downloads into a file only its user may read, and leaves nothing behind', function () {
+    $post = app(CreatePostAction::class)->handle(User::factory()->create(), new CreatePostData(title: 'From a link', videoUrl: 'https://videos.example/clip.mp4?token=secret'));
+    $modes = [];
+    app()->instance(ImportHttpTransport::class, new ScriptedImportHttpTransport([
+        function ($target, $policy) {
+            return new ImportTransportResponse(200, [], 'the video bytes');
+        },
+    ]));
+    bindRecordingMediaToolRunner([acceptableFfprobeResult()]);
+    $directory = sys_get_temp_dir().'/rateguru-video-import';
+
+    (new ImportVideoAssetJob((int) $post->image_asset_id))->handle(app(SafeImportHttpClient::class), app(VideoUploadStorer::class), app(FinalizePostMediaAction::class));
+
+    expect(glob($directory.'/download-*') ?: [])->toBe([])
+        ->and(substr(sprintf('%o', fileperms($directory)), -3))->toBe('700')
+        // The link's query, which may have carried a token, is not kept.
+        ->and(MediaAsset::query()->findOrFail($post->image_asset_id)->metadata['import']['url'])->toBe('https://videos.example/clip.mp4');
+});
+
+it('limits the videos one author may have downloaded in an hour', function () {
+    config(['rate_limits.video_import.max_attempts' => 2, 'uploads.videos.max_processing_per_author' => 10]);
+    $author = User::factory()->create();
+
+    app(CreatePostAction::class)->handle($author, new CreatePostData(title: 'One', videoUrl: 'https://videos.example/a.mp4'));
+    app(CreatePostAction::class)->handle($author, new CreatePostData(title: 'Two', videoUrl: 'https://videos.example/b.mp4'));
+
+    expect(fn () => app(CreatePostAction::class)->handle($author, new CreatePostData(title: 'Three', videoUrl: 'https://videos.example/c.mp4')))
+        ->toThrow(RateLimitExceededException::class);
+});
+
+it('tries a link that would not answer once more before giving it up', function () {
+    $post = app(CreatePostAction::class)->handle(User::factory()->create(), new CreatePostData(title: 'From a link', videoUrl: 'https://videos.example/clip.mp4'));
+    app()->instance(ImportHttpTransport::class, new ScriptedImportHttpTransport([new ImportTransportResponse(503, [], '')]));
+
+    expect(fn () => (new ImportVideoAssetJob((int) $post->image_asset_id))->handle(app(SafeImportHttpClient::class), app(VideoUploadStorer::class), app(FinalizePostMediaAction::class)))
+        ->toThrow(ImportFetchException::class);
+
+    expect(MediaAsset::query()->findOrFail($post->image_asset_id)->status)->toBe(MediaStatus::Processing);
+    Notification::assertNothingSent();
+});
+
+it('hands a video downloaded already on to processing when its job comes again, and fails one whose last attempt failed', function () {
+    $post = app(CreatePostAction::class)->handle(User::factory()->create(), new CreatePostData(title: 'From a link', videoUrl: 'https://videos.example/clip.mp4'));
+    $asset = MediaAsset::query()->findOrFail($post->image_asset_id);
+    $asset->forceFill(['metadata' => ['import' => ['url' => 'https://videos.example/clip.mp4', 'downloaded_at' => now()->toIso8601ZuluString()]]])->save();
+    app()->instance(ImportHttpTransport::class, new ScriptedImportHttpTransport([]));
+
+    (new ImportVideoAssetJob($asset->id))->handle(app(SafeImportHttpClient::class), app(VideoUploadStorer::class), app(FinalizePostMediaAction::class));
+
+    Queue::assertPushed(ProcessVideoAssetJob::class, fn (ProcessVideoAssetJob $job): bool => $job->mediaAssetId === $asset->id);
+
+    $other = app(CreatePostAction::class)->handle(User::factory()->create(), new CreatePostData(title: 'Another', videoUrl: 'https://videos.example/other.mp4'));
+    (new ImportVideoAssetJob((int) $other->image_asset_id))->failed(new RuntimeException('worker died'));
+
+    expect(MediaAsset::query()->findOrFail($other->image_asset_id)->status)->toBe(MediaStatus::Failed);
+    Notification::assertSentTo($other->user, VideoPostProcessedNotification::class);
+});
+
+it('tells the author of a failed download on the next attempt when the first could not write the notice', function () {
+    $author = User::factory()->create();
+    $post = app(CreatePostAction::class)->handle($author, new CreatePostData(title: 'From a link', videoUrl: 'https://videos.example/not-a-video.mp4'));
+    // A file ffprobe cannot read: the file's fault, final at once.
+    app()->instance(ImportHttpTransport::class, new ScriptedImportHttpTransport([new ImportTransportResponse(200, [], 'not a video')]));
+    bindRecordingMediaToolRunner([new MediaToolResult(1, '', 'Invalid data')]);
+    Notification::swap($notices = new class extends NotificationFake
+    {
+        public int $failures = 1;
+
+        public function send($notifiables, $notification)
+        {
+            if ($this->failures-- > 0) {
+                throw new RuntimeException('The notifications table would not take it.');
+            }
+
+            parent::send($notifiables, $notification);
+        }
+    });
+
+    expect(fn () => app()->call([new ImportVideoAssetJob((int) $post->image_asset_id), 'handle']))->toThrow(RuntimeException::class);
+    expect(MediaAsset::query()->findOrFail($post->image_asset_id)->status)->toBe(MediaStatus::Failed);
+
+    app()->call([new ImportVideoAssetJob((int) $post->image_asset_id), 'handle']);
+    app()->call([new ImportVideoAssetJob((int) $post->image_asset_id), 'handle']);
+
+    $notices->assertSentToTimes($author, VideoPostProcessedNotification::class, 1);
+});
+
+it('never fails an asset another run downloaded meanwhile, from a run whose own download failed or from the last attempt', function () {
+    $author = User::factory()->create();
+    $post = app(CreatePostAction::class)->handle($author, new CreatePostData(title: 'From a link', videoUrl: 'https://videos.example/clip.mp4'));
+    $assetId = (int) $post->image_asset_id;
+    $downloaded = fn () => MediaAsset::query()->whereKey($assetId)->update(['metadata' => json_encode(['import' => ['url' => 'https://videos.example/clip.mp4', 'downloaded_at' => now()->toIso8601ZuluString()]])]);
+    app()->instance(ImportHttpTransport::class, new ScriptedImportHttpTransport([
+        function () use ($downloaded) {
+            // Another run finishes its download while this one's fails.
+            $downloaded();
+
+            return new ImportTransportResponse(200, [], 'not a video');
+        },
+    ]));
+    bindRecordingMediaToolRunner([new MediaToolResult(1, '', 'Invalid data')]);
+
+    app()->call([new ImportVideoAssetJob($assetId), 'handle']);
+    (new ImportVideoAssetJob($assetId))->failed(new RuntimeException('disk full'));
+
+    expect(MediaAsset::query()->findOrFail($assetId)->status)->toBe(MediaStatus::Processing);
+    Notification::assertNothingSent();
+});
+
+it('removes the original it stored when pointing the asset at it fails, and lets the failure go up', function () {
+    $post = app(CreatePostAction::class)->handle(User::factory()->create(), new CreatePostData(title: 'From a link', videoUrl: 'https://videos.example/clip.mp4'));
+    app()->instance(ImportHttpTransport::class, new ScriptedImportHttpTransport([new ImportTransportResponse(200, [], 'the video bytes')]));
+    bindRecordingMediaToolRunner([acceptableFfprobeResult()]);
+    // The database refuses the write that names the stored file.
+    MediaAsset::saving(fn () => throw new RuntimeException('The connection was lost.'));
+
+    expect(fn () => app()->call([new ImportVideoAssetJob((int) $post->image_asset_id), 'handle']))->toThrow(RuntimeException::class, 'The connection was lost.');
+
+    expect(Storage::disk('local')->allFiles('media/originals'))->toBe([]);
+});

@@ -14,6 +14,9 @@ class ImportPreview
         public readonly ?string $imageUrl = null,
         public readonly array $warnings = [],
         public readonly ?string $unsupportedReason = null,
+        // A video or animated GIF to import instead of the picture: a direct
+        // link to one, or the one a post on X carries.
+        public readonly ?string $videoUrl = null,
     ) {}
 
     public function hasImage(): bool

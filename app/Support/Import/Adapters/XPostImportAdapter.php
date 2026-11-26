@@ -59,6 +59,7 @@ class XPostImportAdapter
             title: $this->title($post['user']),
             description: $this->text($post),
             imageUrl: $this->imageUrl($post),
+            videoUrl: $this->videoUrl($post),
         );
     }
 
@@ -185,5 +186,48 @@ class XPostImportAdapter
         }
 
         return $url;
+    }
+
+    /**
+     * The video or animated GIF a post leads with — its first media item —
+     * as the MP4 X serves for it: the highest bitrate no larger than 1080 on
+     * its short side (the size a master is kept at), else the smallest. A
+     * post that leads with a photo has none.
+     *
+     * @param  array<string, mixed>  $post
+     */
+    private function videoUrl(array $post): ?string
+    {
+        $first = collect($post['mediaDetails'] ?? [])->first(fn ($item): bool => is_array($item));
+
+        if (! is_array($first) || ! in_array($first['type'] ?? null, ['video', 'animated_gif'], true)) {
+            return null;
+        }
+
+        $variants = collect(is_array($first['video_info']['variants'] ?? null) ? $first['video_info']['variants'] : [])
+            ->filter(fn ($variant): bool => is_array($variant)
+                && ($variant['content_type'] ?? null) === 'video/mp4'
+                && is_string($variant['url'] ?? null)
+                && str_starts_with($variant['url'], 'https://'))
+            ->map(function (array $variant): array {
+                $shortSide = preg_match('#/(\d+)x(\d+)/#', $variant['url'], $size) === 1 ? min((int) $size[1], (int) $size[2]) : null;
+
+                return ['url' => $variant['url'], 'bitrate' => (int) ($variant['bitrate'] ?? 0), 'short' => $shortSide];
+            });
+
+        $chosen = $variants->filter(fn (array $variant): bool => $variant['short'] === null || $variant['short'] <= 1080)->sortByDesc('bitrate')->first()
+            ?? $variants->sortBy('bitrate')->first();
+
+        if ($chosen === null) {
+            return null;
+        }
+
+        try {
+            $this->validator->validate($chosen['url']);
+        } catch (UnsafeImportUrlException) {
+            return null;
+        }
+
+        return $chosen['url'];
     }
 }

@@ -211,6 +211,7 @@ final class ListUsers extends Page
             'initials' => ModerationListFormat::initials((string) ($person->username ?? $person->name)),
             'meta' => ($deleted ? 'Deleted account' : (string) $person->name).($person->created_at !== null ? ' · joined '.$person->created_at->format('d M Y, H:i') : ''),
             'email' => $deleted ? 'Removed on deletion' : (string) $person->email,
+            ...self::location($person),
             // A Persona's address is synthetic and never confirmed; nobody else's goes unsaid.
             'unconfirmed' => ! $deleted && $person->role !== UserRole::Persona && $person->email_verified_at === null,
             'role' => (string) $person->role?->label(),
@@ -218,11 +219,39 @@ final class ListUsers extends Page
             'status' => ModerationListFormat::personStatus($person),
             'trust' => ModerationListFormat::trust($person),
             'posts' => (int) $person->posts_count,
+            'postVotes' => (int) $person->getAttribute('post_votes_count'),
+            'comments' => (int) $person->getAttribute('comments_count'),
+            'commentVotes' => (int) $person->getAttribute('comment_votes_count'),
+            'reportsFiled' => (int) $person->getAttribute('reports_filed_count'),
             'reports' => (int) $person->getAttribute('reports_on_content'),
             'editUrl' => UserResource::canEdit($person) ? self::getUrl(['user' => $person->id]) : null,
             'postsUrl' => $person->username !== null ? ListPosts::getUrl(['status' => 'all', 'q' => $person->username]) : null,
             'deleted' => $deleted,
             'options' => $options,
+        ];
+    }
+
+    /**
+     * Where the person signed up from, as their account keeps it or else as the visit their sign-up was credited
+     * to shows it; and where their latest visit started from, when that was somewhere else. A deleted account's
+     * places went with it: none is read back from the visit it was credited to.
+     *
+     * @return array{location: string, locationFromVisits: bool, lastVisit: ?string, lastVisitTitle: ?string}
+     */
+    private static function location(User $person): array
+    {
+        $kept = $person->signup_ip_hash !== null || $person->signup_country !== null;
+        $fromVisits = ! $kept && ! $person->isTombstoned();
+        $country = $kept ? $person->signup_country : ($fromVisits ? $person->getAttribute('credited_visit_country') : null);
+        $city = $kept ? $person->signup_city : ($fromVisits ? $person->getAttribute('credited_visit_city') : null);
+        $elsewhere = $person->visit_started_at !== null && $person->visit_country !== null
+            && ($person->visit_country !== $country || $person->visit_city !== $city);
+
+        return [
+            'location' => ModerationListFormat::place(is_string($country) ? $country : null, is_string($city) ? $city : null),
+            'locationFromVisits' => $fromVisits && is_string($country),
+            'lastVisit' => $elsewhere ? 'Last visit: '.ModerationListFormat::place($person->visit_country, $person->visit_city, short: true).' · '.$person->visit_started_at->format('d M') : null,
+            'lastVisitTitle' => $elsewhere ? 'Last visit: '.ModerationListFormat::place($person->visit_country, $person->visit_city).' · '.$person->visit_started_at->format('d M Y, H:i') : null,
         ];
     }
 

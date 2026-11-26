@@ -34,6 +34,7 @@ use App\Services\Media\MediaToolRunner;
 use App\Services\Media\MediaUrlResolver;
 use App\Services\Media\ProcessMediaToolRunner;
 use App\Support\Auth\DisposableDomainList;
+use App\Support\Auth\RecordMemberPlaceOnSignIn;
 use App\Support\Auth\RememberSessionGenerationOnLogin;
 use App\Support\Auth\SendConfirmationMailOnSignUp;
 use App\Support\Auth\SocialProviderAvailability;
@@ -168,6 +169,7 @@ class AppServiceProvider extends ServiceProvider
         // has just made its own (docs/architecture/traffic.md, "Accounts").
         Event::listen([Registered::class, Login::class], AttributeAccountOnSignIn::class);
         Event::listen(Verified::class, ConfirmAttributionOnVerified::class);
+        Event::listen([Registered::class, Login::class], RecordMemberPlaceOnSignIn::class);
         // A moment of a play becomes its visit's mark, conversion and
         // postbacks, inside the game action's own transaction.
         Event::listen(GameMilestoneReached::class, RecordGameMilestoneOnVisit::class);

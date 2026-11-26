@@ -1705,7 +1705,7 @@ resource keeps the route, the navigation item — with the open reports, warning
   the report's id; Type (All, Posts, Comments, People) as a filter dropdown (FRM-10); “n reports”.
 - **Docked or over the list:** where the main column leaves 1048 for the list, the open report's chain docks
   beside it as the 448 panel, sticky as the page scrolls, and the list condenses to Target · Reason · reporter ·
-  Status · Created — opened wide with nothing chosen, the first report opens. Otherwise the list keeps Type ·
+  Status · Created; no report opens by itself, so the page opens on the full list. Otherwise the list keeps Type ·
   Target · Reason · Reporter · Status · Created · Actions (Resolve and Ignore on an open report, Open details),
   scrolling inside its card, and the chain floats over it on the right, 472 wide with its card's shadow. A report's
   target opens its chain; the report is in the address (`?report=2284`).
@@ -1744,9 +1744,12 @@ editor — or the list on them where they are not the viewer's to edit.
   (`?suspicious=1`): shadowbanned, or with reported posts or comments.
 - **Table (TBL-01):** the avatar, the username — which opens the person's editor for whoever may edit it — the name
   and when they joined, to the minute; the email address (“Removed on deletion” for a deleted account), with “Not
-  confirmed” under an address nobody confirmed (never a persona’s); the role, staff as an
-  outline badge; the status (STS-01); trust as a two-step bar and its word (Trusted, Not trusted); posts; the
-  reports on their posts and comments (STS-02); Edit and the row menu.
+  confirmed” under an address nobody confirmed (never a persona’s); Location — the flag, city and country the
+  account was made from, and under it “Last visit: …” with its day when the latest visit started somewhere else; the
+  role, staff as an outline badge; the status (STS-01); trust as a two-step bar and its word (Trusted, Not trusted); posts,
+  post votes, comments, comment votes and reports filed; the reports on their posts and comments (STS-02, “Reports
+  received”); Edit and the row menu. As the card narrows the less needed columns give way — reports filed, role,
+  comment votes, trust, post votes, comments, posts, then Location — before the card scrolls sideways.
 - **Row menu (TBL-04):** the person, their status and trust as its caption; Edit user, View posts (the Posts list
   on them), then Mark trusted, Restore access, Limit, Shadowban and Ban as their status allows — each unavailable
   one kept with why: “This is your account”, “Administrators can’t be sanctioned”, “Administrators only”, “Already
@@ -1769,7 +1772,9 @@ editor — or the list on them where they are not the viewer's to edit.
   Edit in Content Studio and Close.
 - **Where they stand:** Status — the badge, since when and by whom (the decision that set it, with its reason),
   that status is changed only by a moderation action, and those actions; Account — sign-in methods, language,
-  joined (to the minute), the email address confirmed and when — or not, and for an account the cleanup of
+  joined (to the minute), Signed up from and Last visit (when it started) — the flag, city and country, the IP
+  address while Project settings keep them, “N other accounts from this IP” leading to the list searched for it, or
+  “From the visits recorded” for an account made before places were kept — and Last seen, the email address confirmed and when — or not, and for an account the cleanup of
   unconfirmed accounts removes, when it does — posts by status; Moderation history (DOM-02) — the moderation of the person and of their posts and
   comments, newest first, then when the account was created.
 - **Access:** moderators see the list; editing an account and every moderation action are an administrator's,
@@ -1905,6 +1910,7 @@ checks the files of the one asset it shows. The page keeps its route, its naviga
 | Report ids | “R-2284”, the target's “P-48090” | “Report #2284”, the target's “#48090” (“@name” for a person) | the ids as stored, as the other lists show them |
 | Report targets | posts and comments | posts, comments and people, with Type: People | a person can be reported, and their report reads as their chain |
 | Report order | oldest first in every tab | Open oldest first; Resolved, Ignored and All newest first | the queue waits oldest first, and a closed report is looked up by when it came in |
+| The first report's chain open on arrival | nothing open until a report is chosen (a click, J or K, or `?report=`); closing one still opens the next open one | no admin row or panel opens by itself, the owner's decision |
 | Hide target reasons | “Shared with the author.”; pet-specific chips | “Stored in the moderation log.”; the reasons visitors report with | a hide's reason is not sent to the author |
 | Ban reasons | Repeated spam, Harassment, Animal sale, Ban evasion | Repeated spam, Harassment, Scam, Ban evasion | for a project about anything |
 | What a ban does | “Signs them out everywhere and blocks sign-in.” | “They can still sign in, browse and manage their account.”, and no new posts, comments, votes, reports or follows | a ban stops participation and never locks anyone out of their account (docs/architecture/user-lifecycle.md) |

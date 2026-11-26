@@ -40,9 +40,18 @@ use SensitiveParameter;
  * @property string|null $session_generation
  * @property Carbon|null $last_seen_at
  * @property Carbon|null $previous_visit_at
+ * @property string|null $signup_ip
+ * @property string|null $signup_ip_hash
+ * @property string|null $signup_country
+ * @property string|null $signup_city
+ * @property Carbon|null $visit_started_at
+ * @property string|null $visit_ip
+ * @property string|null $visit_ip_hash
+ * @property string|null $visit_country
+ * @property string|null $visit_city
  */
 #[Fillable(['name', 'display_name', 'username', 'email', 'locale', 'theme_preference', 'notify_followed_author_posts', 'avatar_asset_id', 'bio', 'profile_website_url', 'rating_activity_visibility', 'role', 'status', 'trust_level', 'password'])]
-#[Hidden(['password', 'remember_token', 'session_generation', 'email_canonical'])]
+#[Hidden(['password', 'remember_token', 'session_generation', 'email_canonical', 'signup_ip', 'signup_ip_hash', 'visit_ip', 'visit_ip_hash'])]
 class User extends Authenticatable implements FilamentUser, HasLocalePreference, MustVerifyEmail
 {
     /** @use HasFactory<UserFactory> */
@@ -97,6 +106,7 @@ class User extends Authenticatable implements FilamentUser, HasLocalePreference,
             'anonymized_at' => 'datetime',
             'last_seen_at' => 'datetime',
             'previous_visit_at' => 'datetime',
+            'visit_started_at' => 'datetime',
             'password' => 'hashed',
             'role' => UserRole::class,
             'status' => UserStatus::class,
@@ -361,6 +371,28 @@ class User extends Authenticatable implements FilamentUser, HasLocalePreference,
     public function comments(): HasMany
     {
         return $this->hasMany(Comment::class);
+    }
+
+    /** @return HasMany<PostVote, $this> */
+    public function postVotes(): HasMany
+    {
+        return $this->hasMany(PostVote::class);
+    }
+
+    /** @return HasMany<CommentVote, $this> */
+    public function commentVotes(): HasMany
+    {
+        return $this->hasMany(CommentVote::class);
+    }
+
+    /**
+     * The reports the person filed on others' posts, comments and accounts.
+     *
+     * @return HasMany<Report, $this>
+     */
+    public function filedReports(): HasMany
+    {
+        return $this->hasMany(Report::class, 'reporter_id');
     }
 
     /** @return HasMany<PostSave, $this> */

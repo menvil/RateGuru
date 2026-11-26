@@ -21,7 +21,7 @@ beforeEach(function () {
     $this->member = User::factory()->create(['username' => 'grumpy_max', 'name' => 'Max Wagner', 'trust_level' => 0, 'created_at' => now()->subDay()]);
 });
 
-it('draws the list in Admin v2 at every width, the table scrolling inside its card and never the page', function (int $width) {
+it('draws the list in Admin v2 at every width, the less needed columns giving way, the table scrolling inside its card and never the page', function (int $width, array $shown) {
     $page = visitAdminEditor('/admin/users', $width);
 
     expect($page->script(<<<'JS'
@@ -32,17 +32,31 @@ it('draws the list in Admin v2 at every width, the table scrolling inside its ca
             return {
                 headings: [...document.querySelectorAll('h1')].map((h) => h.textContent.trim()),
                 columns: [...document.querySelectorAll('[role="columnheader"]')].map((cell) => cell.textContent.trim()),
+                shown: [...document.querySelectorAll('[role="columnheader"]')].filter((cell) => cell.checkVisibility()).map((cell) => cell.textContent.trim()),
+                // Every row draws as many cells as the header, on as many tracks as the grid has.
+                aligned: [...document.querySelectorAll('[role="row"]')].every((row) => [...row.children].filter((cell) => cell.checkVisibility()).length
+                    === getComputedStyle(row).gridTemplateColumns.split(' ').length),
                 scrollsWhenNarrower: (scroll.scrollWidth > scroll.clientWidth) === (grid.offsetWidth > scroll.clientWidth),
                 overflow: document.documentElement.scrollWidth > window.innerWidth,
             }
         })()
     JS))->toBe([
         'headings' => ['Users'],
-        'columns' => ['Username', 'Email', 'Role', 'Status', 'Trust', 'Posts', 'Reports', 'Actions'],
+        'columns' => ['Username', 'Email', 'Location', 'Role', 'Status', 'Trust', 'Posts', 'Post votes', 'Comments', 'Comment votes', 'Reports filed', 'Reports received', 'Actions'],
+        'shown' => $shown,
+        'aligned' => true,
         'scrollsWhenNarrower' => true,
         'overflow' => false,
     ]);
-})->with([1440, 1280, 1024, 768, 390]);
+})->with([
+    // The less needed columns give way as the card narrows, until the card scrolls.
+    'a wide screen' => [1920, ['Username', 'Email', 'Location', 'Role', 'Status', 'Trust', 'Posts', 'Post votes', 'Comments', 'Comment votes', 'Reports filed', 'Reports received', 'Actions']],
+    'a laptop' => [1440, ['Username', 'Email', 'Location', 'Status', 'Posts', 'Comments', 'Reports received', 'Actions']],
+    'a small laptop' => [1280, ['Username', 'Email', 'Location', 'Status', 'Reports received', 'Actions']],
+    'a tablet sideways' => [1024, ['Username', 'Email', 'Location', 'Status', 'Reports received', 'Actions']],
+    'a tablet' => [768, ['Username', 'Email', 'Status', 'Reports received', 'Actions']],
+    'a phone' => [390, ['Username', 'Email', 'Status', 'Reports received', 'Actions']],
+]);
 
 it('limits someone from the row menu with the keyboard, and Undo restores access', function () {
     $page = visitAdminEditor('/admin/users');

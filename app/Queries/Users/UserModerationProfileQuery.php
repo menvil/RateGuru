@@ -4,6 +4,8 @@ namespace App\Queries\Users;
 
 use App\Enums\ModerationActionType;
 use App\Enums\PostStatus;
+use App\Models\AccountAttribution;
+use App\Models\AccountBrowser;
 use App\Models\Comment;
 use App\Models\CommentVote;
 use App\Models\ModerationLog;
@@ -11,7 +13,10 @@ use App\Models\Post;
 use App\Models\PostVote;
 use App\Models\Report;
 use App\Models\SocialAccount;
+use App\Models\TrafficVisit;
 use App\Models\User;
+use App\Support\Settings\ProjectSettingsManager;
+use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\SoftDeletingScope;
@@ -110,6 +115,63 @@ final class UserModerationProfileQuery
     public function commentVotes(User $person): int
     {
         return CommentVote::query()->where('user_id', $person->id)->count();
+    }
+
+    /**
+     * Where the person signed up from and where their latest visit started, as their account keeps them; for an
+     * account made before it kept them, as the visits recorded show — the visit the sign-up was credited to, and
+     * the latest visit of a browser of theirs. Each with how many other accounts share its address, and the address
+     * itself only while Project settings keep IP addresses. A deleted account's places went with it: none is read
+     * back from its visits.
+     *
+     * @return array{signup: ?array{country: ?string, city: ?string, ip: ?string, hash: ?string, at: ?CarbonInterface, fromVisits: bool, others: int}, visit: ?array{country: ?string, city: ?string, ip: ?string, hash: ?string, at: ?CarbonInterface, fromVisits: bool, others: int}}
+     */
+    public function places(User $person): array
+    {
+        $kept = app(ProjectSettingsManager::class)->featureEnabled('keep_ip_addresses');
+        $fromVisits = ! $person->isTombstoned();
+
+        $signup = match (true) {
+            $person->signup_ip_hash !== null || $person->signup_country !== null => ['country' => $person->signup_country, 'city' => $person->signup_city, 'ip' => $kept ? $person->signup_ip : null, 'hash' => $person->signup_ip_hash, 'at' => $person->created_at, 'fromVisits' => false],
+            $fromVisits => $this->visitPlace(TrafficVisit::query()->whereKey(AccountAttribution::query()->where('user_id', $person->id)->value('credited_visit_id'))),
+            default => null,
+        };
+        $visit = match (true) {
+            $person->visit_started_at !== null => ['country' => $person->visit_country, 'city' => $person->visit_city, 'ip' => $kept ? $person->visit_ip : null, 'hash' => $person->visit_ip_hash, 'at' => $person->visit_started_at, 'fromVisits' => false],
+            $fromVisits => $this->visitPlace(TrafficVisit::query()
+                ->whereIn('visitor_hash', AccountBrowser::query()->where('user_id', $person->id)->select('visitor_hash'))
+                ->orderByDesc('arrived_at')
+                ->orderByDesc('id')),
+            default => null,
+        };
+
+        return [
+            'signup' => $signup === null ? null : [...$signup, 'others' => $this->sharing($person, $signup['hash'])],
+            'visit' => $visit === null ? null : [...$visit, 'others' => $this->sharing($person, $visit['hash'])],
+        ];
+    }
+
+    /**
+     * The first visit a query finds, as a place known from the visits — Unknown where the visit was not placed, as
+     * an account keeps a visit from an address the IP database doesn't know: no address of it is kept.
+     *
+     * @param  Builder<TrafficVisit>  $visits
+     * @return ?array{country: ?string, city: ?string, ip: null, hash: null, at: ?CarbonInterface, fromVisits: true}
+     */
+    private function visitPlace(Builder $visits): ?array
+    {
+        $visit = $visits->first(['id', 'country', 'city', 'arrived_at']);
+
+        return $visit === null ? null : ['country' => $visit->country, 'city' => $visit->city, 'ip' => null, 'hash' => null, 'at' => $visit->arrived_at, 'fromVisits' => true];
+    }
+
+    /** How many other accounts signed up or last visited from the address of a hash. */
+    private function sharing(User $person, ?string $hash): int
+    {
+        return $hash === null ? 0 : User::query()
+            ->whereKeyNot($person->id)
+            ->where(fn (Builder $shared) => $shared->where('signup_ip_hash', $hash)->orWhere('visit_ip_hash', $hash))
+            ->count();
     }
 
     /** How many reports the person has filed on others' posts and comments, whatever became of them. */
