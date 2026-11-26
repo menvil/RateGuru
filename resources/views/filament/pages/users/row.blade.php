@@ -82,13 +82,16 @@
     </div>
 
     <div class="rg-admin-table__cell rg-admin-table__cell--end" role="cell">
-        @if ($row['editUrl'] !== null)
-            <x-admin.ui.button size="sm" :href="$row['editUrl']" x-on:click="if (! ($event.metaKey || $event.ctrlKey || $event.shiftKey || $event.altKey)) { $event.preventDefault(); $wire.editUser({{ $row['id'] }}) }">Edit<span class="rg-admin-sr-only"> {{ $row['username'] }}</span></x-admin.ui.button>
+        {{-- Nothing to do on the row (a deleted account): no Edit, no menu. --}}
+        @if (! $row['actionable'])
+            <span class="rg-admin-sr-only">No actions for {{ $row['username'] }}</span>
         @else
-            <x-admin.ui.button size="sm" disabled :title="$row['deleted'] ? 'The account was deleted' : 'Not yours to edit'">Edit<span class="rg-admin-sr-only"> {{ $row['username'] }}</span></x-admin.ui.button>
-        @endif
+            @if ($row['editUrl'] !== null)
+                <x-admin.ui.button size="sm" :href="$row['editUrl']" x-on:click="if (! ($event.metaKey || $event.ctrlKey || $event.shiftKey || $event.altKey)) { $event.preventDefault(); $wire.editUser({{ $row['id'] }}) }">Edit<span class="rg-admin-sr-only"> {{ $row['username'] }}</span></x-admin.ui.button>
+            @else
+                <x-admin.ui.button size="sm" disabled title="Not yours to edit">Edit<span class="rg-admin-sr-only"> {{ $row['username'] }}</span></x-admin.ui.button>
+            @endif
 
-        @unless ($row['deleted'])
             <x-admin.ui.row-menu :id="$id.'-actions'" :label="'Moderation actions for '.$row['username']">
                 <p class="rg-admin-menu__caption">{{ $row['username'] }} · {{ $row['status']['label'] }} · {{ $row['trust'] }}</p>
                 @if ($row['editUrl'] !== null)
@@ -114,6 +117,6 @@
                     <x-admin.ui.menu-item icon="ban" tone="danger" :hint="$options['ban']['hint']" :disabled="! $options['ban']['available']" wire:click="askToSanction('ban', {{ $row['id'] }})">Ban</x-admin.ui.menu-item>
                 @endif
             </x-admin.ui.row-menu>
-        @endunless
+        @endif
     </div>
 </div>

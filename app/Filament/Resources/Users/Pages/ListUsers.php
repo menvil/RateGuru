@@ -204,6 +204,8 @@ final class ListUsers extends Page
     {
         $deleted = $person->isTombstoned();
         $options = $this->moderationOptions($person);
+        $editUrl = UserResource::canEdit($person) ? self::getUrl(['user' => $person->id]) : null;
+        $postsUrl = $person->username !== null ? ListPosts::getUrl(['status' => 'all', 'q' => $person->username]) : null;
 
         return [
             'id' => (int) $person->id,
@@ -224,10 +226,15 @@ final class ListUsers extends Page
             'commentVotes' => (int) $person->getAttribute('comment_votes_count'),
             'reportsFiled' => (int) $person->getAttribute('reports_filed_count'),
             'reports' => (int) $person->getAttribute('reports_on_content'),
-            'editUrl' => UserResource::canEdit($person) ? self::getUrl(['user' => $person->id]) : null,
-            'postsUrl' => $person->username !== null ? ListPosts::getUrl(['status' => 'all', 'q' => $person->username]) : null,
+            'editUrl' => $editUrl,
+            'postsUrl' => $postsUrl,
             'deleted' => $deleted,
             'options' => $options,
+            // Anything to do on the row: open the person, see their posts, or
+            // a moderation action on offer. A row with none — a deleted
+            // account — shows neither Edit nor the menu, only its labels.
+            'actionable' => ! $deleted && ($editUrl !== null || $postsUrl !== null || $options['restore']
+                || $options['trust']['available'] || $options['limit']['available'] || $options['shadowban']['available'] || $options['ban']['available']),
         ];
     }
 
