@@ -5,6 +5,7 @@ use App\Support\Import\ImportFetchPolicy;
 use App\Support\Import\ImportTransportResponse;
 use App\Support\Import\PinnedImportHttpTransport;
 use App\Support\Import\ResolvedImportTarget;
+use GuzzleHttp\Handler\CurlFactory;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
@@ -498,4 +499,34 @@ it('maps a connection refused (nothing listening on the pinned IP/port) to Impor
 
     expect(fn () => $transport->get($target, new ImportFetchPolicy(maxBytes: 10_000, timeoutSeconds: 3, connectTimeoutSeconds: 2)))
         ->toThrow(ImportFetchException::class);
+});
+
+it('streams a download with the pin and the trickle limit under their own cURL numbers, each one Guzzle allows', function () {
+    $seenOptions = null;
+
+    Http::fake(function ($request, $options) use (&$seenOptions) {
+        $seenOptions = $options;
+
+        return Http::response('video bytes', 200);
+    });
+
+    $path = tempnam(sys_get_temp_dir(), 'pinned-download');
+    $target = new ResolvedImportTarget(url: 'https://video.example.com/a.mp4', scheme: 'https', host: 'video.example.com', port: 443, ip: '93.184.216.34');
+
+    try {
+        (new PinnedImportHttpTransport)->download($target, new ImportFetchPolicy(maxBytes: 1000, timeoutSeconds: 5, connectTimeoutSeconds: 2), $path);
+    } finally {
+        @unlink($path);
+    }
+
+    // Spreading these renumbered them: the trickle limit went out as CURLOPT_TLSAUTH_USERNAME,
+    // and Guzzle refused every streamed download.
+    $allowed = (new ReflectionMethod(CurlFactory::class, 'supportedCurlOptions'))->invoke(null);
+
+    expect($seenOptions['curl'])->toBe([
+        CURLOPT_RESOLVE => ['video.example.com:443:93.184.216.34'],
+        CURLOPT_LOW_SPEED_LIMIT => 32 * 1024,
+        CURLOPT_LOW_SPEED_TIME => 20,
+    ])
+        ->and(array_diff(array_keys($seenOptions['curl']), array_keys($allowed)))->toBe([]);
 });
