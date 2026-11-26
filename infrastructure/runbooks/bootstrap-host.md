@@ -1109,6 +1109,53 @@ boundaries (coordinator vs. the child installers it invokes), the
 PRE_DEPLOY/DEPLOYED distinction, the external-prerequisite contract and
 the real staging acceptance sequence.
 
+### Media fetch isolation
+
+`install-media-fetch-isolation`, a child of `install-bootstrap-services` in
+the host run, installs the account yt-dlp runs as and what keeps it off the
+host's own network. A target-scoped repair only verifies it.
+
+| What | Where | Held to |
+|---|---|---|
+| `rateguru-media-fetch` | a system account | no password, home (`/nonexistent`) or shell (`/usr/sbin/nologin`); an account of that name RateGuru did not create is never taken over |
+| the sudo rule | `/etc/sudoers.d/rateguru-media-fetch`, root:root 0440 | each active target's runtime user may run `/usr/local/bin/yt-dlp` as the account, nothing else; rendered from the registry, checked by `visudo -cqf` |
+| the table | `/etc/rateguru/media-fetch.nft`, root:root 0644 | `inet rateguru_media_fetch`: the account's traffic to every loopback, private, link-local and reserved address, IPv4 and IPv6, is rejected; its resolver, `127.0.0.53:53`, is allowed. Checked by `nft -c -f` |
+| the unit | `rateguru-media-fetch-firewall.service`, enabled | loads the table at boot, before the network |
+
+What it never touches:
+- **The rest of the ruleset.** The table replaces only itself, so ufw's
+  tables stay as they are.
+- **The distribution's `nftables.service`.** It is never enabled: its
+  `/etc/nftables.conf` flushes the whole ruleset.
+
+`--apply` refuses a host whose `/etc/resolv.conf` names anything but
+`127.0.0.53`, since the account could not resolve there. It loads the table
+before it installs the sudo rule. If the table will not load, it puts back
+what it replaced.
+
+The application uses the account wherever it exists
+(`import.ytdlp.isolation_user`):
+- it starts yt-dlp with `sudo -n -u rateguru-media-fetch -- /usr/local/bin/yt-dlp`;
+- it opens each download's directory to the account by ACL for the run.
+
+**Container rehearsal (2026-11-26, Ubuntu 22.04, nftables 1.0.2, sudo 1.9.9, ufw enabled):**
+- `--apply` then `--verify`: pass=7, exit 0. `nft list tables` showed ufw's
+  `ip filter` and `ip6 filter`, plus `inet rateguru_media_fetch`.
+- **As the account:**
+  - `127.0.0.1`, the container's own address, `169.254.169.254` and
+    `[::1]` were refused (curl exit 7);
+  - `http://1.1.1.1/` answered 301.
+- **As root:** loopback was still reachable.
+- **The runtime user, through its rule:**
+  - yt-dlp as the account: the public address answered, loopback was refused;
+  - `/bin/true` as the account, and yt-dlp as root, were refused
+    ("sudo: a password is required").
+- **A second `--apply`:** exit 0, the same three tables, ufw still active.
+- **ACL:** a run directory opened by ACL let the account write
+  `download.mp4` (rateguru-media-fetch 660). The worker read it and removed
+  the directory. The account could not write in the parent directory. Before
+  the ACL, it could not write at all.
+
 ## Slice 5.6: the clean-VPS acceptance — passed
 
 Slice 5.5 built the machinery; 5.6 proved it in reality, on a disposable

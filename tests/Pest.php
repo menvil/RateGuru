@@ -10365,7 +10365,7 @@ function provisionWriteStubs(string $scratch): void
     // both what was asked and what was never asked.
     foreach ([
         'runtime-installer', 'operations-installer', 'perimeter-installer',
-        'public-storage-installer', 'mail-capture-installer', 'verify-mail-capture',
+        'media-fetch-installer', 'public-storage-installer', 'mail-capture-installer', 'verify-mail-capture',
         'nightwatch-installer', 'mail-signing-installer', 'mail-gateway-installer',
     ] as $child) {
         provisionWriteStub($scratch.'/bin/'.$child, <<<'STUB'
@@ -10613,7 +10613,7 @@ function provisionFixture(string $scratch, array $options = []): array
     // operation did.
     foreach ([
         'runtime-installer', 'operations-installer', 'perimeter-installer',
-        'public-storage-installer', 'mail-capture-installer', 'verify-mail-capture',
+        'media-fetch-installer', 'public-storage-installer', 'mail-capture-installer', 'verify-mail-capture',
         'nightwatch-installer',
     ] as $child) {
         touch($scratch.'/toggles/'.$child.'-compliant');
@@ -10677,6 +10677,7 @@ function provisionFixture(string $scratch, array $options = []): array
         'RATEGURU_BOOTSTRAPSVC_HOSTLAYOUT_INSTALLER_BIN' => $repo.'/infrastructure/scripts/install-bootstrap-host-layout',
         'RATEGURU_BOOTSTRAPSVC_OPERATIONS_INSTALLER_BIN' => $scratch.'/bin/operations-installer',
         'RATEGURU_BOOTSTRAPSVC_PERIMETER_INSTALLER_BIN' => $scratch.'/bin/perimeter-installer',
+        'RATEGURU_BOOTSTRAPSVC_MEDIA_FETCH_INSTALLER_BIN' => $scratch.'/bin/media-fetch-installer',
         'RATEGURU_BOOTSTRAPSVC_PUBLIC_STORAGE_INSTALLER_BIN' => $scratch.'/bin/public-storage-installer',
         'RATEGURU_BOOTSTRAPSVC_NIGHTWATCH_INSTALLER_BIN' => $scratch.'/bin/nightwatch-installer',
         'RATEGURU_BOOTSTRAPSVC_MAIL_CAPTURE_INSTALLER_BIN' => $scratch.'/bin/mail-capture-installer',
@@ -12128,7 +12129,7 @@ function bsvcWriteStubs(string $scratch): void
     // a running apply.
     foreach ([
         'runtime-installer', 'hostlayout-installer', 'operations-installer',
-        'perimeter-installer', 'public-storage-installer', 'mail-capture-installer',
+        'perimeter-installer', 'media-fetch-installer', 'public-storage-installer', 'mail-capture-installer',
         'verify-mail-capture', 'nightwatch-installer', 'mail-signing-installer',
         'mail-gateway-installer',
     ] as $child) {
@@ -12424,7 +12425,7 @@ function bsvcFixture(string $scratch, array $options = []): array
 
         foreach ([
             'runtime-installer', 'hostlayout-installer', 'operations-installer',
-            'perimeter-installer', 'public-storage-installer', 'verify-mail-capture',
+            'perimeter-installer', 'media-fetch-installer', 'public-storage-installer', 'verify-mail-capture',
             'nightwatch-installer', 'mail-signing-installer', 'mail-gateway-installer',
         ] as $child) {
             touch($scratch.'/toggles/'.$child.'-compliant');
@@ -12457,6 +12458,7 @@ function bsvcFixture(string $scratch, array $options = []): array
         'RATEGURU_BOOTSTRAPSVC_HOSTLAYOUT_INSTALLER_BIN' => $scratch.'/bin/hostlayout-installer',
         'RATEGURU_BOOTSTRAPSVC_OPERATIONS_INSTALLER_BIN' => $scratch.'/bin/operations-installer',
         'RATEGURU_BOOTSTRAPSVC_PERIMETER_INSTALLER_BIN' => $scratch.'/bin/perimeter-installer',
+        'RATEGURU_BOOTSTRAPSVC_MEDIA_FETCH_INSTALLER_BIN' => $scratch.'/bin/media-fetch-installer',
         'RATEGURU_BOOTSTRAPSVC_PUBLIC_STORAGE_INSTALLER_BIN' => $scratch.'/bin/public-storage-installer',
         'RATEGURU_BOOTSTRAPSVC_NIGHTWATCH_INSTALLER_BIN' => $scratch.'/bin/nightwatch-installer',
         'RATEGURU_BOOTSTRAPSVC_MAIL_CAPTURE_INSTALLER_BIN' => $scratch.'/bin/mail-capture-installer',

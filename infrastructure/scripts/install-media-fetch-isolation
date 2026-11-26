@@ -1,0 +1,520 @@
+#!/usr/bin/env bash
+#
+# install-media-fetch-isolation — the account yt-dlp runs as, kept off the
+# host's own network.
+#
+#   install-media-fetch-isolation --check    read-only: what --apply would change, and whether it may
+#   install-media-fetch-isolation --apply    install it, or bring it back to what this bundle renders (root)
+#   install-media-fetch-isolation --verify   read-only: installed, live, and current
+#
+# yt-dlp opens the addresses a site's pages hand it, outside the application's
+# pinned import client. The application runs it as an account of its own
+# (config import.ytdlp.isolation_user, App\Support\Import\YtDlpIsolation)
+# wherever that account exists; this installs the account and what holds it:
+#
+#   rateguru-media-fetch                 a system account: no password, no home,
+#                                        no shell
+#   /etc/sudoers.d/rateguru-media-fetch  root:root 0440: each active target's
+#                                        runtime user may run yt-dlp as that
+#                                        account — that one program, nothing
+#                                        else; checked by visudo first
+#   /etc/rateguru/media-fetch.nft        root:root 0644: one nftables table of
+#                                        RateGuru's own, inet rateguru_media_fetch,
+#                                        that rejects the account's traffic to
+#                                        every loopback, private, link-local and
+#                                        reserved address — its resolver on
+#                                        127.0.0.53 aside; checked by nft -c first
+#   /etc/systemd/system/rateguru-media-fetch-firewall.service
+#                                        root:root 0644: loads that table at boot,
+#                                        before the network, and again on --apply
+#
+# The table replaces only itself: it never flushes the ruleset, so ufw's own
+# tables, and anything else, stay as they are. The distribution's
+# nftables.service is never enabled — its /etc/nftables.conf flushes the whole
+# ruleset.
+#
+# NEVER: ufw, another table, another account's groups, a target's files, or an
+# account of that name RateGuru did not create — that is never taken over.
+#
+# Host-wide, one account and one table for every target: run by
+# install-bootstrap-services in the host run; a target-scoped repair only
+# verifies it.
+#
+# Test overrides: the RATEGURU_MEDIAFETCH_* variables below are honoured only
+# alongside RATEGURU_ALLOW_TEST_OVERRIDES=true.
+
+set -Eeuo pipefail
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd -P)"
+REPO_ROOT="$(cd -- "${SCRIPT_DIR}/../.." >/dev/null 2>&1 && pwd -P)"
+
+# --- Test override gate -------------------------------------------------------
+
+rateguru_test_overrides_allowed() {
+    [[ "${RATEGURU_ALLOW_TEST_OVERRIDES:-false}" == true ]]
+}
+
+gated_default() {
+    local var_name="$1" default_value="$2"
+
+    if rateguru_test_overrides_allowed && [[ -n "${!var_name:-}" ]]; then
+        printf '%s\n' "${!var_name}"
+    else
+        printf '%s\n' "${default_value}"
+    fi
+}
+
+EFFECTIVE_UID="$(gated_default RATEGURU_MEDIAFETCH_EUID "${EUID}")"
+FS_ROOT="$(gated_default RATEGURU_MEDIAFETCH_FS_ROOT '')"
+SRC_REGISTRY="$(gated_default RATEGURU_MEDIAFETCH_SOURCE_REGISTRY "${REPO_ROOT}/infrastructure/config/deployment-targets.json")"
+SRC_VERSIONS="$(gated_default RATEGURU_MEDIAFETCH_SOURCE_VERSIONS "${REPO_ROOT}/infrastructure/config/external-runtimes/versions.env")"
+
+GETENT_BIN="$(gated_default RATEGURU_MEDIAFETCH_GETENT_BIN getent)"
+USERADD_BIN="$(gated_default RATEGURU_MEDIAFETCH_USERADD_BIN useradd)"
+VISUDO_BIN="$(gated_default RATEGURU_MEDIAFETCH_VISUDO_BIN visudo)"
+NFT_BIN="$(gated_default RATEGURU_MEDIAFETCH_NFT_BIN nft)"
+SYSTEMCTL_BIN="$(gated_default RATEGURU_MEDIAFETCH_SYSTEMCTL_BIN systemctl)"
+
+FILE_OWNER="$(gated_default RATEGURU_MEDIAFETCH_FILE_OWNER root)"
+FILE_GROUP="$(gated_default RATEGURU_MEDIAFETCH_FILE_GROUP root)"
+
+FETCH_USER="rateguru-media-fetch"
+FETCH_GECOS="RateGuru media fetch (yt-dlp)"
+FETCH_HOME="/nonexistent"
+FETCH_SHELL="/usr/sbin/nologin"
+FETCH_SUDOERS="/etc/sudoers.d/rateguru-media-fetch"
+FETCH_RULESET="/etc/rateguru/media-fetch.nft"
+FETCH_UNIT_NAME="rateguru-media-fetch-firewall.service"
+FETCH_UNIT="/etc/systemd/system/${FETCH_UNIT_NAME}"
+FETCH_TABLE="rateguru_media_fetch"
+# The one resolver the account may reach: systemd-resolved's stub, which
+# itself asks upstream as its own user, outside this table.
+FETCH_RESOLVER="127.0.0.53"
+RESOLV_CONF="/etc/resolv.conf"
+
+# Every address that is not the public internet: loopback, RFC 1918, carrier
+# NAT, link-local (cloud metadata among it), documentation and benchmark
+# ranges, multicast and reserved — and their IPv6 counterparts, IPv4-mapped
+# addresses included, so none is reached through the other family.
+FETCH_DENIED_V4="0.0.0.0/8, 10.0.0.0/8, 100.64.0.0/10, 127.0.0.0/8, 169.254.0.0/16, 172.16.0.0/12, 192.0.0.0/24, 192.0.2.0/24, 192.168.0.0/16, 198.18.0.0/15, 198.51.100.0/24, 203.0.113.0/24, 224.0.0.0/4, 240.0.0.0/4"
+FETCH_DENIED_V6="::/128, ::1/128, ::ffff:0:0/96, 64:ff9b::/96, 100::/64, 2001:db8::/32, fc00::/7, fe80::/10, ff00::/8"
+
+# --- Output ---------------------------------------------------------------------
+
+MODE=""
+COUNT_PASS=0
+COUNT_FAIL=0
+COUNT_DRIFT=0
+
+fail() {
+    printf 'ERROR: %s\n' "$*" >&2
+    exit 1
+}
+
+action() {
+    printf '[apply] %s\n' "$*"
+}
+
+item() {
+    local status="$1" name="$2" detail="$3"
+    printf '  %-8s %-46s %s\n' "${status}" "${name}" "${detail}"
+    case "${status}" in
+        PASS) COUNT_PASS=$((COUNT_PASS + 1)) ;;
+        FAIL) COUNT_FAIL=$((COUNT_FAIL + 1)) ;;
+        DRIFT|MISSING) COUNT_DRIFT=$((COUNT_DRIFT + 1)) ;;
+    esac
+}
+
+usage() {
+    cat <<'USAGE'
+Usage:
+  install-media-fetch-isolation --check
+  install-media-fetch-isolation --apply
+  install-media-fetch-isolation --verify
+
+The account yt-dlp runs as (rateguru-media-fetch), the sudo rule that lets
+each active target's runtime user run yt-dlp as it, and the nftables table
+that keeps it off every loopback, private and link-local address.
+USAGE
+}
+
+physical() {
+    printf '%s%s\n' "${FS_ROOT}" "$1"
+}
+
+require_root() {
+    [[ "${EFFECTIVE_UID}" == 0 ]] || fail "--${MODE} must run as root"
+}
+
+require_tools() {
+    local tool
+    for tool in "$@"; do
+        command -v "${tool}" >/dev/null 2>&1 || fail "required tool not found: ${tool}"
+    done
+}
+
+# --- What the bundle says -----------------------------------------------------------
+
+YTDLP_BINARY=""
+RUNTIME_USERS=()
+
+load_sources() {
+    [[ -f "${SRC_REGISTRY}" ]] || fail "the target registry is missing: ${SRC_REGISTRY}"
+    [[ -f "${SRC_VERSIONS}" ]] || fail "the pinned runtime versions are missing: ${SRC_VERSIONS}"
+
+    YTDLP_BINARY="$(sed -n 's/^YTDLP_BINARY=//p' "${SRC_VERSIONS}" | head -n 1)"
+    [[ "${YTDLP_BINARY}" =~ ^/[A-Za-z0-9/._-]+$ ]] \
+        || fail "YTDLP_BINARY in ${SRC_VERSIONS} is not an absolute path — refusing to render a sudo rule around it"
+
+    local target_id runtime_user
+    RUNTIME_USERS=()
+    while IFS= read -r target_id; do
+        [[ -n "${target_id}" ]] || continue
+        runtime_user="$(jq -r --arg id "${target_id}" '.targets[$id].runtime_user' "${SRC_REGISTRY}")"
+        [[ "${runtime_user}" =~ ^[a-z_][a-z0-9_-]{0,31}$ ]] \
+            || fail "target ${target_id}: runtime_user '${runtime_user}' is not a renderable account name — refusing to render a sudo rule around it"
+        RUNTIME_USERS+=("${runtime_user}")
+    done < <(jq -r '.targets | to_entries[] | select(.value.lifecycle == "active") | .key' "${SRC_REGISTRY}" | sort)
+
+    (( ${#RUNTIME_USERS[@]} > 0 )) \
+        || fail "the registry declares no active target, so no runtime user may run yt-dlp — refusing to install an empty rule"
+}
+
+# --- What is rendered ------------------------------------------------------------------
+
+render_sudoers() {
+    local runtime_user
+    printf '# RateGuru media fetch — rendered by install-media-fetch-isolation. Do not edit.\n'
+    printf '#\n'
+    printf "# Each active target's runtime user may run yt-dlp as %s — that\n" "${FETCH_USER}"
+    printf '# one program, nothing else. That account is kept off the host network by\n'
+    printf '# the nftables table inet %s.\n' "${FETCH_TABLE}"
+    for runtime_user in "${RUNTIME_USERS[@]}"; do
+        printf 'Defaults:%s !requiretty\n' "${runtime_user}"
+        printf '%s ALL=(%s) NOPASSWD: %s\n' "${runtime_user}" "${FETCH_USER}" "${YTDLP_BINARY}"
+    done
+}
+
+render_ruleset() {
+    cat <<EOF
+#!/usr/sbin/nft -f
+# RateGuru media fetch — rendered by install-media-fetch-isolation. Do not edit.
+#
+# ${FETCH_USER} — the account yt-dlp runs as — reaches the public internet
+# and its resolver, and nothing of this host's network: every loopback,
+# private, link-local and reserved address is refused. This table replaces
+# only itself; ufw's tables, and anything else, are untouched.
+table inet ${FETCH_TABLE}
+delete table inet ${FETCH_TABLE}
+table inet ${FETCH_TABLE} {
+    chain output {
+        type filter hook output priority filter; policy accept;
+        meta skuid "${FETCH_USER}" ip daddr ${FETCH_RESOLVER} udp dport 53 accept
+        meta skuid "${FETCH_USER}" ip daddr ${FETCH_RESOLVER} tcp dport 53 accept
+        meta skuid "${FETCH_USER}" ip daddr { ${FETCH_DENIED_V4} } reject
+        meta skuid "${FETCH_USER}" ip6 daddr { ${FETCH_DENIED_V6} } reject
+    }
+}
+EOF
+}
+
+render_unit() {
+    cat <<EOF
+# RateGuru media fetch — rendered by install-media-fetch-isolation. Do not edit.
+[Unit]
+Description=RateGuru media fetch firewall (keeps ${FETCH_USER} off this host's network)
+Wants=network-pre.target
+Before=network-pre.target
+After=local-fs.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/sbin/nft -f ${FETCH_RULESET}
+ExecReload=/usr/sbin/nft -f ${FETCH_RULESET}
+
+[Install]
+WantedBy=multi-user.target
+EOF
+}
+
+# --- State ------------------------------------------------------------------------------
+
+# fetch_account — absent | ours | foreign | unlocked: an account of that name
+# RateGuru did not create is never taken over, and one with a password is not
+# the media fetch account.
+fetch_account() {
+    local entry shadow
+    entry="$("${GETENT_BIN}" passwd "${FETCH_USER}" 2>/dev/null || true)"
+    if [[ -z "${entry}" ]]; then
+        printf 'absent\n'
+        return 0
+    fi
+
+    if [[ "$(cut -d: -f5 <<<"${entry}")" != "${FETCH_GECOS}" || "$(cut -d: -f6 <<<"${entry}")" != "${FETCH_HOME}" \
+        || "$(cut -d: -f7 <<<"${entry}")" != "${FETCH_SHELL}" ]]; then
+        printf 'foreign\n'
+        return 0
+    fi
+
+    shadow="$("${GETENT_BIN}" shadow "${FETCH_USER}" 2>/dev/null | cut -d: -f2 || true)"
+    if [[ "${shadow}" == '!'* || "${shadow}" == '*'* ]]; then
+        printf 'ours\n'
+    else
+        printf 'unlocked\n'
+    fi
+}
+
+file_state() {
+    local logical="$1" expected="$2" mode="$3" path
+    path="$(physical "${logical}")"
+    if [[ ! -e "${path}" && ! -L "${path}" ]]; then
+        printf 'MISSING\n'
+    elif [[ -L "${path}" || ! -f "${path}" ]] || ! cmp -s "${expected}" "${path}" \
+        || [[ "$(stat -c '%U:%G %a' "${path}" 2>/dev/null)" != "${FILE_OWNER}:${FILE_GROUP} ${mode}" ]]
+    then
+        printf 'DRIFT\n'
+    else
+        printf 'PASS\n'
+    fi
+}
+
+# resolver_is_stub — the host resolves through systemd-resolved's stub, the one
+# resolver the table lets the account reach.
+resolver_is_stub() {
+    local conf nameservers
+    conf="$(physical "${RESOLV_CONF}")"
+    [[ -r "${conf}" ]] || return 1
+    nameservers="$(awk '$1 == "nameserver" { print $2 }' "${conf}" | sort -u)"
+    [[ "${nameservers}" == "${FETCH_RESOLVER}" ]]
+}
+
+# table_live — the table is loaded, and refuses the account as rendered.
+table_live() {
+    local listed
+    listed="$("${NFT_BIN}" list table inet "${FETCH_TABLE}" 2>/dev/null)" || return 1
+    grep -q 'skuid' <<<"${listed}" && grep -q 'reject' <<<"${listed}"
+}
+
+# --- Modes -------------------------------------------------------------------------------
+
+WORK=""
+
+render_all() {
+    WORK="$(mktemp -d)"
+    trap 'rm -rf "${WORK}"' EXIT
+    render_sudoers > "${WORK}/sudoers"
+    render_ruleset > "${WORK}/ruleset"
+    render_unit > "${WORK}/unit"
+}
+
+report() {
+    case "$(fetch_account)" in
+        ours)     item PASS account "${FETCH_USER}, a system account with no password, home or shell" ;;
+        absent)   item MISSING account "${FETCH_USER} does not exist — --apply creates it" ;;
+        unlocked) item FAIL account "${FETCH_USER} has a password — the media fetch account never logs in" ;;
+        foreign)  item FAIL account "${FETCH_USER} exists but was not created by RateGuru — it is never taken over" ;;
+    esac
+
+    if resolver_is_stub; then
+        item PASS resolver "${RESOLV_CONF} names only ${FETCH_RESOLVER}, the one resolver the table lets the account reach"
+    else
+        item FAIL resolver "${RESOLV_CONF} does not name ${FETCH_RESOLVER} alone — the table would leave yt-dlp unable to resolve, or reaching a private resolver"
+    fi
+
+    case "$(file_state "${FETCH_SUDOERS}" "${WORK}/sudoers" 440)" in
+        PASS)    item PASS "file:${FETCH_SUDOERS}" "yt-dlp as ${FETCH_USER}, for each active target's runtime user — nothing else" ;;
+        MISSING) item MISSING "file:${FETCH_SUDOERS}" "absent" ;;
+        *)       item DRIFT "file:${FETCH_SUDOERS}" "differs from what this bundle renders — --apply replaces it" ;;
+    esac
+
+    case "$(file_state "${FETCH_RULESET}" "${WORK}/ruleset" 644)" in
+        PASS)    item PASS "file:${FETCH_RULESET}" "exactly what this bundle renders" ;;
+        MISSING) item MISSING "file:${FETCH_RULESET}" "absent" ;;
+        *)       item DRIFT "file:${FETCH_RULESET}" "differs from what this bundle renders — --apply replaces it" ;;
+    esac
+
+    case "$(file_state "${FETCH_UNIT}" "${WORK}/unit" 644)" in
+        PASS)    item PASS "file:${FETCH_UNIT}" "exactly what this bundle renders" ;;
+        MISSING) item MISSING "file:${FETCH_UNIT}" "absent" ;;
+        *)       item DRIFT "file:${FETCH_UNIT}" "differs from what this bundle renders — --apply replaces it" ;;
+    esac
+
+    if "${SYSTEMCTL_BIN}" is-enabled --quiet "${FETCH_UNIT_NAME}" 2>/dev/null; then
+        item PASS "unit:${FETCH_UNIT_NAME}" "enabled: the table is loaded at every boot"
+    else
+        item DRIFT "unit:${FETCH_UNIT_NAME}" "not enabled — the table would be gone after a reboot"
+    fi
+
+    if table_live; then
+        item PASS "table:inet ${FETCH_TABLE}" "loaded: ${FETCH_USER} is refused this host's network now"
+    else
+        item DRIFT "table:inet ${FETCH_TABLE}" "not loaded — yt-dlp would reach this host's network as ${FETCH_USER}"
+    fi
+}
+
+summary() {
+    printf 'SUMMARY  pass=%d fail=%d drift=%d\n' "${COUNT_PASS}" "${COUNT_FAIL}" "${COUNT_DRIFT}"
+}
+
+run_check() {
+    require_tools jq cmp stat awk
+    load_sources
+    render_all
+    printf 'install-media-fetch-isolation --check (read-only)\n'
+    report
+    summary
+    (( COUNT_FAIL == 0 ))
+}
+
+run_verify() {
+    require_root
+    require_tools jq cmp stat awk
+    load_sources
+    render_all
+    printf 'install-media-fetch-isolation --verify (read-only)\n'
+    report
+    summary
+    (( COUNT_FAIL + COUNT_DRIFT == 0 ))
+}
+
+# --- Apply, with its rollback ------------------------------------------------------
+
+BACKUP=""
+INSTALLED=()
+
+# install_file CANDIDATE LOGICAL MODE — atomically, owner and mode first; the
+# file it replaces is kept for the rollback.
+install_file() {
+    local candidate="$1" logical="$2" mode="$3" path tmp
+    path="$(physical "${logical}")"
+    install -d -m 0755 "$(dirname "${path}")"
+
+    if [[ -e "${path}" ]]; then
+        mkdir -p "${BACKUP}$(dirname "${logical}")"
+        cp -p "${path}" "${BACKUP}${logical}"
+    fi
+    INSTALLED+=("${logical}")
+
+    tmp="${path}.rateguru-tmp.$$"
+    cp "${candidate}" "${tmp}"
+    chown "${FILE_OWNER}:${FILE_GROUP}" "${tmp}"
+    chmod "0${mode}" "${tmp}"
+    mv -f "${tmp}" "${path}"
+}
+
+# rollback — every file this run replaced goes back to what it was, one it
+# added goes; the table is loaded again from what is left, or removed with it.
+rollback() {
+    local logical path
+    trap - ERR
+    printf '[rollback] restoring what this run replaced\n' >&2
+    for logical in "${INSTALLED[@]}"; do
+        path="$(physical "${logical}")"
+        if [[ -e "${BACKUP}${logical}" ]]; then
+            cp -p "${BACKUP}${logical}" "${path}"
+        else
+            rm -f "${path}"
+        fi
+    done
+    "${SYSTEMCTL_BIN}" daemon-reload >/dev/null 2>&1 || true
+    if [[ -f "$(physical "${FETCH_RULESET}")" ]]; then
+        "${NFT_BIN}" -f "$(physical "${FETCH_RULESET}")" >/dev/null 2>&1 || true
+    else
+        "${NFT_BIN}" delete table inet "${FETCH_TABLE}" >/dev/null 2>&1 || true
+    fi
+}
+
+on_apply_error() {
+    rollback
+    fail "--apply failed; what it replaced was restored (above)"
+}
+
+run_apply() {
+    require_root
+    require_tools jq cmp stat awk install
+    load_sources
+    render_all
+
+    resolver_is_stub \
+        || fail "${RESOLV_CONF} does not name ${FETCH_RESOLVER} alone — the table lets the account reach that resolver only, so yt-dlp could not resolve. Nothing was changed"
+
+    case "$(fetch_account)" in
+        foreign)  fail "${FETCH_USER} exists but was not created by RateGuru — it is never taken over. Nothing was changed" ;;
+        unlocked) fail "${FETCH_USER} has a password — it is never given yt-dlp while it does. Nothing was changed" ;;
+        absent)
+            action "creating the media fetch account ${FETCH_USER} (system, no password, home or shell)"
+            "${USERADD_BIN}" --system --user-group --no-create-home --home-dir "${FETCH_HOME}" \
+                --shell "${FETCH_SHELL}" --comment "${FETCH_GECOS}" "${FETCH_USER}"
+            [[ "$(fetch_account)" == ours ]] || fail "the media fetch account ${FETCH_USER} could not be created as reviewed"
+            ;;
+    esac
+
+    # Both checked before anything is installed: the account exists now, so
+    # the ruleset's skuid names a real one.
+    "${VISUDO_BIN}" -cqf "${WORK}/sudoers" >/dev/null \
+        || fail "visudo refuses the rendered sudoers rule — nothing was installed"
+    "${NFT_BIN}" -c -f "${WORK}/ruleset" >/dev/null \
+        || fail "nft refuses the rendered ruleset — nothing was installed"
+
+    BACKUP="${WORK}/backup"
+    mkdir -p "${BACKUP}"
+    trap on_apply_error ERR
+
+    # The table first, live before anything can run yt-dlp as the account;
+    # the rule that lets the targets do so last.
+    action "installing the ruleset ${FETCH_RULESET} and its unit ${FETCH_UNIT_NAME}"
+    install_file "${WORK}/ruleset" "${FETCH_RULESET}" 644
+    install_file "${WORK}/unit" "${FETCH_UNIT}" 644
+    "${SYSTEMCTL_BIN}" daemon-reload
+    "${SYSTEMCTL_BIN}" enable "${FETCH_UNIT_NAME}" >/dev/null
+    action "loading the table inet ${FETCH_TABLE}"
+    "${SYSTEMCTL_BIN}" restart "${FETCH_UNIT_NAME}"
+    table_live || { rollback; fail "the table inet ${FETCH_TABLE} is not loaded after --apply — what it replaced was restored"; }
+
+    action "installing the sudoers rule ${FETCH_SUDOERS}: yt-dlp as ${FETCH_USER}, for ${RUNTIME_USERS[*]}"
+    install_file "${WORK}/sudoers" "${FETCH_SUDOERS}" 440
+    "${VISUDO_BIN}" -cqf "$(physical "${FETCH_SUDOERS}")" >/dev/null \
+        || { rollback; fail "visudo refuses the installed sudoers rule — what this run replaced was restored"; }
+
+    trap - ERR
+    COUNT_PASS=0 COUNT_FAIL=0 COUNT_DRIFT=0
+    report
+    summary
+    (( COUNT_FAIL + COUNT_DRIFT == 0 )) || fail "the media fetch isolation is not as rendered after --apply (above)"
+    action "apply complete — yt-dlp runs as ${FETCH_USER}, kept off this host's network"
+}
+
+# --- Entry point --------------------------------------------------------------------------
+
+main() {
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --check|--apply|--verify)
+                [[ -z "${MODE}" ]] || { usage >&2; fail "mode given more than once"; }
+                MODE="${1#--}"
+                shift
+                ;;
+            -h|--help)
+                usage
+                exit 0
+                ;;
+            *)
+                usage >&2
+                fail "unknown argument: $1"
+                ;;
+        esac
+    done
+
+    [[ -n "${MODE}" ]] || { usage >&2; fail "one of --check, --apply or --verify is required"; }
+
+    case "${MODE}" in
+        check)  run_check ;;
+        apply)  run_apply ;;
+        verify) run_verify ;;
+    esac
+}
+
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    main "$@"
+fi
