@@ -5,6 +5,7 @@ namespace App\Enums;
 enum ImportProvider: string
 {
     case DirectImage = 'direct_image';
+    case DirectVideo = 'direct_video';
     case OpenGraph = 'open_graph';
     case Facebook = 'facebook';
     case Instagram = 'instagram';

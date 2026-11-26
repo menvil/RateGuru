@@ -38,15 +38,16 @@ trait PicksPosts
     }
 
     /**
-     * A page of the posts to pick from, leaving out those given; each says
-     * whether it has the votes a crowd pick needs, when there is a bar.
+     * A page of the posts to pick from, leaving out those given — only photos
+     * for a round's option; each says whether it has the votes a crowd pick
+     * needs, when there is a bar.
      *
      * @param  list<int>  $except
      * @return array{paginator: LengthAwarePaginator<int, Post>, posts: list<array<string, mixed>>}
      */
-    protected function pickablePosts(array $except = [], ?int $minVotes = null): array
+    protected function pickablePosts(array $except = [], ?int $minVotes = null, bool $photosOnly = false): array
     {
-        $paginator = app(GamePostPickerQuery::class)->paginate($this->pickerSearch, $except, $this->pickerPage);
+        $paginator = app(GamePostPickerQuery::class)->paginate($this->pickerSearch, $except, $this->pickerPage, $photosOnly);
         $presenter = app(PostImagePresenter::class);
 
         return [

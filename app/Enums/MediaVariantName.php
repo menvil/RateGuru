@@ -10,4 +10,8 @@ enum MediaVariantName: string
     case Avatar128 = 'avatar_128';
     case Avatar256 = 'avatar_256';
     case OpenGraph = 'open_graph';
+    // A video's display renditions, below its master (at most 1080 on the
+    // short side): what a feed plays on a phone, and on a slow connection.
+    case Video720 = 'video_720';
+    case Video480 = 'video_480';
 }

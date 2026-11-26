@@ -518,7 +518,10 @@ it('keeps the operator surface out of the primitives that swap the data', functi
     $changed = branchChangedCodeFiles();
 
     foreach ([
-        'infrastructure/config/supervisor/rateguru-staging-queue.conf',
+        // The staging Supervisor program is not here: it became a group of the
+        // default and media workers, which every restore and recovery path
+        // already addresses as <program>:*. DeploymentTargetRegistryTest
+        // asserts what it declares.
         'infrastructure/config/cron/rateguru-staging-scheduler',
     ] as $untouched) {
         expect($changed)->not->toContain($untouched);

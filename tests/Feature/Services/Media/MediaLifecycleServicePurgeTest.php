@@ -47,6 +47,16 @@ final class SelectiveDeleteFailureStorage implements MediaStorage
         $this->real->putContents($location, $contents, $visibility);
     }
 
+    public function putFile(MediaLocation $location, string $localPath, MediaVisibility $visibility): void
+    {
+        $this->real->putFile($location, $localPath, $visibility);
+    }
+
+    public function copyToFile(MediaLocation $location, string $localPath): void
+    {
+        $this->real->copyToFile($location, $localPath);
+    }
+
     public function exists(MediaLocation $location): bool
     {
         return $this->real->exists($location);

@@ -38,6 +38,7 @@ use App\Enums\GameFlowStepType;
 use App\Enums\GameStatus;
 use App\Enums\MediaResizeMode;
 use App\Enums\MediaTool;
+use App\Enums\MediaType;
 use App\Enums\MediaVariantName;
 use App\Enums\ReportStatus;
 use App\Enums\StudioActionStatus;
@@ -117,6 +118,7 @@ use App\Services\Media\MediaToolResult;
 use App\Services\Media\MediaToolRunner;
 use App\Services\Media\MediaVariantSpecification;
 use App\Services\Media\NormalizedImage;
+use App\Services\Media\VideoProbeResult;
 use App\Support\Analytics\AnalyticsFilter;
 use App\Support\Analytics\AnalyticsPeriod;
 use App\Support\Analytics\AnalyticsSource;
@@ -164,6 +166,7 @@ use Illuminate\Foundation\Http\Events\RequestHandled;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request as HttpClientRequest;
 use Illuminate\Http\Request;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Queue\Events\JobQueued;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Carbon;
@@ -193,6 +196,7 @@ use Sentry\State\HubInterface as SentryHubInterface;
 use Sentry\Transport\Result as SentryTransportResult;
 use Sentry\Transport\ResultStatus as SentryResultStatus;
 use Sentry\Transport\TransportInterface as SentryTransportInterface;
+use Symfony\Component\Process\Process;
 use Symfony\Component\Yaml\Yaml;
 use Tests\TestCase;
 
@@ -479,6 +483,19 @@ final class ScriptedImportHttpTransport implements ImportHttpTransport
         }
 
         return $next;
+    }
+
+    /**
+     * The same script, for a download: the response's body is written to
+     * $path (a redirect's too, as a sink would, and the next hop's replaces
+     * it), and the response handed back carries none.
+     */
+    public function download(ResolvedImportTarget $target, ImportFetchPolicy $policy, string $path): ImportTransportResponse
+    {
+        $response = $this->get($target, $policy);
+        file_put_contents($path, $response->body);
+
+        return new ImportTransportResponse($response->status, $response->headers, '');
     }
 }
 
@@ -1358,6 +1375,129 @@ function bindRecordingImageVariantProcessor(?MediaVariantName $failOnceFor = nul
     app()->instance(ImageVariantProcessor::class, $processor);
 
     return $processor;
+}
+
+/**
+ * A probe of a clip every video upload limit accepts, with the given fields
+ * changed — for the policy, transcoder and processor tests.
+ */
+function acceptableVideoProbe(array $changes = []): VideoProbeResult
+{
+    return new VideoProbeResult(...$changes + [
+        'formatName' => 'mov,mp4,m4a,3gp,3g2,mj2',
+        'durationMs' => 15_000,
+        'width' => 1080,
+        'height' => 1920,
+        'rotation' => 0,
+        'frameRate' => 30.0,
+        'videoCodec' => 'h264',
+        'audioCodec' => 'aac',
+        'videoStreamCount' => 1,
+        'audioStreamCount' => 1,
+        'otherStreamCount' => 0,
+    ]);
+}
+
+/**
+ * What the embed widget's endpoint returns for a post with one photo,
+ * trimmed to the fields the adapter reads.
+ *
+ * @param  array<string, mixed>  $overrides
+ */
+function xSyndicatedPost(array $overrides = []): string
+{
+    return json_encode(array_replace([
+        '__typename' => 'Tweet',
+        'id_str' => '440322224407314432',
+        'text' => "If only Bradley's arm was longer. Best photo ever. #oscars http://t.co/C9U5NOtGap",
+        'user' => ['name' => 'The Ellen Show', 'screen_name' => 'TheEllenShow'],
+        'mediaDetails' => [[
+            'type' => 'photo',
+            'indices' => [59, 81],
+            'media_url_https' => 'https://pbs.twimg.com/media/BhxWutnCEAAtEQ6.jpg',
+        ]],
+    ], $overrides), JSON_THROW_ON_ERROR);
+}
+
+/**
+ * ffprobe's JSON for one file, shaped the way the real tool prints it.
+ *
+ * @param  list<array<string, mixed>>  $streams
+ * @param  array<string, mixed>  $format
+ */
+function ffprobeJson(array $streams, array $format = []): string
+{
+    return (string) json_encode([
+        'streams' => $streams,
+        'format' => $format + ['format_name' => 'mov,mp4,m4a,3gp,3g2,mj2', 'duration' => '14.960000'],
+    ]);
+}
+
+/**
+ * What ffprobe answers for an acceptable upload: a portrait H.264 clip of
+ * 15 s with sound, or — $gif — a short animated GIF. $format overrides
+ * fields of the format (a longer duration, another container).
+ *
+ * @param  array<string, mixed>  $format
+ */
+function acceptableFfprobeResult(array $format = [], bool $gif = false): MediaToolResult
+{
+    $streams = $gif
+        ? [['codec_type' => 'video', 'codec_name' => 'gif', 'width' => 480, 'height' => 270, 'avg_frame_rate' => '10/1']]
+        : [
+            ['codec_type' => 'video', 'codec_name' => 'h264', 'width' => 1080, 'height' => 1920, 'avg_frame_rate' => '30/1'],
+            ['codec_type' => 'audio', 'codec_name' => 'aac'],
+        ];
+
+    return new MediaToolResult(0, ffprobeJson($streams, $format + ($gif ? ['format_name' => 'gif', 'duration' => '2.400000'] : ['duration' => '15.000000'])), '');
+}
+
+/**
+ * An upload whose contents a type check reads as the video or GIF it says
+ * it is — enough for validation; ffprobe itself is faked by the test.
+ */
+function fakeVideoUpload(string $name = 'clip.mp4'): UploadedFile
+{
+    $contents = str_ends_with($name, '.gif')
+        ? "GIF89a\x01\x00\x01\x00\x80\x00\x00\x00\x00\x00\xff\xff\xff!\xf9\x04\x01\x00\x00\x00\x00,\x00\x00\x00\x00\x01\x00\x01\x00\x00\x02\x02D\x01\x00;"
+        : "\x00\x00\x00\x18ftypmp42\x00\x00\x00\x00mp42isom".str_repeat("\x00", 64);
+
+    return UploadedFile::fake()->createWithContent($name, $contents);
+}
+
+/**
+ * The RATEGURU_REAL_FFMPEG tests' gate: skipped unless that flag is set (CI's
+ * PostgreSQL job sets it, with the pinned ffmpeg build installed), otherwise a
+ * fresh scratch directory for the test's files. Shared by every test file
+ * that runs the real ffmpeg/ffprobe.
+ */
+function requireRealFfmpeg(): string
+{
+    if (getenv('RATEGURU_REAL_FFMPEG') !== '1') {
+        test()->markTestSkipped('RATEGURU_REAL_FFMPEG=1 runs it: it needs ffmpeg and ffprobe on PATH');
+    }
+
+    $dir = sys_get_temp_dir().'/real-ffmpeg-'.bin2hex(random_bytes(6));
+    mkdir($dir, 0o755);
+
+    return $dir;
+}
+
+/** @param  list<string>  $arguments */
+function realFfmpeg(array $arguments): Process
+{
+    $process = new Process(['ffmpeg', '-hide_banner', '-loglevel', 'error', '-y', ...$arguments], null, null, null, 120);
+    $process->run();
+
+    return $process;
+}
+
+/** @param  list<string>  $arguments */
+function makeWithRealFfmpeg(array $arguments): void
+{
+    $process = realFfmpeg($arguments);
+
+    expect($process->getExitCode())->toBe(0, $process->getErrorOutput());
 }
 
 /**
@@ -9000,6 +9140,38 @@ function postWithVariants(array $variantDimensionsByName): Post
         ->load('imageAsset.variants');
 }
 
+/**
+ * A published video post whose asset is its MP4 master (on disk), with these
+ * variants — poster image variants, video renditions — each on disk too.
+ * $attributes override the asset's (media_type, has_audio, status, ...).
+ */
+function videoPostWithPosterVariants(array $attributes = [], MediaVariantName ...$names): Post
+{
+    $asset = MediaAsset::factory()->postImage()->dimensions(1080, 1920)->create($attributes + [
+        'media_type' => MediaType::Video,
+        'mime_type' => 'video/mp4',
+        'extension' => 'mp4',
+        'has_audio' => true,
+        'duration_ms' => 15_000,
+        'path' => 'media/post-videos/2026/11/'.Str::uuid().'.mp4',
+    ]);
+    Storage::disk('public')->put($asset->path, 'mp4');
+
+    foreach ($names as $name) {
+        $video = in_array($name, [MediaVariantName::Video720, MediaVariantName::Video480], true);
+        // A rendition has no image specification to be made from.
+        $variant = ($video ? MediaVariant::factory() : MediaVariant::factory()->named($name))->create([
+            'media_asset_id' => $asset->id,
+            'width' => $name === MediaVariantName::Video480 ? 480 : ($video ? 720 : 640),
+            'height' => $name === MediaVariantName::Video480 ? 852 : ($video ? 1280 : 1138),
+            ...($video ? ['name' => $name, 'mime_type' => 'video/mp4', 'extension' => 'mp4', 'path' => preg_replace('/\.mp4$/', '', $asset->path).'/'.$name->value.'.mp4'] : []),
+        ]);
+        Storage::disk('public')->put($variant->path, $video ? 'mp4' : 'webp');
+    }
+
+    return Post::factory()->published()->create(['image_asset_id' => $asset->id])->load('imageAsset.variants');
+}
+
 /** The public URL of one of a postWithVariants() post's variants. */
 function variantUrl(Post $post, MediaVariantName $name): string
 {
@@ -11700,11 +11872,15 @@ function bsvcCleanup(string $dir): void
  * @param  array<string, string>  $env
  * @return array{0: int, 1: string}
  */
-function bsvcRun(array $arguments, array $env): array
+/**
+ * Runs the installer — the shipped one, or the copy at $script, for a test
+ * that needs the committed sources beside it changed.
+ */
+function bsvcRun(array $arguments, array $env, ?string $script = null): array
 {
     $descriptors = [1 => ['pipe', 'w'], 2 => ['redirect', 1]];
     $process = proc_open(
-        array_merge(['bash', bsvcScript()], $arguments),
+        array_merge(['bash', $script ?? bsvcScript()], $arguments),
         $descriptors,
         $pipes,
         null,

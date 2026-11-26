@@ -102,6 +102,38 @@ server {
         try_files $uri =404;
     }
 
+    # Post media: pictures, video and posters. Their paths are deterministic
+    # and a forced variant regeneration rewrites them in place, so they are
+    # cached for a week rather than marked immutable. ^~ keeps the regex
+    # locations away: nothing under it is ever handed to PHP.
+    location ^~ /storage/media/ {
+        add_header Cache-Control "public, max-age=604800";
+
+        # ^~ also keeps the server's dotfile rule away; it is restated here.
+        location ~ /\. {
+            deny all;
+        }
+
+        try_files $uri =404;
+    }
+
+    # Livewire's file upload endpoint alone takes a 100 MB video plus its
+    # multipart envelope; every other request keeps the server's limit. It is
+    # handed to the front controller here, since the limit that counts is the
+    # one of the location that finally reads the body.
+    location ~ ^/livewire(-[0-9a-f]+)?/upload-file$ {
+        client_max_body_size 128m;
+
+        include fastcgi_params;
+
+        fastcgi_pass unix:/run/php/rateguru-staging.sock;
+
+        fastcgi_param SCRIPT_FILENAME $realpath_root/index.php;
+        fastcgi_param SCRIPT_NAME /index.php;
+        fastcgi_param DOCUMENT_ROOT $realpath_root;
+        fastcgi_param HTTPS on;
+    }
+
     location ~ \.php$ {
         include snippets/fastcgi-php.conf;
 

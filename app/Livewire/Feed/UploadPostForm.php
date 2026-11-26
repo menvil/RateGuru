@@ -3,6 +3,7 @@
 namespace App\Livewire\Feed;
 
 use App\Actions\Analytics\RecordUserActivityAction;
+use App\Actions\Import\ImportFromUrlAction;
 use App\Actions\Import\StoreImportedImageAction;
 use App\Actions\Posts\CreatePostAction;
 use App\Data\Posts\CreatePostData;
@@ -10,23 +11,33 @@ use App\Enums\ImageInputSource;
 use App\Enums\PostStatus;
 use App\Enums\UserActivity;
 use App\Exceptions\Abuse\RateLimitExceededException;
+use App\Exceptions\Import\UnsafeImportUrlException;
 use App\Exceptions\Import\UrlImportDisabledException;
+use App\Exceptions\Posts\CannotCreatePostException;
 use App\Models\Post;
 use App\Models\RatingGroup;
 use App\Models\Tag;
 use App\Models\User;
 use App\Queries\Categories\ActiveCategoriesQuery;
 use App\Services\Media\Exceptions\ImageIngestException;
+use App\Services\Media\Exceptions\VideoIngestException;
+use App\Services\Media\Exceptions\VideoTooLargeException;
+use App\Services\Media\Exceptions\VideoTooLongException;
+use App\Support\AbuseGuards\ActionRateLimiter;
+use App\Support\AbuseGuards\RateLimitKey;
 use App\Support\Games\Play\GameVisitorResolver;
+use App\Support\Import\ImportProviderDetector;
 use App\Support\Posts\PostContentRules;
 use App\Support\Rating\RatingConfigurationManager;
 use App\Support\Settings\ProjectSettingsManager;
 use Carbon\CarbonImmutable;
 use Illuminate\Contracts\View\View;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Validation\Rule;
 use Livewire\Attributes\On;
 use Livewire\Component;
+use Livewire\Features\SupportFileUploads\TemporaryUploadedFile;
 use Livewire\WithFileUploads;
 
 final class UploadPostForm extends Component
@@ -54,6 +65,15 @@ final class UploadPostForm extends Component
 
     public $image = null;
 
+    /**
+     * A video or animated GIF in place of a picture: the dropzone sends a file
+     * here or to $image by its type, never to both.
+     */
+    public $video = null;
+
+    /** Whether the link being posted brought a video, so no picture is asked for. */
+    private bool $linksToVideo = false;
+
     public ?string $importedImageUrl = null;
 
     public string $activeTab = 'upload';
@@ -75,7 +95,7 @@ final class UploadPostForm extends Component
     #[On('upload-modal-opened')]
     public function resetUploadForm(): void
     {
-        $this->reset(['title', 'description', 'sourceUrl', 'image', 'importedImageUrl', 'tagIds', 'tagSearch', 'submitError', 'categoryId', 'knowsCorrectAnswer', 'authorAnswers']);
+        $this->reset(['title', 'description', 'sourceUrl', 'image', 'video', 'importedImageUrl', 'tagIds', 'tagSearch', 'submitError', 'categoryId', 'knowsCorrectAnswer', 'authorAnswers']);
         $this->loadTags();
         $this->activeTab = 'upload';
         $this->resetValidation();
@@ -106,9 +126,13 @@ final class UploadPostForm extends Component
         // still point at the temp file so the finally block can clean it up
         // either way.
         $importedTempFile = null;
+        $videoUrl = null;
+        // The post's source when the author named none: never written into the
+        // form, so a failed submission leaves the field as the author left it.
+        $linkSource = null;
 
         // A link field emptied is no link: the picture is then simply missing.
-        if (filled($this->importedImageUrl) && $this->image === null) {
+        if (filled($this->importedImageUrl) && $this->image === null && ! $this->video instanceof UploadedFile) {
             // The link is the client's to set: nothing is fetched for an
             // account that may not post, whatever it sends.
             if (! auth()->user()?->can('create', Post::class)) {
@@ -122,11 +146,63 @@ final class UploadPostForm extends Component
             $this->validateOnly('importedImageUrl');
 
             try {
-                $this->image = app(StoreImportedImageAction::class)->download($this->importedImageUrl);
-                $importedTempFile = $this->image;
-                $imageSource = ImageInputSource::UrlImport;
+                // A link to a picture is fetched as one, as it always was.
+                // Any other — a video file, or a post on X, Instagram or
+                // another site — is read for what it carries: a video or GIF
+                // is downloaded in the background once the post exists, a
+                // picture now.
+                $imageUrl = $this->importedImageUrl;
+
+                // Counted before anything is fetched from outside.
+                app(ActionRateLimiter::class)->hitOrFail(
+                    key: RateLimitKey::userAction('link-import', auth()->user()),
+                    maxAttempts: (int) config('rate_limits.link_import.max_attempts'),
+                    decaySeconds: (int) config('rate_limits.link_import.decay_seconds'),
+                    message: __('ui.rate_limit.uploading'),
+                );
+
+                $provider = app(ImportProviderDetector::class)->detect($this->importedImageUrl);
+
+                if ($provider !== 'direct_image') {
+                    $preview = app(ImportFromUrlAction::class)->handle($this->importedImageUrl);
+                    $videoUrl = $preview->videoUrl;
+                    // A link that names no file and is no known site's post may
+                    // still be a picture's (an image CDN's, "copy image
+                    // address"): with nothing else to take, it is tried as
+                    // one, as it always was.
+                    $imageUrl = $videoUrl === null ? ($preview->imageUrl ?? ($provider === 'open_graph' ? $this->importedImageUrl : null)) : null;
+
+                    if ($videoUrl === null && $imageUrl === null) {
+                        $this->submitError = __('import.errors.unsupported');
+
+                        return;
+                    }
+
+                    // A post on a social site is where it came from, unless the
+                    // author named a source — without its query, which may
+                    // carry a token or tracking, never meant to be public.
+                    if (blank($this->sourceUrl) && in_array($provider, ['x', 'instagram', 'facebook', 'pinterest'], true)) {
+                        $linkSource = strtok($this->importedImageUrl, '?#') ?: null;
+                    }
+                }
+
+                $this->linksToVideo = $videoUrl !== null;
+
+                if ($imageUrl !== null) {
+                    $this->image = app(StoreImportedImageAction::class)->download($imageUrl);
+                    $importedTempFile = $this->image;
+                    $imageSource = ImageInputSource::UrlImport;
+                }
             } catch (UrlImportDisabledException) {
                 $this->submitError = __('import.errors.feature_disabled');
+
+                return;
+            } catch (RateLimitExceededException $e) {
+                $this->submitError = $e->getMessage();
+
+                return;
+            } catch (UnsafeImportUrlException) {
+                $this->submitError = __('import.errors.unsafe_url');
 
                 return;
             } catch (\Throwable $e) {
@@ -144,12 +220,14 @@ final class UploadPostForm extends Component
                 $post = $createPostAction->handle(auth()->user(), new CreatePostData(
                     title: $this->title,
                     description: $this->description,
-                    sourceUrl: $this->sourceUrl,
+                    sourceUrl: filled($this->sourceUrl) ? $this->sourceUrl : $linkSource,
                     tagIds: $this->tagIds,
-                    image: $this->image,
+                    image: $this->video instanceof UploadedFile || $videoUrl !== null ? null : $this->image,
                     imageSource: $imageSource,
                     categoryId: $this->categoryId !== '' ? (int) $this->categoryId : null,
                     authorAnswerOptionIds: $this->selectedAuthorAnswerOptionIds(),
+                    video: $this->video instanceof UploadedFile ? $this->video : null,
+                    videoUrl: $videoUrl,
                 ));
 
                 $author = auth()->user();
@@ -160,12 +238,21 @@ final class UploadPostForm extends Component
 
                 $this->dispatch('post-uploaded', postId: $post->id);
                 // A trusted author's post is published at once; anyone else's
-                // waits for a moderator, and the message says which.
-                $this->dispatch('toast', message: $post->status === PostStatus::Published
-                    ? __('ui.upload.success_published')
-                    : __('ui.upload.success_pending'));
+                // waits for a moderator, and a video post waits for its video
+                // first. The message says which.
+                $this->dispatch('toast', message: match ($post->status) {
+                    PostStatus::Published => __('ui.upload.success_published'),
+                    PostStatus::Draft => __('ui.upload.success_video_processing'),
+                    default => __('ui.upload.success_pending'),
+                });
 
-                $this->reset(['title', 'description', 'sourceUrl', 'image', 'tagIds', 'categoryId', 'knowsCorrectAnswer', 'authorAnswers']);
+                // Its original is stored now; the temporary upload would only
+                // wait a day for Livewire's clean-up, up to 100 MB at a time.
+                if ($this->video instanceof TemporaryUploadedFile) {
+                    $this->video->delete();
+                }
+
+                $this->reset(['title', 'description', 'sourceUrl', 'image', 'video', 'tagIds', 'categoryId', 'knowsCorrectAnswer', 'authorAnswers']);
                 $this->importedImageUrl = null;
                 $this->activeTab = 'upload';
                 $this->tagSearch = '';
@@ -174,6 +261,20 @@ final class UploadPostForm extends Component
             } catch (ImageIngestException $e) {
                 report($e);
                 $this->submitError = __('ui.upload.error_invalid_image');
+            } catch (CannotCreatePostException $e) {
+                if ($e->isWaitingForVideos()) {
+                    $this->submitError = __('ui.upload.error_videos_processing', ['count' => (int) config('uploads.videos.max_processing_per_author')]);
+                } else {
+                    report($e);
+                    $this->submitError = __('ui.upload.error_generic');
+                }
+            } catch (VideoIngestException $e) {
+                // The file's fault, not the site's: said, never reported.
+                $this->submitError = match (true) {
+                    $e instanceof VideoTooLongException => __('ui.upload.error_video_too_long', ['seconds' => (int) config('uploads.videos.max_duration_seconds')]),
+                    $e instanceof VideoTooLargeException => __('ui.upload.error_video_too_large', ['megabytes' => intdiv((int) config('uploads.videos.max_kilobytes'), 1024)]),
+                    default => __('ui.upload.error_invalid_video'),
+                };
             } catch (\Throwable $e) {
                 report($e);
                 $this->submitError = __('ui.upload.error_generic');
@@ -219,13 +320,23 @@ final class UploadPostForm extends Component
             'title' => ['required', 'string', 'min:'.PostContentRules::TITLE_MIN_LENGTH, 'max:'.PostContentRules::TITLE_LIMIT],
             'description' => ['nullable', 'string', 'max:'.PostContentRules::DESCRIPTION_LIMIT],
             'image' => [
-                'required',
+                // A post needs its picture, unless a video takes its place.
+                Rule::requiredIf(fn (): bool => ! $this->video instanceof UploadedFile && ! $this->linksToVideo),
+                'nullable',
                 'image',
                 'mimes:'.$imageMimes,
                 'max:'.config('uploads.images.max_kilobytes', 5120),
                 Rule::dimensions()
                     ->maxWidth((int) config('uploads.images.max_width', 6000))
                     ->maxHeight((int) config('uploads.images.max_height', 6000)),
+            ],
+            // What the file really is decides, not its name: ffprobe checks it
+            // again before it is stored.
+            'video' => [
+                'nullable',
+                'file',
+                'mimetypes:'.implode(',', config('uploads.videos.mimetypes')),
+                'max:'.config('uploads.videos.max_kilobytes'),
             ],
             'sourceUrl' => ['nullable', 'url', 'max:'.PostContentRules::SOURCE_URL_LIMIT],
             'importedImageUrl' => ['nullable', 'url:http,https', 'max:'.PostContentRules::SOURCE_URL_LIMIT],

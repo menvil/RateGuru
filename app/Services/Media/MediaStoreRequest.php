@@ -32,6 +32,21 @@ final readonly class MediaStoreRequest
         );
     }
 
+    /**
+     * A video or animated GIF as it arrived, kept private until
+     * ProcessVideoAssetJob has made the public master from it.
+     */
+    public static function forVideoOriginal(int $ownerUserId): self
+    {
+        return new self(
+            disk: (string) config('media.disks.private'),
+            directory: (string) config('media.directories.originals'),
+            kind: MediaKind::PostImage,
+            visibility: MediaVisibility::Private,
+            ownerUserId: $ownerUserId,
+        );
+    }
+
     public static function forAvatar(int $ownerUserId, ?string $explicitPath = null): self
     {
         return new self(

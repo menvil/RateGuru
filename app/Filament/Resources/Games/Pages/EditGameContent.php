@@ -21,6 +21,7 @@ use App\Models\GameContentSet;
 use App\Models\GameVersion;
 use App\Models\Post;
 use App\Queries\Games\GameDraftQuery;
+use App\Queries\Games\GamePostPickerQuery;
 use App\Queries\Games\GameUnpublishedChangesQuery;
 use App\Services\Games\GamePreviewDrafts;
 use App\Services\Media\Exceptions\ImageIngestException;
@@ -358,6 +359,13 @@ final class EditGameContent extends Page
 
         if ($post === null) {
             $this->toast('That post is no longer published.', 'error');
+
+            return;
+        }
+
+        // What the picker offers, held here too: a round needs a photo.
+        if (! app(GamePostPickerQuery::class)->offersAsRoundPhoto($post)) {
+            $this->toast('A game round needs a post with a photo.', 'error');
 
             return;
         }
@@ -985,7 +993,7 @@ final class EditGameContent extends Page
         $minVotes = (int) ($this->scoring['crowd_min_votes'] ?? config('games.crowd.min_votes'));
 
         return [
-            ...$this->pickablePosts($except, $minVotes),
+            ...$this->pickablePosts($except, $minVotes, photosOnly: true),
             'title' => 'Choose a post for '.strtolower(VersusRoundCheck::optionName((int) $slot)),
             'note' => 'A crowd pick needs both posts to have at least '.number_format($minVotes).' site votes.',
         ];

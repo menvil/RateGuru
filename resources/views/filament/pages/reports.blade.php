@@ -6,12 +6,11 @@
      * where it does not, the chain floats over the list and the list keeps
      * every column, scrolling inside its card (TBL-01).
      *
-     * Opened wide with no report chosen, the first report of the list opens.
-     * J and K step to the next and the previous report from anywhere but a
-     * field or a dialog.
+     * No report opens by itself: a click on one opens its chain, and J and K
+     * step to the next and the previous report — the list's first when none
+     * is open — from anywhere but a field or a dialog.
      */
     $total = $paginator->total();
-    $firstId = $rows[0]['id'] ?? null;
 @endphp
 
 <div
@@ -24,10 +23,6 @@
             this.query = window.matchMedia('(min-width: 1348px), (min-width: 1116px) and (max-width: 1279px)')
             this.wide = this.query.matches
             this.query.addEventListener('change', (event) => (this.wide = event.matches))
-
-            if (this.wide && $wire.report === null && @js($firstId) !== null) {
-                $wire.select(@js($firstId))
-            }
         },
         step(event, direction) {
             const field = event.target.closest('input, textarea, select, [contenteditable]')

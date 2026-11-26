@@ -1,5 +1,6 @@
 <?php
 
+use App\Data\Posts\CreatePostData;
 use Tests\TestCase;
 
 uses(TestCase::class);
@@ -201,14 +202,23 @@ it('lets only the executor and the upload form make a post\'s data, the form wit
         foreach ($calls as $arguments) {
             expect(namesTrustedParameter($arguments))->toBeFalse("{$path} gives CreatePostData a trusted field.")
                 ->and(spreadsAnArray($arguments))->toBeFalse("{$path} spreads an array into CreatePostData, where a trusted field could ride along.")
-                // Positionally, the trusted fields come after the eight a form fills.
-                ->and(argumentCount($arguments))->toBeLessThanOrEqual(8, "{$path} gives CreatePostData a trusted field by position.");
+                // Positionally, the trusted fields come after the ten a form fills.
+                ->and(argumentCount($arguments))->toBeLessThanOrEqual(10, "{$path} gives CreatePostData a trusted field by position.");
         }
     }
 
     sort($makers);
 
     expect($makers)->toBe([STUDIO_EXECUTOR, 'Livewire/Feed/UploadPostForm.php']);
+});
+
+it('keeps the trusted fields of a post\'s data after every field a form may fill', function () {
+    $names = array_map(fn (ReflectionParameter $parameter): string => $parameter->getName(), (new ReflectionMethod(CreatePostData::class, '__construct'))->getParameters());
+
+    // What the position check above relies on: a form fills at most the
+    // first ten, and none of those is trusted.
+    expect(array_slice($names, 10))->toBe(['imageAssetId', 'createdAt', 'updatedAt'])
+        ->and(array_intersect(array_slice($names, 0, 10), STUDIO_TRUSTED_POST_PARAMETERS))->toBe([]);
 });
 
 it('lets nothing but the executor give ApprovePostAction a publication date', function () {

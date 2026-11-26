@@ -33,13 +33,62 @@ class SafeImportHttpClient
             connectTimeoutSeconds: (int) config('import.connect_timeout_seconds'),
         );
 
+        return $this->follow($url, $policy, fn (ResolvedImportTarget $target): ImportTransportResponse => $this->transport->get($target, $policy));
+    }
+
+    /**
+     * get() for a video: every hop validated and pinned the same way, the
+     * final body written to $path as it arrives (a redirect's own body is
+     * overwritten by the next hop's), with the time a large file needs
+     * (import.video_timeout_seconds). The response's body is empty.
+     */
+    public function download(string $url, int $maxBytes, string $path): SafeImportResponse
+    {
+        // One deadline and one byte budget for the whole download, redirects
+        // included: a chain of slow or large hops cannot take a worker for
+        // longer, or write more, than one file may.
+        // The application's clock, so a test can let time pass between hops.
+        $deadline = self::now() + (int) config('import.video_timeout_seconds');
+        $spent = 0;
+
+        $policy = new ImportFetchPolicy(
+            maxBytes: $maxBytes,
+            timeoutSeconds: (int) config('import.video_timeout_seconds'),
+            connectTimeoutSeconds: (int) config('import.connect_timeout_seconds'),
+        );
+
+        return $this->follow($url, $policy, function (ResolvedImportTarget $target) use ($url, $maxBytes, $path, $deadline, &$spent): ImportTransportResponse {
+            $left = (int) floor($deadline - self::now());
+
+            if ($left < 1 || $spent >= $maxBytes) {
+                throw ImportFetchException::connectionError($url, 'The download ran out of its time or size.');
+            }
+
+            $response = $this->transport->download($target, new ImportFetchPolicy(
+                maxBytes: $maxBytes - $spent,
+                timeoutSeconds: $left,
+                connectTimeoutSeconds: (int) config('import.connect_timeout_seconds'),
+            ), $path);
+
+            clearstatcache(true, $path);
+            $spent += (int) @filesize($path);
+
+            return $response;
+        });
+    }
+
+    /**
+     * @param  callable(ResolvedImportTarget): ImportTransportResponse  $fetch
+     */
+    private function follow(string $url, ImportFetchPolicy $policy, callable $fetch): SafeImportResponse
+    {
         $maxRedirects = (int) config('import.max_redirects');
 
         $target = $this->validator->validate($url);
         $hop = 0;
 
         while (true) {
-            $response = $this->transport->get($target, $policy);
+            $response = $fetch($target);
 
             if (! in_array($response->status, self::REDIRECT_STATUSES, true)) {
                 break;
@@ -97,5 +146,10 @@ class SafeImportHttpClient
         if ($response->status < 200 || $response->status >= 300 || $response->status === 204 || $response->status === 206) {
             throw ImportFetchException::requestFailed($url, $response->status);
         }
+    }
+
+    private static function now(): float
+    {
+        return now()->getPreciseTimestamp(6) / 1_000_000;
     }
 }

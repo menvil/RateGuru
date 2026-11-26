@@ -8,7 +8,10 @@ use App\Enums\MediaType;
 use App\Enums\MediaVisibility;
 use App\Models\MediaAsset;
 use App\Models\User;
+use App\Services\Media\MediaPathGenerator;
+use App\Services\Media\MediaStoreRequest;
 use App\Services\Media\StoredMedia;
+use App\Services\Media\StoredVideo;
 
 /**
  * Builds the MediaAsset row for a just-stored file. Shared by post-image and
@@ -52,6 +55,67 @@ final class MediaAssetCreator
                 : null,
             'status' => MediaStatus::Ready,
             'visibility' => MediaVisibility::Public,
+        ]);
+    }
+
+    /**
+     * The asset of an accepted video or animated GIF: it points at the
+     * private original and waits in Processing. Its dimensions, length and
+     * sound are the probe's until the master replaces them.
+     */
+    public function createProcessing(StoredVideo $video, User $owner): MediaAsset
+    {
+        $width = $video->probe->width;
+        $height = $video->probe->height;
+        $hasValidDimensions = $width > 0 && $height > 0;
+
+        return MediaAsset::create([
+            'owner_user_id' => $owner->id,
+            'kind' => MediaKind::PostImage,
+            'media_type' => $video->mediaType,
+            'duration_ms' => $video->probe->durationMs,
+            // An animation plays silent whatever its file carries.
+            'has_audio' => $video->mediaType === MediaType::Video && $video->probe->hasAudio(),
+            'disk' => $video->media->disk,
+            'path' => $video->media->path,
+            'original_filename' => $video->media->originalFilename,
+            'mime_type' => $video->media->mimeType,
+            'extension' => $video->media->extension,
+            'byte_size' => $video->media->byteSize,
+            'width' => $hasValidDimensions ? $width : null,
+            'height' => $hasValidDimensions ? $height : null,
+            'aspect_ratio' => $hasValidDimensions ? round($width / $height, 6) : null,
+            'orientation' => $hasValidDimensions ? $this->orientationClassifier->classify($width, $height) : null,
+            'status' => MediaStatus::Processing,
+            'visibility' => MediaVisibility::Private,
+        ]);
+    }
+
+    /**
+     * The asset of a video or GIF to be downloaded from $url: it waits in
+     * Processing, private, under a reserved path of its own (no file is ever
+     * there), until ImportVideoAssetJob has stored the file it fetched as an
+     * upload's original and pointed the asset at it.
+     */
+    public function createAwaitingDownload(User $owner, string $url): MediaAsset
+    {
+        $request = MediaStoreRequest::forVideoOriginal((int) $owner->id);
+
+        return MediaAsset::create([
+            'owner_user_id' => $owner->id,
+            'kind' => MediaKind::PostImage,
+            'media_type' => MediaType::Video,
+            'duration_ms' => null,
+            'has_audio' => false,
+            'disk' => $request->disk,
+            'path' => app(MediaPathGenerator::class)->generate($request, 'download'),
+            'original_filename' => mb_substr(basename((string) parse_url($url, PHP_URL_PATH)) ?: 'video', 0, 255),
+            'mime_type' => 'application/octet-stream',
+            'extension' => null,
+            'byte_size' => 0,
+            'status' => MediaStatus::Processing,
+            'visibility' => MediaVisibility::Private,
+            'metadata' => ['import' => ['url' => $url]],
         ]);
     }
 }

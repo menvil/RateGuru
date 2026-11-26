@@ -52,6 +52,19 @@ class ImportFromUrlAction
             return $preview;
         }
 
+        // A link to a video file: nothing is fetched now. ImportVideoAssetJob
+        // downloads it in the background, and ffprobe judges what it is.
+        if ($provider === 'direct_video') {
+            $this->logger->info('url_import.preview.succeeded', ['source_host' => $host, 'provider' => $provider]);
+
+            return new ImportPreview(
+                provider: ImportProvider::DirectVideo,
+                sourceUrl: $url,
+                title: pathinfo((string) parse_url($url, PHP_URL_PATH), PATHINFO_FILENAME) ?: null,
+                videoUrl: $url,
+            );
+        }
+
         // A post on X or Instagram has its own way to its picture; every other
         // page, social or not, is read for its Open Graph tags (best effort).
         try {
@@ -73,6 +86,7 @@ class ImportFromUrlAction
                     imageUrl: $preview->imageUrl,
                     warnings: $preview->warnings,
                     unsupportedReason: $preview->unsupportedReason,
+                    videoUrl: $preview->videoUrl,
                 );
             }
 

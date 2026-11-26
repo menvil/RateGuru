@@ -96,7 +96,16 @@ final class MediaAuditService
                         ));
                     }
 
-                    if (! $this->storage->exists(new MediaLocation($asset->disk, $asset->path))) {
+                    // A failed video upload whose files media:sweep-videos
+                    // removed keeps its row for its draft; no file is the
+                    // point, not a loss.
+                    // Nor does a video given by link before it was downloaded:
+                    // its file has never been there yet.
+                    $metadata = $asset->metadata ?? [];
+                    $noFileByDesign = isset($metadata['files_removed_at'])
+                        || (isset($metadata['import']) && ! isset($metadata['import']['downloaded_at']));
+
+                    if (! $noFileByDesign && ! $this->storage->exists(new MediaLocation($asset->disk, $asset->path))) {
                         $missingMasters++;
                         $onIssue(new MediaAuditIssueData(
                             issueType: MediaAuditIssueType::MissingMasterFile,

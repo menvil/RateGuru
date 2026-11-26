@@ -25,6 +25,12 @@ final readonly class CreatePostData
          * @var array<int> $authorAnswerOptionIds
          */
         public array $authorAnswerOptionIds = [],
+        // A video or animated GIF instead of a picture: the post waits as a
+        // draft until it has been processed.
+        public ?UploadedFile $video = null,
+        // A video or animated GIF to download from a link — a file's, or the
+        // one a post on another site carries — in the background.
+        public ?string $videoUrl = null,
         /*
          * Trusted, and set only by Content Studio's executor
          * (ExecuteStudioAction), never from a request: a Ready post image

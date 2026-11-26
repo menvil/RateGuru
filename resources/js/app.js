@@ -5,6 +5,7 @@ import './auth-modal.js';
 import './modal.js';
 import './feed-links.js';
 import './games.js';
+import './post-video.js';
 import './traffic.js';
 
 // Shows a theme preference on the page, and remembers nothing.

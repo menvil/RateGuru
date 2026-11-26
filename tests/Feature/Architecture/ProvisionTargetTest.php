@@ -222,7 +222,11 @@ it('provisions the whole target from the registry alone, and proves every generi
 
         $supervisor = (string) file_get_contents($fs.'/etc/supervisor/conf.d/rateguru-demo-shop-queue.conf');
         expect($supervisor)
-            ->toContain('[program:rateguru-demo-shop-queue]')
+            // The registry's program is the group of the target's workers.
+            ->toContain("[group:rateguru-demo-shop-queue]\nprograms=rateguru-demo-shop-queue-default,rateguru-demo-shop-queue-media\n")
+            ->toContain('[program:rateguru-demo-shop-queue-default]')
+            ->toContain('[program:rateguru-demo-shop-queue-media]')
+            ->toContain('--queue=rateguru-demo-shop-media ')
             // The working directory is the application root, which exists the
             // moment provisioning finishes; current/ is entered by the command
             // once it is really there. See the PRE_DEPLOY-safety tests below.
@@ -481,19 +485,22 @@ it('produces configuration a later active-mode run accepts without rewriting a b
  * template PHP binary — an absolute path no test host has — becomes a stub
  * that records how it was called. The guard's logic, its exit codes and its
  * argv are the shipped ones.
+ *
+ * The program is a group of two workers: the first command is the default
+ * queue's, the second the media queue's.
  */
-function provisionQueueCommand(string $config, string $fs, string $phpStub): string
+function provisionQueueCommand(string $config, string $fs, string $phpStub, int $worker = 0): string
 {
     $pattern = '/^command=\/bin\/bash -c \'(.*)\'$/m';
 
-    expect($config)->toMatch($pattern);
+    preg_match_all($pattern, $config, $matches);
 
-    preg_match($pattern, $config, $matches);
+    expect($matches[1])->toHaveCount(2);
 
     return str_replace(
         ['/home/www/rateguru', '/usr/bin/php8.5'],
         [$fs.'/home/www/rateguru', $phpStub],
-        $matches[1],
+        $matches[1][$worker],
     );
 }
 
@@ -571,6 +578,14 @@ it('installs a queue program that a supervisord restart can load before the firs
 
         // Therefore: EXITED. Not BACKOFF, and not a restart.
         expect(supervisorOutcome($code, $elapsed, 3.0, 'unexpected', [99]))->toBe('EXITED');
+
+        // The media worker carries the same guard, so it settles the same way.
+        $media = provisionQueueCommand($config, $fs, $phpStub, 1);
+        exec('STUB_LOG='.escapeshellarg($scratch.'/log').' bash -c '.escapeshellarg($media).' 2>&1', $mediaOutput, $mediaCode);
+
+        expect(provisionLog($scratch, 'queue-worker.log'))->toBe('');
+        expect($mediaCode)->toBe(99, implode("\n", $mediaOutput));
+        expect(substr_count($config, "autorestart=unexpected\nexitcodes=99\n"))->toBe(2);
     } finally {
         provisionCleanup($scratch);
     }
@@ -607,9 +622,26 @@ it('runs the real worker as soon as a release exists, and restarts it on its ord
         $worker = provisionLog($scratch, 'queue-worker.log');
 
         expect($worker)
-            ->toContain('artisan queue:work redis --queue=rateguru-demo-shop')
+            ->toContain('artisan queue:work redis --queue=rateguru-demo-shop ')
             ->toContain('--max-time=3600')
             ->toContain('cwd '.realpath($root.'/releases/20260101120000'));
+
+        // The media worker: the redis-media connection and its own queue,
+        // with a timeout that fits that connection's retry window, at a lower
+        // CPU priority so a transcode never crowds out the site. The release
+        // defines that connection, so it starts at once.
+        file_put_contents($scratch.'/log/queue-worker.log', '');
+        @mkdir($root.'/releases/20260101120000/config', 0o755, true);
+        file_put_contents($root.'/releases/20260101120000/config/queue.php', "<?php return ['connections' => ['redis-media' => []]];\n");
+        $media = provisionQueueCommand($config, $fs, $phpStub, 1);
+        exec('STUB_LOG='.escapeshellarg($scratch.'/log').' bash -c '.escapeshellarg($media).' 2>&1', $mediaOutput, $mediaCode);
+
+        expect($mediaCode)->toBe(0, implode("\n", $mediaOutput))
+            ->and(provisionLog($scratch, 'queue-worker.log'))
+            ->toContain('artisan queue:work redis-media --queue=rateguru-demo-shop-media ')
+            ->toContain('--timeout=900 ')
+            ->toContain('cwd '.realpath($root.'/releases/20260101120000'))
+            ->and($media)->toContain('exec /usr/bin/nice -n 10 ');
 
         // The worker's own successful exit — what --max-time and --max-jobs
         // produce every hour — must bring it back, or a deployed target
@@ -623,6 +655,40 @@ it('runs the real worker as soon as a release exists, and restarts it on its ord
 
         // A host restart starts it again by itself.
         expect($config)->toContain("autostart=true\n");
+    } finally {
+        provisionCleanup($scratch);
+    }
+});
+
+it('keeps the media worker waiting, RUNNING, on a release older than the redis-media connection', function () {
+    $scratch = provisionScratchDir();
+
+    try {
+        provisionDemoShopProvisioned($scratch);
+        $fs = $scratch.'/fs';
+        $root = $fs.'/home/www/rateguru/production/demo-shop';
+        $config = (string) file_get_contents($fs.'/etc/supervisor/conf.d/rateguru-demo-shop-queue.conf');
+
+        // A release from before the media queue: a rollback target, or the
+        // release a host runs when the group is installed.
+        @mkdir($root.'/releases/20260101120000/config', 0o755, true);
+        file_put_contents($root.'/releases/20260101120000/config/queue.php', "<?php return ['connections' => ['redis' => []]];\n");
+        symlink($root.'/releases/20260101120000', $root.'/current');
+
+        $phpStub = $scratch.'/bin/php-queue-probe';
+        provisionWriteStub($phpStub, <<<'STUB'
+            #!/bin/bash
+            printf 'php %s\\n' "$*" >> "${STUB_LOG}/queue-worker.log"
+            exit 0
+            STUB);
+
+        $media = provisionQueueCommand($config, $fs, $phpStub, 1);
+        exec('STUB_LOG='.escapeshellarg($scratch.'/log').' timeout 4 bash -c '.escapeshellarg($media).' 2>&1', $output, $code);
+
+        // Still running when timeout stopped it (124), and Laravel never
+        // started: the checks that want every worker RUNNING see it RUNNING.
+        expect($code)->toBe(124, implode("\n", $output))
+            ->and(provisionLog($scratch, 'queue-worker.log'))->toBe('');
     } finally {
         provisionCleanup($scratch);
     }
