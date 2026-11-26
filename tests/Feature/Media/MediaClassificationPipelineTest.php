@@ -362,6 +362,8 @@ it('says there is nothing to queue with no classifier configured, and refuses a 
 });
 
 it('never asks a classifier again for a failure it recorded, on the job\'s own retry neither, unless --retry-failed asks for one recorded before', function () {
+    // All in one second: the retry tells the failures before it from its own by answer id.
+    $this->freezeTime();
     Exceptions::fake();
     $broken = standInClassifier(failure: new RuntimeException('bug'), name: 'broken');
     $working = standInClassifier(['sex_toy' => 0.3], name: 'working');
@@ -386,7 +388,8 @@ it('never asks a classifier again for a failure it recorded, on the job\'s own r
     app()->call([$retry, 'handle']);
 
     expect($broken->shown)->toHaveCount(2)
-        ->and($working->shown)->toHaveCount(2);
+        ->and($working->shown)->toHaveCount(2)
+        ->and(MediaClassification::query()->pluck('created_at')->map(fn ($at): string => (string) $at)->unique()->all())->toBe([(string) now()]);
 });
 
 it('hands its jobs the retry it was asked for, and holds each one\'s lock through its delay', function () {
@@ -438,19 +441,44 @@ it('never runs two jobs for one asset at once, and one queued after the other\'s
     $asset = readyVideoAsset();
     $job = fn (): ClassifyMediaAssetJob => (new ClassifyMediaAssetJob($asset->id))->onConnection('sync');
 
-    // A second job, queued once the first one's unique lock had expired,
-    // arrives while the first still runs: it is dropped, not run alongside.
-    $running = Cache::lock($job()->middleware()[0]->getLockKey($job()), 960);
+    // A second job arrives while another run for the asset holds it: it
+    // leaves it to that run, never running alongside.
+    $running = Cache::lock(ClassifyMediaAssetJob::runLockKey($asset->id), 960);
     $running->get();
     dispatch($job());
     expect($classifier->shown)->toBe([]);
     $running->release();
-    Cache::flush();
 
     // The first runs; another arriving after it finds the answer there.
     dispatch($job());
-    Cache::flush();
     dispatch($job());
 
     expect($classifier->shown)->toHaveCount(1);
+});
+
+it('never loses a retry of failures to a plain job for the asset, waiting or running', function () {
+    Queue::fake();
+    $broken = standInClassifier(failure: new RuntimeException('bug'), name: 'broken');
+    configureClassifiers(['test.broken' => [$broken, 'shadow']]);
+    $asset = MediaAsset::factory()->create();
+    MediaClassification::factory()->create(['media_asset_id' => $asset->id, 'classifier' => 'broken', 'model_version' => 'v1', 'status' => ClassificationStatus::Failed]);
+
+    // A plain job waits for the asset: the retry is queued all the same.
+    app(QueueMediaClassification::class)->ready($asset);
+    $this->artisan('media:classify', ['--retry-failed' => true])->assertSuccessful();
+    $retry = collect(Queue::pushed(ClassifyMediaAssetJob::class))->first(fn (ClassifyMediaAssetJob $job): bool => $job->retryFailuresThrough !== null);
+    expect($retry)->not->toBeNull()
+        ->and($retry->mediaAssetId)->toBe($asset->id);
+
+    // It meets a run for the asset: it asks no one alongside, and comes back after it.
+    Queue::fake();
+    $running = Cache::lock(ClassifyMediaAssetJob::runLockKey($asset->id), 960);
+    $running->get();
+    app()->call([$retry, 'handle']);
+    $running->release();
+
+    expect($broken->shown)->toBe([]);
+    Queue::assertPushed(ClassifyMediaAssetJob::class, fn (ClassifyMediaAssetJob $job): bool => $job->mediaAssetId === $asset->id
+        && $job->retryFailuresThrough === $retry->retryFailuresThrough
+        && $job->delay !== null);
 });

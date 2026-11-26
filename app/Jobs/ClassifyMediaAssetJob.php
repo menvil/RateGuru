@@ -12,11 +12,11 @@ use App\Services\Media\Classification\MediaClassificationRecorder;
 use App\Services\Media\Classification\MediaClassifierRegistry;
 use App\Support\Media\MediaQueue;
 use App\Support\Media\WorkerTemporaryDirectory;
-use Illuminate\Contracts\Queue\ShouldBeUnique;
+use Illuminate\Contracts\Queue\ShouldBeUniqueUntilProcessing;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Foundation\Queue\Queueable;
-use Illuminate\Queue\Middleware\WithoutOverlapping;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Log;
 use RuntimeException;
@@ -28,7 +28,8 @@ use Throwable;
  * a video's frames are ffmpeg runs, and a cloud classifier may take a while
  * over thirty of them.
  *
- * One at a time per asset (ShouldBeUnique), and a classifier that already
+ * One queued at a time per asset (ShouldBeUniqueUntilProcessing), one
+ * running at a time per asset (its run lock), and a classifier that already
  * answered for it at its model version is not asked again: an upload, a
  * redelivered video job and media:classify meeting on one asset ask each
  * classifier once — a paid one is never paid twice. What a classifier fails
@@ -37,7 +38,7 @@ use Throwable;
  * from. What fails the job is the host — ffmpeg missing, the database —
  * retried once.
  */
-final class ClassifyMediaAssetJob implements RunsOnMediaQueue, ShouldBeUnique, ShouldQueue
+final class ClassifyMediaAssetJob implements RunsOnMediaQueue, ShouldBeUniqueUntilProcessing, ShouldQueue
 {
     use Queueable;
 
@@ -52,6 +53,9 @@ final class ClassifyMediaAssetJob implements RunsOnMediaQueue, ShouldBeUnique, S
 
     /** How long after it becomes available the media connection could still deliver the job. */
     private const int DELIVERY_WINDOW_SECONDS = 960;
+
+    /** How soon a retry that found another run for its asset comes back. */
+    private const int BUSY_RETRY_SECONDS = 60;
 
     /** A run its timeout killed left its frames; cleared once past every run's time. */
     private const int STALE_AFTER_SECONDS = 7200;
@@ -68,36 +72,55 @@ final class ClassifyMediaAssetJob implements RunsOnMediaQueue, ShouldBeUnique, S
         $this->onConnection(MediaQueue::connection());
     }
 
+    /** A retry of failures is queued apart: a plain job waiting for the asset never keeps it out. */
     public function uniqueId(): string
     {
-        return (string) $this->mediaAssetId;
+        return $this->mediaAssetId.($this->retryFailuresThrough === null ? '' : ':retry');
     }
 
     /**
      * Held through its delay too, and as long as the media connection could
-     * then deliver it. It keeps a second job from being queued meanwhile; it
-     * cannot outlast a queue that makes the job wait longer, and need not:
-     * the middleware below never lets two run at once for one asset, and a
-     * job that runs after another finds every answer there and asks no one.
+     * then deliver it — until the job starts. It keeps a second one from
+     * being queued meanwhile; it cannot outlast a queue that makes the job
+     * wait longer, and need not: the run lock never lets two run at once for
+     * one asset, and a job that runs after another finds every answer there
+     * and asks no one.
      */
     public function uniqueFor(): int
     {
         return max(0, $this->delaySeconds) + self::DELIVERY_WINDOW_SECONDS;
     }
 
-    /**
-     * One run per asset at a time, whatever was queued: a job arriving while
-     * another runs for its asset is dropped, not run alongside it — that one
-     * asks every classifier still to answer.
-     *
-     * @return list<object>
-     */
-    public function middleware(): array
+    /** The lock one run for the asset holds, whatever job it is. */
+    public static function runLockKey(int $mediaAssetId): string
     {
-        return [(new WithoutOverlapping((string) $this->mediaAssetId))->dontRelease()->expireAfter($this->timeout + 60)];
+        return 'media-classification-run:'.$mediaAssetId;
     }
 
     public function handle(MediaClassifierRegistry $registry, ClassificationFrameSampler $sampler, MediaClassificationRecorder $recorder): void
+    {
+        $lock = Cache::lock(self::runLockKey($this->mediaAssetId), $this->timeout + 60);
+
+        // Another run for this asset: it asks every classifier still to
+        // answer, so a plain job has nothing left to do. A retry of failures
+        // — which that run skips — comes back after it, never lost.
+        if (! $lock->get()) {
+            if ($this->retryFailuresThrough !== null) {
+                self::dispatch($this->mediaAssetId, $this->retryFailuresThrough, self::BUSY_RETRY_SECONDS)
+                    ->delay(now()->addSeconds(self::BUSY_RETRY_SECONDS));
+            }
+
+            return;
+        }
+
+        try {
+            $this->classify($registry, $sampler, $recorder);
+        } finally {
+            $lock->release();
+        }
+    }
+
+    private function classify(MediaClassifierRegistry $registry, ClassificationFrameSampler $sampler, MediaClassificationRecorder $recorder): void
     {
         $asset = MediaAsset::query()->find($this->mediaAssetId);
 

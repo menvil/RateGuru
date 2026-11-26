@@ -117,12 +117,16 @@ configuration is read by the job, never by the upload.
     another never use up the job's time before a classifier is asked.
 
 **The job:**
-- It runs on the media queue, one at a time per asset (`ShouldBeUnique`).
-  The lock is held through a delay it was queued with, then as long as the
-  media connection could still deliver it. A queue that makes the job wait
-  longer can let a second one in; that second one never runs alongside the
-  first (`WithoutOverlapping`: it is dropped), and one that runs after it
-  finds every answer there and asks no one.
+- It runs on the media queue.
+  - **Queued:** one at a time per asset (`ShouldBeUniqueUntilProcessing`),
+    through a delay it was queued with, then as long as the media connection
+    could still deliver it. A retry of failures is queued apart, so a plain
+    job waiting for the asset never keeps it out.
+  - **Running:** one run per asset at a time, by a lock of its own. A plain
+    job meeting another run leaves the work to it. A retry of failures, which
+    that run skips, comes back a minute later instead of being lost.
+  - A job that runs after another finds every answer there and asks no one,
+    so a queue that kept one waiting past its lock costs nothing.
 - A classifier that already answered for the asset at its model version is
   not asked again, so an upload, a redelivered video job and
   `media:classify` meeting on one asset ask each classifier once, and a paid
