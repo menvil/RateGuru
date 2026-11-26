@@ -24,8 +24,10 @@ use Throwable;
  * is told that too. An author who may no longer post publishes nothing; the
  * draft stays, and the log says why.
  *
- * Safe to run again: only a draft is ever published, so a redelivered job
- * changes nothing the first run already did.
+ * Safe to run again: only a draft is ever published, and the author hears
+ * of each outcome once per asset — the notice is claimed on the asset in the
+ * same transaction that writes it, so two runs never both send it, and one
+ * that could not be written leaves it unclaimed for the job's next attempt.
  */
 final class FinalizePostMediaAction
 {
@@ -81,25 +83,30 @@ final class FinalizePostMediaAction
             return $post;
         });
 
-        if ($post === null) {
-            return;
-        }
+        if ($post !== null) {
+            $this->logger->info('posts.media_ready', [
+                'post_id' => $post->id,
+                'media_asset_id' => $asset->id,
+                'status' => $post->status->value,
+            ]);
 
-        $this->logger->info('posts.media_ready', [
-            'post_id' => $post->id,
-            'media_asset_id' => $asset->id,
-            'status' => $post->status->value,
-        ]);
-
-        if ($post->status === PostStatus::Published) {
-            try {
-                NotifyFollowersAboutNewPostJob::dispatch($post->id);
-            } catch (Throwable $exception) {
-                report($exception);
+            if ($post->status === PostStatus::Published) {
+                try {
+                    NotifyFollowersAboutNewPostJob::dispatch($post->id);
+                } catch (Throwable $exception) {
+                    report($exception);
+                }
             }
         }
 
-        $this->tellAuthor($post);
+        // Also when an earlier run published the post and could not write
+        // the notice: the post left its draft through this asset, and its
+        // author has not heard yet.
+        $post ??= Post::query()->where('image_asset_id', $asset->id)->whereIn('status', [PostStatus::Published, PostStatus::Pending])->first();
+
+        if ($post !== null) {
+            $this->tellAuthorOnce($asset, $post, 'ready_notified_at');
+        }
     }
 
     /**
@@ -114,21 +121,35 @@ final class FinalizePostMediaAction
             return;
         }
 
-        $this->logger->info('posts.media_failed', [
-            'post_id' => $post->id,
-            'media_asset_id' => $asset->id,
-        ]);
-
-        $this->tellAuthor($post);
+        if ($this->tellAuthorOnce($asset, $post, 'failure_notified_at')) {
+            $this->logger->info('posts.media_failed', [
+                'post_id' => $post->id,
+                'media_asset_id' => $asset->id,
+            ]);
+        }
     }
 
-    /** Never allowed to undo what the post's status already says. */
-    private function tellAuthor(Post $post): void
+    /**
+     * Tells the author, once per asset and outcome: the claim on the asset
+     * and the notice commit together. A notice that cannot be written takes
+     * the claim back with it and goes up, for the job's next attempt to send
+     * — never undoing what the post's status already says.
+     */
+    private function tellAuthorOnce(MediaAsset $asset, Post $post, string $claim): bool
     {
-        try {
+        return DB::transaction(function () use ($asset, $post, $claim): bool {
+            $claimed = MediaAsset::query()
+                ->whereKey($asset->id)
+                ->whereNull("metadata->{$claim}")
+                ->update(['metadata' => json_encode([...(MediaAsset::query()->whereKey($asset->id)->value('metadata') ?? []), $claim => now()->toIso8601ZuluString()])]);
+
+            if ($claimed !== 1) {
+                return false;
+            }
+
             $post->user?->notify(new VideoPostProcessedNotification($post));
-        } catch (Throwable $exception) {
-            report($exception);
-        }
+
+            return true;
+        });
     }
 }

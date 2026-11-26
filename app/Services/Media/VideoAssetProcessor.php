@@ -70,19 +70,18 @@ final class VideoAssetProcessor
             return false;
         }
 
-        // Read again under the lock: a run that held it may have settled the
-        // asset since this job loaded it.
-        $asset->refresh();
-
-        if ($asset->trashed() || $asset->status !== MediaStatus::Processing) {
-            $lock->release();
-
-            return true;
-        }
-
         $work = sys_get_temp_dir().'/rateguru-video-'.Str::uuid()->toString();
 
         try {
+            // Read again under the lock: a run that held it may have settled
+            // the asset since this job loaded it. Inside the try, so a read
+            // that fails still releases the lock.
+            $asset->refresh();
+
+            if ($asset->trashed() || $asset->status !== MediaStatus::Processing) {
+                return true;
+            }
+
             if (! @mkdir($work, 0o700)) {
                 throw new RuntimeException('Could not create a work directory for video processing.');
             }

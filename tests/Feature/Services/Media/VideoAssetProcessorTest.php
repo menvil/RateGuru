@@ -12,6 +12,7 @@ use App\Services\Media\Exceptions\MediaToolInterruptedException;
 use App\Services\Media\MediaToolResult;
 use App\Services\Media\MediaToolRunner;
 use App\Services\Media\VideoAssetProcessor;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -246,4 +247,17 @@ it('reads the asset again once it holds the lock, and leaves one another run set
     expect(app(VideoAssetProcessor::class)->process($asset))->toBeTrue()
         ->and($runner->calls)->toBe([])
         ->and($asset->status)->toBe(MediaStatus::Ready);
+});
+
+it('lets go of the lock when the asset cannot be read again under it', function () {
+    bindRecordingMediaToolRunner();
+    $asset = processingVideoAsset('x', 'mp4');
+    // Gone between the job loading it and the lock: the read under the lock fails.
+    MediaAsset::query()->whereKey($asset->id)->forceDelete();
+
+    expect(fn () => app(VideoAssetProcessor::class)->process($asset))->toThrow(ModelNotFoundException::class);
+
+    $lock = Cache::store('database')->getStore()->lock("media-video-process:{$asset->id}", 60);
+    expect($lock->get())->toBeTrue();
+    $lock->release();
 });

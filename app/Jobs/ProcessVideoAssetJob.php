@@ -65,8 +65,6 @@ final class ProcessVideoAssetJob implements RunsOnMediaQueue, ShouldQueue
             return;
         }
 
-        $wasWaiting = $asset->status === MediaStatus::Processing;
-
         if (! $processor->process($asset)) {
             // Another run holds the asset. Come back later rather than
             // acknowledge a job whose asset still waits: if that run dies, its
@@ -78,13 +76,12 @@ final class ProcessVideoAssetJob implements RunsOnMediaQueue, ShouldQueue
 
         $asset->refresh();
 
-        // Publishing is safe to repeat — only a draft is published — so a
-        // Ready asset always reaches it, also when an earlier run stopped
-        // between the two. The author hears of a failure once, from the run
-        // that failed it.
+        // Both are safe to repeat — only a draft is published, and the author
+        // hears of each outcome once per asset — so a settled asset always
+        // reaches them, also when an earlier run stopped between the two.
         if ($asset->status === MediaStatus::Ready) {
             $finalize->ready($asset);
-        } elseif ($wasWaiting && $asset->status === MediaStatus::Failed) {
+        } elseif ($asset->status === MediaStatus::Failed) {
             $finalize->failed($asset);
         }
     }

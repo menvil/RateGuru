@@ -514,10 +514,15 @@ UploadPostForm: mimetypes (uploads.videos.mimetypes), <= 100 MB;
   address or staff, never a Persona) decides both a picture post at creation
   and a video post once its media is ready. A post deleted meanwhile, or an
   author who may no longer post, publishes nothing.
-- **Safe to repeat:** only a draft is ever published, so a Ready asset always
-  reaches the finalize step — also when an earlier run stopped between the
-  two — and changes nothing a second time. The author hears of a failure once,
-  from the run that failed the asset.
+- **Safe to repeat:** only a draft is ever published, so a settled asset
+  always reaches the finalize step — also when an earlier run stopped between
+  the two — and changes nothing a second time.
+- **The author hears of each outcome once per asset**, ready or failed,
+  whichever run settles it. The notice is claimed on the asset
+  (`metadata.ready_notified_at`, `metadata.failure_notified_at`) in the same
+  transaction that writes it. A notice that cannot be written takes the claim
+  back and fails the job, so its next attempt sends it; the post's status is
+  never undone for it.
 - **Fair use of the one media worker:** an author may have at most
   `uploads.videos.max_processing_per_author` (2) videos processing at once,
   checked before the file is read and again under the author's lock.

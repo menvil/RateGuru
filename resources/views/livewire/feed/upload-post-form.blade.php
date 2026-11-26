@@ -26,7 +26,11 @@
             maxVideoSeconds: @js((int) config('uploads.videos.max_duration_seconds')),
             maxVideoBytes: @js((int) config('uploads.videos.max_kilobytes') * 1024),
             tagOpen: false,
+            {{-- Which pick is current: every reset moves it on, so what an earlier pick still
+                 had on its way — a video's metadata, a preview, its upload — lands nowhere. --}}
+            pick: 0,
             clearMedia() {
+                this.pick++;
                 if (this.previewIsVideo && this.previewUrl) URL.revokeObjectURL(this.previewUrl);
                 this.previewUrl = null;
                 this.previewIsVideo = false;
@@ -48,7 +52,9 @@
                 this.clearMedia();
                 this.forgetFiles();
                 if (!file) return;
-                const isVideo = file.type.startsWith('video/') || file.type === 'image/gif'
+                const pick = this.pick;
+                const current = () => pick === this.pick;
+                const isVideo = file.type.startsWith('video/') || file.type === 'image/gif' || file.type === 'application/mp4'
                     || (file.type === '' && /\.(mp4|m4v|mov|webm|gif)$/i.test(file.name));
                 const field = isVideo ? 'video' : 'image';
                 if (isVideo && file.size > this.maxVideoBytes) {
@@ -58,11 +64,12 @@
                 }
                 this.fileName = file.name;
                 const send = () => {
+                    if (!current()) return;
                     this.uploadProgress = 0;
                     this.$wire.upload(field, file,
-                        () => { this.uploadProgress = null; },
-                        () => { this.uploadProgress = null; this.$wire.set(field, null, false); this.mediaError = @js(__('ui.upload.error_generic')); },
-                        (event) => { this.uploadProgress = event.detail.progress; },
+                        () => { if (current()) this.uploadProgress = null; },
+                        () => { if (!current()) return; this.uploadProgress = null; this.$wire.set(field, null, false); this.mediaError = @js(__('ui.upload.error_generic')); },
+                        (event) => { if (current()) this.uploadProgress = event.detail.progress; },
                     );
                 };
                 if (isVideo && !/gif$/i.test(file.type || file.name)) {
@@ -73,6 +80,7 @@
                     const probe = document.createElement('video');
                     probe.preload = 'metadata';
                     probe.onloadedmetadata = () => {
+                        if (!current()) return;
                         if (Number.isFinite(probe.duration) && probe.duration > this.maxVideoSeconds + 0.5) {
                             this.mediaError = @js(__('ui.upload.error_video_too_long', ['seconds' => (int) config('uploads.videos.max_duration_seconds')]));
                             this.clearMedia();
@@ -86,7 +94,7 @@
                     return;
                 }
                 const reader = new FileReader();
-                reader.onload = e => this.previewUrl = e.target.result;
+                reader.onload = e => { if (current()) this.previewUrl = e.target.result; };
                 reader.readAsDataURL(file);
                 send();
             },

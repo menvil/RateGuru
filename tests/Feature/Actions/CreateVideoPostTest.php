@@ -104,24 +104,31 @@ it('takes one picture, video or stored image per post, never two', function () {
     )))->toThrow(InvalidArgumentException::class);
 });
 
-it('counts the author\'s own uploads still within the processing window, GIFs included, and nothing else', function () {
+it('counts a GIF still processing towards the author\'s limit, as a video', function () {
     config(['uploads.videos.max_processing_per_author' => 2, 'uploads.videos.processing_window_minutes' => 180]);
     $author = User::factory()->create();
-    // Counted: one video and one GIF of the author's, still processing.
+    // One video and one GIF still processing: the limit, only if the GIF counts.
     MediaAsset::factory()->create(['owner_user_id' => $author->id, 'media_type' => MediaType::Video, 'status' => MediaStatus::Processing]);
-    // Not counted: processed, another author's, or past every retry its job could make.
-    MediaAsset::factory()->create(['owner_user_id' => $author->id, 'media_type' => MediaType::Video, 'status' => MediaStatus::Ready]);
-    MediaAsset::factory()->create(['owner_user_id' => User::factory()->create()->id, 'media_type' => MediaType::Video, 'status' => MediaStatus::Processing]);
-    MediaAsset::factory()->create(['owner_user_id' => $author->id, 'media_type' => MediaType::Video, 'status' => MediaStatus::Processing, 'created_at' => now()->subHours(4)]);
-    bindRecordingMediaToolRunner([acceptableFfprobeResult()]);
-
-    app(CreatePostAction::class)->handle($author, new CreatePostData(title: 'Second', video: fakeVideoUpload()));
-
     MediaAsset::factory()->create(['owner_user_id' => $author->id, 'media_type' => MediaType::Animation, 'status' => MediaStatus::Processing]);
     bindRecordingMediaToolRunner([acceptableFfprobeResult()]);
 
     expect(fn () => app(CreatePostAction::class)->handle($author, new CreatePostData(title: 'Third', video: fakeVideoUpload())))
         ->toThrow(CannotCreatePostException::class);
+});
+
+it('counts only the author\'s own uploads still within the processing window', function () {
+    config(['uploads.videos.max_processing_per_author' => 2, 'uploads.videos.processing_window_minutes' => 180]);
+    $author = User::factory()->create();
+    MediaAsset::factory()->create(['owner_user_id' => $author->id, 'media_type' => MediaType::Video, 'status' => MediaStatus::Processing]);
+    // Not counted: processed, another author's, or past every retry its job could make.
+    MediaAsset::factory()->create(['owner_user_id' => $author->id, 'media_type' => MediaType::Video, 'status' => MediaStatus::Ready]);
+    MediaAsset::factory()->create(['owner_user_id' => User::factory()->create()->id, 'media_type' => MediaType::Video, 'status' => MediaStatus::Processing]);
+    MediaAsset::factory()->create(['owner_user_id' => $author->id, 'media_type' => MediaType::Animation, 'status' => MediaStatus::Processing, 'created_at' => now()->subHours(4)]);
+    bindRecordingMediaToolRunner([acceptableFfprobeResult()]);
+
+    $post = app(CreatePostAction::class)->handle($author, new CreatePostData(title: 'Second', video: fakeVideoUpload()));
+
+    expect($post->exists)->toBeTrue();
 });
 
 it('fails the asset at once when its job cannot be queued, so it never holds the author\'s place', function () {

@@ -2,6 +2,7 @@
 
 use App\Enums\MediaStatus;
 use App\Enums\MediaType;
+use App\Enums\MediaVisibility;
 use App\Enums\PostStatus;
 use App\Jobs\ProcessVideoAssetJob;
 use App\Livewire\Feed\UploadPostForm;
@@ -9,6 +10,11 @@ use App\Models\MediaAsset;
 use App\Models\Post;
 use App\Models\User;
 use App\Services\Media\Exceptions\VideoTooLargeException;
+use App\Services\Media\MediaLocation;
+use App\Services\Media\MediaStorage;
+use App\Services\Media\MediaStoreRequest;
+use App\Services\Media\NormalizedImage;
+use App\Services\Media\StoredMedia;
 use App\Support\Media\VideoUploadStorer;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Exceptions;
@@ -161,4 +167,80 @@ it('lets Livewire take a file as large as a video, and no faster than a person s
     expect(config('livewire.temporary_file_upload.rules'))->toContain('max:'.config('uploads.videos.max_kilobytes'))
         ->and(config('livewire.temporary_file_upload.middleware'))->toBe('throttle:20,1')
         ->and(config('livewire.temporary_file_upload.max_upload_time'))->toBeGreaterThanOrEqual(15);
+});
+
+it('removes what a failed write of the original left, and says the failure as it was', function () {
+    Storage::fake('local');
+    bindRecordingMediaToolRunner([acceptableFfprobeResult()]);
+    $storage = new class(app(MediaStorage::class)) implements MediaStorage
+    {
+        /** @var list<string> */
+        public array $written = [];
+
+        public function __construct(private MediaStorage $real) {}
+
+        public function putFile(MediaLocation $location, string $localPath, MediaVisibility $visibility): void
+        {
+            // Part of the file is there when the write fails.
+            Storage::disk($location->disk)->put($location->path, 'part');
+            $this->written[] = $location->path;
+
+            throw new RuntimeException('The disk filled up.');
+        }
+
+        public function storeNormalized(NormalizedImage $image, MediaStoreRequest $request, ?string $originalFilename): StoredMedia
+        {
+            return $this->real->storeNormalized($image, $request, $originalFilename);
+        }
+
+        public function putContents(MediaLocation $location, string $contents, MediaVisibility $visibility): void
+        {
+            $this->real->putContents($location, $contents, $visibility);
+        }
+
+        public function copyToFile(MediaLocation $location, string $localPath): void
+        {
+            $this->real->copyToFile($location, $localPath);
+        }
+
+        public function exists(MediaLocation $location): bool
+        {
+            return $this->real->exists($location);
+        }
+
+        public function size(MediaLocation $location): int
+        {
+            return $this->real->size($location);
+        }
+
+        public function readStream(MediaLocation $location)
+        {
+            return $this->real->readStream($location);
+        }
+
+        public function delete(MediaLocation $location): void
+        {
+            $this->real->delete($location);
+        }
+
+        public function deleteIfExists(MediaLocation $location): void
+        {
+            $this->real->deleteIfExists($location);
+        }
+
+        public function allFiles(string $disk, string $directory): array
+        {
+            return $this->real->allFiles($disk, $directory);
+        }
+
+        public function lastModified(MediaLocation $location): int
+        {
+            return $this->real->lastModified($location);
+        }
+    };
+    app()->instance(MediaStorage::class, $storage);
+
+    expect(fn () => app(VideoUploadStorer::class)->store(fakeVideoUpload(), 1))->toThrow(RuntimeException::class, 'The disk filled up.');
+    expect($storage->written)->toHaveCount(1)
+        ->and(Storage::disk('local')->exists($storage->written[0]))->toBeFalse();
 });

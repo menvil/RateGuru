@@ -18,6 +18,7 @@ use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use Illuminate\Support\Testing\Fakes\NotificationFake;
 
 beforeEach(function () {
     Queue::fake();
@@ -137,7 +138,7 @@ it('publishes nothing for an asset that is not ready', function () {
     Notification::assertNothingSent();
 });
 
-it('tells the author of a failure once: from the run that failed the asset, never from a later one', function () {
+it('tells the author of a failure once per asset, whichever run settles it', function () {
     $author = User::factory()->create();
     // The processor refuses the file: ffprobe cannot read it.
     [$post, $asset] = draftVideoPost($author, MediaStatus::Processing);
@@ -173,4 +174,47 @@ it('publishes a video draft restored from the deleted posts once its media finis
     app(RestoreDeletedPostAction::class)->handle($author, $post->fresh());
 
     expect(Post::query()->findOrFail($post->id)->status)->toBe(PostStatus::Published);
+});
+
+it('tells the author of a failure a run left untold, when it stopped between failing the asset and the notice', function () {
+    $author = User::factory()->create();
+    [$post, $asset] = draftVideoPost($author, MediaStatus::Failed);
+
+    app()->call([new ProcessVideoAssetJob($asset->id), 'handle']);
+    app()->call([new ProcessVideoAssetJob($asset->id), 'handle']);
+
+    Notification::assertSentToTimes($author, VideoPostProcessedNotification::class, 1);
+    expect($asset->refresh()->metadata['failure_notified_at'] ?? null)->not->toBeNull();
+});
+
+it('takes the claim back when the notice cannot be written, for the job\'s next attempt to send it', function () {
+    $author = User::factory()->create();
+    [$failedPost, $failedAsset] = draftVideoPost($author, MediaStatus::Failed);
+    [$readyPost, $readyAsset] = draftVideoPost($author, MediaStatus::Ready);
+    Notification::swap($notices = new class extends NotificationFake
+    {
+        public int $failures = 2;
+
+        public function send($notifiables, $notification)
+        {
+            if ($this->failures-- > 0) {
+                throw new RuntimeException('The notifications table would not take it.');
+            }
+
+            parent::send($notifiables, $notification);
+        }
+    });
+
+    expect(fn () => app(FinalizePostMediaAction::class)->failed($failedAsset))->toThrow(RuntimeException::class)
+        ->and(fn () => app(FinalizePostMediaAction::class)->ready($readyAsset))->toThrow(RuntimeException::class);
+    // What the post's status says stays: published, though its author has not heard yet.
+    expect($readyPost->refresh()->status)->toBe(PostStatus::Published)
+        ->and($failedAsset->refresh()->metadata['failure_notified_at'] ?? null)->toBeNull()
+        ->and($readyAsset->refresh()->metadata['ready_notified_at'] ?? null)->toBeNull();
+
+    app(FinalizePostMediaAction::class)->failed($failedAsset);
+    app(FinalizePostMediaAction::class)->ready($readyAsset);
+    app(FinalizePostMediaAction::class)->ready($readyAsset);
+
+    $notices->assertSentToTimes($author, VideoPostProcessedNotification::class, 2);
 });

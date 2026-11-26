@@ -14,6 +14,7 @@ use App\Services\Media\StoredVideo;
 use App\Services\Media\VideoIngestPolicy;
 use App\Services\Media\VideoProbe;
 use Illuminate\Http\UploadedFile;
+use Throwable;
 
 /**
  * Accepts an uploaded video or animated GIF the way ImageUploadStorer
@@ -58,7 +59,20 @@ final class VideoUploadStorer
         $request = MediaStoreRequest::forVideoOriginal($ownerUserId);
         $path = $this->paths->generate($request, $extension);
 
-        $this->storage->putFile(new MediaLocation($request->disk, $path), $local, MediaVisibility::Private);
+        $location = new MediaLocation($request->disk, $path);
+
+        try {
+            $this->storage->putFile($location, $local, MediaVisibility::Private);
+        } catch (Throwable $exception) {
+            // A write that failed part-way leaves a file no row will ever
+            // name: removed before the failure goes up, as it was.
+            try {
+                $this->storage->deleteIfExists($location);
+            } catch (Throwable) {
+            }
+
+            throw $exception;
+        }
 
         return new StoredVideo(
             media: new StoredMedia(
