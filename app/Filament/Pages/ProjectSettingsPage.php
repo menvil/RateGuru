@@ -16,6 +16,7 @@ use App\Support\Languages\LanguageRankingSettings;
 use App\Support\Settings\ProjectSettingsManager;
 use App\Support\Translations\ProjectContentSection;
 use App\Support\Translations\ProjectTranslationCatalog;
+use App\Support\Translations\ProjectTranslationUnit;
 use App\Support\Translations\TranslatableField;
 use Filament\Pages\Page;
 use Filament\Support\Enums\Width;
@@ -384,16 +385,22 @@ final class ProjectSettingsPage extends Page
     {
         $settings = ProjectSettings::query()->find(1);
         $status = app(ContentTranslationStatus::class);
+        // Read once for the settings and the static pages: which of their translations need an update. A text with no
+        // English shows no translation, so it has none to update.
+        $outdated = $status->languages() === [] ? [] : $status->outdatedUnits(array_values(array_filter([
+            ...app(ProjectTranslationCatalog::class)->unitsIn(ProjectContentSection::ProjectSettings),
+            ...app(ProjectTranslationCatalog::class)->unitsIn(ProjectContentSection::StaticPages),
+        ], fn (ProjectTranslationUnit $unit): bool => $unit->requiresTranslation())));
 
         return [
             'tab' => is_string($this->tab) && array_key_exists($this->tab, self::TABS) ? $this->tab : 'identity',
             'page' => in_array($this->page, self::pageKeys(), true) ? $this->page : 'about',
-            'pages' => $this->staticPages($settings, $status),
+            'pages' => $this->staticPages($settings, $status, $outdated),
             'preset' => $this->preset($settings),
             'host' => (string) parse_url((string) config('app.url'), PHP_URL_HOST),
             'translations' => [
-                'identity' => $this->settingsTranslations($settings, $status, array_keys(self::TEXT_FIELDS['identity'])),
-                'labels' => $this->settingsTranslations($settings, $status, array_keys(self::TEXT_FIELDS['labels'])),
+                'identity' => $this->settingsTranslations($settings, $status, array_keys(self::TEXT_FIELDS['identity']), $outdated),
+                'labels' => $this->settingsTranslations($settings, $status, array_keys(self::TEXT_FIELDS['labels']), $outdated),
             ],
             'providers' => $this->providers(),
             'published' => Post::query()->published()->count(),
@@ -494,9 +501,10 @@ final class ProjectSettingsPage extends Page
      * Translation Center on the first missing one.
      *
      * @param  list<string>  $fields
+     * @param  array<string, list<string>>  $outdated  the units to update in each language (ContentTranslationStatus::outdatedUnits())
      * @return array{text: string, url: ?string, update: ?string}
      */
-    private function settingsTranslations(?ProjectSettings $settings, ContentTranslationStatus $status, array $fields): array
+    private function settingsTranslations(?ProjectSettings $settings, ContentTranslationStatus $status, array $fields, array $outdated): array
     {
         $units = [];
 
@@ -506,7 +514,7 @@ final class ProjectSettingsPage extends Page
             }
         }
 
-        $outdated = $status->outdatedUnits(array_keys($units));
+        $outdated = ContentTranslationStatus::outdatedAmong($outdated, array_keys($units));
 
         return [
             'text' => self::translationSummary($status, $units, fn (string $unit): string => Str::lower(self::fieldLabel(Str::after($unit, ':'))), $outdated),
@@ -519,9 +527,10 @@ final class ProjectSettingsPage extends Page
      * Each static page: its title, how many offered languages miss its title
      * or content, and Translation Center on the first missing one.
      *
-     * @return array<string, array{label: string, url: string, missing: int, translations: string, translate: ?string, update: ?string}>
+     * @param  array<string, list<string>>  $outdated  the units to update in each language (ContentTranslationStatus::outdatedUnits())
+     * @return array<string, array{label: string, url: string, missing: int, outdated: int, translations: string, translate: ?string, update: ?string}>
      */
-    private function staticPages(?ProjectSettings $settings, ContentTranslationStatus $status): array
+    private function staticPages(?ProjectSettings $settings, ContentTranslationStatus $status, array $outdated): array
     {
         $stored = is_array($settings?->static_pages) ? $settings->static_pages : [];
         $pages = [];
@@ -540,15 +549,17 @@ final class ProjectSettingsPage extends Page
             }
 
             $missing = count(array_filter(array_keys($status->languages()), fn (string $locale): bool => collect($units)->contains(fn (array $chips): bool => collect($chips)->firstWhere('code', $locale)['value'] === null)));
-            $outdated = $status->outdatedUnits(array_keys($units));
+            $pageOutdated = ContentTranslationStatus::outdatedAmong($outdated, array_keys($units));
 
             $pages[$key] = [
                 'label' => __("admin.static_pages.{$key}"),
                 'url' => route("pages.{$key}"),
                 'missing' => $missing,
-                'translations' => self::translationSummary($status, $units, fn (string $unit): string => Str::afterLast($unit, ':'), $outdated),
+                // The languages with a translation of the page to update, shown in the list when none is missing.
+                'outdated' => count($pageOutdated),
+                'translations' => self::translationSummary($status, $units, fn (string $unit): string => Str::afterLast($unit, ':'), $pageOutdated),
                 'translate' => $status->languages() === [] ? null : $status->translateUnitsUrl(ProjectContentSection::StaticPages, $units),
-                'update' => $status->canTranslate() ? $status->updateUrl(ProjectContentSection::StaticPages, $outdated) : null,
+                'update' => $status->canTranslate() ? $status->updateUrl(ProjectContentSection::StaticPages, $pageOutdated) : null,
             ];
         }
 
@@ -557,11 +568,12 @@ final class ProjectSettingsPage extends Page
 
     /**
      * “Translations: Русский and Deutsch complete · Български missing the
-     * description · to update in Русский.” — the offered languages that have
-     * every unit current, each that misses some (naming the one it misses or
-     * counting them), and those with a translation made from English since
+     * description · to update in Українська.” — the offered languages that
+     * have every unit current, each that misses some (naming the one it misses
+     * or counting them), and those with a translation made from English since
      * changed. One line however many languages are offered: past
-     * LISTED_LANGUAGES, a group names the first ones and counts the rest.
+     * LISTED_LANGUAGES, the languages missing some or to update are named
+     * three at most and the rest counted, and the complete ones only counted.
      *
      * @param  array<string, list<array{code: string, native: string, value: ?string}>>  $units
      * @param  callable(string): string  $name

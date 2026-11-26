@@ -8,7 +8,7 @@ use App\Queries\Translations\ProjectTranslationSourcesQuery;
 use App\Support\Locale\LocaleManager;
 use App\Support\Translations\Generation\ProjectTranslationSourceFingerprint;
 use App\Support\Translations\ProjectContentSection;
-use App\Support\Translations\ProjectTranslationCatalog;
+use App\Support\Translations\ProjectTranslationUnit;
 use App\Support\Translations\TranslatableField;
 
 /**
@@ -111,29 +111,41 @@ final class ContentTranslationStatus
     }
 
     /**
-     * The units among these whose translation needs an update — made from
-     * English since changed — in each offered language that has any, in the
-     * order given, from one read of each.
+     * The ids of the units among these, already read, whose translation needs
+     * an update — made from English since changed — in each offered language
+     * that has any, in the order given, from one read of what is recorded.
      *
-     * @param  list<string>  $unitIds
+     * @param  list<ProjectTranslationUnit>  $units
      * @return array<string, list<string>> by language, in the languages' order
      */
-    public function outdatedUnits(array $unitIds): array
+    public function outdatedUnits(array $units): array
     {
         $codes = array_keys($this->languages());
-        $units = $unitIds === [] || $codes === [] ? [] : app(ProjectTranslationCatalog::class)->findMany($unitIds);
-        $recorded = app(ProjectTranslationSourcesQuery::class)->fingerprintsIn($codes, array_keys($units));
+        $recorded = $units === [] || $codes === [] ? [] : app(ProjectTranslationSourcesQuery::class)->fingerprintsIn($codes, array_map(fn (ProjectTranslationUnit $unit): string => $unit->id, $units));
         $outdated = [];
 
         foreach ($codes as $code) {
-            foreach ($unitIds as $id) {
-                if (isset($units[$id]) && ProjectTranslationSourceFingerprint::isOutdated($units[$id], $code, $recorded[$code][$id] ?? null)) {
-                    $outdated[$code][] = $id;
+            foreach ($units as $unit) {
+                if (ProjectTranslationSourceFingerprint::isOutdated($unit, $code, $recorded[$code][$unit->id] ?? null)) {
+                    $outdated[$code][] = $unit->id;
                 }
             }
         }
 
         return $outdated;
+    }
+
+    /**
+     * Those of an outdatedUnits() answer that are among these unit ids, the
+     * languages left with none dropped.
+     *
+     * @param  array<string, list<string>>  $outdated
+     * @param  list<string>  $unitIds
+     * @return array<string, list<string>>
+     */
+    public static function outdatedAmong(array $outdated, array $unitIds): array
+    {
+        return array_filter(array_map(fn (array $ids): array => array_values(array_intersect($ids, $unitIds)), $outdated));
     }
 
     /**

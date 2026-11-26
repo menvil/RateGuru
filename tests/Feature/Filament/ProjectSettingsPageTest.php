@@ -10,6 +10,8 @@ use App\Support\Locale\LocaleManager;
 use App\Support\Settings\ProjectSettingsManager;
 use App\Support\Studio\StudioVerifiedAdults;
 use App\Support\Translations\ProjectTranslationCatalog;
+use Illuminate\Database\Events\QueryExecuted;
+use Illuminate\Support\Facades\DB;
 use Livewire\Features\SupportLockedProperties\CannotUpdateLockedPropertyException;
 use Livewire\Livewire;
 
@@ -343,10 +345,30 @@ it('says a static page has translations to update once its English changed', fun
 
     $privacy = Livewire::withQueryParams(['tab' => 'pages', 'page' => 'privacy'])->test(ProjectSettingsPage::class)
         ->assertSeeHtml('data-testid="settings-translations-update"')
+        // The list of pages says it too, so a page to update is found without opening each.
+        ->assertSee('1 to update')
         ->viewData('pages')['privacy'];
 
     expect($privacy['translations'])->toBe('Translations: to update in '.config("locales.supported.{$first}.native").'.')
+        ->and($privacy['outdated'])->toBe(1)
         ->and($privacy['update'])->toBe(TranslationCenterPage::getUrl(['locale' => $first, 'section' => 'static_pages', 'mode' => 'outdated', 'unit' => 'static_pages:privacy:content']));
+});
+
+it('reads which settings and static pages need an update in a few queries, whatever the tab', function () {
+    $locales = array_slice(translatedLocales(), 0, 5);
+    offerLocales($locales);
+    $page = Livewire::test(ProjectSettingsPage::class);
+
+    $count = 0;
+    DB::listen(function (QueryExecuted $query) use (&$count): void {
+        if (str_contains($query->sql, 'project_translation_sources')) {
+            $count++;
+        }
+    });
+    $page->call('$refresh');
+
+    // One read of what is recorded for every setting and page, not one per group or page.
+    expect($count)->toBe(1);
 });
 
 it('lists the static pages with their translations, and edits the one chosen', function () {

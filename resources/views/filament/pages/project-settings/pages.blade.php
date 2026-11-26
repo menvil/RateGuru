@@ -26,8 +26,13 @@
                     x-on:click="if (! ($event.metaKey || $event.ctrlKey || $event.shiftKey || $event.altKey)) { $event.preventDefault(); $wire.$set('page', '{{ $key }}') }"
                 >
                     <span class="rg-admin-settings__page-title">{{ $item['label'] }}</span>
-                    <span @class(['rg-admin-settings__page-meta', 'rg-admin-settings__page-meta--due' => $item['missing'] > 0 || $refused])>
-                        {{ $refused ? 'Can’t be saved yet' : ($item['missing'] > 0 ? $item['missing'].' '.\Illuminate\Support\Str::plural('translation', $item['missing']).' missing' : 'Translated') }}<span x-cloak x-show="JSON.stringify($wire.data.static_pages['{{ $key }}']) !== JSON.stringify($wire.saved.static_pages['{{ $key }}'])"> · edited</span>
+                    <span @class(['rg-admin-settings__page-meta', 'rg-admin-settings__page-meta--due' => $item['missing'] > 0 || $item['outdated'] > 0 || $refused])>
+                        {{ match (true) {
+                            $refused => 'Can’t be saved yet',
+                            $item['missing'] > 0 => $item['missing'].' '.\Illuminate\Support\Str::plural('translation', $item['missing']).' missing',
+                            $item['outdated'] > 0 => $item['outdated'].' to update',
+                            default => 'Translated',
+                        } }}<span x-cloak x-show="JSON.stringify($wire.data.static_pages['{{ $key }}']) !== JSON.stringify($wire.saved.static_pages['{{ $key }}'])"> · edited</span>
                     </span>
                 </a>
             @endforeach
