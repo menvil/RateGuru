@@ -1,0 +1,117 @@
+lang/sv/profile.php
+  s_1f43f39fbe0537::t_d43575f5833656 17-18
+lang/th/profile.php
+  s_1f43f39fbe0537::t_d43575f5833656 17-18
+lang/ka/profile.php
+  s_1f43f39fbe0537::t_d43575f5833656 17-18
+lang/hu/profile.php
+  s_1f43f39fbe0537::t_d43575f5833656 17-18
+lang/sk/profile.php
+  s_1f43f39fbe0537::t_d43575f5833656 17-18
+lang/ru/profile.php
+  s_1f43f39fbe0537::t_d43575f5833656 17-18
+lang/sr/profile.php
+  s_1f43f39fbe0537::t_d43575f5833656 17-18
+lang/ar/profile.php
+  s_1f43f39fbe0537::t_d43575f5833656 17-18
+lang/uk/profile.php
+  s_1f43f39fbe0537::t_d43575f5833656 17-18
+tests/Feature/Livewire/ProfileProcessingVideosTest.php
+  s_1f43f39fbe0537::t_17b15572885a6d 1-56
+lang/ja/profile.php
+  s_1f43f39fbe0537::t_d43575f5833656 17-18
+lang/vi/profile.php
+  s_1f43f39fbe0537::t_d43575f5833656 17-18
+lang/da/profile.php
+  s_1f43f39fbe0537::t_d43575f5833656 17-18
+lang/pt/profile.php
+  s_1f43f39fbe0537::t_d43575f5833656 17-18
+docs/architecture/media.md
+  ai_agent 535-539
+lang/mk/profile.php
+  s_1f43f39fbe0537::t_d43575f5833656 17-18
+lang/fr/profile.php
+  s_1f43f39fbe0537::t_d43575f5833656 17-18
+lang/is/profile.php
+  s_1f43f39fbe0537::t_d43575f5833656 17-18
+lang/lv/profile.php
+  s_1f43f39fbe0537::t_d43575f5833656 17-18
+lang/ms/profile.php
+  s_1f43f39fbe0537::t_d43575f5833656 17-18
+lang/et/profile.php
+  s_1f43f39fbe0537::t_d43575f5833656 17-18
+lang/he/profile.php
+  s_1f43f39fbe0537::t_d43575f5833656 17-18
+lang/bn/profile.php
+  s_1f43f39fbe0537::t_d43575f5833656 17-18
+lang/pl/profile.php
+  s_1f43f39fbe0537::t_d43575f5833656 17-18
+lang/hi/profile.php
+  s_1f43f39fbe0537::t_d43575f5833656 17-18
+lang/nb/profile.php
+  s_1f43f39fbe0537::t_d43575f5833656 17-18
+lang/ro/profile.php
+  s_1f43f39fbe0537::t_d43575f5833656 17-18
+lang/sl/profile.php
+  s_1f43f39fbe0537::t_d43575f5833656 17-18
+lang/bg/profile.php
+  s_1f43f39fbe0537::t_d43575f5833656 17-18
+lang/fi/profile.php
+  s_1f43f39fbe0537::t_d43575f5833656 17-18
+lang/ur/profile.php
+  s_1f43f39fbe0537::t_d43575f5833656 17-18
+lang/it/profile.php
+  s_1f43f39fbe0537::t_d43575f5833656 17-18
+lang/cs/profile.php
+  s_1f43f39fbe0537::t_d43575f5833656 17-18
+lang/fil/profile.php
+  s_1f43f39fbe0537::t_d43575f5833656 17-18
+lang/de/profile.php
+  s_1f43f39fbe0537::t_d43575f5833656 17-18
+lang/cnr/profile.php
+  s_1f43f39fbe0537::t_d43575f5833656 17-18
+lang/id/profile.php
+  s_1f43f39fbe0537::t_d43575f5833656 17-18
+lang/tr/profile.php
+  s_1f43f39fbe0537::t_d43575f5833656 17-18
+lang/hr/profile.php
+  s_1f43f39fbe0537::t_d43575f5833656 17-18
+lang/zh/profile.php
+  s_1f43f39fbe0537::t_d43575f5833656 17-18
+app/Livewire/Profile/ProfilePage.php
+  s_1f43f39fbe0537::t_1f6bbb26816e08 10,85-95
+lang/el/profile.php
+  s_1f43f39fbe0537::t_d43575f5833656 17-18
+lang/es/profile.php
+  s_1f43f39fbe0537::t_d43575f5833656 17-18
+lang/lt/profile.php
+  s_1f43f39fbe0537::t_d43575f5833656 17-18
+lang/bs/profile.php
+  s_1f43f39fbe0537::t_d43575f5833656 17-18
+resources/views/livewire/profile/profile-page.blade.php
+  s_1f43f39fbe0537::t_1f6bbb26816e08 142-158
+lang/en/profile.php
+  s_1f43f39fbe0537::t_d43575f5833656 17-18
+app/Queries/Posts/AuthorProcessingVideosQuery.php
+  s_1f43f39fbe0537::t_1f6bbb26816e08 1-38
+lang/nl/profile.php
+  s_1f43f39fbe0537::t_d43575f5833656 17-18
+lang/sq/profile.php
+  s_1f43f39fbe0537::t_d43575f5833656 17-18
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "6ff64fd7131d5dd13961f69cbb090ac0c26dfb97",
+  "prompts": {},
+  "sessions": {
+    "s_1f43f39fbe0537": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "526787d0-f443-4ad7-9610-cf9811fec895",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
