@@ -1053,6 +1053,7 @@ settles them:
 | A processed video's original | `media.lifecycle.video_original_retention_days` (7) after `metadata.processed_at` | the file is deleted; `metadata.original` gives way to `original_deleted_at` |
 | A failed upload's files — original, any master and variants written before it failed | the same period after it failed | the files and variant rows go; the row stays, `metadata.files_removed_at` set, since the draft post that holds it still points at it — and the audit counts no missing master for it |
 | An upload still Processing a day after it arrived (`media.lifecycle.video_stuck_after_hours`) | each run | its job was lost: it fails, unless the processor's own lock (`VideoAssetProcessor::lockFor`) shows a run working on it now, and its author is told (`FinalizePostMediaAction::failed`, once per asset). A worker down or a queue backed up for a few hours delays uploads; it does not fail them |
+| An outcome its author was not told of — ready or failed, its notice unclaimed because it could not be written on the job's last attempt | within `VideoMediaSweeper::UNTOLD_WITHIN_HOURS` (48) of it, each run | the author is told, once per asset; a ready video's draft still waiting is published on the way. A notice that cannot be written again stays unclaimed for the next run |
 
 A file that will not delete fails the run, as it fails `media:purge`.
 

@@ -5,6 +5,7 @@ use App\Enums\MediaStatus;
 use App\Enums\MediaType;
 use App\Enums\MediaVariantName;
 use App\Enums\PostStatus;
+use App\Jobs\ProcessVideoAssetJob;
 use App\Models\MediaAsset;
 use App\Models\MediaVariant;
 use App\Models\Post;
@@ -152,6 +153,51 @@ it('goes on to the next lost upload when a notice cannot be written, leaving its
         ->and($lost->filter(fn (MediaAsset $asset): bool => isset($asset->refresh()->metadata['failure_notified_at']))->count())->toBe(1);
     $notices->assertSentToTimes($author, VideoPostProcessedNotification::class, 1);
     Exceptions::assertReported(RuntimeException::class);
+});
+
+it('tells the author of a failure the job\'s last attempt could not, once, on the next sweep', function () {
+    Exceptions::fake();
+    $author = User::factory()->create();
+    $asset = MediaAsset::factory()->create(['owner_user_id' => $author->id, 'media_type' => MediaType::Video, 'status' => MediaStatus::Processing]);
+    Post::factory()->for($author)->create(['status' => PostStatus::Draft, 'image_asset_id' => $asset->id]);
+    Notification::swap($notices = new class extends NotificationFake
+    {
+        public int $failures = 1;
+
+        public function send($notifiables, $notification)
+        {
+            if ($this->failures-- > 0) {
+                throw new RuntimeException('The notifications table would not take it.');
+            }
+
+            parent::send($notifiables, $notification);
+        }
+    });
+
+    // The last attempt: no attempt follows to retry the notice.
+    (new ProcessVideoAssetJob($asset->id))->failed(new RuntimeException('disk full'));
+    Exceptions::assertReported(fn (RuntimeException $exception): bool => str_contains($exception->getMessage(), 'notifications table'));
+    expect($asset->refresh()->status)->toBe(MediaStatus::Failed)
+        ->and($asset->metadata['failure_notified_at'] ?? null)->toBeNull();
+
+    expect(app(VideoMediaSweeper::class)->tellUntold())->toBe(1)
+        ->and(app(VideoMediaSweeper::class)->tellUntold())->toBe(0);
+    $notices->assertSentToTimes($author, VideoPostProcessedNotification::class, 1);
+});
+
+it('publishes a ready video\'s draft left behind and tells its author, but leaves an outcome older than two days alone', function () {
+    $author = User::factory()->create();
+    $ready = MediaAsset::factory()->create(['owner_user_id' => $author->id, 'media_type' => MediaType::Video, 'status' => MediaStatus::Ready]);
+    $draft = Post::factory()->for($author)->create(['status' => PostStatus::Draft, 'image_asset_id' => $ready->id]);
+    $old = MediaAsset::factory()->create(['owner_user_id' => $author->id, 'media_type' => MediaType::Video, 'status' => MediaStatus::Failed, 'updated_at' => now()->subHours(VideoMediaSweeper::UNTOLD_WITHIN_HOURS + 1)]);
+    Post::factory()->for($author)->create(['status' => PostStatus::Draft, 'image_asset_id' => $old->id]);
+
+    expect(app(VideoMediaSweeper::class)->tellUntold())->toBe(1);
+
+    expect($draft->refresh()->status)->toBe(PostStatus::Published)
+        ->and($ready->refresh()->metadata['ready_notified_at'] ?? null)->not->toBeNull()
+        ->and($old->refresh()->metadata['failure_notified_at'] ?? null)->toBeNull();
+    Notification::assertSentToTimes($author, VideoPostProcessedNotification::class, 1);
 });
 
 it('purges a video\'s kept original with the asset', function () {

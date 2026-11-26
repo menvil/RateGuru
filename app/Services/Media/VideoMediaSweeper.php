@@ -5,7 +5,9 @@ namespace App\Services\Media;
 use App\Actions\Posts\FinalizePostMediaAction;
 use App\Enums\MediaStatus;
 use App\Enums\MediaType;
+use App\Enums\PostStatus;
 use App\Models\MediaAsset;
+use App\Models\Post;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Log;
 use Throwable;
@@ -21,13 +23,20 @@ use Throwable;
  * - an upload still Processing a day after it arrived
  *   (media.lifecycle.video_stuck_after_hours), far past every retry: its job
  *   was lost, so it fails now and its author is told, rather than waiting
- *   for good.
+ *   for good;
+ * - an outcome its author was not told of — the notice could not be
+ *   written on the job's last attempt, when no attempt follows to retry it —
+ *   within UNTOLD_WITHIN_HOURS of it. A ready video's draft that never got
+ *   published is published on the way.
  *
  * Every file goes through MediaStorage; a file already gone is no error.
  */
 final class VideoMediaSweeper
 {
     private const array VIDEO_TYPES = [MediaType::Video, MediaType::Animation];
+
+    /** How far back an untold outcome is still told: news, not history. */
+    public const int UNTOLD_WITHIN_HOURS = 48;
 
     private int $failures = 0;
 
@@ -149,6 +158,39 @@ final class VideoMediaSweeper
             });
 
         return $failed;
+    }
+
+    /**
+     * Tells the authors of what their uploads came to when the job could
+     * not, once per asset: each notice is claimed on its asset, so one the
+     * job sent meanwhile is never sent again.
+     *
+     * @return int the assets whose outcome was settled again
+     */
+    public function tellUntold(): int
+    {
+        $told = 0;
+
+        MediaAsset::query()
+            ->whereIn('media_type', self::VIDEO_TYPES)
+            ->where('updated_at', '>=', now()->subHours(self::UNTOLD_WITHIN_HOURS))
+            ->where(fn ($query) => $query
+                ->where(fn ($failed) => $failed->where('status', MediaStatus::Failed)->whereNull('metadata->failure_notified_at'))
+                ->orWhere(fn ($ready) => $ready->where('status', MediaStatus::Ready)->whereNull('metadata->ready_notified_at')))
+            ->whereIn('id', Post::query()->select('image_asset_id')->whereIn('status', [PostStatus::Draft, PostStatus::Published, PostStatus::Pending]))
+            ->chunkById(200, function ($assets) use (&$told): void {
+                foreach ($assets as $asset) {
+                    try {
+                        $asset->status === MediaStatus::Ready ? $this->finalize->ready($asset) : $this->finalize->failed($asset);
+                        $told++;
+                    } catch (Throwable $exception) {
+                        // Still unclaimed: the next sweep tries again.
+                        report($exception);
+                    }
+                }
+            });
+
+        return $told;
     }
 
     private function retentionCutoff(): CarbonImmutable
