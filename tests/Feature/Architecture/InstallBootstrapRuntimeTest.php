@@ -104,7 +104,7 @@ function bootstrapRuntimeRequiredPackages(): array
     $base = [
         'acl', 'bash', 'bind9-dnsutils', 'ca-certificates', 'certbot', 'coreutils', 'cron', 'curl',
         'diffutils', 'findutils', 'gnupg', 'grep', 'gzip', 'hostname',
-        'iproute2', 'jq', 'libc-bin', 'mawk', 'nginx', 'openssh-server', 'openssl',
+        'iproute2', 'jq', 'libc-bin', 'mawk', 'nftables', 'nginx', 'openssh-server', 'openssl',
         'passwd', 'procps', 'redis-server', 'rsync', 'sed', 'sudo',
         'supervisor', 'tar', 'unzip', 'util-linux', 'xz-utils',
     ];
@@ -141,7 +141,7 @@ function bootstrapRuntimeAllTools(): array
         'apt-get', 'dpkg',
         'setfacl', 'getfacl', 'certbot', 'cron', 'curl', 'cmp', 'diff', 'find',
         'gpg', 'grep', 'gzip', 'hostname', 'ss', 'ip', 'jq', 'dig', 'openssl', 'getent',
-        'awk', 'nginx', 'sshd', 'useradd', 'redis-server',
+        'awk', 'nft', 'nginx', 'sshd', 'useradd', 'redis-server',
         'rsync', 'sed', 'sudo', 'visudo', 'supervisord', 'tar', 'flock',
         'namei', 'runuser', 'xz', 'createdb', 'dropdb',
     ];

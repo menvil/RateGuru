@@ -14,6 +14,8 @@ return [
     'followers' => 'עוקבים',
     'following' => 'במעקב',
     'no_posts' => 'עדיין אין פוסטים שפורסמו',
+    'processing_videos' => 'סרטונים בעיבוד',
+    'processing_video' => 'בעיבוד',
     'no_posts_description' => 'בפרופיל הזה עדיין לא פורסמו פוסטים.',
     'no_activity' => 'עדיין אין פעילות',
     'activity_private' => 'הפעילות בפרופיל הזה פרטית.',

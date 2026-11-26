@@ -14,6 +14,8 @@ return [
     'followers' => 'Följare',
     'following' => 'Följer',
     'no_posts' => 'Inga publicerade inlägg ännu',
+    'processing_videos' => 'Videor som bearbetas',
+    'processing_video' => 'Bearbetas',
     'no_posts_description' => 'Den här användaren har inte publicerat några inlägg ännu.',
     'no_activity' => 'Ingen aktivitet ännu',
     'activity_private' => 'Den här användarens aktivitet är privat.',

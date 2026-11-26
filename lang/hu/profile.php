@@ -14,6 +14,8 @@ return [
     'followers' => 'Követők',
     'following' => 'Követettek',
     'no_posts' => 'Még nincsenek közzétett bejegyzések',
+    'processing_videos' => 'Feldolgozás alatt álló videók',
+    'processing_video' => 'Feldolgozás alatt',
     'no_posts_description' => 'Ez a felhasználó még nem tett közzé bejegyzést.',
     'no_activity' => 'Még nincs tevékenység',
     'activity_private' => 'Ennek a felhasználónak a tevékenysége privát.',

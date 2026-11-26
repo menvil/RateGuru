@@ -37,9 +37,11 @@ use App\Enums\GameEventType;
 use App\Enums\GameFlowStepType;
 use App\Enums\GameStatus;
 use App\Enums\MediaResizeMode;
+use App\Enums\MediaStatus;
 use App\Enums\MediaTool;
 use App\Enums\MediaType;
 use App\Enums\MediaVariantName;
+use App\Enums\PostStatus;
 use App\Enums\ReportStatus;
 use App\Enums\StudioActionStatus;
 use App\Enums\StudioActionType;
@@ -8521,8 +8523,41 @@ function waitForScript(mixed $page, string $expression, mixed $expected = true, 
 
     $outcome = "[{$expression}] did not become ".var_export($expected, true)." within {$timeoutSeconds}s";
 
+    if ($scriptError !== null || $actual !== $expected) {
+        $outcome .= waitForScriptDiagnosis($page);
+    }
+
     expect($scriptError)->toBeNull("{$outcome}: {$scriptError}");
     expect($actual)->toBe($expected, $outcome);
+}
+
+/**
+ * What a page that never reached its state can still tell about itself, for
+ * waitForScript()'s failure: which of the site's scripts and stylesheets never
+ * loaded (watchBrowserJavaScriptErrors() keeps them on the page), and a
+ * screenshot under tests/Browser/Screenshots, which CI uploads when the job
+ * fails. Nothing it reads can hide the failure it explains.
+ */
+function waitForScriptDiagnosis(mixed $page): string
+{
+    $diagnosis = '';
+
+    try {
+        $failed = $page->script("(window.__rgFailedLoads ?? []).join(', ')");
+        $diagnosis .= is_string($failed) && $failed !== '' ? "; never loaded: {$failed}" : '; every script and stylesheet loaded';
+    } catch (Throwable) {
+        $diagnosis .= '; the page could not be read';
+    }
+
+    try {
+        $name = 'wait-'.Str::slug(Str::limit((string) test()->name(), 80, '')).'-'.substr(md5((string) microtime(true)), 0, 6);
+        $page->screenshot(true, $name);
+        $diagnosis .= "; screenshot tests/Browser/Screenshots/{$name}.png";
+    } catch (Throwable) {
+        // A page that cannot be drawn is already said by the failure itself.
+    }
+
+    return $diagnosis;
 }
 
 /**
@@ -8644,6 +8679,21 @@ function watchBrowserJavaScriptErrors(Application $app): ArrayObject
             };
 
             window.addEventListener('error', (event) => report('error', event.message, `${event.filename}:${event.lineno}:${event.colno}`));
+
+            // A script or stylesheet of this site that never loaded — a request
+            // the network dropped — named for what it is: the ReferenceErrors
+            // that follow it would not say which file was missing. A failed
+            // load does not bubble, so it is caught on its way down; it is
+            // also kept on the page for waitForScript() to read when it gives up.
+            window.addEventListener('error', (event) => {
+                const target = event.target;
+                const url = target instanceof HTMLScriptElement ? target.src : (target instanceof HTMLLinkElement && target.rel === 'stylesheet' ? target.href : '');
+
+                if (url !== '' && new URL(url, location.href).origin === location.origin) {
+                    (window.__rgFailedLoads ??= []).push(url);
+                    report('failed load', 'did not load', url);
+                }
+            }, true);
             window.addEventListener('unhandledrejection', (event) => report('unhandledrejection', event.reason?.stack ?? event.reason?.message ?? event.reason, ''));
 
             const consoleError = console.error;
@@ -10315,7 +10365,7 @@ function provisionWriteStubs(string $scratch): void
     // both what was asked and what was never asked.
     foreach ([
         'runtime-installer', 'operations-installer', 'perimeter-installer',
-        'public-storage-installer', 'mail-capture-installer', 'verify-mail-capture',
+        'media-fetch-installer', 'public-storage-installer', 'mail-capture-installer', 'verify-mail-capture',
         'nightwatch-installer', 'mail-signing-installer', 'mail-gateway-installer',
     ] as $child) {
         provisionWriteStub($scratch.'/bin/'.$child, <<<'STUB'
@@ -10563,7 +10613,7 @@ function provisionFixture(string $scratch, array $options = []): array
     // operation did.
     foreach ([
         'runtime-installer', 'operations-installer', 'perimeter-installer',
-        'public-storage-installer', 'mail-capture-installer', 'verify-mail-capture',
+        'media-fetch-installer', 'public-storage-installer', 'mail-capture-installer', 'verify-mail-capture',
         'nightwatch-installer',
     ] as $child) {
         touch($scratch.'/toggles/'.$child.'-compliant');
@@ -10627,6 +10677,7 @@ function provisionFixture(string $scratch, array $options = []): array
         'RATEGURU_BOOTSTRAPSVC_HOSTLAYOUT_INSTALLER_BIN' => $repo.'/infrastructure/scripts/install-bootstrap-host-layout',
         'RATEGURU_BOOTSTRAPSVC_OPERATIONS_INSTALLER_BIN' => $scratch.'/bin/operations-installer',
         'RATEGURU_BOOTSTRAPSVC_PERIMETER_INSTALLER_BIN' => $scratch.'/bin/perimeter-installer',
+        'RATEGURU_BOOTSTRAPSVC_MEDIA_FETCH_INSTALLER_BIN' => $scratch.'/bin/media-fetch-installer',
         'RATEGURU_BOOTSTRAPSVC_PUBLIC_STORAGE_INSTALLER_BIN' => $scratch.'/bin/public-storage-installer',
         'RATEGURU_BOOTSTRAPSVC_NIGHTWATCH_INSTALLER_BIN' => $scratch.'/bin/nightwatch-installer',
         'RATEGURU_BOOTSTRAPSVC_MAIL_CAPTURE_INSTALLER_BIN' => $scratch.'/bin/mail-capture-installer',
@@ -12078,7 +12129,7 @@ function bsvcWriteStubs(string $scratch): void
     // a running apply.
     foreach ([
         'runtime-installer', 'hostlayout-installer', 'operations-installer',
-        'perimeter-installer', 'public-storage-installer', 'mail-capture-installer',
+        'perimeter-installer', 'media-fetch-installer', 'public-storage-installer', 'mail-capture-installer',
         'verify-mail-capture', 'nightwatch-installer', 'mail-signing-installer',
         'mail-gateway-installer',
     ] as $child) {
@@ -12374,7 +12425,7 @@ function bsvcFixture(string $scratch, array $options = []): array
 
         foreach ([
             'runtime-installer', 'hostlayout-installer', 'operations-installer',
-            'perimeter-installer', 'public-storage-installer', 'verify-mail-capture',
+            'perimeter-installer', 'media-fetch-installer', 'public-storage-installer', 'verify-mail-capture',
             'nightwatch-installer', 'mail-signing-installer', 'mail-gateway-installer',
         ] as $child) {
             touch($scratch.'/toggles/'.$child.'-compliant');
@@ -12407,6 +12458,7 @@ function bsvcFixture(string $scratch, array $options = []): array
         'RATEGURU_BOOTSTRAPSVC_HOSTLAYOUT_INSTALLER_BIN' => $scratch.'/bin/hostlayout-installer',
         'RATEGURU_BOOTSTRAPSVC_OPERATIONS_INSTALLER_BIN' => $scratch.'/bin/operations-installer',
         'RATEGURU_BOOTSTRAPSVC_PERIMETER_INSTALLER_BIN' => $scratch.'/bin/perimeter-installer',
+        'RATEGURU_BOOTSTRAPSVC_MEDIA_FETCH_INSTALLER_BIN' => $scratch.'/bin/media-fetch-installer',
         'RATEGURU_BOOTSTRAPSVC_PUBLIC_STORAGE_INSTALLER_BIN' => $scratch.'/bin/public-storage-installer',
         'RATEGURU_BOOTSTRAPSVC_NIGHTWATCH_INSTALLER_BIN' => $scratch.'/bin/nightwatch-installer',
         'RATEGURU_BOOTSTRAPSVC_MAIL_CAPTURE_INSTALLER_BIN' => $scratch.'/bin/mail-capture-installer',
@@ -12953,18 +13005,23 @@ function visitTranslationCenter(string $url, int $width, int $height): mixed
 {
     $page = visit($url)->resize($width, $height);
 
+    // Said by what is not ready yet, so a page that never gets there fails naming it.
     waitForScript($page, <<<'JS'
         (async () => {
             if (! document.querySelector('.rg-admin-translation-center')?._x_dataStack) {
-                return false
+                return 'Alpine has not started the screen'
             }
 
             // A tick asked for now runs after the one init() asked for.
             await Alpine.nextTick()
 
-            return document.querySelector('[x-cloak]') === null && document.fonts.status === 'loaded'
+            if (document.querySelector('[x-cloak]') !== null) {
+                return 'an x-cloak element is still hidden'
+            }
+
+            return document.fonts.status === 'loaded' ? 'ready' : 'the fonts are still loading'
         })()
-    JS);
+    JS, 'ready');
 
     return $page;
 }
@@ -16003,4 +16060,27 @@ function reachedVisits(TrafficSource $source, string $day, int $visits, int $ope
 function accountCreditedKeysMigration(): object
 {
     return require database_path('migrations/2026_11_22_120000_add_credited_keys_to_account_attributions_table.php');
+}
+
+/**
+ * A video post waiting for its media, whose asset is now in $status — a GIF
+ * with MediaType::Animation — with the post's own $attributes on top.
+ *
+ * @return array{0: Post, 1: MediaAsset}
+ */
+function draftVideoPost(User $author, MediaStatus $status, MediaType $type = MediaType::Video, array $attributes = []): array
+{
+    $asset = MediaAsset::factory()->create([
+        'owner_user_id' => $author->id,
+        'media_type' => $type,
+        'status' => $status,
+    ]);
+    $post = Post::factory()->for($author)->create([
+        'status' => PostStatus::Draft,
+        'published_at' => null,
+        'image_asset_id' => $asset->id,
+        ...$attributes,
+    ]);
+
+    return [$post, $asset];
 }

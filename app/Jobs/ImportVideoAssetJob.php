@@ -12,10 +12,14 @@ use App\Services\Media\Exceptions\VideoIngestException;
 use App\Services\Media\MediaStorage;
 use App\Services\Media\StoredVideo;
 use App\Services\Media\VideoIngestPolicy;
+use App\Support\Import\ImportProviderDetector;
 use App\Support\Import\SafeImportHttpClient;
+use App\Support\Import\YtDlp;
+use App\Support\Import\YtDlpSites;
 use App\Support\Media\ImageOrientationClassifier;
 use App\Support\Media\MediaQueue;
 use App\Support\Media\VideoUploadStorer;
+use App\Support\Media\WorkerTemporaryDirectory;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Support\Facades\DB;
@@ -24,9 +28,9 @@ use RuntimeException;
 use Throwable;
 
 /**
- * Fetches the video or animated GIF a post was given by link — a file's, or
- * the one a post on another site carries — into the place its original
- * waits, then hands it to ProcessVideoAssetJob as any upload.
+ * Fetches the video or animated GIF a post was given by link — a file's, the
+ * one a post on X carries, or a page's on one of yt-dlp's sites — then hands
+ * it to ProcessVideoAssetJob as any upload.
  *
  * The download goes through SafeImportHttpClient (every hop validated and
  * pinned, never past the upload limit), then ffprobe and the upload policy
@@ -52,7 +56,7 @@ final class ImportVideoAssetJob implements RunsOnMediaQueue, ShouldQueue
         $this->onConnection(MediaQueue::connection());
     }
 
-    public function handle(SafeImportHttpClient $client, VideoUploadStorer $storer, FinalizePostMediaAction $finalize): void
+    public function handle(SafeImportHttpClient $client, VideoUploadStorer $storer, FinalizePostMediaAction $finalize, ?YtDlp $ytDlp = null, ?YtDlpSites $sites = null): void
     {
         $asset = MediaAsset::query()->find($this->mediaAssetId);
         $url = $asset?->metadata['import']['url'] ?? null;
@@ -78,12 +82,33 @@ final class ImportVideoAssetJob implements RunsOnMediaQueue, ShouldQueue
             return;
         }
 
+        $ytDlp ??= app(YtDlp::class);
+        $sites ??= app(YtDlpSites::class);
+        // A page on one of yt-dlp's sites; a video file's link goes to the
+        // plain download, whatever site serves it.
+        $viaYtDlp = $sites->extractorFor($url) !== null && app(ImportProviderDetector::class)->detect($url) !== 'direct_video';
         $file = self::temporaryFile();
+        $directory = $file.'.d';
 
         try {
-            $client->download($url, VideoIngestPolicy::fromConfig()->maxBytes, $file);
+            if ($viaYtDlp) {
+                // A page on one of yt-dlp's sites: its own extractor finds
+                // the video and downloads it, no larger or longer than an
+                // upload may be.
+                @mkdir($directory, 0o700);
+                $downloaded = $ytDlp->download($url, $directory);
 
-            $stored = $storer->storeFile($file, (string) $asset->original_filename, (int) $asset->owner_user_id);
+                if ($downloaded === null) {
+                    $this->failImport($asset, $finalize, 'The video could not be taken from that page.');
+
+                    return;
+                }
+            } else {
+                $client->download($url, VideoIngestPolicy::fromConfig()->maxBytes, $file);
+                $downloaded = $file;
+            }
+
+            $stored = $storer->storeFile($downloaded, (string) $asset->original_filename, (int) $asset->owner_user_id);
         } catch (ImportFetchException $exception) {
             // The other site may answer next time (a timeout, a 5xx): one more
             // try, then the link is given up on.
@@ -109,6 +134,7 @@ final class ImportVideoAssetJob implements RunsOnMediaQueue, ShouldQueue
             return;
         } finally {
             @unlink($file);
+            exec('rm -rf '.escapeshellarg($directory));
         }
 
         $width = $stored->probe->width;
@@ -184,23 +210,13 @@ final class ImportVideoAssetJob implements RunsOnMediaQueue, ShouldQueue
 
     /**
      * A new, empty file only this user may read (tempnam: created
-     * exclusively, mode 0600), in a directory of its own. A download a timeout
-     * killed mid-way never reached its clean-up, so any file there older than
-     * an hour goes first.
+     * exclusively, mode 0600), in this worker's own directory. A download a
+     * timeout killed mid-way never reached its clean-up, so anything there
+     * older than an hour goes first.
      */
     private static function temporaryFile(): string
     {
-        $directory = sys_get_temp_dir().'/rateguru-video-import';
-
-        if (! is_dir($directory)) {
-            @mkdir($directory, 0o700, true);
-        }
-
-        foreach (glob($directory.'/*') ?: [] as $stale) {
-            if (is_file($stale) && filemtime($stale) < time() - 3600) {
-                @unlink($stale);
-            }
-        }
+        $directory = WorkerTemporaryDirectory::prepare('video-import', 3600);
 
         $file = tempnam($directory, 'download-');
 

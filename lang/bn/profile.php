@@ -14,6 +14,8 @@ return [
     'followers' => 'ফলোয়ার',
     'following' => 'ফলো করছেন',
     'no_posts' => 'এখনো কোনো প্রকাশিত পোস্ট নেই',
+    'processing_videos' => 'প্রক্রিয়াধীন ভিডিও',
+    'processing_video' => 'প্রক্রিয়াধীন',
     'no_posts_description' => 'এই ব্যবহারকারী এখনো কোনো পোস্ট প্রকাশ করেননি।',
     'no_activity' => 'এখনো কোনো কার্যকলাপ নেই',
     'activity_private' => 'এই ব্যবহারকারীর কার্যকলাপ প্রাইভেট।',

@@ -261,3 +261,22 @@ it('lets go of the lock when the asset cannot be read again under it', function 
     expect($lock->get())->toBeTrue();
     $lock->release();
 });
+
+it('sweeps only a run\'s own stale work directory, never the import\'s that shares its prefix', function () {
+    $import = sys_get_temp_dir().'/rateguru-video-import-'.posix_geteuid().'-sweep-test';
+    $run = sys_get_temp_dir().'/rateguru-video-'.Str::uuid()->toString();
+    mkdir($import);
+    mkdir($run);
+    touch($import, time() - 9000);
+    touch($run, time() - 9000);
+
+    try {
+        (new ReflectionMethod(VideoAssetProcessor::class, 'clearStaleWorkDirectories'))->invoke(null);
+
+        expect(is_dir($import))->toBeTrue()
+            ->and(is_dir($run))->toBeFalse();
+    } finally {
+        @rmdir($import);
+        @rmdir($run);
+    }
+});

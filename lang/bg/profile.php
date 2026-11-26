@@ -14,6 +14,8 @@ return [
     'followers' => 'Последователи',
     'following' => 'Следвани',
     'no_posts' => 'Няма публикувани постове',
+    'processing_videos' => 'Видеа в обработка',
+    'processing_video' => 'Обработва се',
     'no_posts_description' => 'Потребителят все още няма публикувани постове.',
     'no_activity' => 'Няма активност',
     'activity_private' => 'Активността на този потребител е скрита.',

@@ -456,14 +456,47 @@ jobs:
       # Korean, Chinese and Hebrew, which Chromium draws as empty boxes without
       # them. So the step stays, but on a short leash. A healthy install takes
       # 14-25 s; a slow mirror has taken 136 and 173 s, on the critical path.
-      # One minute keeps the fonts in every ordinary run and caps a bad one.
+      #
+      # The leash is apt's own deadlines, not the step's. A step cut off by its
+      # timeout-minutes left apt and dpkg running as root into the test step —
+      # the runner's kill does not reach them under sudo — installing fonts and
+      # upgrading Mesa while Chromium ran, and every page that failed to start
+      # (a script that never ran) fell in such a job. So the packages are
+      # downloaded first, under `timeout`, which ends its whole process group,
+      # root's processes included: a download cut short changes nothing on the
+      # runner. Only once everything has arrived is it installed, from the local
+      # archive, with no network and in seconds.
       - name: Install Playwright system dependencies (best effort)
-        timeout-minutes: 1
+        timeout-minutes: 3
         continue-on-error: true
         run: |
           printf 'Acquire::Retries "3";\nAcquire::http::Timeout "15";\n' \
             | sudo tee /etc/apt/apt.conf.d/99-rateguru-ci >/dev/null
-          sudo npx playwright install-deps chromium
+          if ! sudo timeout --kill-after=5s 30s apt-get update -qq; then
+            echo "::warning::apt-get update did not finish in 30 s; the browser tests run without the optional fonts."
+            exit 0
+          fi
+          # What is missing, as Playwright's own simulated install lists it (it exits 1 when anything is).
+          missing=$( (npx playwright install-deps --dry-run chromium || true) | sed -n 's/^  \([^ ]\{1,\}\)$/\1/p' | tr '\n' ' ')
+          if [ -z "${missing// /}" ]; then
+            echo "Every Chromium dependency is installed."
+            exit 0
+          fi
+          echo "To install: ${missing}"
+          if ! sudo timeout --kill-after=5s 60s apt-get install -y -qq --no-install-recommends --download-only ${missing}; then
+            echo "::warning::The optional Chromium packages did not download in 60 s; the browser tests run without them."
+            exit 0
+          fi
+          sudo timeout --kill-after=5s 60s apt-get install -y -qq --no-install-recommends --no-download ${missing}
+
+      # Nothing may still be installing while Chromium runs. If something is,
+      # the warning names it, so a failure below can be traced to it.
+      - name: Check nothing is still installing
+        run: |
+          if pgrep -a -f '(apt-get|dpkg|unattended-upgr|apt\.systemd)'; then
+            echo "::warning::A package install is still running as the browser tests start."
+          fi
+          echo "Fonts known to fontconfig: $(fc-list | wc -l)"
 
       - name: Prepare application
         run: |
@@ -488,6 +521,17 @@ jobs:
         with:
           name: browser-laravel-logs
           path: storage/logs
+          retention-days: 5
+
+      # What the page looked like when a test gave up on it: the plugin's
+      # failed assertions and waitForScript() save one here.
+      - name: Upload browser screenshots on failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: browser-screenshots
+          path: tests/Browser/Screenshots
+          if-no-files-found: ignore
           retention-days: 5
 
   tests-architecture:

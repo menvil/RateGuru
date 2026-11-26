@@ -14,6 +14,8 @@ return [
     'followers' => 'ผู้ติดตาม',
     'following' => 'กำลังติดตาม',
     'no_posts' => 'ยังไม่มีโพสต์ที่เผยแพร่',
+    'processing_videos' => 'วิดีโอที่กำลังประมวลผล',
+    'processing_video' => 'กำลังประมวลผล',
     'no_posts_description' => 'ผู้ใช้นี้ยังไม่ได้เผยแพร่โพสต์ใดๆ',
     'no_activity' => 'ยังไม่มีกิจกรรม',
     'activity_private' => 'กิจกรรมของผู้ใช้นี้เป็นแบบส่วนตัว',

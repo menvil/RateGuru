@@ -139,6 +139,22 @@
         <div class="mt-6" data-testid="profile-tab-content">
             @if($tab === 'posts')
                 <div data-testid="profile-posts-tab">
+                    {{-- The owner's video posts still being processed: not out yet, so not
+                         among the posts, but not lost from view. One that fails leaves here,
+                         and its author hears of it in their notifications. --}}
+                    @if((int) $this->getPage() === 1 && $this->processingVideos->isNotEmpty())
+                        <ul class="mb-4 space-y-2" data-testid="profile-processing-videos" aria-label="{{ __('profile.processing_videos') }}">
+                            @foreach($this->processingVideos as $draft)
+                                <li class="flex items-center gap-3 rounded-rgCard border border-rg-border bg-rg-card px-4 py-3" wire:key="profile-processing-{{ $draft->id }}">
+                                    <div class="min-w-0 flex-1">
+                                        <p {{ \App\Support\Locale\WrittenText::dir($draft->title) }} class="truncate text-sm font-semibold text-rg-text">{{ $draft->title }}</p>
+                                    </div>
+                                    <x-ui.badge variant="accent" size="sm">{{ __('profile.processing_video') }}</x-ui.badge>
+                                </li>
+                            @endforeach
+                        </ul>
+                    @endif
+
                     @if($this->posts->isEmpty())
                         <x-ui.empty-state
                             :title="__('profile.no_posts')"

@@ -25,6 +25,7 @@ use App\Support\Import\ImportProviderDetector;
 use App\Support\Import\ImportTransportResponse;
 use App\Support\Import\SafeImportHttpClient;
 use App\Support\Media\VideoUploadStorer;
+use App\Support\Media\WorkerTemporaryDirectory;
 use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
@@ -255,7 +256,7 @@ it('downloads into a file only its user may read, and leaves nothing behind', fu
         },
     ]));
     bindRecordingMediaToolRunner([acceptableFfprobeResult()]);
-    $directory = sys_get_temp_dir().'/rateguru-video-import';
+    $directory = WorkerTemporaryDirectory::path('video-import');
 
     (new ImportVideoAssetJob((int) $post->image_asset_id))->handle(app(SafeImportHttpClient::class), app(VideoUploadStorer::class), app(FinalizePostMediaAction::class));
 

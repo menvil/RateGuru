@@ -14,6 +14,8 @@ return [
     'followers' => 'فالوورز',
     'following' => 'فالوئنگ',
     'no_posts' => 'ابھی کوئی شائع شدہ پوسٹ نہیں',
+    'processing_videos' => 'زیرِ عمل ویڈیوز',
+    'processing_video' => 'زیرِ عمل',
     'no_posts_description' => 'اس صارف نے ابھی تک کوئی پوسٹ شائع نہیں کی۔',
     'no_activity' => 'ابھی کوئی سرگرمی نہیں',
     'activity_private' => 'اس صارف کی سرگرمی نجی ہے۔',

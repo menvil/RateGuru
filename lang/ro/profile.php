@@ -14,6 +14,8 @@ return [
     'followers' => 'Urmăritori',
     'following' => 'Urmăriri',
     'no_posts' => 'Nicio postare publicată încă',
+    'processing_videos' => 'Videoclipuri în procesare',
+    'processing_video' => 'În procesare',
     'no_posts_description' => 'Acest utilizator nu a publicat încă nicio postare.',
     'no_activity' => 'Nicio activitate încă',
     'activity_private' => 'Activitatea acestui utilizator este privată.',

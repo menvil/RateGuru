@@ -23,6 +23,8 @@ use App\Services\Media\MediaAssetInspection;
 use App\Services\Media\MediaAssetInspector;
 use App\Services\Media\MediaHealthResolver;
 use App\Services\Media\MediaLifecycleService;
+use App\Support\Import\YtDlpSiteCheck;
+use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
 use Filament\Pages\Page;
 use Filament\Support\Enums\Width;
@@ -538,7 +540,44 @@ final class MediaDiagnosticsPage extends Page
             ['label' => 'Purgeable assets', 'value' => number_format((int) $run?->purgeable_assets), 'note' => 'Past their grace period', 'badge' => null, 'filter' => $type(MediaAuditIssueType::PurgeableAsset)],
             ['label' => 'Physical orphan candidates', 'value' => number_format((int) $run?->physical_orphan_candidates), 'note' => 'Files with no record', 'badge' => null, 'filter' => $type(MediaAuditIssueType::PhysicalOrphanCandidate)],
             ['label' => 'Videos stuck processing', 'value' => number_format($totals['stuck_videos']), 'note' => 'Past every retry; delayed or lost', 'badge' => $totals['stuck_videos'] > 0 ? ['label' => 'Warning', 'tone' => 'warning'] : null, 'filter' => null],
+            self::ytDlpTile(),
             ['label' => 'Failed media jobs', 'value' => number_format(count($jobs)), 'note' => $jobs !== [] ? 'Last failure '.ModerationListFormat::when($jobs[0]->failedAt) : 'Queue healthy', 'badge' => $jobs !== [] ? ['label' => 'Failed', 'tone' => 'danger'] : null, 'filter' => null],
+        ];
+    }
+
+    /**
+     * The daily yt-dlp check's last word on each site it may import from.
+     *
+     * @return array{label: string, value: string, note: string, badge: ?array{label: string, tone: string}, filter: null}
+     */
+    private static function ytDlpTile(): array
+    {
+        $results = YtDlpSiteCheck::results();
+        $broken = array_keys(array_filter($results, fn (array $result): bool => $result['status'] === 'broken'));
+        $working = count(array_filter($results, fn (array $result): bool => $result['status'] === 'ok'));
+        // A site with nothing recent to ask about is named too, with how it
+        // last fared when it had: its last result is never hidden.
+        $unchecked = array_map(
+            fn (string $site): string => $results[$site]['failures'] > 0 ? "{$site} (failing before)" : $site,
+            array_keys(array_filter($results, fn (array $result): bool => $result['status'] === 'no_sample')),
+        );
+        $reported = array_filter($results, fn (array $result): bool => YtDlpSiteCheck::reported($result)) !== [];
+        $checked = collect($results)->pluck('checked_at')->filter()->max();
+
+        return [
+            'label' => 'yt-dlp sites',
+            'value' => match (true) {
+                $results === [] => 'Not checked',
+                count($unchecked) === count($results) => 'Nothing to check',
+                default => number_format($working).' working',
+            },
+            'note' => $results === [] ? 'Checked daily' : implode(' · ', array_filter([
+                $broken === [] ? null : 'Taking nothing: '.implode(', ', $broken),
+                $unchecked === [] ? null : 'No recent imports: '.implode(', ', $unchecked),
+                $broken === [] ? 'Checked '.ModerationListFormat::when(CarbonImmutable::parse((string) $checked)) : null,
+            ])),
+            'badge' => $broken === [] ? null : ($reported ? ['label' => 'Broken', 'tone' => 'danger'] : ['label' => 'Failing', 'tone' => 'warning']),
+            'filter' => null,
         ];
     }
 
