@@ -49,10 +49,12 @@
 #                                — never the agent itself, which stays opt-in
 #   install-target-perimeter     owns the generic sudo wrappers, sudoers and
 #                                the backup cron;
-#   install-media-fetch-isolation owns the account yt-dlp runs as, the sudo
-#                                rule that lets each target run yt-dlp as it,
-#                                and the nftables table that keeps it off this
-#                                host's own network;
+#   install-media-fetch-isolation owns the account each target's yt-dlp
+#                                runs as, the sudo rule that lets each target
+#                                run yt-dlp as its own, and the nftables table
+#                                that keeps them off this host's own network
+#                                (host run only; a target-scoped run never
+#                                touches it);
 #   install-public-storage-access owns the narrow www-data POSIX ACL on
 #                                shared and shared/storage;
 #   install-mail-capture         owns Mailpit/Mailtrap Local end to end
@@ -2135,8 +2137,10 @@ report_child_contracts() {
 
     # Host-wide children, converged here through their own --apply.
     #
-    # A target-scoped run reports NEITHER of them, and the reason is a
-    # dependency that only becomes visible from inside a repair:
+    # A target-scoped run reports none of them. For yt-dlp's isolation the
+    # reason is plain: it belongs to every target at once. For the operations
+    # bundle and the perimeter, the reason is a dependency that only becomes
+    # visible from inside a repair:
     # install-target-operations --verify runs the application health check on
     # a DEPLOYED target and fails when the site does not answer. A broken
     # Nginx vhost or PHP-FPM pool is exactly the damage a target repair exists
@@ -2156,8 +2160,14 @@ report_child_contracts() {
             "generic sudo wrappers, sudoers, backup cron, legacy-wrapper absence" \
             "${PERIMETER_INSTALLER_BIN}" --verify
 
+        # "Not installed yet" and "could never be installed" are different
+        # answers: the plan is asked separately in --check.
+        if [[ "${MODE}" == check ]]; then
+            report_media_fetch_plan
+        fi
+
         report_child_state "media-fetch:install-media-fetch-isolation" \
-            "yt-dlp's account, its sudo rule and the table keeping it off this host's network" \
+            "yt-dlp's accounts, their sudo rule and the table keeping them off this host's network" \
             "${MEDIA_FETCH_INSTALLER_BIN}" --verify
     fi
 
@@ -2232,6 +2242,25 @@ report_mail_signing_plan() {
     else
         item CONFLICT "mail-signing:plan" "install-mail-signing --check refuses (an invalid identity, an unusable key, or an OpenDKIM RateGuru does not own)" \
             "run install-mail-signing --check for the reason; --apply never takes over an existing signer or re-permissions an unknown key"
+    fi
+}
+
+# report_media_fetch_plan — whether --apply could converge yt-dlp's isolation
+# at all: the host resolves through the stub its table allows, and no account
+# of those names RateGuru did not create is in the way. A failure is a
+# CONFLICT in every mode: no apply resolves it.
+report_media_fetch_plan() {
+    if [[ ! -x "${MEDIA_FETCH_INSTALLER_BIN}" ]]; then
+        item CONFLICT "media-fetch:plan" "not executable: ${MEDIA_FETCH_INSTALLER_BIN}" \
+            "run from a full repository checkout"
+        return 0
+    fi
+
+    if "${MEDIA_FETCH_INSTALLER_BIN}" --check >/dev/null 2>&1; then
+        item PASS "media-fetch:plan" "install-media-fetch-isolation --check: yt-dlp's isolation can be converged"
+    else
+        item CONFLICT "media-fetch:plan" "install-media-fetch-isolation --check refuses (a resolver other than 127.0.0.53, or an account of its names RateGuru did not create)" \
+            "run install-media-fetch-isolation --check for the reason; --apply never takes over an account it did not create"
     fi
 }
 
@@ -3528,6 +3557,19 @@ apply_gate_mail_gateway() {
         || fail "install-mail-gateway --check refuses (run it for the reason; a production target crossing between held and outbound is activate-mail-outbound's alone) — nothing was changed"
 }
 
+# apply_gate_media_fetch — host scope, before the first mutation: a host that
+# does not resolve through the stub, or an account of its names RateGuru did
+# not create, would stop the run partway; it stops it here, with nothing changed.
+apply_gate_media_fetch() {
+    target_scoped && return 0
+
+    [[ -x "${MEDIA_FETCH_INSTALLER_BIN}" ]] \
+        || fail "install-media-fetch-isolation is not executable: ${MEDIA_FETCH_INSTALLER_BIN} — run from a full repository checkout"
+
+    "${MEDIA_FETCH_INSTALLER_BIN}" --check >/dev/null 2>&1 \
+        || fail "install-media-fetch-isolation --check refuses (run it for the reason) — nothing was changed"
+}
+
 # --- Apply --------------------------------------------------------------------
 
 # apply_gate_prerequisites — the authoritative earlier-slice verifies, never
@@ -3674,6 +3716,7 @@ perform_apply() {
     # same reason.
     apply_gate_mail_signing
     apply_gate_mail_gateway
+    apply_gate_media_fetch
 
     # Destination safety.
     apply_gate_destinations

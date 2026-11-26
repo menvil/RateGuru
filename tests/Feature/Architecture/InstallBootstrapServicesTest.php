@@ -264,6 +264,9 @@ it('converges a clean PRE_DEPLOY host end to end: files, link, log directory, ch
             'operations-installer --apply',
             'perimeter-installer --verify',
             'perimeter-installer --apply',
+            // yt-dlp's isolation: host-wide, after the perimeter.
+            'media-fetch-installer --verify',
+            'media-fetch-installer --apply',
             'public-storage-installer --verify --target staging-main',
             'public-storage-installer --apply --target staging-main',
             'nightwatch-installer --verify-deployment-marker --target staging-main',
@@ -1648,12 +1651,14 @@ it('is not blocked by a host-wide family whose verify depends on the target bein
         // has to be healthy before it can be made healthy.
         @unlink($scratch.'/toggles/operations-installer-compliant');
         @unlink($scratch.'/toggles/perimeter-installer-compliant');
+        @unlink($scratch.'/toggles/media-fetch-installer-compliant');
 
         [$checkExit, $checkOutput] = bsvcRun(['--check', '--target', 'staging-main'], $env);
 
         expect($checkExit)->toBe(0, "a stale host-wide family must not fail a target-scoped check:\n{$checkOutput}");
         expect($checkOutput)->not->toContain('operations:install-target-operations');
         expect($checkOutput)->not->toContain('perimeter:install-target-perimeter');
+        expect($checkOutput)->not->toContain('media-fetch:');
 
         [$applyExit, $applyOutput] = bsvcRun(['--apply', '--target', 'staging-main'], $env);
 
@@ -1662,6 +1667,8 @@ it('is not blocked by a host-wide family whose verify depends on the target bein
         // And it is never converged either — it stays the host bootstrap's.
         expect(bsvcLog($scratch, 'children.log'))->not->toContain('operations-installer --apply');
         expect(bsvcLog($scratch, 'children.log'))->not->toContain('perimeter-installer --apply');
+        // yt-dlp's isolation belongs to every target at once: never asked at all.
+        expect(bsvcLog($scratch, 'children.log'))->not->toContain('media-fetch-installer');
 
         // Host mode still owns and converges both.
         foreach (glob($scratch.'/log/*') ?: [] as $log) {
@@ -1673,6 +1680,28 @@ it('is not blocked by a host-wide family whose verify depends on the target bein
         expect($hostExit)->toBe(0, $hostOutput);
         expect(bsvcLog($scratch, 'children.log'))->toContain('operations-installer --apply');
         expect(bsvcLog($scratch, 'children.log'))->toContain('perimeter-installer --apply');
+        expect(bsvcLog($scratch, 'children.log'))->toContain('media-fetch-installer --apply');
+    } finally {
+        bsvcCleanup($scratch);
+    }
+});
+
+it('stops before the first change when yt-dlp\'s isolation could never be converged, and says so in --check', function () {
+    $scratch = bsvcScratchDir();
+
+    try {
+        $env = bsvcFixture($scratch, ['profile' => 'compliant']);
+        @unlink($scratch.'/toggles/media-fetch-installer-compliant');
+        touch($scratch.'/toggles/media-fetch-installer-check-fail');
+
+        [$checkExit, $checkOutput] = bsvcRun(['--check'], $env);
+        expect($checkExit)->not->toBe(0)
+            ->and($checkOutput)->toContain('media-fetch:plan')->toContain('install-media-fetch-isolation --check refuses');
+
+        [$applyExit, $applyOutput] = bsvcRun(['--apply'], $env);
+        expect($applyExit)->not->toBe(0)
+            ->and($applyOutput)->toContain('install-media-fetch-isolation --check refuses (run it for the reason) — nothing was changed')
+            ->and(bsvcLog($scratch, 'children.log'))->not->toContain('-installer --apply');
     } finally {
         bsvcCleanup($scratch);
     }

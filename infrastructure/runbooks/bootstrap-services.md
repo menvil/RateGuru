@@ -42,7 +42,7 @@ installer's logic:
 | `install-bootstrap-services` | Phase 5.4 coordination + the directly-owned service configs below |
 | `install-target-operations` | `/home/www/rateguru/config/deployment-targets.json`, `deployment.conf`, the operational bundle under `/home/www/rateguru/bin` |
 | `install-target-perimeter` | generic deploy/rollback/cleanup wrappers, sudoers, backup cron, legacy-wrapper absence |
-| `install-media-fetch-isolation` | the account yt-dlp runs as, its sudo rule, and the nftables table that keeps it off this host's network (bootstrap-host.md, "Media fetch isolation") |
+| `install-media-fetch-isolation` | the account each target's yt-dlp runs as, the sudo rule, and the nftables table that keeps them off this host's network (bootstrap-host.md, "Media fetch isolation"); its `--check` is a gate before the first change |
 | `install-public-storage-access` | the narrow `user:www-data:--x` POSIX ACL on `shared` and `shared/storage` (active targets only) |
 | `install-mail-capture` (+ `verify-mail-capture --read-only`) | Mailpit/Mailtrap Local end to end: users, state, units, pinned binaries, their Nginx vhosts — a shared-host-service, never per-target |
 | `install-mail-signing` (`--check` / `--verify`) | the host-global DKIM signer end to end: the `opendkim` package, `/etc/opendkim.conf` and its KeyTable, SigningTable and TrustedHosts rendered from the reviewed signing plan, the service, its ownership marker and the signer's read access to each reviewed key (metadata only) — host scope only, never per-target, and a no-op with no reviewed signing identity; see [`mail-signing.md`](mail-signing.md) |
@@ -287,7 +287,7 @@ generalized in Phase 8.
 6. `install-target-operations` (verify → skip | apply)
 7. `install-target-perimeter` (verify → skip | apply; strictly after the
    operations bundle it validates)
-7a. `install-media-fetch-isolation` (verify → skip | apply; host run only)
+7a. `install-media-fetch-isolation` (verify → skip | apply; host run only; a target-scoped run never asks it)
 8. SSH restriction (install → `sshd -t` → reload only if changed)
 9. PHP-FPM pool (install → config test → enable/start → reload only if
    needed → socket verification) — healthy before Nginx runtime

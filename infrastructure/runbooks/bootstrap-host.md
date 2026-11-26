@@ -1112,33 +1112,52 @@ the real staging acceptance sequence.
 ### Media fetch isolation
 
 `install-media-fetch-isolation`, a child of `install-bootstrap-services` in
-the host run, installs the account yt-dlp runs as and what keeps it off the
-host's own network. A target-scoped repair only verifies it.
+the host run, installs the account each target's yt-dlp runs as, and what
+keeps those accounts off the host's own network. A target-scoped repair
+never touches it.
 
 | What | Where | Held to |
 |---|---|---|
-| `rateguru-media-fetch` | a system account | no password, home (`/nonexistent`) or shell (`/usr/sbin/nologin`); an account of that name RateGuru did not create is never taken over |
-| the sudo rule | `/etc/sudoers.d/rateguru-media-fetch`, root:root 0440 | each active target's runtime user may run `/usr/local/bin/yt-dlp` as the account, nothing else; rendered from the registry, checked by `visudo -cqf` |
-| the table | `/etc/rateguru/media-fetch.nft`, root:root 0644 | `inet rateguru_media_fetch`: the account's traffic to every loopback, private, link-local and reserved address, IPv4 and IPv6, is rejected; its resolver, `127.0.0.53:53`, is allowed. Checked by `nft -c -f` |
-| the unit | `rateguru-media-fetch-firewall.service`, enabled | loads the table at boot, before the network |
+| `<runtime user>-fetch` (`rateguru-staging-fetch`, `rateguru-tits-guru-fetch`) | one system account per active target | no password, home (`/nonexistent`) or shell (`/usr/sbin/nologin`); one per target, so one target's yt-dlp never reaches another's downloads; an account of those names RateGuru did not create is never taken over |
+| the sudo rule | `/etc/sudoers.d/rateguru-media-fetch`, root:root 0440 | each active target's runtime user may run `/usr/local/bin/yt-dlp` as its own account, nothing else; rendered from the registry, checked by `visudo -cqf` |
+| the table | `/etc/rateguru/media-fetch.nft`, root:root 0644 | `inet rateguru_media_fetch`: the accounts may reach their resolver, `127.0.0.53:53`. Everything else on this host is refused: its own addresses (`fib daddr type local`), and every loopback, private, link-local and reserved address, IPv4 and IPv6. Checked by `nft -c -f` |
+| the unit | `rateguru-media-fetch-firewall.service`, enabled | loads the table at boot, early and without the default dependencies, as ufw's own unit does, so it never closes an ordering cycle with cloud-init. While the table is loaded it keeps the marker `/run/rateguru-media-fetch.armed` |
 
 What it never touches:
 - **The rest of the ruleset.** The table replaces only itself, so ufw's
   tables stay as they are.
-- **The distribution's `nftables.service`.** It is never enabled: its
-  `/etc/nftables.conf` flushes the whole ruleset.
+- **The distribution's `nftables.service`.** It is never enabled, and
+  `--verify` fails while it is: its `/etc/nftables.conf` flushes the whole
+  ruleset.
 
-`--apply` refuses a host whose `/etc/resolv.conf` names anything but
-`127.0.0.53`, since the account could not resolve there. It loads the table
-before it installs the sudo rule. If the table will not load, it puts back
-what it replaced.
+How `--apply` and `--verify` behave:
+- Every mode needs root.
+- `--apply` refuses a host whose `/etc/resolv.conf` names anything but
+  `127.0.0.53`, since the accounts could not resolve there.
+- `install-bootstrap-services` asks for that refusal, and for a foreign
+  account, before its first change.
+- `--apply` loads the table before it installs the sudo rule.
+- If the table will not load, it puts back what it replaced, loaded and
+  enabled as it was. A unit it enabled is disabled again.
+- It never re-permissions a directory that exists (`/etc/sudoers.d` stays
+  0750).
 
-The application uses the account wherever it exists
-(`import.ytdlp.isolation_user`):
-- it starts yt-dlp with `sudo -n -u rateguru-media-fetch -- /usr/local/bin/yt-dlp`;
-- it opens each download's directory to the account by ACL for the run.
+The application uses a target's account wherever it exists, and only while
+the marker is there (`import.ytdlp.isolation_suffix`,
+`import.ytdlp.isolation_marker`):
+- it starts yt-dlp with `sudo -n -u <runtime user>-fetch -- /usr/local/bin/yt-dlp`;
+- it opens each download's directory to that account by ACL for the run and
+  closes it after;
+- it stores a copy of the plain file the account wrote, never a link.
 
-**Container rehearsal (2026-11-26, Ubuntu 22.04, nftables 1.0.2, sudo 1.9.9, ufw enabled):**
+After the first Prepare host run, check the boot once:
+- `systemd-analyze verify rateguru-media-fetch-firewall.service` should
+  report nothing;
+- after a reboot, `journalctl -b | grep -i "ordering cycle"` should stay
+  empty;
+- `ls /run/rateguru-media-fetch.armed` should show the marker.
+
+**Container rehearsal (2026-11-26, Ubuntu 22.04, nftables 1.0.2, sudo 1.9.9, ufw enabled), first with a single account:**
 - `--apply` then `--verify`: pass=7, exit 0. `nft list tables` showed ufw's
   `ip filter` and `ip6 filter`, plus `inet rateguru_media_fetch`.
 - **As the account:**
