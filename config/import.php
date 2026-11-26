@@ -37,6 +37,11 @@ return [
         // is a video, so finding none is a failure, said as one — never a
         // poster frame posted in its place.
         'photo_fallback' => ['Instagram'],
+        // The account yt-dlp runs as where the host has it: kept off every
+        // loopback, private and link-local address by the host's firewall
+        // (install-media-fetch-isolation). Where it does not exist, yt-dlp
+        // runs as the worker.
+        'isolation_user' => 'rateguru-media-fetch',
     ],
     'max_redirects' => 3,
 

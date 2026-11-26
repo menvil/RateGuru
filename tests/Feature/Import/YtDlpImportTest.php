@@ -16,6 +16,7 @@ use App\Services\Media\MediaToolResult;
 use App\Services\Media\MediaToolRunner;
 use App\Support\Import\SafeImportHttpClient;
 use App\Support\Import\YtDlp;
+use App\Support\Import\YtDlpIsolation;
 use App\Support\Import\YtDlpSites;
 use App\Support\Media\VideoUploadStorer;
 use Illuminate\Http\UploadedFile;
@@ -267,4 +268,50 @@ it('says a video-only site\'s page gave nothing, rather than posting its poster,
         ->assertSet('submitError', null);
 
     Queue::assertNotPushed(ImportVideoAssetJob::class);
+});
+
+it('runs yt-dlp as its own account through sudo where the host has it, and as the worker where it does not', function () {
+    config(['import.ytdlp.isolation_user' => 'rateguru-media-fetch']);
+
+    expect((new YtDlpIsolation(fn (string $name): bool => $name === 'rateguru-media-fetch'))->command('/usr/local/bin/yt-dlp'))
+        ->toBe(['/usr/bin/sudo', '-n', '-u', 'rateguru-media-fetch', '--', '/usr/local/bin/yt-dlp'])
+        ->and((new YtDlpIsolation(fn (): bool => false))->command('/usr/local/bin/yt-dlp'))->toBe(['/usr/local/bin/yt-dlp']);
+
+    config(['import.ytdlp.isolation_user' => '']);
+    expect((new YtDlpIsolation(fn (): bool => true))->command('yt-dlp'))->toBe(['yt-dlp']);
+});
+
+it('opens the download directory to yt-dlp\'s account for the run, and refuses to go on when it cannot', function () {
+    config(['import.ytdlp.isolation_user' => 'rateguru-media-fetch']);
+    $calls = [];
+    $isolation = new YtDlpIsolation(fn (): bool => true, function (array $arguments) use (&$calls): bool {
+        $calls[] = $arguments;
+
+        return true;
+    });
+    $worker = posix_getpwuid(posix_geteuid())['name'];
+
+    $isolation->share('/tmp/rateguru-video-import-1000/download-abc.d');
+
+    expect($calls)->toBe([
+        ['-m', 'u:rateguru-media-fetch:x', '/tmp/rateguru-video-import-1000'],
+        ['-m', "u:rateguru-media-fetch:rwx,d:u:rateguru-media-fetch:rwx,d:u:{$worker}:rwx", '/tmp/rateguru-video-import-1000/download-abc.d'],
+    ]);
+
+    $refusing = new YtDlpIsolation(fn (): bool => true, fn (): bool => false);
+    expect(fn () => $refusing->share('/tmp/x/download.d'))->toThrow(RuntimeException::class);
+
+    // Without the account, nothing is opened.
+    $calls = [];
+    (new YtDlpIsolation(fn (): bool => false, function (array $arguments) use (&$calls): bool {
+        $calls[] = $arguments;
+
+        return true;
+    }))->share('/tmp/x/download.d');
+    expect($calls)->toBe([]);
+});
+
+it('tells sudo refusing yt-dlp from yt-dlp failing on a page', function () {
+    expect(YtDlpIsolation::refused("sudo: a password is required\n"))->toBeTrue()
+        ->and(YtDlpIsolation::refused('ERROR: [RedGifs] aloop: Unable to extract'))->toBeFalse();
 });

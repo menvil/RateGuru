@@ -18,6 +18,7 @@ final class YtDlp
     public function __construct(
         private readonly MediaToolRunner $runner,
         private readonly YtDlpSites $sites,
+        private readonly YtDlpIsolation $isolation,
     ) {}
 
     /**
@@ -71,6 +72,10 @@ final class YtDlp
 
         $maxMegabytes = intdiv((int) config('uploads.videos.max_kilobytes'), 1024);
         $maxSeconds = (int) config('uploads.videos.max_duration_seconds');
+
+        // Where yt-dlp runs as its own account, it may write here, and only
+        // here, for this run.
+        $this->isolation->share($directory);
 
         $result = $this->runner->run(MediaTool::YtDlp, [
             ...$this->baseOptions($extractor),

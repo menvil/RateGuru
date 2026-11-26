@@ -589,8 +589,26 @@ extractor (`--use-extractors`): its generic extractor, which would open any
 address — an internal one included — is never among them. The link must be
 https and a public address first (`UrlImportValidator`). Every run ignores
 user and system configuration, plugins and the cache, takes one video (no
-playlist), and gets the link after `--`. Restricting yt-dlp's network at the
-operating-system level comes on top of this.
+playlist), and gets the link after `--`.
+
+What is left is a listed site answering with an internal address. On a host
+prepared for it, yt-dlp therefore runs as an account of its own,
+`rateguru-media-fetch` (`import.ytdlp.isolation_user`, `YtDlpIsolation`):
+- **How it starts:** `sudo -n -u rateguru-media-fetch -- /usr/local/bin/yt-dlp …`,
+  through the one sudo rule that lets each target's runtime user run yt-dlp
+  as that account and nothing else.
+- **Its network:** the host's firewall keeps the account off every loopback,
+  private and link-local address, its resolver aside.
+- **Its files:** a download's directory, inside the worker's own, is opened
+  to the account by ACL for the run, and what it writes stays the worker's
+  to read and remove.
+- **A refused run:** sudo refusing it (the rule missing) is reported as
+  yt-dlp being unavailable, never taken for a page without a video.
+- **Where the account does not exist** (development, tests, a host not yet
+  prepared): yt-dlp runs as the worker, as before.
+
+The account, the rule and the firewall table are installed with the host
+(`install-media-fetch-isolation`).
 
 How the draft and its processing state appear to its author come later.
 
