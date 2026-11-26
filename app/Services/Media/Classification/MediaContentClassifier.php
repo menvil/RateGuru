@@ -9,10 +9,10 @@ namespace App\Services\Media\Classification;
  */
 interface MediaContentClassifier
 {
-    /** A short stable name, as results record it (e.g. "aws-rekognition", "nudenet"). */
+    /** A short stable name, as results record it (e.g. "aws-rekognition", "nudenet"); kept to 64 characters. */
     public function name(): string;
 
-    /** The model or API version answering, as results record it. */
+    /** The model or API version answering, as results record it; kept to 64 characters. */
     public function modelVersion(): ?string;
 
     /**

@@ -187,3 +187,37 @@ it('drops a classification with its asset', function () {
 
     expect(MediaClassification::query()->count())->toBe(0);
 });
+
+it('keeps a classifier\'s name and version to what their columns hold, and notes an answer that throws as it is encoded', function () {
+    $asset = MediaAsset::factory()->create();
+    $verbose = new class implements MediaContentClassifier
+    {
+        public function name(): string
+        {
+            return str_repeat('n', 80);
+        }
+
+        public function modelVersion(): ?string
+        {
+            return str_repeat('v', 80);
+        }
+
+        public function classify(ClassificationInput $input): ClassificationResult
+        {
+            return new ClassificationResult(['sex_toy' => 0.2], raw: ['part' => new class implements JsonSerializable
+            {
+                public function jsonSerialize(): mixed
+                {
+                    throw new RuntimeException('cannot say');
+                }
+            }]);
+        }
+    };
+
+    $record = app(MediaClassificationRecorder::class)->record($asset, $verbose, new ClassificationInput([]), ClassificationMode::Shadow)->refresh();
+
+    expect(mb_strlen($record->classifier))->toBe(64)
+        ->and(mb_strlen((string) $record->model_version))->toBe(64)
+        ->and($record->raw)->toBe(['unencodable' => true])
+        ->and($record->scores)->toEqual(['sex_toy' => 0.2]);
+});

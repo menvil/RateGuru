@@ -7,7 +7,6 @@ use App\Enums\ClassificationStatus;
 use App\Enums\ContentCategory;
 use App\Models\MediaAsset;
 use App\Models\MediaClassification;
-use JsonException;
 use Throwable;
 
 /**
@@ -37,8 +36,8 @@ final class MediaClassificationRecorder
 
             return MediaClassification::query()->create([
                 'media_asset_id' => $asset->id,
-                'classifier' => $classifier->name(),
-                'model_version' => $classifier->modelVersion(),
+                'classifier' => self::bounded($classifier->name()),
+                'model_version' => self::bounded($classifier->modelVersion()),
                 'mode' => $mode,
                 'status' => ClassificationStatus::Failed,
                 'inputs' => $inputs,
@@ -49,8 +48,8 @@ final class MediaClassificationRecorder
 
         return MediaClassification::query()->create([
             'media_asset_id' => $asset->id,
-            'classifier' => $classifier->name(),
-            'model_version' => $classifier->modelVersion(),
+            'classifier' => self::bounded($classifier->name()),
+            'model_version' => self::bounded($classifier->modelVersion()),
             'mode' => $mode,
             'status' => ClassificationStatus::Succeeded,
             'inputs' => $inputs,
@@ -100,9 +99,11 @@ final class MediaClassificationRecorder
             return null;
         }
 
+        // Any failure to encode — malformed numbers, or a JsonSerializable
+        // in it that throws — leaves a note, never an unrecorded answer.
         try {
             $json = json_encode($raw, JSON_THROW_ON_ERROR | JSON_INVALID_UTF8_SUBSTITUTE | JSON_PRESERVE_ZERO_FRACTION);
-        } catch (JsonException) {
+        } catch (Throwable) {
             return ['unencodable' => true];
         }
 
@@ -126,6 +127,12 @@ final class MediaClassificationRecorder
         $class = $exception::class;
 
         return str_contains($class, '@anonymous') ? (get_parent_class($exception) ?: 'anonymous') : $class;
+    }
+
+    /** A name or version as its column holds it: at most 64 characters. */
+    private static function bounded(?string $value): ?string
+    {
+        return $value === null ? null : mb_substr($value, 0, 64);
     }
 
     private static function millisecondsSince(int|float $started): int
