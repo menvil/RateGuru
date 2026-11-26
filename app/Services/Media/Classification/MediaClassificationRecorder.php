@@ -73,8 +73,8 @@ final class MediaClassificationRecorder
     {
         return MediaClassification::query()->create([
             'media_asset_id' => $asset->id,
-            'classifier' => $classifier->name(),
-            'model_version' => $classifier->modelVersion(),
+            'classifier' => self::bounded($classifier->name()),
+            'model_version' => self::bounded($classifier->modelVersion()),
             'mode' => $mode,
             'status' => ClassificationStatus::Failed,
             'inputs' => ['frames' => []],
