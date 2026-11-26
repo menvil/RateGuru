@@ -65,6 +65,7 @@ return [
         'video_sound_on' => 'Ativar som',
         'video_sound_off' => 'Desativar som',
         'video_open' => 'Abrir vídeo em tela cheia',
+        'video_play' => 'Reproduzir vídeo',
         'image_preview' => 'Pré-visualização da imagem',
         'unavailable' => 'Esta publicação não está mais disponível.',
         'not_found_title' => 'Publicação não encontrada',

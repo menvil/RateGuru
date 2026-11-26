@@ -65,6 +65,7 @@ return [
         'video_sound_on' => '音声をオン',
         'video_sound_off' => '音声をオフ',
         'video_open' => '動画を全画面で開く',
+        'video_play' => '動画を再生',
         'image_preview' => '画像のプレビュー',
         'unavailable' => 'この投稿は表示できなくなりました。',
         'not_found_title' => '投稿が見つかりません',

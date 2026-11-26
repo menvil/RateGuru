@@ -65,6 +65,7 @@ return [
         'video_sound_on' => 'Nyalakan suara',
         'video_sound_off' => 'Matikan suara',
         'video_open' => 'Buka video layar penuh',
+        'video_play' => 'Putar video',
         'image_preview' => 'Pratinjau gambar',
         'unavailable' => 'Postingan ini sudah tidak tersedia.',
         'not_found_title' => 'Postingan tidak ditemukan',

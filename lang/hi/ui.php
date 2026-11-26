@@ -65,6 +65,7 @@ return [
         'video_sound_on' => 'आवाज़ चालू करें',
         'video_sound_off' => 'आवाज़ बंद करें',
         'video_open' => 'वीडियो फ़ुलस्क्रीन में खोलें',
+        'video_play' => 'वीडियो चलाएँ',
         'image_preview' => 'तस्वीर का प्रीव्यू',
         'unavailable' => 'यह पोस्ट अब उपलब्ध नहीं है।',
         'not_found_title' => 'पोस्ट नहीं मिली',

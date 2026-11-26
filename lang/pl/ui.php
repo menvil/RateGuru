@@ -65,6 +65,7 @@ return [
         'video_sound_on' => 'Włącz dźwięk',
         'video_sound_off' => 'Wyłącz dźwięk',
         'video_open' => 'Otwórz wideo na pełnym ekranie',
+        'video_play' => 'Odtwórz wideo',
         'image_preview' => 'Podgląd obrazu',
         'unavailable' => 'Ten post nie jest już dostępny.',
         'not_found_title' => 'Nie znaleziono posta',

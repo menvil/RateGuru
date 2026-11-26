@@ -65,6 +65,7 @@ return [
         'video_sound_on' => 'Hang bekapcsolása',
         'video_sound_off' => 'Hang kikapcsolása',
         'video_open' => 'Videó megnyitása teljes képernyőn',
+        'video_play' => 'Videó lejátszása',
         'image_preview' => 'Kép előnézete',
         'unavailable' => 'Ez a bejegyzés már nem érhető el.',
         'not_found_title' => 'A bejegyzés nem található',

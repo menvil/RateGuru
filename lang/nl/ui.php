@@ -65,6 +65,7 @@ return [
         'video_sound_on' => 'Geluid aan',
         'video_sound_off' => 'Geluid uit',
         'video_open' => 'Video op volledig scherm openen',
+        'video_play' => 'Video afspelen',
         'image_preview' => 'Afbeeldingsvoorbeeld',
         'unavailable' => 'Dit bericht is niet meer beschikbaar.',
         'not_found_title' => 'Bericht niet gevonden',

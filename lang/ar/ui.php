@@ -70,6 +70,7 @@ return [
         'video_sound_on' => 'تشغيل الصوت',
         'video_sound_off' => 'إيقاف الصوت',
         'video_open' => 'فتح الفيديو بملء الشاشة',
+        'video_play' => 'تشغيل الفيديو',
         'image_preview' => 'معاينة الصورة',
         'unavailable' => 'هذا المنشور لم يعد متاحًا.',
         'not_found_title' => 'المنشور غير موجود',

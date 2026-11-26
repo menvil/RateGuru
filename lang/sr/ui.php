@@ -65,6 +65,7 @@ return [
         'video_sound_on' => 'Укључи звук',
         'video_sound_off' => 'Искључи звук',
         'video_open' => 'Отвори видео преко целог екрана',
+        'video_play' => 'Пусти видео',
         'image_preview' => 'Преглед слике',
         'unavailable' => 'Ова објава више није доступна.',
         'not_found_title' => 'Објава није пронађена',

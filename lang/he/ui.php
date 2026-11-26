@@ -68,6 +68,7 @@ return [
         'video_sound_on' => 'הפעל קול',
         'video_sound_off' => 'השתק קול',
         'video_open' => 'פתח את הווידאו במסך מלא',
+        'video_play' => 'הפעל את הווידאו',
         'image_preview' => 'תצוגה מקדימה של התמונה',
         'unavailable' => 'הפוסט הזה כבר לא זמין.',
         'not_found_title' => 'הפוסט לא נמצא',

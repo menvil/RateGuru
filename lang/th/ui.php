@@ -65,6 +65,7 @@ return [
         'video_sound_on' => 'เปิดเสียง',
         'video_sound_off' => 'ปิดเสียง',
         'video_open' => 'เปิดวิดีโอแบบเต็มจอ',
+        'video_play' => 'เล่นวิดีโอ',
         'image_preview' => 'ตัวอย่างรูปภาพ',
         'unavailable' => 'โพสต์นี้ไม่พร้อมใช้งานแล้ว',
         'not_found_title' => 'ไม่พบโพสต์',

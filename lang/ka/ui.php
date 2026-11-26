@@ -65,6 +65,7 @@ return [
         'video_sound_on' => 'ხმის ჩართვა',
         'video_sound_off' => 'ხმის გამორთვა',
         'video_open' => 'ვიდეოს სრულ ეკრანზე გახსნა',
+        'video_play' => 'ვიდეოს ჩართვა',
         'image_preview' => 'სურათის გადახედვა',
         'unavailable' => 'ეს პოსტი აღარ არის ხელმისაწვდომი.',
         'not_found_title' => 'პოსტი ვერ მოიძებნა',

@@ -65,6 +65,7 @@ return [
         'video_sound_on' => 'Įjungti garsą',
         'video_sound_off' => 'Išjungti garsą',
         'video_open' => 'Atidaryti vaizdo įrašą per visą ekraną',
+        'video_play' => 'Paleisti vaizdo įrašą',
         'image_preview' => 'Paveikslėlio peržiūra',
         'unavailable' => 'Šis įrašas nebepasiekiamas.',
         'not_found_title' => 'Įrašas nerastas',
