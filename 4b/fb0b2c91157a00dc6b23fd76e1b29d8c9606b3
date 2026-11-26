@@ -1,0 +1,28 @@
+tests/Feature/Filament/ProjectSettingsPageTest.php
+  s_4b9dc6ab6b25d3::t_fb755508658104 13-14,348-349,353,357-371
+docs/design/admin/design-contract.md
+  s_4b9dc6ab6b25d3::t_bff0960fad1887 1017-1020
+resources/views/filament/pages/project-settings/pages.blade.php
+  s_4b9dc6ab6b25d3::t_bff0960fad1887 29-35
+app/Filament/Support/ContentTranslationStatus.php
+  s_4b9dc6ab6b25d3::t_bff0960fad1887 11,114-116,118,121,124,128-130,138-148
+app/Filament/Pages/ProjectSettingsPage.php
+  s_4b9dc6ab6b25d3::t_fb755508658104 19,388-390,393
+  s_4b9dc6ab6b25d3::t_bff0960fad1887 391-392,398,402-403,504,507,517,530-531,533,552,558-560,562,571-573,575-576
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "4bfb0b2c91157a00dc6b23fd76e1b29d8c9606b3",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}

@@ -1,0 +1,35 @@
+resources/views/filament/pages/project-settings/pages.blade.php
+  s_4b9dc6ab6b25d3::t_0f7b79feb3f94f 75-78
+resources/views/filament/pages/project-settings/text.blade.php
+  s_4b9dc6ab6b25d3::t_0f7b79feb3f94f 62-65
+app/Filament/Pages/ProjectSettingsPage.php
+  s_4b9dc6ab6b25d3::t_0f7b79feb3f94f 497,522,543,549,551
+  s_4b9dc6ab6b25d3::t_f82165b4ee25ff 87-89,509-510,512,514
+  s_4b9dc6ab6b25d3::t_7d0e2c7aef8581 560-564,568,570,582,587-593,599-607,613-623
+app/Filament/Support/ContentTranslationStatus.php
+  s_4b9dc6ab6b25d3::t_7d0e2c7aef8581 7,113-149
+  s_4b9dc6ab6b25d3::t_f82165b4ee25ff 9,11
+tests/Feature/Filament/ProjectSettingsPageTest.php
+  s_4b9dc6ab6b25d3::t_ffa6c47b4e2113 3,297-325,327-349
+  s_4b9dc6ab6b25d3::t_4c120629bfe40e 9,326
+docs/design/admin/design-contract.md
+  s_4b9dc6ab6b25d3::t_f19118751c7092 1014-1018
+docs/i18n/project-translation-lifecycle.md
+  s_4b9dc6ab6b25d3::t_f19118751c7092 119-121
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "eceae86b91e5898e0f9ea99a5204b5e41df09a71",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
