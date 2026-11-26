@@ -429,6 +429,112 @@ None of this is wired to an upload yet: the transcoding job and the upload
 form arrive next. The `RATEGURU_REAL_FFMPEG=1` tests run the probe against the
 real tools; CI's PostgreSQL tests job installs the pinned build and sets it.
 
+## Video processing
+
+`VideoAssetProcessor` (run by `ProcessVideoAssetJob`) turns a video or
+animated-GIF upload into what pages play — the counterpart of the image ingest
+and `MediaVariantGenerator` for a photo:
+
+```text
+the original (private disk, media/originals/Y/m/<uuid>.<ext>), asset Processing
+  -> copied to a work directory (MediaStorage::copyToFile)
+  -> VideoProbe + VideoIngestPolicy
+  -> the master: H.264/AAC MP4 at most 1080 on the short side, <= 30 fps,
+     public at media/post-videos/Y/m/<uuid>.mp4 (MediaStorage::putFile)
+  -> renditions below it: video_720, video_480 (only those smaller than the master)
+  -> a PNG poster frame -> the photo variants (post_feed_640/1280,
+     post_detail_1920, open_graph) through GdImageVariantProcessor
+  -> the asset Ready: the master's picture, length (duration_ms) and sound (has_audio)
+```
+
+- **Encoding** (`VideoTranscoder`, `VideoRendition`): libx264 `veryfast`,
+  CRF 23 (24 for 480) under a bitrate cap (5000/2500/1200 kbit/s), AAC
+  128/128/96 kbit/s stereo, a keyframe every two seconds, `+faststart`, two
+  threads (codecs and filters), `-map_metadata -1` (a phone recording's location never reaches the
+  output). The rotation a phone records is applied to the pixels, so width and
+  height are the picture as shown. Sizes are scaled down to the rendition's
+  short side, never up, to even numbers. An animation (a GIF) has no sound.
+- **The poster** is taken a tenth of the way in (at most three seconds), from
+  the master, and goes through the same image variants as a photo — so
+  everything that shows a still (thumbnails, share cards, Open Graph, the game
+  picker) works for a video unchanged. A cover variant too large for the
+  master's picture is skipped, as for a photo.
+- **Retries:** the original's location is recorded in `metadata.original`
+  before anything else, because the asset's disk and path move to the master
+  partway through; a retry reads the same original and rewrites the same
+  master path (named after the original). One run per asset at a time (a
+  `database` cache lock that expires at 930 s, past the job's timeout and
+  before the media connection's retry window); a job that finds another run
+  holding the asset is released to come back two minutes later instead of
+  being acknowledged while the asset still waits.
+- **Failures:** a file the policy or ffmpeg refuses (`VideoIngestException`)
+  leaves the asset `Failed` with a safe reason and is not retried; anything
+  else (storage, a stalled tool) is thrown, retried once a minute later, and
+  after the last attempt the job's `failed()` leaves the asset `Failed` with a
+  generic reason.
+- **The queue:** a transcode runs for minutes, far past the default
+  connection's 90-second `retry_after`, so on Redis `ProcessVideoAssetJob`
+  goes to `redis-media` (`App\Support\Media\MediaQueue`): its own queue,
+  `<target queue>-media`, and a 960-second retry window over the job's
+  900-second timeout; a database queue goes to `database-media`, its
+  counterpart. Sync (development, tests) runs it inline. `RunsOnMediaQueue` marks such jobs, and
+  `QueuedWorkRetryWindowTest` holds them to that connection's window.
+- **Variants from files:** `MediaVariantWriter::writeFile()` stores a file a
+  tool produced (`ProducedMediaFile`) under the same lock, path and failure
+  cleanup as `write()`, which now also takes the source's MIME type when the
+  bytes are not the asset's own file (the poster, a PNG, for a video asset).
+
+### A video post
+
+The upload form takes a video or animated GIF in place of a picture
+(`UploadPostForm::$video`; the dropzone sends each file to its own field by
+type). From there:
+
+```text
+UploadPostForm: mimetypes (uploads.videos.mimetypes), <= 100 MB;
+                the browser checks a clip's length from its metadata first
+  -> CreatePostAction
+       VideoUploadStorer: size limit, ffprobe + VideoIngestPolicy on what the
+         file really is, then the original as it arrived on the private disk
+         (media.disks.private, media/originals/Y/m/<uuid>.<ext>)
+       MediaAssetCreator::createProcessing: asset Processing, private
+       the post: Draft, published_at null
+       ProcessVideoAssetJob dispatched after commit (no variant job, no
+         follower notification yet)
+  -> ProcessVideoAssetJob -> VideoAssetProcessor (above)
+  -> FinalizePostMediaAction
+       Ready:  the draft is published at once or sent to moderation under
+               PostPublicationRule, decided on the author's row as it is now;
+               followers and the first-post bonus as for any published post
+       Failed: the post stays a draft
+       either way the author gets VideoPostProcessedNotification
+```
+
+- **One rule for every new post:** `PostPublicationRule` (trusted, confirmed
+  address or staff, never a Persona) decides both a picture post at creation
+  and a video post once its media is ready. A post deleted meanwhile, or an
+  author who may no longer post, publishes nothing.
+- **Safe to repeat:** only a draft is ever published, so a settled asset
+  always reaches the finalize step — also when an earlier run stopped between
+  the two — and changes nothing a second time.
+- **The author hears of each outcome once per asset**, ready or failed,
+  whichever run settles it. The notice is claimed on the asset
+  (`metadata.ready_notified_at`, `metadata.failure_notified_at`) in the same
+  transaction that writes it. A notice that cannot be written takes the claim
+  back and fails the job, so its next attempt sends it; the post's status is
+  never undone for it.
+- **Fair use of the one media worker:** an author may have at most
+  `uploads.videos.max_processing_per_author` (2) videos processing at once,
+  checked before the file is read and again under the author's lock.
+  Livewire's temporary uploads take up to 100 MB
+  (`livewire.temporary_file_upload.rules`), 15 minutes, and 20 a minute.
+- **What the author is told:** a refused file says why (too long, too large,
+  unreadable); a draft says it is being processed; the notification says
+  published, waiting for moderation, or not processed.
+
+How the draft, the processing state and the player appear on pages, and the
+lifecycle of originals, come next.
+
 ## Responsive media variants
 
 PR-05 generates five fixed variants from the master image, stores them as
@@ -932,6 +1038,47 @@ lock) are what make it safe, not any absence of destruction. Only that
 default mode is scheduled — never `--orphans`, never `--force`. Physical-
 orphan deletion stays a deliberate, human-triggered `--orphans --force`
 operation, on purpose.
+
+### Video files
+
+A video upload leaves more files behind than a photo: its original on the
+private disk (`media.disks.private`, `media/originals/…`), recorded in
+`metadata.original` once processing moves the asset to its public master;
+the master under `media/post-videos/`; its renditions and poster variants.
+`media:sweep-videos` (`VideoMediaSweeper`, hourly, never overlapping)
+settles them:
+
+| What | When | What happens |
+|---|---|---|
+| A processed video's original | `media.lifecycle.video_original_retention_days` (7) after `metadata.processed_at` | the file is deleted; `metadata.original` gives way to `original_deleted_at` |
+| A failed upload's files — original, any master and variants written before it failed | the same period after it failed | the files and variant rows go; the row stays, `metadata.files_removed_at` set, since the draft post that holds it still points at it — and the audit counts no missing master for it |
+| An upload still Processing a day after it arrived (`media.lifecycle.video_stuck_after_hours`) | each run | its job was lost: it fails, unless the processor's own lock (`VideoAssetProcessor::lockFor`) shows a run working on it now, and its author is told (`FinalizePostMediaAction::failed`, once per asset). A worker down or a queue backed up for a few hours delays uploads; it does not fail them |
+| An outcome its author was not told of — ready or failed, its notice unclaimed because it could not be written on the job's last attempt | within `VideoMediaSweeper::UNTOLD_WITHIN_HOURS` (48) of it, each run | the author is told, once per asset; a ready video's draft still waiting is published on the way. A notice that cannot be written again stays unclaimed for the next run |
+
+A file that will not delete fails the run, as it fails `media:purge`.
+
+An asset's `metadata` has several writers.
+- **While the asset is Processing:** the processor and the import write
+  their keys, before anything below can touch it.
+- **Once it is settled:** these sweeps' markers and the author notices'
+  claims change only their own keys, through `MediaAssetMetadata::change`.
+  It reads the column under a lock on the row and writes it back in the same
+  transaction. Two of them meeting on one asset take turns, and neither
+  writes back a copy older than the other's key.
+
+A marker never moves `updated_at`, which the sweeps read as the time an
+upload failed.
+
+The rest of the lifecycle knows about video files too:
+
+- `MediaLifecycleService::purge()` deletes a video's kept original with its
+  master and variants (`VideoOriginal`).
+- `MediaOrphanScanner` also scans the private disk's originals, and counts a
+  processed video's kept original as known.
+- Media Diagnostics shows the videos still processing past the per-author
+  window (`uploads.videos.processing_window_minutes`). Its failed-jobs list
+  stays the image jobs': its retry regenerates image variants, which is no
+  retry for a video.
 
 ## Media observability and admin diagnostics
 

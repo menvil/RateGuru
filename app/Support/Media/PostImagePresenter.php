@@ -2,6 +2,8 @@
 
 namespace App\Support\Media;
 
+use App\Enums\MediaStatus;
+use App\Enums\MediaType;
 use App\Enums\MediaVariantName;
 use App\Enums\MediaVisibility;
 use App\Enums\PostImageContext;
@@ -69,6 +71,11 @@ final class PostImagePresenter
             return null;
         }
 
+        // A video's own file is its MP4; its picture is its poster.
+        if (! self::isStill($asset)) {
+            return $this->shareUrl($post);
+        }
+
         return $this->resolver->publicUrlOrNull(new MediaLocation($asset->disk, $asset->path), $asset->visibility);
     }
 
@@ -126,9 +133,10 @@ final class PostImagePresenter
         }
 
         $masterUrl = $this->resolver->publicUrlOrNull(new MediaLocation($asset->disk, $asset->path), $asset->visibility);
+        $fallback = self::isStill($asset) ? $masterUrl : null;
 
         if ($masterUrl === null || ! $asset->relationLoaded('variants')) {
-            return $masterUrl;
+            return $fallback;
         }
 
         $detail = $this->firstExistingOnDisk(
@@ -137,8 +145,53 @@ final class PostImagePresenter
         );
 
         return $detail === null
-            ? $masterUrl
+            ? $fallback
             : $this->resolver->publicUrl(new MediaLocation($detail->disk, $detail->path), $asset->visibility);
+    }
+
+    /**
+     * The video or animation a post plays in a context, or null for a photo,
+     * for media still processing, and for one with no public file. The feed
+     * and the post's pages play the 720 rendition when there is one, the
+     * fullscreen viewer the master. Never lazy-loads `variants`: without
+     * them it plays the master.
+     */
+    public function video(Post $post, PostImageContext $context): ?PostVideo
+    {
+        $asset = $post->imageAsset;
+
+        if ($asset === null || self::isStill($asset) || $asset->status !== MediaStatus::Ready) {
+            return null;
+        }
+
+        $masterUrl = $this->resolver->publicUrlOrNull(new MediaLocation($asset->disk, $asset->path), $asset->visibility);
+
+        if ($masterUrl === null) {
+            return null;
+        }
+
+        // The 720 rendition; a master of 720 or less on its short side is
+        // that size already, and has no 720 rendition; only a larger master
+        // without one falls back to 480.
+        $chosen = null;
+        $masterShortSide = $asset->width !== null && $asset->height !== null ? min($asset->width, $asset->height) : null;
+
+        if ($asset->relationLoaded('variants') && $context !== PostImageContext::Fullscreen) {
+            $variants = $asset->variants->keyBy(fn (MediaVariant $variant): string => $variant->name->value);
+            $chosen = $this->firstExisting($variants, [MediaVariantName::Video720]);
+
+            if ($chosen === null && ($masterShortSide === null || $masterShortSide > 720)) {
+                $chosen = $this->firstExisting($variants, [MediaVariantName::Video480]);
+            }
+        }
+
+        return new PostVideo(
+            src: $chosen === null ? $masterUrl : $this->resolver->publicUrl(new MediaLocation($chosen->disk, $chosen->path), $asset->visibility),
+            poster: $this->posterUrl($asset, $context),
+            width: $chosen->width ?? $asset->width,
+            height: $chosen->height ?? $asset->height,
+            hasAudio: (bool) $asset->has_audio,
+        );
     }
 
     public function responsive(Post $post, PostImageContext $context): ?ResponsiveImage
@@ -173,8 +226,12 @@ final class PostImagePresenter
         // Never lazy-load: a caller that forgot to eager-load
         // imageAsset.variants gets the master-fallback DTO instead of an
         // N+1 query per post.
+        // A video's own file is an MP4, never a picture: only its poster
+        // variants are offered, and with none there is no picture.
+        $fallback = self::isStill($asset) ? $masterUrl : null;
+
         if (! $asset->relationLoaded('variants')) {
-            return new ResponsiveImage($masterUrl, null, null, $asset->width, $asset->height);
+            return $fallback === null ? null : new ResponsiveImage($fallback, null, null, $asset->width, $asset->height);
         }
 
         $variants = $asset->variants->keyBy(fn (MediaVariant $variant): string => $variant->name->value);
@@ -182,7 +239,7 @@ final class PostImagePresenter
         $chosen = $this->firstExisting($variants, $this->fallbackChain($context));
 
         if ($chosen === null) {
-            return new ResponsiveImage($masterUrl, null, null, $asset->width, $asset->height);
+            return $fallback === null ? null : new ResponsiveImage($fallback, null, null, $asset->width, $asset->height);
         }
 
         $srcUrl = $this->resolver->publicUrl(new MediaLocation($chosen->disk, $chosen->path), $asset->visibility);
@@ -198,8 +255,8 @@ final class PostImagePresenter
             // srcset entry with no descriptor, which is malformed. An unknown
             // width cannot be weighed against the detail variant, so the master
             // simply is not offered.
-            if ($detail !== null && $asset->width !== null && $asset->width <= $detail->width * self::FULLSCREEN_MASTER_INCLUDE_RATIO) {
-                $srcsetEntries[$masterUrl] = $asset->width;
+            if ($fallback !== null && $detail !== null && $asset->width !== null && $asset->width <= $detail->width * self::FULLSCREEN_MASTER_INCLUDE_RATIO) {
+                $srcsetEntries[$fallback] = $asset->width;
             }
         }
 
@@ -267,8 +324,10 @@ final class PostImagePresenter
             return null;
         }
 
+        $fallback = self::isStill($asset) ? $masterUrl : null;
+
         if (! $asset->relationLoaded('variants')) {
-            return $this->openGraphFromMaster($asset, $masterUrl);
+            return $fallback === null ? null : $this->openGraphFromMaster($asset, $fallback);
         }
 
         $variants = $asset->variants->keyBy(fn (MediaVariant $variant): string => $variant->name->value);
@@ -279,7 +338,7 @@ final class PostImagePresenter
         ]);
 
         if ($chosen === null) {
-            return $this->openGraphFromMaster($asset, $masterUrl);
+            return $fallback === null ? null : $this->openGraphFromMaster($asset, $fallback);
         }
 
         $url = $this->resolver->publicUrl(new MediaLocation($chosen->disk, $chosen->path), $asset->visibility);
@@ -310,16 +369,48 @@ final class PostImagePresenter
         }
 
         $masterUrl = $this->resolver->publicUrlOrNull(new MediaLocation($asset->disk, $asset->path), $asset->visibility);
+        $fallback = self::isStill($asset) ? $masterUrl : null;
 
         if ($masterUrl === null || ! $asset->relationLoaded('variants')) {
-            return $masterUrl;
+            return $fallback;
         }
 
         $smallest = $this->firstExistingOnDisk($asset->variants->keyBy(fn (MediaVariant $variant): string => $variant->name->value), $names);
 
         return $smallest === null
-            ? $masterUrl
+            ? $fallback
             : $this->resolver->publicUrl(new MediaLocation($smallest->disk, $smallest->path), $asset->visibility);
+    }
+
+    /**
+     * The still a video shows before it plays. A poster has no srcset, so it
+     * is the large one the place can use — the 1280 feed size on a feed card,
+     * not the 640 a picture's srcset would start from.
+     */
+    private function posterUrl(MediaAsset $asset, PostImageContext $context): ?string
+    {
+        if (! $asset->relationLoaded('variants')) {
+            return null;
+        }
+
+        $chosen = $this->firstExisting(
+            $asset->variants->keyBy(fn (MediaVariant $variant): string => $variant->name->value),
+            match ($context) {
+                PostImageContext::Feed, PostImageContext::Drawer => [MediaVariantName::PostFeed1280, MediaVariantName::PostDetail1920, MediaVariantName::PostFeed640],
+                PostImageContext::Standalone, PostImageContext::Fullscreen => [MediaVariantName::PostDetail1920, MediaVariantName::PostFeed1280, MediaVariantName::PostFeed640],
+            },
+        );
+
+        return $chosen === null ? null : $this->resolver->publicUrl(new MediaLocation($chosen->disk, $chosen->path), $asset->visibility);
+    }
+
+    /**
+     * Whether the asset's own file is a picture. A video's or an animation's
+     * is its MP4 master; its pictures are the poster's variants.
+     */
+    private static function isStill(MediaAsset $asset): bool
+    {
+        return $asset->media_type === MediaType::Image;
     }
 
     /**

@@ -19,6 +19,8 @@ final class CannotCreatePostException extends DomainException
 
     private const REASON_IMAGE = 'image';
 
+    private const REASON_VIDEOS_PROCESSING = 'videos_processing';
+
     private function __construct(string $message, private readonly string $reason)
     {
         parent::__construct($message);
@@ -42,6 +44,20 @@ final class CannotCreatePostException extends DomainException
     public static function becauseImageIsUnavailable(): self
     {
         return new self('The stored image is not a ready post image no post uses.', self::REASON_IMAGE);
+    }
+
+    /**
+     * The author's earlier videos still wait for the one media worker: one
+     * account must not fill its queue for everyone else.
+     */
+    public static function becauseVideosAreStillProcessing(): self
+    {
+        return new self('The author already has as many videos processing as allowed.', self::REASON_VIDEOS_PROCESSING);
+    }
+
+    public function isWaitingForVideos(): bool
+    {
+        return $this->reason === self::REASON_VIDEOS_PROCESSING;
     }
 
     public function isNotAllowed(): bool

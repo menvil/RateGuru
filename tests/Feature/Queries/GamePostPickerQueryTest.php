@@ -1,9 +1,12 @@
 <?php
 
 use App\Enums\MediaStatus;
+use App\Enums\MediaType;
+use App\Enums\MediaVariantName;
 use App\Models\Post;
 use App\Models\User;
 use App\Queries\Games\GamePostPickerQuery;
+use Illuminate\Support\Facades\Storage;
 
 /**
  * The posts a game round may show: published, not deleted, with a ready
@@ -71,4 +74,28 @@ it('pages through posts of equal votes without moving or repeating any', functio
         ->and(count($second))->toBe(3)
         ->and(array_intersect($first, $second))->toBe([])
         ->and([...$first, ...$second])->toBe($posts->sortByDesc('id')->pluck('id')->values()->all());
+});
+
+it('offers only photos for a round, and videos too for a post a flow step links to', function () {
+    Storage::fake('public');
+    $photo = Post::factory()->published()->withImage()->create();
+    $video = videoPostWithPosterVariants([], MediaVariantName::PostFeed640);
+    $animation = videoPostWithPosterVariants(['media_type' => MediaType::Animation], MediaVariantName::PostFeed640);
+
+    expect(app(GamePostPickerQuery::class)->paginate('', [], 1, photosOnly: true)->pluck('id')->all())->toBe([$photo->id])
+        ->and(pickerPage())->toEqualCanonicalizing([$photo->id, $video->id, $animation->id]);
+});
+
+it('takes a ready still photo for a game round, never a video\'s poster or a picture still processing', function () {
+    $query = app(GamePostPickerQuery::class);
+    $photo = Post::factory()->published()->withImage()->create();
+    $video = Post::factory()->published()->withImage()->create();
+    $video->imageAsset->forceFill(['media_type' => MediaType::Video])->save();
+    $processing = Post::factory()->published()->withImage()->create();
+    $processing->imageAsset->forceFill(['status' => MediaStatus::Processing])->save();
+
+    expect($query->offersAsRoundPhoto($photo->fresh()))->toBeTrue()
+        ->and($query->offersAsRoundPhoto($video->fresh()))->toBeFalse()
+        ->and($query->offersAsRoundPhoto($processing->fresh()))->toBeFalse()
+        ->and($query->offersAsRoundPhoto(Post::factory()->published()->create(['image_asset_id' => null])))->toBeFalse();
 });

@@ -7,6 +7,8 @@ use App\Enums\MediaKind;
 use App\Enums\MediaStatus;
 use App\Enums\MediaType;
 use App\Enums\MediaVisibility;
+use Carbon\CarbonInterface;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -23,6 +25,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  * @property MediaType $media_type
  * @property int|null $duration_ms
  * @property bool $has_audio
+ * @property array<string, mixed>|null $metadata
  * @property MediaStatus $status
  * @property MediaVisibility $visibility
  * @property string $disk
@@ -50,6 +53,23 @@ class MediaAsset extends Model
             'aspect_ratio' => 'float',
             'metadata' => 'array',
         ];
+    }
+
+    /**
+     * Videos and GIFs still Processing that arrived at $cutoff or before:
+     * past every retry a job that started at once could make — delayed, or
+     * lost. Media Diagnostics counts them; media:sweep-videos fails the
+     * ones a day old.
+     *
+     * @param  Builder<MediaAsset>  $query
+     * @return Builder<MediaAsset>
+     */
+    public function scopeVideosProcessingSince(Builder $query, CarbonInterface $cutoff): Builder
+    {
+        return $query
+            ->whereIn('media_type', [MediaType::Video, MediaType::Animation])
+            ->where('status', MediaStatus::Processing)
+            ->where('created_at', '<=', $cutoff);
     }
 
     /** @return BelongsTo<User, $this> */

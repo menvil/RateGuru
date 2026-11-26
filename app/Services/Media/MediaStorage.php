@@ -25,6 +25,25 @@ interface MediaStorage
     public function putContents(MediaLocation $location, string $contents, MediaVisibility $visibility): void;
 
     /**
+     * Streams a local file to the given location — for files too large to
+     * hold in memory: what ffmpeg produced from an upload (a transcoded video,
+     * its renditions), and the original of a video upload, which is kept on
+     * a private disk only until it has been processed. Like putContents(),
+     * never a way for an unprocessed upload to become public.
+     *
+     * @throws MediaStorageException
+     */
+    public function putFile(MediaLocation $location, string $localPath, MediaVisibility $visibility): void;
+
+    /**
+     * Streams a stored file into a local path, for a tool that needs a file
+     * on disk (ffmpeg) — whatever disk the media lives on.
+     *
+     * @throws MediaStorageException
+     */
+    public function copyToFile(MediaLocation $location, string $localPath): void;
+
+    /**
      * Reads live filesystem state — two calls can legitimately return
      * different results if something else changes the file in between
      * (@phpstan-impure tells PHPStan not to assume a second call must

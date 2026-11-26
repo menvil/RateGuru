@@ -7,6 +7,7 @@ use App\Services\Media\GdImageVariantProcessor;
 use App\Services\Media\MediaStorage;
 use App\Services\Media\MediaVariantPathGenerator;
 use App\Services\Media\MediaVariantWriter;
+use App\Services\Media\ProducedMediaFile;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Exceptions;
@@ -303,4 +304,33 @@ it('does not delete the file when another row already claims its exact disk and 
     // Deleting here would have destroyed the other row's file — the claimed
     // check must have skipped it.
     Storage::disk('public')->assertExists($expectedPath);
+});
+
+it('stores a file a tool produced as a variant, at the derived path, with its length', function () {
+    $asset = MediaAsset::factory()->create([
+        'disk' => 'public',
+        'path' => 'media/post-videos/2026/11/clip.mp4',
+        'mime_type' => 'video/mp4',
+        'extension' => 'mp4',
+    ]);
+    $file = tempnam(sys_get_temp_dir(), 'rendition-');
+    file_put_contents($file, 'rendition-bytes');
+
+    try {
+        $variant = app(MediaVariantWriter::class)->writeFile($asset, MediaVariantName::Video720, new ProducedMediaFile(
+            localPath: $file,
+            mimeType: 'video/mp4',
+            extension: 'mp4',
+            byteSize: 15,
+            width: 1280,
+            height: 720,
+            durationMs: 14_960,
+        ));
+    } finally {
+        @unlink($file);
+    }
+
+    expect($variant->path)->toBe('media/post-videos/2026/11/clip/video_720.mp4')
+        ->and([$variant->width, $variant->height, $variant->duration_ms, $variant->mime_type])->toBe([1280, 720, 14_960, 'video/mp4'])
+        ->and(Storage::disk('public')->get($variant->path))->toBe('rendition-bytes');
 });

@@ -332,8 +332,54 @@ One file, before and after activation: nothing is rewritten when `planned`
 becomes `active`, and `autostart=true` means a host restart brings a deployed
 worker back on its own.
 
-`environment_class=staging` keeps its committed program unchanged, including
-the older `directory=<root>/current` shape. That target has a release, and
+### Two workers, one group
+
+The registry's `supervisor.program` names a **group** of two programs, each
+with the contract above:
+
+```
+[program:<program>-default]   queue:work redis       --queue=<queue>       --tries=3 --timeout=120  stopasgroup=true   stopwaitsecs=130  queue-worker.log
+[program:<program>-media]     nice -n 10 queue:work redis-media --queue=<queue>-media --timeout=900 --max-jobs=50 --memory=512  stopasgroup=false  stopwaitsecs=60  media-worker.log
+
+[group:<program>]
+programs=<program>-default,<program>-media
+```
+
+The media worker runs the long media jobs (video transcoding). Its connection,
+`redis-media`, has a 960 s `retry_after` that outlasts their 900 s timeout. It
+runs at a lower CPU priority, so a transcode never crowds out the site.
+
+**Stopping it.** A stop (restore, recovery, a PHP upgrade's restart, an
+installer `update` after a configuration change, the stop after a failed first
+activation) signals the PHP worker alone (`stopasgroup=false`). ffmpeg, its
+child, is never told to quit halfway: it would exit non-zero, and the file
+would read as refused. The worker stops after its job; past `stopwaitsecs`
+both are killed together (`killasgroup=true`), and the job runs again once
+the retry window passes. A successful deployment never stops it: it signals
+`queue:restart`, which lets the running job finish.
+
+**On an older release.** In front of the worker, the command waits until the
+release in `current/` defines the `redis-media` connection
+(`grep -qs redis-media current/config/queue.php`, every 60 s). Meanwhile the
+program is RUNNING and starts nothing. A rollback below the release that
+added the connection, a restore or recovery aligned to one, or installing the
+group before that release is deployed therefore changes nothing for the
+checks that want every worker RUNNING; the worker starts within a minute of a
+release that has the connection.
+
+Every operation already addresses the worker as `<program>:*` (status, start,
+stop) and `supervisorctl update <program>`, so it covers both workers. On a
+host that still runs the single-program file, `update <program>` replaces it
+with the group by itself: the default worker gets its `stopwaitsecs` to finish
+its job, then both workers start. The installer's own rollback restores the
+previous file, for every target it installed.
+
+A deploy or rollback treats the group as running only when every process in
+it is RUNNING, as it treated the single program. A media worker stuck in
+FATAL for some other reason therefore makes the group read as stopped.
+
+`environment_class=staging` keeps its committed program, with the same two
+workers and group, in the older `directory=<root>/current` shape. That target has a release, and
 re-proving an accepted staging configuration is a separate acceptance.
 
 ## Modes

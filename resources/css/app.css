@@ -917,6 +917,16 @@ select:disabled {
         white-space: nowrap;
     }
 
+    /* A post video's sound and open buttons: over the picture itself, so a light glyph on a dark scrim in either theme. */
+    .rg-post-video__control {
+        background: rgba(5, 5, 10, 0.55);
+        color: #fff;
+    }
+
+    .rg-post-video__control:hover {
+        background: rgba(5, 5, 10, 0.7);
+    }
+
     /* After the pick: each picture's share of upvotes over it, and the crowd's pick or the correct answer named. */
     .rg-game__overlay {
         position: absolute;
