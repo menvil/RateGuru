@@ -111,6 +111,12 @@ final class YtDlpSiteCheck
                 if ($this->ytDlp->probe($url, max(1, (int) config('import.ytdlp.check_timeout_seconds'))) !== null) {
                     return true;
                 }
+            } catch (YtDlpProbeException $exception) {
+                // A carousel with a video in it: the extractor read the page
+                // and found one. A failed read: this page gave nothing.
+                if ($exception->carouselWithVideo) {
+                    return true;
+                }
             } catch (MediaToolTimedOutException) {
                 Log::warning('YtDlpSiteCheck: a page timed out; trying the next.');
             }
