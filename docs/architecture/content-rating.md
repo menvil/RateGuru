@@ -126,6 +126,9 @@ configuration is read by the job, never by the upload.
     (`media.classification.run_wait_seconds`, 120 s), then asks only who is
     still to answer. If that run outlasts the wait, the job leaves the asset
     to it: it never runs alongside, and never queues itself again.
+  - Before a run ends it looks again for who is still to answer, and asks
+    them from the same frames. A failure `--retry-failed` cleared while it
+    ran, for a retry that found the asset held, is asked by that run.
   - A job that runs after another finds every answer there and asks no one,
     so a queue that kept one waiting past its lock costs nothing.
 - A classifier that already answered for the asset at its model version is
@@ -150,10 +153,8 @@ classifier in shadow mode on real uploads.
 - An asset a classifier failed on counts as answered unless
   `--retry-failed` is given. Then the command clears those failures (the
   configured classifiers' own, at their model version, on the assets it
-  queues), so whichever job runs next for each asset asks them, whether its
-  own or one already waiting. A classifier left unanswered because a long
-  run outlasted the wait has no answer, and the next `media:classify` queues
-  it.
+  queues), so whichever job runs next for each asset asks them: its own,
+  one already waiting, or the run holding the asset, before it ends.
 - The jobs become available ten seconds apart, so the videos waiting on the
   same media queue are never stuck behind a whole batch.
 

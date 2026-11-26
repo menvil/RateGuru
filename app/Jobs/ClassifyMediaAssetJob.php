@@ -2,6 +2,7 @@
 
 namespace App\Jobs;
 
+use App\Enums\ClassificationMode;
 use App\Enums\ClassificationStatus;
 use App\Enums\MediaKind;
 use App\Enums\MediaStatus;
@@ -10,6 +11,7 @@ use App\Services\Media\Classification\ClassificationFrameSampler;
 use App\Services\Media\Classification\MediaClassificationFailedException;
 use App\Services\Media\Classification\MediaClassificationRecorder;
 use App\Services\Media\Classification\MediaClassifierRegistry;
+use App\Services\Media\Classification\MediaContentClassifier;
 use App\Support\Media\MediaQueue;
 use App\Support\Media\WorkerTemporaryDirectory;
 use Illuminate\Contracts\Cache\LockTimeoutException;
@@ -55,6 +57,9 @@ final class ClassifyMediaAssetJob implements RunsOnMediaQueue, ShouldBeUniqueUnt
     /** How long after it becomes available the media connection could still deliver the job. */
     private const int DELIVERY_WINDOW_SECONDS = 960;
 
+    /** How often a run looks again for who is still to answer before it ends. */
+    private const int PASSES = 3;
+
     /** A run its timeout killed left its frames; cleared once past every run's time. */
     private const int STALE_AFTER_SECONDS = 7200;
 
@@ -95,10 +100,8 @@ final class ClassifyMediaAssetJob implements RunsOnMediaQueue, ShouldBeUniqueUnt
         $lock = Cache::lock(self::runLockKey($this->mediaAssetId), $this->timeout + 60);
 
         // Another run for this asset: this one waits for it, then asks only
-        // who is still to answer. One that ran longer than the wait asks
-        // everyone who had not answered when it began; a classifier left
-        // unanswered since (a failure --retry-failed cleared meanwhile) has
-        // no answer, and the next media:classify queues it.
+        // who is still to answer. Past the wait it leaves the asset to that
+        // run, which looks again for who is still to answer before it ends.
         try {
             $lock->block(max(0, (int) config('media.classification.run_wait_seconds')));
         } catch (LockTimeoutException) {
@@ -123,12 +126,7 @@ final class ClassifyMediaAssetJob implements RunsOnMediaQueue, ShouldBeUniqueUnt
             return;
         }
 
-        $pending = array_values(array_filter($registry->configured(), fn (array $entry): bool => ! $asset->classifications()
-            ->where('classifier', $entry['classifier']->name())
-            ->where('model_version', $entry['classifier']->modelVersion())
-            // A failure is an answer too, until --retry-failed clears it.
-            ->whereIn('status', [ClassificationStatus::Succeeded, ClassificationStatus::Failed])
-            ->exists()));
+        $pending = self::unanswered($registry, $asset);
 
         if ($pending === []) {
             return;
@@ -140,21 +138,43 @@ final class ClassifyMediaAssetJob implements RunsOnMediaQueue, ShouldBeUniqueUnt
             try {
                 $input = $sampler->sample($asset, $directory);
             } catch (MediaClassificationFailedException $nothingToShow) {
-                // The same file would give nothing again: said once, for
-                // each classifier that was to see it.
-                foreach ($pending as $entry) {
-                    $recorder->unaskable($asset, $entry['classifier'], $entry['mode'], $nothingToShow);
-                }
-
-                return;
+                $input = $nothingToShow;
             }
 
-            foreach ($pending as $entry) {
-                $recorder->record($asset, $entry['classifier'], $input, $entry['mode']);
+            // Asked until no one is left: a classifier whose failure
+            // --retry-failed cleared while this run went on is asked before
+            // it ends, from the same frames, so a retry that found the asset
+            // held — and left it to this run — is never lost.
+            for ($pass = 0; $pending !== [] && $pass < self::PASSES; $pass++) {
+                foreach ($pending as $entry) {
+                    // The same file would give nothing again: said once, for
+                    // each classifier that was to see it.
+                    $input instanceof MediaClassificationFailedException
+                        ? $recorder->unaskable($asset, $entry['classifier'], $entry['mode'], $input)
+                        : $recorder->record($asset, $entry['classifier'], $input, $entry['mode']);
+                }
+
+                $pending = self::unanswered($registry, $asset);
             }
         } finally {
             File::deleteDirectory($directory);
         }
+    }
+
+    /**
+     * The configured classifiers that have not answered for the asset at
+     * their model version. A failure is an answer too, until --retry-failed
+     * clears it.
+     *
+     * @return list<array{classifier: MediaContentClassifier, mode: ClassificationMode}>
+     */
+    private static function unanswered(MediaClassifierRegistry $registry, MediaAsset $asset): array
+    {
+        return array_values(array_filter($registry->configured(), fn (array $entry): bool => ! $asset->classifications()
+            ->where('classifier', $entry['classifier']->name())
+            ->where('model_version', $entry['classifier']->modelVersion())
+            ->whereIn('status', [ClassificationStatus::Succeeded, ClassificationStatus::Failed])
+            ->exists()));
     }
 
     /**

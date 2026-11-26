@@ -12,8 +12,11 @@ use App\Models\MediaAsset;
 use App\Models\MediaClassification;
 use App\Models\User;
 use App\Services\Media\Classification\ClassificationFrameSampler;
+use App\Services\Media\Classification\ClassificationInput;
+use App\Services\Media\Classification\ClassificationResult;
 use App\Services\Media\Classification\MediaClassificationFailedException;
 use App\Services\Media\Classification\MediaClassifierRegistry;
+use App\Services\Media\Classification\MediaContentClassifier;
 use App\Services\Media\Classification\QueueMediaClassification;
 use App\Services\Media\MediaToolResult;
 use App\Services\Media\MediaToolRunner;
@@ -21,6 +24,7 @@ use App\Services\Media\StoredMedia;
 use App\Support\Media\MediaAssetCreator;
 use App\Support\Media\WorkerTemporaryDirectory;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Exceptions;
@@ -492,4 +496,40 @@ it('never loses a retry of failures: a job waiting for the asset asks them, and 
     Cache::flush();
     $this->artisan('media:classify')->assertSuccessful();
     Queue::assertPushed(ClassifyMediaAssetJob::class, fn (ClassifyMediaAssetJob $job): bool => $job->mediaAssetId === $asset->id);
+});
+
+it('asks before it ends a classifier whose failure --retry-failed cleared while it ran, the retry finding the asset held', function () {
+    config(['media.classification.run_wait_seconds' => 0]);
+    $retried = standInClassifier(['breast_exposed' => 0.2], name: 'retried');
+    // Asked first, and while it is being asked the operator retries failures:
+    // the command clears the other's failure and queues a job, which finds
+    // this run holding the asset and leaves it to it.
+    $first = new class implements MediaContentClassifier
+    {
+        public function name(): string
+        {
+            return 'first';
+        }
+
+        public function modelVersion(): ?string
+        {
+            return 'v1';
+        }
+
+        public function classify(ClassificationInput $input): ClassificationResult
+        {
+            Artisan::call('media:classify', ['--retry-failed' => true]);
+
+            return new ClassificationResult(['sex_toy' => 0.1], [], [], 10, 100);
+        }
+    };
+    configureClassifiers(['test.first' => [$first, 'shadow'], 'test.retried' => [$retried, 'shadow']]);
+    framesWrittenByFfmpeg();
+    $asset = readyVideoAsset();
+    MediaClassification::factory()->create(['media_asset_id' => $asset->id, 'classifier' => 'retried', 'model_version' => 'v1', 'status' => ClassificationStatus::Failed]);
+
+    dispatch((new ClassifyMediaAssetJob($asset->id))->onConnection('sync'));
+
+    expect($retried->shown)->toHaveCount(1)
+        ->and(MediaClassification::query()->where('classifier', 'retried')->pluck('status')->all())->toBe([ClassificationStatus::Succeeded]);
 });
