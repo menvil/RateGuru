@@ -358,27 +358,35 @@ it('drops a run whose lock lapsed and another took, leaving that one\'s results 
     Exceptions::assertNothingReported();
 });
 
-it('checks that it still holds its lock and writes its results as one, holding the lock\'s row until they are in', function () {
+it('writes its results and checks it still holds its lock as one transaction, on every engine', function () {
     config(['import.ytdlp.sites' => ['coub.com' => 'Coub']]);
     importedVideoFrom('https://coub.com/view/1');
     ytDlpAnswering([]);
     $events = [];
+    $lockReads = [];
     Event::listen(TransactionBeginning::class, function () use (&$events): void {
         $events[] = 'begin';
     });
     Event::listen(TransactionCommitted::class, function () use (&$events): void {
         $events[] = 'commit';
     });
-    DB::listen(function (QueryExecuted $query) use (&$events): void {
-        if (str_contains($query->sql, 'cache_locks') && str_contains($query->sql, 'for update')) {
-            $events[] = 'hold the lock\'s row';
-        } elseif (str_starts_with($query->sql, 'insert into "cache"')) {
+    DB::listen(function (QueryExecuted $query) use (&$events, &$lockReads): void {
+        if (preg_match('/^select .* from [`"]?cache_locks[`"]? /i', $query->sql) === 1) {
+            $events[] = 'check the lock';
+            $lockReads[] = strtolower($query->sql);
+        } elseif (preg_match('/^insert into [`"]?cache[`"]? /i', $query->sql) === 1) {
             $events[] = 'write the results';
         }
     });
 
     app(YtDlpSiteCheck::class)->run();
 
-    expect($events)->toBe(['begin', 'hold the lock\'s row', 'write the results', 'commit'])
+    expect($events)->toBe(['begin', 'write the results', 'check the lock', 'commit'])
         ->and(YtDlpSiteCheck::results()['Coub']['status'])->toBe('broken');
+
+    // Where the engine locks rows, the check holds the lock's row; SQLite
+    // has no row locks, and the write before it holds its one writer's lock.
+    if (config('database.default') !== 'sqlite') {
+        expect($lockReads[0])->toContain('for update');
+    }
 });

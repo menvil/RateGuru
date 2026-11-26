@@ -660,10 +660,13 @@ most likely broke.
   lock lasts 30 minutes:
   - a run asks no page after 20, and then counts, saves and says nothing,
     reporting only that it ran out of time;
-  - a run whose lock lapsed anyway saves and says nothing. The check that it
-    still holds the lock and the write of its results are one transaction,
-    holding the lock's row until the results are in, so a run paused between
-    them never writes over a later one.
+  - a run whose lock lapsed anyway saves and says nothing. The write of its
+    results and the check that it still holds the lock are one transaction,
+    committed only if it does. Another run can take the lock only once that
+    transaction ends: PostgreSQL and MariaDB hold the lock's row, and on
+    SQLite the write holds its one writer's lock. A run paused after its
+    check therefore never writes over a later one
+    (`tests/Feature/Concurrency/YtDlpSiteCheckRaceTest.php`).
 - **Reported** (`YtDlpSiteBrokenException`: Sentry, and Nightwatch where it
   runs), only once the run's results are saved:
   - a site taking nothing on two calendar days running, once a day however

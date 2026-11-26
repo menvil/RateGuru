@@ -17,6 +17,7 @@ use Illuminate\Contracts\Cache\Lock;
 use Illuminate\Contracts\Cache\LockProvider;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
+use Throwable;
 
 /**
  * Whether yt-dlp still takes videos from each of its sites
@@ -180,11 +181,14 @@ final class YtDlpSiteCheck
     }
 
     /**
-     * Saves the run's results only while it still holds its lock — checked
-     * and written as one: the lock's row is held (FOR UPDATE) from the check
-     * until the results are written and committed, so another run can take
-     * the lock only after this one's results are in, and reads them. A run
-     * paused after the check therefore never writes over a later one.
+     * Saves the run's results only while it still holds its lock — written
+     * and checked as one transaction, committed only if it does. The results
+     * are written first: on SQLite, which takes no row locks, that write takes
+     * the one writer's lock to the commit; elsewhere the check then holds the
+     * lock's row (FOR UPDATE). Either way another run can take the lock only
+     * once this transaction ends — after these results are in, which it then
+     * reads, or rolled back — so a run paused after its check never writes
+     * over a later one.
      *
      * @param  array<string, array{status: string, checked_at: string, failures: int, failed_on: ?string}>  $results
      */
@@ -199,23 +203,35 @@ final class YtDlpSiteCheck
         }
 
         $connection = $store->getLockConnection() ?? $store->getConnection();
+        // Results kept on another connection than the lock's are written
+        // after the check instead, while the lock's row is held.
+        $together = $connection === $store->getConnection();
+        $connection->beginTransaction();
 
-        return (bool) $connection->transaction(function () use ($connection, $store, $lock, $results): bool {
+        try {
+            if ($together) {
+                Cache::store('database')->forever(self::CACHE_KEY, $results);
+            }
+
             $held = $connection->table((string) (config('cache.stores.database.lock_table') ?: 'cache_locks'))
                 ->where('key', $store->getPrefix().self::LOCK_NAME)
                 ->where('owner', $lock->owner())
                 ->where('expiration', '>', now()->getTimestamp())
                 ->lockForUpdate()
-                ->value('owner');
+                ->value('owner') !== null;
 
-            if ($held === null) {
-                return false;
+            if ($held && ! $together) {
+                Cache::store('database')->forever(self::CACHE_KEY, $results);
             }
 
-            Cache::store('database')->forever(self::CACHE_KEY, $results);
+            $held ? $connection->commit() : $connection->rollBack();
 
-            return true;
-        });
+            return $held;
+        } catch (Throwable $exception) {
+            $connection->rollBack();
+
+            throw $exception;
+        }
     }
 
     /**
