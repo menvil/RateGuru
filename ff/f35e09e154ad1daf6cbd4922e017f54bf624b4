@@ -1,0 +1,57 @@
+app/Enums/ClassificationMode.php
+  s_1f43f39fbe0537::t_bbb172539b791b 1-14
+app/Services/Media/Classification/MediaClassificationRecorder.php
+  s_1f43f39fbe0537::t_5206dcf42e57c2 1-72
+app/Models/MediaClassification.php
+  s_1f43f39fbe0537::t_807d40b427767d 1-6,8-32,34-55
+  s_1f43f39fbe0537::t_3559a7fa55ab7c 7,33
+app/Enums/ContentRating.php
+  s_1f43f39fbe0537::t_bbb172539b791b 1-18
+database/factories/MediaClassificationFactory.php
+  s_1f43f39fbe0537::t_807d40b427767d 1-33
+app/Services/Media/Classification/MediaClassificationFailedException.php
+  s_1f43f39fbe0537::t_807d40b427767d 1-8
+app/Enums/ClassificationStatus.php
+  s_1f43f39fbe0537::t_bbb172539b791b 1-9
+app/Services/Media/Classification/MediaContentClassifier.php
+  s_1f43f39fbe0537::t_807d40b427767d 1-22
+app/Enums/ContentCategory.php
+  s_1f43f39fbe0537::t_bbb172539b791b 1-27
+app/Models/Post.php
+  s_1f43f39fbe0537::t_5206dcf42e57c2 5,45
+  s_1f43f39fbe0537::t_6a53feb793cf71 23
+tests/Feature/Media/ContentRatingStorageTest.php
+  s_1f43f39fbe0537::t_6a53feb793cf71 1-128
+docs/architecture/content-rating.md
+  s_1f43f39fbe0537::t_72896e8d8623b5 1-65
+database/migrations/2026_11_26_100000_add_content_rating_to_media_assets_and_posts.php
+  s_1f43f39fbe0537::t_bbb172539b791b 1-72
+app/Services/Media/Classification/ClassificationFrame.php
+  s_1f43f39fbe0537::t_807d40b427767d 1-14
+app/Models/MediaAsset.php
+  s_1f43f39fbe0537::t_3559a7fa55ab7c 5-6,18,33
+  s_1f43f39fbe0537::t_5206dcf42e57c2 50-53,74-79
+  s_1f43f39fbe0537::t_6a53feb793cf71 30-32
+app/Enums/ContentRatingSource.php
+  s_1f43f39fbe0537::t_bbb172539b791b 1-10
+app/Services/Media/Classification/ClassificationResult.php
+  s_1f43f39fbe0537::t_807d40b427767d 1-31
+app/Services/Media/Classification/ClassificationInput.php
+  s_1f43f39fbe0537::t_807d40b427767d 1-18
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "fff35e09e154ad1daf6cbd4922e017f54bf624b4",
+  "prompts": {},
+  "sessions": {
+    "s_1f43f39fbe0537": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "526787d0-f443-4ad7-9610-cf9811fec895",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
