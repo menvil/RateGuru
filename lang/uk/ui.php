@@ -268,7 +268,7 @@ return [
         'image_drop_hint' => 'JPEG, PNG, GIF до 5 МБ',
         'image_browse' => 'Вибрати файл',
         'image_url_placeholder' => 'https://example.com/image.jpg',
-        'media_url_hint' => 'Посилання на зображення чи відео або на допис у X, Instagram чи на іншому сайті: з нього береться відео, GIF або фото.',
+        'media_url_hint' => 'Посилання на зображення чи відео або на допис: береться його відео чи GIF, якщо сайт це дозволяє, інакше фото.',
         'source_url' => 'URL джерела',
         'source_url_placeholder' => 'https://example.com/original',
         'tags' => 'Теги',

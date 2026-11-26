@@ -9,6 +9,8 @@ use App\Exceptions\Import\ImportFetchException;
 use App\Exceptions\Import\UnsafeImportUrlException;
 use App\Models\MediaAsset;
 use App\Services\Media\Exceptions\VideoIngestException;
+use App\Services\Media\MediaStorage;
+use App\Services\Media\StoredVideo;
 use App\Services\Media\VideoIngestPolicy;
 use App\Support\Import\SafeImportHttpClient;
 use App\Support\Media\ImageOrientationClassifier;
@@ -16,6 +18,7 @@ use App\Support\Media\MediaQueue;
 use App\Support\Media\VideoUploadStorer;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use RuntimeException;
 use Throwable;
@@ -112,6 +115,33 @@ final class ImportVideoAssetJob implements RunsOnMediaQueue, ShouldQueue
         $height = $stored->probe->height;
         $valid = $width > 0 && $height > 0;
 
+        // Pointed at its file only while it still waits for one, read again
+        // under a lock on its row: a run that met this one on the same asset
+        // and settled it first keeps what it wrote, and this run's file —
+        // which nothing names then — goes.
+        $claimed = DB::transaction(function () use ($asset, $stored, $url, $width, $height, $valid): bool {
+            $locked = MediaAsset::query()->whereKey($asset->id)->lockForUpdate()->first();
+
+            if ($locked === null || $locked->status !== MediaStatus::Processing || isset($locked->metadata['import']['downloaded_at'])) {
+                return false;
+            }
+
+            $this->pointAtFile($locked, $stored, $url, $width, $height, $valid);
+
+            return true;
+        });
+
+        if (! $claimed) {
+            app(MediaStorage::class)->deleteIfExists($stored->media->location());
+
+            return;
+        }
+
+        ProcessVideoAssetJob::dispatch((int) $asset->id);
+    }
+
+    private function pointAtFile(MediaAsset $asset, StoredVideo $stored, string $url, int $width, int $height, bool $valid): void
+    {
         $asset->forceFill([
             'media_type' => $stored->mediaType,
             'duration_ms' => $stored->probe->durationMs,
@@ -132,8 +162,6 @@ final class ImportVideoAssetJob implements RunsOnMediaQueue, ShouldQueue
                 'downloaded_at' => now()->toIso8601ZuluString(),
             ]],
         ])->save();
-
-        ProcessVideoAssetJob::dispatch((int) $asset->id);
     }
 
     /**
@@ -175,14 +203,22 @@ final class ImportVideoAssetJob implements RunsOnMediaQueue, ShouldQueue
 
         $asset = MediaAsset::query()->find($this->mediaAssetId);
 
-        if ($asset !== null && $asset->status === MediaStatus::Processing) {
-            // No attempt comes after this one to retry a notice that could
-            // not be written: it is reported instead.
-            try {
+        if ($asset === null) {
+            return;
+        }
+
+        // No attempt comes after this one to retry a notice that could not be
+        // written: it is reported instead, for media:sweep-videos to send.
+        // An asset an earlier attempt failed is asked about too — its notice
+        // is claimed once, so one already sent is never sent again.
+        try {
+            if ($asset->status === MediaStatus::Processing) {
                 $this->failImport($asset, app(FinalizePostMediaAction::class), 'The video could not be downloaded.');
-            } catch (Throwable $notice) {
-                report($notice);
+            } elseif ($asset->status === MediaStatus::Failed) {
+                app(FinalizePostMediaAction::class)->failed($asset);
             }
+        } catch (Throwable $notice) {
+            report($notice);
         }
     }
 

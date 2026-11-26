@@ -268,7 +268,7 @@ return [
         'image_drop_hint' => 'JPEG, PNG, GIF allt að 5 MB',
         'image_browse' => 'Velja skrá',
         'image_url_placeholder' => 'https://example.com/image.jpg',
-        'media_url_hint' => 'Tengill á mynd eða myndband, eða á færslu á X, Instagram eða öðrum vef: myndbandið, GIF-ið eða myndin úr henni er tekin.',
+        'media_url_hint' => 'Hlekkur á mynd eða myndband, eða á færslu: myndband hennar eða GIF er tekið þar sem vefurinn leyfir, annars myndin.',
         'source_url' => 'Vefslóð heimildar',
         'source_url_placeholder' => 'https://example.com/original',
         'tags' => 'Merki',

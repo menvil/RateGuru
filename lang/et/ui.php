@@ -268,7 +268,7 @@ return [
         'image_drop_hint' => 'JPEG, PNG, GIF kuni 5 MB',
         'image_browse' => 'Sirvi faile',
         'image_url_placeholder' => 'https://example.com/image.jpg',
-        'media_url_hint' => 'Link pildile või videole või postitusele X-is, Instagramis või mõnel teisel saidil: võetakse selle video, GIF või foto.',
+        'media_url_hint' => 'Link pildile või videole või postitusele: võetakse selle video või GIF, kui sait seda lubab, muidu selle foto.',
         'source_url' => 'Allika URL',
         'source_url_placeholder' => 'https://example.com/original',
         'tags' => 'Sildid',

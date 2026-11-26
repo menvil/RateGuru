@@ -153,10 +153,13 @@ it('counts no missing master for a linked video before it was downloaded', funct
 });
 
 it('spends one byte budget and one deadline on all of a download\'s hops', function () {
+    $this->freezeTime();
     $policies = [];
     app()->instance(ImportHttpTransport::class, new ScriptedImportHttpTransport([
         function ($target, $policy) use (&$policies) {
             $policies[] = $policy;
+            // The first hop takes 70 of the download's 120 seconds.
+            $this->travel(70)->seconds();
 
             return new ImportTransportResponse(302, ['location' => 'https://videos.example/real.mp4'], str_repeat('r', 600));
         },
@@ -176,9 +179,71 @@ it('spends one byte budget and one deadline on all of a download\'s hops', funct
     }
 
     expect($policies[0]->maxBytes)->toBe(1000)
-        // The redirect's own 600 bytes count against the file's limit.
+        ->and($policies[0]->timeoutSeconds)->toBe(120)
+        // The redirect's own 600 bytes count against the file's limit, and
+        // its 70 seconds against the time: the deadline is never reset.
         ->and($policies[1]->maxBytes)->toBe(400)
-        ->and($policies[1]->timeoutSeconds)->toBeLessThanOrEqual(120);
+        ->and($policies[1]->timeoutSeconds)->toBe(50);
+});
+
+it('asks no further hop once the download\'s deadline has passed', function () {
+    $this->freezeTime();
+    $asked = 0;
+    app()->instance(ImportHttpTransport::class, new ScriptedImportHttpTransport([
+        function () use (&$asked) {
+            $asked++;
+            $this->travel(121)->seconds();
+
+            return new ImportTransportResponse(302, ['location' => 'https://videos.example/real.mp4'], '');
+        },
+        function () use (&$asked) {
+            $asked++;
+
+            return new ImportTransportResponse(200, [], 'video');
+        },
+    ]));
+    config(['import.video_timeout_seconds' => 120]);
+    $path = sys_get_temp_dir().'/video-import-deadline-'.uniqid();
+
+    try {
+        expect(fn () => app(SafeImportHttpClient::class)->download('https://videos.example/clip.mp4', 1000, $path))->toThrow(ImportFetchException::class);
+    } finally {
+        @unlink($path);
+    }
+
+    expect($asked)->toBe(1);
+});
+
+it('leaves an asset another run of the job settled meanwhile as that run left it, and removes its own file', function () {
+    $post = app(CreatePostAction::class)->handle(User::factory()->create(), new CreatePostData(title: 'From a link', videoUrl: 'https://videos.example/clip.mp4'));
+    $assetId = (int) $post->image_asset_id;
+    app()->instance(ImportHttpTransport::class, new ScriptedImportHttpTransport([
+        function () use ($assetId) {
+            // Another run downloads it first and points the asset at its file.
+            MediaAsset::query()->whereKey($assetId)->update(['path' => 'media/originals/the-other-run.mp4', 'metadata' => json_encode(['import' => ['url' => 'https://videos.example/clip.mp4', 'downloaded_at' => now()->toIso8601ZuluString()]])]);
+
+            return new ImportTransportResponse(200, [], 'the video bytes');
+        },
+    ]));
+    bindRecordingMediaToolRunner([acceptableFfprobeResult()]);
+
+    app()->call([new ImportVideoAssetJob($assetId), 'handle']);
+
+    expect(MediaAsset::query()->findOrFail($assetId)->path)->toBe('media/originals/the-other-run.mp4')
+        // This run's original went: nothing names it.
+        ->and(Storage::disk('local')->allFiles('media/originals'))->toBe([]);
+    Queue::assertNotPushed(ProcessVideoAssetJob::class);
+});
+
+it('tells the author from the last attempt of a download an earlier attempt failed without telling', function () {
+    $author = User::factory()->create();
+    $post = app(CreatePostAction::class)->handle($author, new CreatePostData(title: 'From a link', videoUrl: 'https://videos.example/clip.mp4'));
+    MediaAsset::query()->whereKey($post->image_asset_id)->update(['status' => MediaStatus::Failed]);
+
+    (new ImportVideoAssetJob((int) $post->image_asset_id))->failed(new RuntimeException('disk full'));
+    (new ImportVideoAssetJob((int) $post->image_asset_id))->failed(new RuntimeException('disk full'));
+
+    Notification::assertSentToTimes($author, VideoPostProcessedNotification::class, 1);
 });
 
 it('downloads into a file only its user may read, and leaves nothing behind', function () {

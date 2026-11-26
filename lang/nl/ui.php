@@ -268,7 +268,7 @@ return [
         'image_drop_hint' => 'JPEG, PNG, GIF tot 5 MB',
         'image_browse' => 'Bestand kiezen',
         'image_url_placeholder' => 'https://example.com/image.jpg',
-        'media_url_hint' => 'Een link naar een afbeelding of video, of naar een bericht op X, Instagram of een andere site: de video, gif of foto ervan wordt overgenomen.',
+        'media_url_hint' => 'Een link naar een afbeelding of video, of naar een bericht: de video of gif wordt overgenomen waar de site dat toestaat, anders de foto.',
         'source_url' => 'Bron-URL',
         'source_url_placeholder' => 'https://example.com/original',
         'tags' => 'Tags',

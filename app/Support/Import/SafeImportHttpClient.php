@@ -47,7 +47,8 @@ class SafeImportHttpClient
         // One deadline and one byte budget for the whole download, redirects
         // included: a chain of slow or large hops cannot take a worker for
         // longer, or write more, than one file may.
-        $deadline = microtime(true) + (int) config('import.video_timeout_seconds');
+        // The application's clock, so a test can let time pass between hops.
+        $deadline = self::now() + (int) config('import.video_timeout_seconds');
         $spent = 0;
 
         $policy = new ImportFetchPolicy(
@@ -57,7 +58,7 @@ class SafeImportHttpClient
         );
 
         return $this->follow($url, $policy, function (ResolvedImportTarget $target) use ($url, $maxBytes, $path, $deadline, &$spent): ImportTransportResponse {
-            $left = (int) floor($deadline - microtime(true));
+            $left = (int) floor($deadline - self::now());
 
             if ($left < 1 || $spent >= $maxBytes) {
                 throw ImportFetchException::connectionError($url, 'The download ran out of its time or size.');
@@ -145,5 +146,10 @@ class SafeImportHttpClient
         if ($response->status < 200 || $response->status >= 300 || $response->status === 204 || $response->status === 206) {
             throw ImportFetchException::requestFailed($url, $response->status);
         }
+    }
+
+    private static function now(): float
+    {
+        return now()->getPreciseTimestamp(6) / 1_000_000;
     }
 }

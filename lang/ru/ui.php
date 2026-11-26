@@ -272,7 +272,7 @@ return [
         'image_drop_hint' => 'JPEG, PNG, GIF до 5 МБ',
         'image_browse' => 'Выбрать файл',
         'image_url_placeholder' => 'https://example.com/image.jpg',
-        'media_url_hint' => 'Ссылка на картинку или видео либо на пост в X, Instagram или на другом сайте: из него берётся видео, GIF или фото.',
+        'media_url_hint' => 'Ссылка на картинку или видео либо на пост: берётся его видео или GIF, если сайт это позволяет, иначе фото.',
         'source_url' => 'URL источника',
         'source_url_placeholder' => 'https://example.com/original',
         'tags' => 'Теги',

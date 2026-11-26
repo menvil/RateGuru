@@ -271,7 +271,7 @@ return [
         'image_drop_hint' => 'JPEG, PNG, GIF līdz 5 MB',
         'image_browse' => 'Pārlūkot failus',
         'image_url_placeholder' => 'https://example.com/image.jpg',
-        'media_url_hint' => 'Saite uz attēlu vai video, vai uz ierakstu X, Instagram vai citā vietnē: tiek paņemts tā video, GIF vai foto.',
+        'media_url_hint' => 'Saite uz attēlu vai video, vai uz ierakstu: tiek ņemts tā video vai GIF, ja vietne to atļauj, citādi tā foto.',
         'source_url' => 'Avota URL',
         'source_url_placeholder' => 'https://example.com/original',
         'tags' => 'Birkas',

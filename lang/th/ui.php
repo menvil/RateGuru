@@ -268,7 +268,7 @@ return [
         'image_drop_hint' => 'JPEG, PNG, GIF ขนาดไม่เกิน 5MB',
         'image_browse' => 'เลือกไฟล์',
         'image_url_placeholder' => 'https://example.com/image.jpg',
-        'media_url_hint' => 'ลิงก์ไปยังรูปภาพหรือวิดีโอ หรือโพสต์บน X, Instagram หรือเว็บไซต์อื่น: จะดึงวิดีโอ GIF หรือรูปภาพของโพสต์นั้นมา',
+        'media_url_hint' => 'ลิงก์ไปยังรูปภาพหรือวิดีโอ หรือไปยังโพสต์: จะนำวิดีโอหรือ GIF มาเมื่อเว็บไซต์อนุญาต มิฉะนั้นจะใช้รูปภาพ',
         'source_url' => 'URL ต้นทาง',
         'source_url_placeholder' => 'https://example.com/original',
         'tags' => 'แท็ก',

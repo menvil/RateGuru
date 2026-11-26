@@ -270,7 +270,7 @@ return [
         'image_drop_hint' => 'JPEG, PNG, GIF iki 5 MB',
         'image_browse' => 'Pasirinkti failą',
         'image_url_placeholder' => 'https://example.com/image.jpg',
-        'media_url_hint' => 'Nuoroda į paveikslėlį ar vaizdo įrašą arba į įrašą X, Instagram ar kitoje svetainėje: paimamas jo vaizdo įrašas, GIF ar nuotrauka.',
+        'media_url_hint' => 'Nuoroda į paveikslėlį ar vaizdo įrašą arba į įrašą: paimamas jo vaizdo įrašas ar GIF, kur svetainė leidžia, kitaip – nuotrauka.',
         'source_url' => 'Šaltinio URL',
         'source_url_placeholder' => 'https://example.com/original',
         'tags' => 'Žymos',

@@ -268,7 +268,7 @@ return [
         'image_drop_hint' => 'JPEG, PNG, GIF — 5 მბ-მდე',
         'image_browse' => 'ფაილის არჩევა',
         'image_url_placeholder' => 'https://example.com/image.jpg',
-        'media_url_hint' => 'ბმული სურათზე ან ვიდეოზე, ან პოსტზე X-ზე, Instagram-ზე ან სხვა საიტზე: აიღება მისი ვიდეო, GIF ან ფოტო.',
+        'media_url_hint' => 'ბმული სურათზე ან ვიდეოზე, ან პოსტზე: აიღება მისი ვიდეო ან GIF, სადაც საიტი ამის საშუალებას იძლევა, თორემ — ფოტო.',
         'source_url' => 'წყაროს URL',
         'source_url_placeholder' => 'https://example.com/original',
         'tags' => 'თეგები',

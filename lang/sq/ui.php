@@ -268,7 +268,7 @@ return [
         'image_drop_hint' => 'JPEG, PNG, GIF deri në 5 MB',
         'image_browse' => 'Zgjidh skedarin',
         'image_url_placeholder' => 'https://example.com/image.jpg',
-        'media_url_hint' => 'Një lidhje te një foto ose video, ose te një postim në X, Instagram ose një faqe tjetër: merret videoja, GIF-i ose fotoja e tij.',
+        'media_url_hint' => 'Një lidhje te një foto ose video, ose te një postim: merret videoja ose GIF-i i tij aty ku faqja e lejon, përndryshe fotoja.',
         'source_url' => 'URL-ja e burimit',
         'source_url_placeholder' => 'https://example.com/original',
         'tags' => 'Etiketat',
