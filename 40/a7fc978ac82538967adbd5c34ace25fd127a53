@@ -1,0 +1,19 @@
+resources/css/filament/admin/components.css
+  s_1f43f39fbe0537::t_cf6028e3424a73 5544-5545,5548-5549,5553-5555,5559
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "40a7fc978ac82538967adbd5c34ace25fd127a53",
+  "prompts": {},
+  "sessions": {
+    "s_1f43f39fbe0537": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "526787d0-f443-4ad7-9610-cf9811fec895",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
