@@ -118,3 +118,12 @@ commit that made the media ready:
 media:classify --limit=N` queues it, newest first, for every configured
 classifier that has not answered for it yet. Use it, for example, to try a
 classifier in shadow mode on real uploads.
+
+## Where it shows
+
+- **The admin's post viewer** (Posts, the image opened large): the rating, as
+  a badge, and each classifier's latest answer on one line. A shadow
+  classifier is marked as such; the line gives its three strongest categories
+  from 0.05 up, or that it failed.
+- **Content Studio's photo details:** the rating beside the photo's size and
+  type, with no query of its own.

@@ -19,6 +19,21 @@ enum ContentCategory: string
     case Swimwear = 'swimwear';
     case SeeThrough = 'see_through';
 
+    /** How the admin names it. */
+    public function label(): string
+    {
+        return match ($this) {
+            self::BreastExposed => 'Breast',
+            self::GenitalsExposed => 'Genitals',
+            self::SexualActivity => 'Sexual activity',
+            self::SexToy => 'Sex toy',
+            self::ButtocksExposed => 'Buttocks',
+            self::Underwear => 'Underwear',
+            self::Swimwear => 'Swimwear',
+            self::SeeThrough => 'See-through',
+        };
+    }
+
     /** Whether the category makes a picture NSFW by the project's line. */
     public function isNsfw(): bool
     {

@@ -253,3 +253,22 @@ it('opens a video in the viewer even when its poster files are missing', functio
         ->assertSeeHtml('<video src="'.Storage::disk('public')->url($post->imageAsset->path).'"')
         ->assertDontSeeHtml('poster="');
 });
+
+it('shows in the viewer the post\'s content rating and what each classifier last said of it', function () {
+    Storage::fake('public');
+    $this->actingAs(User::factory()->admin()->create());
+    $post = videoPostWithPosterVariants([], MediaVariantName::PostDetail1920);
+    $asset = $post->imageAsset;
+    App\Models\MediaClassification::factory()->create(['media_asset_id' => $asset->id, 'classifier' => 'nudenet', 'mode' => App\Enums\ClassificationMode::Shadow, 'scores' => ['breast_exposed' => 0.91, 'underwear' => 0.4, 'swimwear' => 0.01]]);
+    // Its later answer is the one shown.
+    App\Models\MediaClassification::factory()->create(['media_asset_id' => $asset->id, 'classifier' => 'cloud', 'mode' => App\Enums\ClassificationMode::Active, 'status' => App\Enums\ClassificationStatus::Failed, 'scores' => null]);
+
+    $page = Livewire::withQueryParams(['status' => 'all'])->test(ListPosts::class)->call('view', $post->id);
+    $page->assertSee('Not rated')
+        ->assertSee('nudenet (shadow): Breast 0.91 · Underwear 0.40')
+        ->assertDontSee('Swimwear')
+        ->assertSee('cloud: failed');
+
+    $asset->forceFill(['content_rating' => App\Enums\ContentRating::Nsfw, 'content_rating_source' => App\Enums\ContentRatingSource::Moderator])->save();
+    Livewire::withQueryParams(['status' => 'all'])->test(ListPosts::class)->call('view', $post->id)->assertSee('NSFW · by a moderator');
+});

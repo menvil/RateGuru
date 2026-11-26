@@ -15,4 +15,14 @@ enum ContentRating: string
     case Unknown = 'unknown';
     case Sfw = 'sfw';
     case Nsfw = 'nsfw';
+
+    /** How the admin and Content Studio name it. */
+    public function label(): string
+    {
+        return match ($this) {
+            self::Unknown => 'Not rated',
+            self::Sfw => 'SFW',
+            self::Nsfw => 'NSFW',
+        };
+    }
 }

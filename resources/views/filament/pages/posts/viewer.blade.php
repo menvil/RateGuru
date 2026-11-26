@@ -1,8 +1,8 @@
 {{--
     A post's original image over a darker scrim than a dialog's, as large as
     the window allows, with what it is — its size in pixels, its type, how
-    large the file is and where it is stored — and Open original for the file
-    itself. It sits
+    large the file is and where it is stored, its content rating and what each
+    classifier last said of it — and Open original for the file itself. It sits
     on the overlay layer the dialog and the drawer share, so Escape, the scrim
     and Close dismiss it and focus goes back to the thumbnail or menu item that
     opened it.
@@ -27,6 +27,12 @@
             <div class="rg-admin-viewer__text">
                 <h2 id="rg-admin-posts-viewer-title" class="rg-admin-viewer__title">{{ $viewer['title'] }}</h2>
                 <p class="rg-admin-viewer__meta">{{ $viewer['meta'] }}</p>
+                <p class="rg-admin-viewer__meta">
+                    <x-admin.ui.badge :tone="$viewer['rating']['tone']">{{ $viewer['rating']['label'] }}</x-admin.ui.badge>
+                    @foreach ($viewer['classifiers'] as $line)
+                        <span>{{ $line }}</span>@if (! $loop->last)<span aria-hidden="true"> · </span>@endif
+                    @endforeach
+                </p>
             </div>
             <x-admin.ui.button size="sm" icon="external-link" :href="$viewer['url']" target="_blank" rel="noopener">Open original</x-admin.ui.button>
             <x-admin.ui.icon-button icon="x" label="Close" variant="ghost" size="sm" x-on:click="dismiss()" />
