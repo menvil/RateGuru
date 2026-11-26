@@ -1,0 +1,102 @@
+app/Filament/Resources/StudioPlans/Concerns/EditsStudioPlan.php
+  s_0f80700cf0b8c6::t_7496a49fa4bb14 318-322,327,356-365,370-379,381-383,390-391
+  s_0f80700cf0b8c6::t_eae7ae96662b8c 389
+  s_0f80700cf0b8c6::t_e237769c7579f4 353,380,385-388,652-653,655,660,670,677,693-694
+resources/views/livewire/admin/studio-plan-discussion-editor.blade.php
+  s_0f80700cf0b8c6::t_9bac1c5618bdb6 25
+  s_0f80700cf0b8c6::t_0692ea13fe023d 417,421-422,427-428,457,472
+  s_0f80700cf0b8c6::t_12f53f796d4f83 342-343
+  s_0f80700cf0b8c6::t_dfbe3e5b1a8940 423,430
+tests/Browser/AdminStudioPlanDiscussionVotesBrowserTest.php
+  s_0f80700cf0b8c6::t_fa4373422eab9b 244-247,249-253,258-259,281
+  s_0f80700cf0b8c6::t_cdc454e69a23da 260-261
+  s_0f80700cf0b8c6::t_3ab456fd022ab8 264,282-296
+  s_0f80700cf0b8c6::t_dfbe3e5b1a8940 265,269,271
+  s_0f80700cf0b8c6::t_025c763d2090c1 266,254-256,262-263,274-280,270,272
+  s_0f80700cf0b8c6::t_8251b0aaf20573 297,257,267,273,298-314
+  s_0f80700cf0b8c6::t_ecb5ff96478988 248
+resources/views/livewire/admin/studio-plan-discussion-votes-editor.blade.php
+  s_0f80700cf0b8c6::t_3ab456fd022ab8 184-196,204-212,215
+  s_0f80700cf0b8c6::t_8251b0aaf20573 197-203
+tests/Feature/Filament/StudioPlanImageUiTest.php
+  s_0f80700cf0b8c6::t_dab2820ab3ede2 416-433,368
+  s_0f80700cf0b8c6::t_4e2bb0a631da20 588,589-610,355-356,359-360,364,366-367,370,372,375-376,378,381-382
+  s_0f80700cf0b8c6::t_5fcab9f7c14a7f 450-453
+  s_0f80700cf0b8c6::t_ac7b875f6afb64 354,357-358,361-363,365,369,371,373-374,377,379-380
+app/Livewire/Admin/StudioPlanPostVotesEditor.php
+  s_0f80700cf0b8c6::t_45315c98e77459 313,340,373,417,1593-1615,179,502
+  s_0f80700cf0b8c6::t_7b9f9abf197494 347-353,470-477
+  s_0f80700cf0b8c6::t_3a6188c3f9d698 494,1618-1625,176
+  s_0f80700cf0b8c6::t_b60bb4e9967291 540-545
+  s_0f80700cf0b8c6::t_efe0958ba76ed0 173-175,177-178,495-498,500-501,856,1035,1500
+  s_0f80700cf0b8c6::t_362376a5ca2810 1163-1168
+tests/Feature/Filament/StudioPlanPostVotesEditorTest.php
+  s_0f80700cf0b8c6::t_172a3a7276df66 12,559-563,567-572
+  s_0f80700cf0b8c6::t_db4b35857bb027 220-225,227-230
+  s_0f80700cf0b8c6::t_26c1dcd02f0926 226
+  s_0f80700cf0b8c6::t_f7eed95b3b8246 318-321,326-330,350-369,332
+  s_0f80700cf0b8c6::t_a4373b874295b8 322-325
+  s_0f80700cf0b8c6::t_362376a5ca2810 574,575-577,579-583
+  s_0f80700cf0b8c6::t_2599d904c515ae 646-659,566,334,341,345,348-349,578,584
+  s_0f80700cf0b8c6::t_77b4ae76a2d4e7 564-565
+  s_0f80700cf0b8c6::t_efe0958ba76ed0 331,333,335-340,342-344,346-347
+tests/Browser/AdminStudioPlanImageAnalysisBrowserTest.php
+  s_0f80700cf0b8c6::t_29931ae4eb68be 186-200
+  s_0f80700cf0b8c6::t_3623c38b36fd8c 220-250,203-205,207,210-215,218
+  s_0f80700cf0b8c6::t_65bedb247eb286 202,206,208-209,216-217,219
+tests/Feature/Filament/StudioActionQueueTest.php
+  s_0f80700cf0b8c6::t_a527d33e053cc9 87-88,91-103,106-107
+  s_0f80700cf0b8c6::t_74d4291a35e410 108-126
+  s_0f80700cf0b8c6::t_619204de0be35f 89-90
+  s_0f80700cf0b8c6::t_817214d5e04a90 104-105
+tests/Feature/Filament/CreateStudioPlanPageTest.php
+  s_0f80700cf0b8c6::t_03e4abf69d41ce 146-149,155,158,161-164,190
+  s_0f80700cf0b8c6::t_20f9d753390a1f 150-151
+  s_0f80700cf0b8c6::t_15e058b97768c9 152
+  s_0f80700cf0b8c6::t_319e6e3951bfd2 153,159-160
+  s_0f80700cf0b8c6::t_8178bf93465f4b 154
+  s_0f80700cf0b8c6::t_631cabeb7f21c5 156-157
+  s_0f80700cf0b8c6::t_16a6f8f1c5d0cd 3,10,167-170,175,183-189,191
+  s_0f80700cf0b8c6::t_28205c54ad7969 171-174,176-182
+app/Filament/Resources/StudioPlans/Pages/CreateStudioPlan.php
+  s_0f80700cf0b8c6::t_631cabeb7f21c5 16,202-206
+  s_0f80700cf0b8c6::t_2d60ce54d7e76e 176,189-201,207-210,215-217,212
+  s_0f80700cf0b8c6::t_16a6f8f1c5d0cd 211,213-214,218
+tests/Feature/Filament/StudioPlanTextSuggestionsUiTest.php
+  s_0f80700cf0b8c6::t_7941bb89375c97 92-113
+  s_0f80700cf0b8c6::t_c6631120eda83c 3,373-393
+app/Livewire/Admin/StudioPlanTextSuggestionsCard.php
+  s_0f80700cf0b8c6::t_3d7dab5346c0d4 118,129-135,226-230,252,120,124,126-127
+  s_0f80700cf0b8c6::t_c6631120eda83c 119,121-123,125,128
+resources/views/filament/pages/studio-plan/image.blade.php
+  s_0f80700cf0b8c6::t_68f5bb00b699fe 42-46,123
+  s_0f80700cf0b8c6::t_26125e39d4229f 118,121-122,126-127
+  s_0f80700cf0b8c6::t_2708936419a8a7 107-111
+  s_0f80700cf0b8c6::t_65bedb247eb286 119-120,124-125
+tests/Feature/Filament/StudioPlanDiscussionVotesEditorTest.php
+  s_0f80700cf0b8c6::t_b492361079983d 121-138
+  s_0f80700cf0b8c6::t_257e27bc1ad06a 150,153-156,158-162
+  s_0f80700cf0b8c6::t_496ebeddd0acab 151-152,157
+  s_0f80700cf0b8c6::t_bcc935cb6f3f6f 321-322,328-331,336-339
+  s_0f80700cf0b8c6::t_99373d76ecc7f5 323-327
+  s_0f80700cf0b8c6::t_5dc422892ec1ae 332-335
+  s_0f80700cf0b8c6::t_2d23b8c262598c 829-831,833-836,142,144,146,148-149
+  s_0f80700cf0b8c6::t_2f8d3ca0e955af 832
+  s_0f80700cf0b8c6::t_817214d5e04a90 139-141,143,145,147
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "69bd352078e361b210d8564a92b9f86e0b70737f",
+  "prompts": {},
+  "sessions": {
+    "s_0f80700cf0b8c6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9c487690-cbdd-45b4-bfb3-e59a0da356a9",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
