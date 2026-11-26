@@ -171,6 +171,8 @@ return [
         // 1080 takes a few minutes on two threads; ProcessVideoAssetJob's
         // own timeout bounds all of them together.
         'transcode_timeout_seconds' => 600,
+        // One frame taken for the content classifiers: a seek and a decode.
+        'frame_timeout_seconds' => 30,
     ],
 
     /*

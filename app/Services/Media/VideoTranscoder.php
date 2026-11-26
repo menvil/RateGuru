@@ -112,15 +112,15 @@ final class VideoTranscoder
             '-q:v', '3',
             '-f', 'image2',
             $output,
-        ]);
+        ], (int) config('media.video.frame_timeout_seconds'));
     }
 
     /**
      * @param  list<string>  $arguments
      */
-    private function run(array $arguments): void
+    private function run(array $arguments, ?int $timeoutSeconds = null): void
     {
-        $timeout = max(1, (int) config('media.video.transcode_timeout_seconds'));
+        $timeout = max(1, $timeoutSeconds ?? (int) config('media.video.transcode_timeout_seconds'));
 
         $result = $this->runner->run(MediaTool::Ffmpeg, [
             '-nostdin',

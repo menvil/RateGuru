@@ -7,14 +7,18 @@ use App\Enums\MediaKind;
 use App\Enums\MediaStatus;
 use App\Models\MediaAsset;
 use App\Services\Media\Classification\ClassificationFrameSampler;
+use App\Services\Media\Classification\MediaClassificationFailedException;
 use App\Services\Media\Classification\MediaClassificationRecorder;
 use App\Services\Media\Classification\MediaClassifierRegistry;
 use App\Support\Media\MediaQueue;
+use App\Support\Media\WorkerTemporaryDirectory;
+use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Log;
 use RuntimeException;
+use Throwable;
 
 /**
  * Shows one post's media to every configured classifier and records each
@@ -22,12 +26,14 @@ use RuntimeException;
  * a video's frames are ffmpeg runs, and a cloud classifier may take a while
  * over thirty of them.
  *
- * A classifier that already answered for this asset, at this model version,
- * is not asked again, so a retried or repeated job asks only the rest. What
- * a classifier fails at is recorded, not retried; what fails the job is the
- * host — the file, ffmpeg — retried once, a minute later.
+ * One at a time per asset (ShouldBeUnique), and a classifier that already
+ * answered for it at its model version is not asked again: an upload, a
+ * redelivered video job and media:classify meeting on one asset ask each
+ * classifier once — a paid one is never paid twice. What a classifier fails
+ * at is recorded, not retried; so is media nothing can be taken from. What
+ * fails the job is the host — ffmpeg missing, the database — retried once.
  */
-final class ClassifyMediaAssetJob implements RunsOnMediaQueue, ShouldQueue
+final class ClassifyMediaAssetJob implements RunsOnMediaQueue, ShouldBeUnique, ShouldQueue
 {
     use Queueable;
 
@@ -40,9 +46,20 @@ final class ClassifyMediaAssetJob implements RunsOnMediaQueue, ShouldQueue
 
     public bool $failOnTimeout = true;
 
+    /** Held as long as the media connection could still deliver the job. */
+    public int $uniqueFor = 960;
+
+    /** A run its timeout killed left its frames; cleared once past every run's time. */
+    private const int STALE_AFTER_SECONDS = 7200;
+
     public function __construct(public readonly int $mediaAssetId)
     {
         $this->onConnection(MediaQueue::connection());
+    }
+
+    public function uniqueId(): string
+    {
+        return (string) $this->mediaAssetId;
     }
 
     public function handle(MediaClassifierRegistry $registry, ClassificationFrameSampler $sampler, MediaClassificationRecorder $recorder): void
@@ -67,7 +84,17 @@ final class ClassifyMediaAssetJob implements RunsOnMediaQueue, ShouldQueue
         $directory = self::workDirectory();
 
         try {
-            $input = $sampler->sample($asset, $directory);
+            try {
+                $input = $sampler->sample($asset, $directory);
+            } catch (MediaClassificationFailedException $nothingToShow) {
+                // The same file would give nothing again: said once, for
+                // each classifier that was to see it.
+                foreach ($pending as $entry) {
+                    $recorder->unaskable($asset, $entry['classifier'], $entry['mode'], $nothingToShow);
+                }
+
+                return;
+            }
 
             foreach ($pending as $entry) {
                 $recorder->record($asset, $entry['classifier'], $input, $entry['mode']);
@@ -78,23 +105,14 @@ final class ClassifyMediaAssetJob implements RunsOnMediaQueue, ShouldQueue
     }
 
     /**
-     * A directory of this run's own under the system temp directory: its
-     * frames are pictures of an author's media, readable by this worker
-     * alone, and gone when the run ends.
+     * This run's own directory, inside this worker's (one per user, so two
+     * targets on one host never share it): its frames are pictures of an
+     * author's media, readable by this worker alone, and gone when the run
+     * ends — or, if a timeout killed it first, when a later run clears it.
      */
     private static function workDirectory(): string
     {
-        $root = sys_get_temp_dir().'/rateguru-classification';
-
-        if (! is_dir($root) && ! @mkdir($root, 0o700) && ! is_dir($root)) {
-            throw new RuntimeException('The classification work directory could not be made.');
-        }
-
-        if (is_link($root) || fileowner($root) !== getmyuid()) {
-            throw new RuntimeException('The classification work directory is not this worker\'s own.');
-        }
-
-        $directory = $root.'/'.bin2hex(random_bytes(8));
+        $directory = WorkerTemporaryDirectory::prepare('classification', self::STALE_AFTER_SECONDS).'/'.bin2hex(random_bytes(8));
 
         if (! mkdir($directory, 0o700)) {
             throw new RuntimeException('The classification work directory could not be made.');
@@ -103,7 +121,7 @@ final class ClassifyMediaAssetJob implements RunsOnMediaQueue, ShouldQueue
         return $directory;
     }
 
-    public function failed(?\Throwable $exception): void
+    public function failed(?Throwable $exception): void
     {
         Log::error('ClassifyMediaAssetJob: classification failed.', [
             'media_asset_id' => $this->mediaAssetId,

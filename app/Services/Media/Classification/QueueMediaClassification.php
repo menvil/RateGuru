@@ -6,11 +6,18 @@ use App\Enums\MediaKind;
 use App\Enums\MediaStatus;
 use App\Jobs\ClassifyMediaAssetJob;
 use App\Models\MediaAsset;
+use Illuminate\Support\Facades\DB;
+use Throwable;
 
 /**
  * Queues a post's media for the configured classifiers once it is ready: a
  * photo when it is stored, a video or GIF when its processing finishes.
  * With no classifier configured, nothing is queued at all.
+ *
+ * Never at the upload's expense: the job is queued after the commit that
+ * made the media ready — so it never finds it otherwise, or not at all — and
+ * a queue that will not take it is reported, never thrown back into the
+ * upload that has already committed.
  */
 final class QueueMediaClassification
 {
@@ -22,8 +29,17 @@ final class QueueMediaClassification
             return;
         }
 
-        // After the commit that made it ready, so the job never finds it
-        // otherwise — or never finds it at all.
-        ClassifyMediaAssetJob::dispatch((int) $asset->id)->afterCommit();
+        $id = (int) $asset->id;
+
+        DB::afterCommit(function () use ($id): void {
+            try {
+                // Dispatched when the pending dispatch goes, here: inside the
+                // try, and through the unique lock the job holds per asset.
+                $pending = ClassifyMediaAssetJob::dispatch($id);
+                unset($pending);
+            } catch (Throwable $exception) {
+                report($exception);
+            }
+        });
     }
 }

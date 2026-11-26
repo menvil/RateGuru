@@ -1,5 +1,9 @@
 <?php
 
+use App\Enums\ClassificationMode;
+use App\Enums\ClassificationStatus;
+use App\Enums\ContentRating;
+use App\Enums\ContentRatingSource;
 use App\Enums\MediaVariantName;
 use App\Enums\UserRole;
 use App\Filament\Resources\Posts\Pages\ListPosts;
@@ -7,6 +11,7 @@ use App\Filament\Resources\Posts\PostResource;
 use App\Filament\Resources\Users\UserResource;
 use App\Filament\Support\AdminNavigationGroup;
 use App\Models\Category;
+use App\Models\MediaClassification;
 use App\Models\MediaVariant;
 use App\Models\Post;
 use App\Models\User;
@@ -259,16 +264,20 @@ it('shows in the viewer the post\'s content rating and what each classifier last
     $this->actingAs(User::factory()->admin()->create());
     $post = videoPostWithPosterVariants([], MediaVariantName::PostDetail1920);
     $asset = $post->imageAsset;
-    App\Models\MediaClassification::factory()->create(['media_asset_id' => $asset->id, 'classifier' => 'nudenet', 'mode' => App\Enums\ClassificationMode::Shadow, 'scores' => ['breast_exposed' => 0.91, 'underwear' => 0.4, 'swimwear' => 0.01]]);
-    // Its later answer is the one shown.
-    App\Models\MediaClassification::factory()->create(['media_asset_id' => $asset->id, 'classifier' => 'cloud', 'mode' => App\Enums\ClassificationMode::Active, 'status' => App\Enums\ClassificationStatus::Failed, 'scores' => null]);
+    // Each classifier's later answer is the one shown.
+    MediaClassification::factory()->create(['media_asset_id' => $asset->id, 'classifier' => 'nudenet', 'mode' => ClassificationMode::Shadow, 'scores' => ['genitals_exposed' => 0.7]]);
+    MediaClassification::factory()->create(['media_asset_id' => $asset->id, 'classifier' => 'nudenet', 'mode' => ClassificationMode::Shadow, 'scores' => ['breast_exposed' => 0.91, 'underwear' => 0.4, 'swimwear' => 0.01]]);
+    MediaClassification::factory()->create(['media_asset_id' => $asset->id, 'classifier' => 'cloud', 'mode' => ClassificationMode::Active, 'scores' => ['sex_toy' => 0.5]]);
+    MediaClassification::factory()->create(['media_asset_id' => $asset->id, 'classifier' => 'cloud', 'mode' => ClassificationMode::Active, 'status' => ClassificationStatus::Failed, 'scores' => null]);
 
     $page = Livewire::withQueryParams(['status' => 'all'])->test(ListPosts::class)->call('view', $post->id);
     $page->assertSee('Not rated')
         ->assertSee('nudenet (shadow): Breast 0.91 · Underwear 0.40')
         ->assertDontSee('Swimwear')
-        ->assertSee('cloud: failed');
+        ->assertDontSee('Genitals')
+        ->assertSee('cloud: failed')
+        ->assertDontSee('Sex toy');
 
-    $asset->forceFill(['content_rating' => App\Enums\ContentRating::Nsfw, 'content_rating_source' => App\Enums\ContentRatingSource::Moderator])->save();
+    $asset->forceFill(['content_rating' => ContentRating::Nsfw, 'content_rating_source' => ContentRatingSource::Moderator])->save();
     Livewire::withQueryParams(['status' => 'all'])->test(ListPosts::class)->call('view', $post->id)->assertSee('NSFW · by a moderator');
 });

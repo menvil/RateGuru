@@ -16100,6 +16100,9 @@ function standInClassifier(array $scores = [], ?Throwable $failure = null, strin
         /** @var list<int> how many frames each call was shown */
         public array $shown = [];
 
+        /** @var array<string, bool> each frame's file, and whether it was there when shown */
+        public array $files = [];
+
         public function __construct(private array $scores, private ?Throwable $failure, private string $name) {}
 
         public function name(): string
@@ -16115,6 +16118,10 @@ function standInClassifier(array $scores = [], ?Throwable $failure = null, strin
         public function classify(ClassificationInput $input): ClassificationResult
         {
             $this->shown[] = count($input->frames);
+
+            foreach ($input->frames as $frame) {
+                $this->files[$frame->path] = is_file($frame->path);
+            }
 
             if ($this->failure !== null) {
                 throw $this->failure;

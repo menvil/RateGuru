@@ -592,7 +592,7 @@ final class ListPosts extends Page
      */
     private static function classifiers(MediaAsset $asset): array
     {
-        return $asset->classifications()->latest('id')->limit(20)->get()
+        return $asset->classifications()->select(['id', 'classifier', 'mode', 'status', 'scores'])->latest('id')->limit(50)->get()
             ->unique('classifier')
             ->take(5)
             ->map(function (MediaClassification $classification): string {

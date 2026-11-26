@@ -65,6 +65,24 @@ final class MediaClassificationRecorder
     }
 
     /**
+     * That a classifier could not be asked at all — nothing could be taken
+     * from the media to show it — recorded as its answer would be, so the
+     * asset is not queued for it again unless failures are asked for.
+     */
+    public function unaskable(MediaAsset $asset, MediaContentClassifier $classifier, ClassificationMode $mode, MediaClassificationFailedException $reason): MediaClassification
+    {
+        return MediaClassification::query()->create([
+            'media_asset_id' => $asset->id,
+            'classifier' => $classifier->name(),
+            'model_version' => $classifier->modelVersion(),
+            'mode' => $mode,
+            'status' => ClassificationStatus::Failed,
+            'inputs' => ['frames' => []],
+            'error' => mb_substr($reason->getMessage(), 0, 500),
+        ]);
+    }
+
+    /**
      * Only the categories the project keeps, each a finite score in 0..1:
      * whatever a provider adds, or sends as NaN, never reaches the column.
      *

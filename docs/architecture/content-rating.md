@@ -96,6 +96,10 @@ commit that made the media ready:
   uploaded: posts, Content Studio, game rounds;
 - a video or GIF when its processing finishes (`ProcessVideoAssetJob`).
 
+The upload never pays for it. A queue that will not take the job is
+reported, not thrown back into an upload that has already committed. The
+configuration is read by the job, never by the upload.
+
 **What they see** (`ClassificationFrameSampler`): local JPEGs no larger than
 1280 on either side, the format and size every provider takes.
 - **A photo:** its master, scaled down.
@@ -103,21 +107,34 @@ commit that made the media ready:
   - its poster frame, taken a tenth of the way in (at most 3 s), as the poster
     is: what a feed shows before it plays;
   - plus a frame from the middle of every two-second stretch, at most 30.
+  - Each frame is a short ffmpeg run of its own
+    (`media.video.frame_timeout_seconds`, 30 s). A frame ffmpeg cannot take
+    is left out.
 
 **The job:**
-- It runs on the media queue: the frames are ffmpeg runs, and a cloud
-  classifier may take a while over thirty of them.
-- Its frames go into a directory of its own under the system temp directory,
-  readable by the worker alone and removed when it ends.
+- It runs on the media queue, one at a time per asset (`ShouldBeUnique`).
 - A classifier that already answered for the asset at its model version is
-  not asked again, so a retry asks only the rest.
-- What a classifier fails at is recorded, not retried. What fails the job is
-  the host (the file, ffmpeg), retried once.
+  not asked again, so an upload, a redelivered video job and
+  `media:classify` meeting on one asset ask each classifier once, and a paid
+  one is never paid twice.
+- **Where its frames go:** a directory of its own, inside this worker
+  user's own (`WorkerTemporaryDirectory`: one per user, so two targets on
+  one host never share one). It is removed when the run ends; if a timeout
+  killed the run first, a later run removes it.
+- **Failures that are recorded, not retried:** a classifier failing, and
+  media nothing can be taken from (unreadable, undecodable, no frame). The
+  latter is recorded for each classifier that was to see it.
+- **Failures that are retried once:** the host's (ffmpeg missing, the
+  database).
 
 **Media stored before a classifier was configured:** `php artisan
 media:classify --limit=N` queues it, newest first, for every configured
 classifier that has not answered for it yet. Use it, for example, to try a
 classifier in shadow mode on real uploads.
+- An asset a classifier failed on counts as answered unless
+  `--retry-failed` is given.
+- The jobs become available ten seconds apart, so the videos waiting on the
+  same media queue are never stuck behind a whole batch.
 
 ## Where it shows
 

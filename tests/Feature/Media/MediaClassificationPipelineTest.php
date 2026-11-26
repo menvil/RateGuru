@@ -1,6 +1,8 @@
 <?php
 
+use App\Console\Commands\MediaClassifyCommand;
 use App\Enums\ClassificationMode;
+use App\Enums\ClassificationStatus;
 use App\Enums\MediaKind;
 use App\Enums\MediaStatus;
 use App\Enums\MediaTool;
@@ -11,15 +13,19 @@ use App\Models\MediaClassification;
 use App\Models\User;
 use App\Services\Media\Classification\ClassificationFrameSampler;
 use App\Services\Media\Classification\MediaClassificationFailedException;
-use App\Services\Media\Classification\MediaClassificationRecorder;
 use App\Services\Media\Classification\MediaClassifierRegistry;
 use App\Services\Media\Classification\QueueMediaClassification;
 use App\Services\Media\MediaToolResult;
 use App\Services\Media\MediaToolRunner;
 use App\Services\Media\StoredMedia;
 use App\Support\Media\MediaAssetCreator;
+use App\Support\Media\WorkerTemporaryDirectory;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Testing\Fakes\QueueFake;
 
 /*
  * How a post's media reaches the configured content classifiers: the frames
@@ -35,17 +41,24 @@ afterEach(function () {
     removeScratchDir($this->scratch);
 });
 
-/** ffmpeg as a runner that writes a stand-in JPEG wherever it is asked to. */
-function framesWrittenByFfmpeg(): object
+/** ffmpeg as a runner that writes a stand-in JPEG wherever it is asked to — failing the runs numbered in $failing. */
+function framesWrittenByFfmpeg(array $failing = []): object
 {
-    $runner = new class implements MediaToolRunner
+    $runner = new class($failing) implements MediaToolRunner
     {
         /** @var list<list<string>> */
         public array $calls = [];
 
+        public function __construct(private array $failing) {}
+
         public function run(MediaTool $tool, array $arguments, int $timeoutSeconds): MediaToolResult
         {
             $this->calls[] = $arguments;
+
+            if (in_array(count($this->calls) - 1, $this->failing, true)) {
+                return new MediaToolResult(1, '', 'Invalid data');
+            }
+
             file_put_contents((string) end($arguments), 'jpeg');
 
             return new MediaToolResult(0, '', '');
@@ -93,16 +106,15 @@ it('takes the poster\'s moment and the middle of every two-second stretch, at mo
 it('shows a photo as one JPEG of its master, no larger than the feed\'s own picture', function () {
     $asset = MediaAsset::factory()->create(['path' => 'posts/big.jpg']);
     Storage::disk('public')->put('posts/big.jpg', jpegMarkerBytes(2560, 1440));
-    $directory = $this->scratch;
 
-    $input = app(ClassificationFrameSampler::class)->sample($asset, $directory);
+    $input = app(ClassificationFrameSampler::class)->sample($asset, $this->scratch);
 
     expect($input->frames)->toHaveCount(1)
         ->and($input->frames[0]->label)->toBe('still')
         ->and(getimagesize($input->frames[0]->path))->toMatchArray([0 => 1280, 1 => 720, 'mime' => 'image/jpeg']);
 });
 
-it('shows a video or GIF as JPEG frames at those moments, through the input whitelists, no larger than 1280', function () {
+it('shows a video or GIF as JPEG frames at those moments, through the input whitelists, no larger than 1280, each a short run', function () {
     $runner = framesWrittenByFfmpeg();
 
     $input = app(ClassificationFrameSampler::class)->sample(readyVideoAsset(5000, MediaType::Animation), $this->scratch);
@@ -113,46 +125,97 @@ it('shows a video or GIF as JPEG frames at those moments, through the input whit
     $first = $runner->calls[0];
     expect($first[array_search('-ss', $first, true) + 1])->toBe('0.500')
         ->and($first)->toContain('-protocol_whitelist', '-format_whitelist', 'mjpeg')
-        ->and($first[array_search('-vf', $first, true) + 1])->toBe("scale='min(1280,iw)':'min(1280,ih)':force_original_aspect_ratio=decrease");
+        ->and($first[array_search('-vf', $first, true) + 1])->toBe("scale='min(1280,iw)':'min(1280,ih)':force_original_aspect_ratio=decrease")
+        // Its own time limit, not a transcode's: two threads' worth of 30 s.
+        ->and($first[array_search('-timelimit', $first, true) + 1])->toBe('60');
 });
 
-it('says so when no frame could be taken', function () {
-    bindRecordingMediaToolRunner();
+it('leaves out a frame ffmpeg cannot take, and shows the rest', function () {
+    framesWrittenByFfmpeg(failing: [1]);
 
-    app(ClassificationFrameSampler::class)->sample(readyVideoAsset(), $this->scratch);
-})->throws(MediaClassificationFailedException::class);
+    $input = app(ClassificationFrameSampler::class)->sample(readyVideoAsset(5000), $this->scratch);
+
+    expect(array_map(fn ($frame): int => $frame->atMs, $input->frames))->toBe([500, 3750]);
+});
+
+it('says so when no frame could be taken, or the file cannot be read or decoded', function () {
+    bindRecordingMediaToolRunner();
+    expect(fn () => app(ClassificationFrameSampler::class)->sample(readyVideoAsset(), $this->scratch))
+        ->toThrow(MediaClassificationFailedException::class, 'No frame');
+
+    $missing = MediaAsset::factory()->create(['path' => 'posts/gone.jpg']);
+    expect(fn () => app(ClassificationFrameSampler::class)->sample($missing, $this->scratch))
+        ->toThrow(MediaClassificationFailedException::class, 'could not be read');
+
+    $garbled = MediaAsset::factory()->create(['path' => 'posts/garbled.jpg']);
+    Storage::disk('public')->put('posts/garbled.jpg', 'not a picture');
+    expect(fn () => app(ClassificationFrameSampler::class)->sample($garbled, $this->scratch))
+        ->toThrow(MediaClassificationFailedException::class, 'could not be decoded');
+});
 
 it('takes real frames with the real ffmpeg', function () {
     $dir = requireRealFfmpeg();
-    makeWithRealFfmpeg(['-f', 'lavfi', '-i', 'testsrc=duration=5:size=1920x1080:rate=10', '-pix_fmt', 'yuv420p', $dir.'/clip.mp4']);
-    $asset = readyVideoAsset(5000);
-    Storage::disk('public')->put('posts/clip.mp4', (string) file_get_contents($dir.'/clip.mp4'));
 
-    $input = app(ClassificationFrameSampler::class)->sample($asset, $this->scratch);
+    try {
+        makeWithRealFfmpeg(['-f', 'lavfi', '-i', 'testsrc=duration=5:size=1920x1080:rate=10', '-pix_fmt', 'yuv420p', $dir.'/clip.mp4']);
+        $asset = readyVideoAsset(5000);
+        Storage::disk('public')->put('posts/clip.mp4', (string) file_get_contents($dir.'/clip.mp4'));
 
-    expect($input->frames)->toHaveCount(3);
-    foreach ($input->frames as $frame) {
-        expect(getimagesize($frame->path))->toMatchArray([0 => 1280, 1 => 720, 'mime' => 'image/jpeg']);
+        $input = app(ClassificationFrameSampler::class)->sample($asset, $this->scratch);
+
+        expect($input->frames)->toHaveCount(3);
+        foreach ($input->frames as $frame) {
+            expect(getimagesize($frame->path))->toMatchArray([0 => 1280, 1 => 720, 'mime' => 'image/jpeg']);
+        }
+    } finally {
+        removeScratchDir($dir);
     }
 });
 
-it('shows a post\'s media to every configured classifier once, recording each answer, and leaves no frame behind', function () {
+it('shows a post\'s media to every configured classifier once, recording each answer, its frames gone with the run', function () {
     $shadow = standInClassifier(['breast_exposed' => 0.2], name: 'trial');
     $active = standInClassifier(['breast_exposed' => 0.9], name: 'decider');
     configureClassifiers(['test.trial' => [$shadow, 'shadow'], 'test.decider' => [$active, 'active']]);
     framesWrittenByFfmpeg();
     $asset = readyVideoAsset(5000);
-    $before = glob(sys_get_temp_dir().'/rateguru-classification/*') ?: [];
 
-    (new ClassifyMediaAssetJob($asset->id))->handle(app(MediaClassifierRegistry::class), app(ClassificationFrameSampler::class), app(MediaClassificationRecorder::class));
+    app()->call([new ClassifyMediaAssetJob($asset->id), 'handle']);
     // Asked again — a retry, a second queueing — it asks no one twice.
-    (new ClassifyMediaAssetJob($asset->id))->handle(app(MediaClassifierRegistry::class), app(ClassificationFrameSampler::class), app(MediaClassificationRecorder::class));
+    app()->call([new ClassifyMediaAssetJob($asset->id), 'handle']);
 
     expect(MediaClassification::query()->orderBy('id')->get(['classifier', 'mode'])->map(fn ($row): array => [$row->classifier, $row->mode])->all())
         ->toBe([['trial', ClassificationMode::Shadow], ['decider', ClassificationMode::Active]])
         ->and($shadow->shown)->toBe([3])
         ->and($active->shown)->toBe([3])
-        ->and(glob(sys_get_temp_dir().'/rateguru-classification/*') ?: [])->toBe($before);
+        // In this worker's own directory while shown, and gone with the run.
+        ->and(array_values(array_unique($shadow->files)))->toBe([true])
+        ->and(dirname(array_key_first($shadow->files), 2))->toBe(WorkerTemporaryDirectory::path('classification'))
+        ->and(array_filter(array_keys($shadow->files), 'file_exists'))->toBe([])
+        ->and(is_dir(dirname(array_key_first($shadow->files))))->toBeFalse();
+});
+
+it('asks the rest when one classifier fails, and records media nothing can be taken from for each, its directory gone', function () {
+    Exceptions::fake();
+    $broken = standInClassifier(failure: new RuntimeException('bug'), name: 'broken');
+    $working = standInClassifier(['sex_toy' => 0.3], name: 'working');
+    configureClassifiers(['test.broken' => [$broken, 'shadow'], 'test.working' => [$working, 'shadow']]);
+    framesWrittenByFfmpeg();
+    $asset = readyVideoAsset();
+
+    app()->call([new ClassifyMediaAssetJob($asset->id), 'handle']);
+    expect(MediaClassification::query()->orderBy('id')->get()->map(fn ($row): array => [$row->classifier, $row->status])->all())
+        ->toBe([['broken', ClassificationStatus::Failed], ['working', ClassificationStatus::Succeeded]]);
+
+    MediaClassification::query()->delete();
+    $root = WorkerTemporaryDirectory::path('classification');
+    $before = glob($root.'/*') ?: [];
+    bindRecordingMediaToolRunner();
+
+    app()->call([new ClassifyMediaAssetJob($asset->id), 'handle']);
+
+    expect(MediaClassification::query()->orderBy('id')->pluck('error', 'classifier')->all())
+        ->toBe(['broken' => 'No frame could be taken from the media.', 'working' => 'No frame could be taken from the media.'])
+        ->and(glob($root.'/*') ?: [])->toBe($before);
 });
 
 it('leaves media alone that is not a post\'s, or not ready', function () {
@@ -169,7 +232,7 @@ it('leaves media alone that is not a post\'s, or not ready', function () {
         ->and(MediaClassification::query()->count())->toBe(0);
 });
 
-it('queues a post\'s media once it is ready, after the commit, and nothing at all with no classifier configured', function () {
+it('queues a post\'s ready media, and nothing at all with no classifier configured', function () {
     Queue::fake();
     $photo = MediaAsset::factory()->create();
 
@@ -182,37 +245,88 @@ it('queues a post\'s media once it is ready, after the commit, and nothing at al
     app(QueueMediaClassification::class)->ready(MediaAsset::factory()->create(['status' => MediaStatus::Processing]));
 
     Queue::assertPushed(ClassifyMediaAssetJob::class, 1);
-    Queue::assertPushed(ClassifyMediaAssetJob::class, fn (ClassifyMediaAssetJob $job): bool => $job->mediaAssetId === $photo->id && $job->afterCommit === true);
+    Queue::assertPushed(ClassifyMediaAssetJob::class, fn (ClassifyMediaAssetJob $job): bool => $job->mediaAssetId === $photo->id);
 });
 
-it('queues an uploaded post picture as it is stored', function () {
+it('queues nothing until the transaction that made the media ready commits, and nothing if it rolls back', function () {
     Queue::fake();
     configureClassifiers(['test.only' => [standInClassifier(), 'shadow']]);
-    $user = User::factory()->create();
 
-    $asset = app(MediaAssetCreator::class)->create(new StoredMedia(
-        disk: 'public', path: 'posts/x.jpg', originalFilename: 'x.jpg', mimeType: 'image/jpeg', extension: 'jpg', byteSize: 10, width: 10, height: 10,
-    ), MediaKind::PostImage, $user);
+    DB::transaction(function () {
+        app(QueueMediaClassification::class)->ready(MediaAsset::factory()->create());
+        Queue::assertNothingPushed();
+    });
+    Queue::assertPushed(ClassifyMediaAssetJob::class, 1);
 
-    Queue::assertPushed(ClassifyMediaAssetJob::class, fn (ClassifyMediaAssetJob $job): bool => $job->mediaAssetId === $asset->id);
+    try {
+        DB::transaction(function () {
+            app(QueueMediaClassification::class)->ready(MediaAsset::factory()->create());
+
+            throw new RuntimeException('rolled back');
+        });
+    } catch (RuntimeException) {
+    }
+
+    Queue::assertPushed(ClassifyMediaAssetJob::class, 1);
 });
 
-it('queues a video or GIF once its processing leaves it ready', function () {
+it('queues one job per asset at a time, however often it is asked', function () {
     Queue::fake();
     configureClassifiers(['test.only' => [standInClassifier(), 'shadow']]);
-    $video = readyVideoAsset();
+    $photo = MediaAsset::factory()->create();
 
-    app()->call([new App\Jobs\ProcessVideoAssetJob($video->id), 'handle']);
+    app(QueueMediaClassification::class)->ready($photo);
+    app(QueueMediaClassification::class)->ready($photo);
 
-    Queue::assertPushed(ClassifyMediaAssetJob::class, fn (ClassifyMediaAssetJob $job): bool => $job->mediaAssetId === $video->id);
+    Queue::assertPushed(ClassifyMediaAssetJob::class, 1);
 });
 
-it('queues the media stored before, newest first, that a configured classifier has not answered for', function () {
+it('queues an uploaded post picture as it is stored, never an avatar', function () {
     Queue::fake();
-    $classifier = standInClassifier(name: 'trial');
-    configureClassifiers(['test.trial' => [$classifier, 'shadow']]);
+    configureClassifiers(['test.only' => [standInClassifier(), 'shadow']]);
+    $stored = fn (string $path): StoredMedia => new StoredMedia(disk: 'public', path: $path, originalFilename: 'x.jpg', mimeType: 'image/jpeg', extension: 'jpg', byteSize: 10, width: 10, height: 10);
+
+    $photo = app(MediaAssetCreator::class)->create($stored('posts/x.jpg'), MediaKind::PostImage, User::factory()->create());
+    app(MediaAssetCreator::class)->create($stored('avatars/x.jpg'), MediaKind::Avatar, User::factory()->create());
+
+    Queue::assertPushed(ClassifyMediaAssetJob::class, 1);
+    Queue::assertPushed(ClassifyMediaAssetJob::class, fn (ClassifyMediaAssetJob $job): bool => $job->mediaAssetId === $photo->id);
+});
+
+it('never fails an upload over its classification: a queue that will not take it is reported, a configuration it cannot use never read', function () {
+    Exceptions::fake();
+    configureClassifiers(['test.only' => [standInClassifier(), 'shadow']]);
+    Queue::swap(new class(app()) extends QueueFake
+    {
+        public function push($job, $data = '', $queue = null)
+        {
+            throw new RuntimeException('The media queue is down.');
+        }
+
+        public function later($delay, $job, $data = '', $queue = null)
+        {
+            throw new RuntimeException('The media queue is down.');
+        }
+    });
+    $stored = fn (string $path): StoredMedia => new StoredMedia(disk: 'public', path: $path, originalFilename: 'x.jpg', mimeType: 'image/jpeg', extension: 'jpg', byteSize: 10, width: 10, height: 10);
+
+    $asset = DB::transaction(fn () => app(MediaAssetCreator::class)->create($stored('posts/y.jpg'), MediaKind::PostImage, User::factory()->create()));
+
+    expect($asset->exists)->toBeTrue();
+    Exceptions::assertReported(fn (RuntimeException $exception): bool => $exception->getMessage() === 'The media queue is down.');
+
+    // An entry naming no mode: the upload never reads it, only the job does.
+    config(['media.classification.classifiers' => [['classifier' => 'test.only']]]);
+    expect(app(MediaAssetCreator::class)->create($stored('posts/z.jpg'), MediaKind::PostImage, User::factory()->create())->exists)->toBeTrue();
+});
+
+it('queues the media stored before, newest first, that a configured classifier has not answered for, spread out', function () {
+    Queue::fake();
+    configureClassifiers(['test.trial' => [standInClassifier(name: 'trial'), 'shadow']]);
     $answered = MediaAsset::factory()->create();
     MediaClassification::factory()->create(['media_asset_id' => $answered->id, 'classifier' => 'trial', 'model_version' => 'v1']);
+    $failed = MediaAsset::factory()->create();
+    MediaClassification::factory()->create(['media_asset_id' => $failed->id, 'classifier' => 'trial', 'model_version' => 'v1', 'status' => ClassificationStatus::Failed]);
     $older = MediaAsset::factory()->create();
     $newer = MediaAsset::factory()->create();
     MediaAsset::factory()->create(['kind' => MediaKind::Avatar]);
@@ -220,9 +334,20 @@ it('queues the media stored before, newest first, that a configured classifier h
     $this->artisan('media:classify', ['--limit' => 1])->expectsOutputToContain('Queued 1 asset(s)')->assertSuccessful();
     Queue::assertPushed(ClassifyMediaAssetJob::class, fn (ClassifyMediaAssetJob $job): bool => $job->mediaAssetId === $newer->id);
 
+    // Each run's jobs anew: the unique locks of the last are let go.
     Queue::fake();
+    Cache::flush();
     $this->artisan('media:classify')->assertSuccessful();
-    expect(collect(Queue::pushed(ClassifyMediaAssetJob::class))->pluck('mediaAssetId')->sort()->values()->all())->toBe([$older->id, $newer->id]);
+    $jobs = collect(Queue::pushed(ClassifyMediaAssetJob::class));
+
+    // One a classifier failed on counts as answered, unless asked for again.
+    expect($jobs->pluck('mediaAssetId')->all())->toBe([$newer->id, $older->id])
+        ->and($jobs->last()->delay->getTimestamp() - $jobs->first()->delay->getTimestamp())->toBe(MediaClassifyCommand::SPACING_SECONDS);
+
+    Queue::fake();
+    Cache::flush();
+    $this->artisan('media:classify', ['--retry-failed' => true])->assertSuccessful();
+    expect(collect(Queue::pushed(ClassifyMediaAssetJob::class))->pluck('mediaAssetId')->all())->toBe([$newer->id, $older->id, $failed->id]);
 });
 
 it('says there is nothing to queue with no classifier configured, and refuses a configuration it cannot use', function () {
