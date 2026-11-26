@@ -14,6 +14,8 @@ return [
     'followers' => 'फ़ॉलोअर्स',
     'following' => 'फ़ॉलोइंग',
     'no_posts' => 'अभी तक कोई पोस्ट प्रकाशित नहीं हुई',
+    'processing_videos' => 'प्रोसेस हो रहे वीडियो',
+    'processing_video' => 'प्रोसेस हो रहा है',
     'no_posts_description' => 'इस यूज़र ने अभी तक कोई पोस्ट प्रकाशित नहीं की है।',
     'no_activity' => 'अभी तक कोई गतिविधि नहीं',
     'activity_private' => 'इस यूज़र की गतिविधि निजी है।',

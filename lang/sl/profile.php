@@ -14,6 +14,8 @@ return [
     'followers' => 'Sledilci',
     'following' => 'Sledi',
     'no_posts' => 'Še ni objav',
+    'processing_videos' => 'Videoposnetki v obdelavi',
+    'processing_video' => 'V obdelavi',
     'no_posts_description' => 'Ta uporabnik še nima objav.',
     'no_activity' => 'Še ni dejavnosti',
     'activity_private' => 'Dejavnost tega uporabnika je zasebna.',

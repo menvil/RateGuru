@@ -14,6 +14,8 @@ return [
     'followers' => 'Følgere',
     'following' => 'Følger',
     'no_posts' => 'Ingen publiserte innlegg ennå',
+    'processing_videos' => 'Videoer som behandles',
+    'processing_video' => 'Behandles',
     'no_posts_description' => 'Denne brukeren har ikke publisert noen innlegg ennå.',
     'no_activity' => 'Ingen aktivitet ennå',
     'activity_private' => 'Aktiviteten til denne brukeren er privat.',

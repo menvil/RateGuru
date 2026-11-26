@@ -4,11 +4,9 @@ use App\Actions\Posts\DeletePostAction;
 use App\Actions\Posts\FinalizePostMediaAction;
 use App\Actions\Posts\RestoreDeletedPostAction;
 use App\Enums\MediaStatus;
-use App\Enums\MediaType;
 use App\Enums\PostStatus;
 use App\Jobs\NotifyFollowersAboutNewPostJob;
 use App\Jobs\ProcessVideoAssetJob;
-use App\Models\MediaAsset;
 use App\Models\Post;
 use App\Models\User;
 use App\Notifications\VideoPostProcessedNotification;
@@ -24,27 +22,6 @@ beforeEach(function () {
     Queue::fake();
     Notification::fake();
 });
-
-/**
- * A video post waiting for its media, whose asset is now in $status.
- *
- * @return array{0: Post, 1: MediaAsset}
- */
-function draftVideoPost(User $author, MediaStatus $status): array
-{
-    $asset = MediaAsset::factory()->create([
-        'owner_user_id' => $author->id,
-        'media_type' => MediaType::Video,
-        'status' => $status,
-    ]);
-    $post = Post::factory()->for($author)->create([
-        'status' => PostStatus::Draft,
-        'published_at' => null,
-        'image_asset_id' => $asset->id,
-    ]);
-
-    return [$post, $asset];
-}
 
 it('publishes a trusted, confirmed author\'s video post once its media is ready, and tells author and followers', function () {
     $author = User::factory()->create();

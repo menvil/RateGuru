@@ -14,6 +14,8 @@ return [
     'followers' => 'Takipçiler',
     'following' => 'Takip edilenler',
     'no_posts' => 'Henüz yayınlanmış gönderi yok',
+    'processing_videos' => 'İşlenen videolar',
+    'processing_video' => 'İşleniyor',
     'no_posts_description' => 'Bu kullanıcı henüz hiç gönderi yayınlamadı.',
     'no_activity' => 'Henüz etkinlik yok',
     'activity_private' => 'Bu kullanıcının etkinliği gizli.',

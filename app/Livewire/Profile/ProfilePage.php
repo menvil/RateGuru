@@ -7,6 +7,7 @@ use App\Livewire\Concerns\ShowsAPageThatExists;
 use App\Models\Post;
 use App\Models\RatingVote;
 use App\Models\User;
+use App\Queries\Posts\AuthorProcessingVideosQuery;
 use App\Queries\SavedPosts\SavedPostsQuery;
 use App\Queries\UserPublicPostsQuery;
 use App\Queries\UserRatingActivityQuery;
@@ -79,6 +80,21 @@ final class ProfilePage extends Component
     public function getPostsProperty(): LengthAwarePaginator
     {
         return $this->pageThatExists(fn () => app(UserPublicPostsQuery::class)->forProfile($this->profileUser));
+    }
+
+    /**
+     * The owner's video posts still being processed — never anyone else's:
+     * a draft is its author's alone.
+     *
+     * @return Collection<int, Post>
+     */
+    public function getProcessingVideosProperty(): Collection
+    {
+        $viewer = auth()->user();
+
+        return $viewer instanceof User && $viewer->can('viewDrafts', $this->profileUser)
+            ? app(AuthorProcessingVideosQuery::class)->forAuthor($viewer)
+            : new Collection;
     }
 
     public function getCanSeeActivityProperty(): bool

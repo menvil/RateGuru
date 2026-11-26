@@ -14,6 +14,8 @@ return [
     'followers' => 'Pengikut',
     'following' => 'Mengikuti',
     'no_posts' => 'Belum ada siaran yang diterbitkan',
+    'processing_videos' => 'Video sedang diproses',
+    'processing_video' => 'Sedang diproses',
     'no_posts_description' => 'Pengguna ini belum menerbitkan sebarang siaran.',
     'no_activity' => 'Belum ada aktiviti',
     'activity_private' => 'Aktiviti pengguna ini adalah peribadi.',

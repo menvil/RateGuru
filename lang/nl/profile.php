@@ -14,6 +14,8 @@ return [
     'followers' => 'Volgers',
     'following' => 'Volgend',
     'no_posts' => 'Nog geen gepubliceerde berichten',
+    'processing_videos' => 'Video\'s in verwerking',
+    'processing_video' => 'Wordt verwerkt',
     'no_posts_description' => 'Deze gebruiker heeft nog geen berichten gepubliceerd.',
     'no_activity' => 'Nog geen activiteit',
     'activity_private' => 'De activiteit van deze gebruiker is privé.',

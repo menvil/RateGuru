@@ -14,6 +14,8 @@ return [
     'followers' => 'Followers',
     'following' => 'Following',
     'no_posts' => 'No published posts yet',
+    'processing_videos' => 'Videos being processed',
+    'processing_video' => 'Processing',
     'no_posts_description' => 'This user has not published any posts yet.',
     'no_activity' => 'No activity yet',
     'activity_private' => 'This user\'s activity is private.',

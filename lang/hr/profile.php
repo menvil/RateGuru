@@ -14,6 +14,8 @@ return [
     'followers' => 'Pratitelji',
     'following' => 'Praćeni',
     'no_posts' => 'Još nema objava',
+    'processing_videos' => 'Videozapisi u obradi',
+    'processing_video' => 'U obradi',
     'no_posts_description' => 'Ovaj korisnik još nije ništa objavio.',
     'no_activity' => 'Još nema aktivnosti',
     'activity_private' => 'Aktivnost ovog korisnika je privatna.',

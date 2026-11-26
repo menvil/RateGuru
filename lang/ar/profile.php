@@ -14,6 +14,8 @@ return [
     'followers' => 'المتابِعون',
     'following' => 'يتابِع',
     'no_posts' => 'لا توجد منشورات بعد',
+    'processing_videos' => 'مقاطع فيديو قيد المعالجة',
+    'processing_video' => 'قيد المعالجة',
     'no_posts_description' => 'لم ينشر هذا المستخدم أي منشورات بعد.',
     'no_activity' => 'لا يوجد نشاط بعد',
     'activity_private' => 'نشاط هذا المستخدم خاص.',
