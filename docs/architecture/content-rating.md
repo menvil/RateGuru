@@ -82,3 +82,99 @@ its answer or its failure. It never changes the asset's rating.
 An asset's classifications go with it when it is purged: what was shown and
 said about deleted media leaves no trace. Cost reports come from the
 providers' billing, not from this table.
+
+## Showing media to the classifiers
+
+The classifiers in `media.classification.classifiers` see every post's media
+once it is ready. Each entry is a container binding of a classifier and its
+mode, `shadow` or `active`. There are none by default, and with none nothing
+is queued at all.
+
+**When:** `QueueMediaClassification` queues `ClassifyMediaAssetJob` after the
+commit that made the media ready:
+- a photo as it is stored (`MediaAssetCreator`), from wherever it was
+  uploaded: posts, Content Studio, game rounds;
+- a video or GIF when its processing finishes (`ProcessVideoAssetJob`),
+  before the author is told, so a notice that fails to be written never
+  leaves ready media unclassified.
+
+The upload never pays for it. A queue that will not take the job is
+reported, not thrown back into an upload that has already committed. The
+configuration is read by the job, never by the upload.
+
+**What they see** (`ClassificationFrameSampler`): local JPEGs no larger than
+1280 on either side, the format and size every provider takes.
+- **A photo:** its master, scaled down.
+- **A video or GIF:**
+  - its poster frame, taken a tenth of the way in (at most 3 s), as the poster
+    is: what a feed shows before it plays;
+  - plus a frame from the middle of every two-second stretch, at most 30.
+  - Each frame is a short ffmpeg run of its own
+    (`media.video.frame_timeout_seconds`, 30 s). A frame ffmpeg cannot take
+    is left out.
+  - All of them together get five minutes. Past that no further frame is
+    asked for, and the frames taken are shown, so seeks stalling one after
+    another never use up the job's time before a classifier is asked.
+
+**The job:**
+- It runs on the media queue.
+  - **Queued:** one at a time per asset (`ShouldBeUniqueUntilProcessing`),
+    through a delay it was queued with, then as long as the media connection
+    could still deliver it.
+  - **Running:** one run per asset at a time, by a lock of its own. A job
+    meeting another run waits for it
+    (`media.classification.run_wait_seconds`, 120 s), then asks only who is
+    still to answer. If that run outlasts the wait, the job leaves the asset
+    to it: it never runs alongside, and never queues itself again.
+  - Before a run ends it looks again for who is still to answer, and asks
+    them from the same frames, up to three passes. A failure `--retry-failed`
+    cleared while it ran, for a retry that found the asset held, is asked by
+    that run. Once it has let the asset go it looks once more, and queues a
+    job of its own for anyone still to answer. A failure cleared after that
+    look finds the asset free for the job `--retry-failed` queued with it, so
+    no retry falls between.
+  - A job that runs after another finds every answer there and asks no one,
+    so a queue that kept one waiting past its lock costs nothing.
+- A classifier that already answered for the asset at its model version is
+  not asked again, so an upload, a redelivered video job and
+  `media:classify` meeting on one asset ask each classifier once, and a paid
+  one is never paid twice.
+- **Where its frames go:** a directory of its own, inside this worker
+  user's own (`WorkerTemporaryDirectory`: one per user, so two targets on
+  one host never share one). It is removed when the run ends; if a timeout
+  killed the run first, a later run removes it.
+- **Failures that are recorded, not retried:** a classifier failing, and
+  media nothing can be taken from (unreadable, undecodable, no frame). The
+  latter is recorded for each classifier that was to see it. A recorded
+  failure counts as the classifier's answer, on the job's own retry too.
+- **Failures that are retried once:** the host's (ffmpeg missing, the
+  database, a read of the media file that failed part way while the file is
+  there). Only a file that is gone is recorded as media nothing can be taken
+  from.
+
+**A classifier's identity:** its answers are found by its name and model
+version as their columns hold them, at most 64 characters each. A classifier
+whose name or version is longer is refused when the configuration is read,
+so it is never asked at all, rather than asked on every run because its own
+answer never matches.
+
+**Media stored before a classifier was configured:** `php artisan
+media:classify --limit=N` queues it, newest first, for every configured
+classifier that has not answered for it yet. Use it, for example, to try a
+classifier in shadow mode on real uploads.
+- An asset a classifier failed on counts as answered unless
+  `--retry-failed` is given. Then the command clears those failures (the
+  configured classifiers' own, at their model version, on the assets it
+  queues), so whichever job runs next for each asset asks them: its own,
+  one already waiting, or the run holding the asset, before it ends.
+- The jobs become available ten seconds apart, so the videos waiting on the
+  same media queue are never stuck behind a whole batch.
+
+## Where it shows
+
+- **The admin's post viewer** (Posts, the image opened large): the rating, as
+  a badge, and each classifier's latest answer on one line. A shadow
+  classifier is marked as such; the line gives its three strongest categories
+  from 0.05 up, or that it failed.
+- **Content Studio's photo details:** the rating beside the photo's size and
+  type, with no query of its own.

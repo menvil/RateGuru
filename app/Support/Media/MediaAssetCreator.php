@@ -8,6 +8,7 @@ use App\Enums\MediaType;
 use App\Enums\MediaVisibility;
 use App\Models\MediaAsset;
 use App\Models\User;
+use App\Services\Media\Classification\QueueMediaClassification;
 use App\Services\Media\MediaPathGenerator;
 use App\Services\Media\MediaStoreRequest;
 use App\Services\Media\StoredMedia;
@@ -16,12 +17,15 @@ use App\Services\Media\StoredVideo;
 /**
  * Builds the MediaAsset row for a just-stored file. Shared by post-image and
  * avatar uploads so both stay consistent — not a storage/URL abstraction,
- * just the one piece of asset-construction logic they both need.
+ * just the one piece of asset-construction logic they both need. A post
+ * picture, ready as it is stored, is queued for the configured content
+ * classifiers here, wherever it was uploaded from.
  */
 final class MediaAssetCreator
 {
     public function __construct(
         private readonly ImageOrientationClassifier $orientationClassifier,
+        private readonly QueueMediaClassification $classification,
     ) {}
 
     public function create(StoredMedia $stored, MediaKind $kind, ?User $owner): MediaAsset
@@ -31,7 +35,7 @@ final class MediaAssetCreator
             && $stored->width > 0
             && $stored->height > 0;
 
-        return MediaAsset::create([
+        $asset = MediaAsset::create([
             'owner_user_id' => $owner?->id,
             'kind' => $kind,
             // Every file stored through here passed the image ingest; a
@@ -56,6 +60,10 @@ final class MediaAssetCreator
             'status' => MediaStatus::Ready,
             'visibility' => MediaVisibility::Public,
         ]);
+
+        $this->classification->ready($asset);
+
+        return $asset;
     }
 
     /**

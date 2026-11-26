@@ -66,7 +66,8 @@ it('stores a JPEG, PNG or WebP photo the moment it is uploaded, owned by the adm
 
     expect($asset)->kind->toBe(MediaKind::PostImage)->mime_type->toBe($mime)->owner_user_id->toBe($this->admin->id)
         ->and($plan->fresh()->only(['title', 'lock_version']))->toBe(['title' => 'Saved title', 'lock_version' => 2])
-        ->and($page->viewData('shownPhoto'))->toMatchArray(['name' => $name, 'details' => ['320 × 200', $page->viewData('shownPhoto')['details'][1], $mime]])
+        // Not rated yet: no classifier has seen it.
+        ->and($page->viewData('shownPhoto'))->toMatchArray(['name' => $name, 'details' => ['320 × 200', $page->viewData('shownPhoto')['details'][1], $mime, 'Not rated']])
         ->and($page->viewData('shownPhoto')['url'])->not->toBeNull()
         ->and($page->viewData('analysisImageId'))->toBe($asset->id);
 

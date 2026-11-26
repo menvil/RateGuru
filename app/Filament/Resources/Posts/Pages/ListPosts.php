@@ -8,6 +8,11 @@ use App\Actions\Moderation\HidePostAction;
 use App\Actions\Moderation\MarkUserTrustedAction;
 use App\Actions\Moderation\RejectPostAction;
 use App\Actions\Moderation\RestorePostAction;
+use App\Enums\ClassificationMode;
+use App\Enums\ClassificationStatus;
+use App\Enums\ContentCategory;
+use App\Enums\ContentRating;
+use App\Enums\ContentRatingSource;
 use App\Enums\MediaType;
 use App\Enums\PostImageContext;
 use App\Enums\PostStatus;
@@ -20,6 +25,8 @@ use App\Filament\Resources\Users\UserResource;
 use App\Filament\Support\ListPageNumber;
 use App\Filament\Support\ModerationListFormat;
 use App\Models\Category;
+use App\Models\MediaAsset;
+use App\Models\MediaClassification;
 use App\Models\Post;
 use App\Models\User;
 use App\Queries\Posts\ModerationPostsQuery;
@@ -525,9 +532,10 @@ final class ListPosts extends Page
     }
 
     /**
-     * The original image of the post being viewed, and what it is.
+     * The original image of the post being viewed, what it is, its content
+     * rating, and what each classifier last said about it.
      *
-     * @return array{title: string, url: string, poster: ?string, video: bool, meta: string}|null
+     * @return array{title: string, url: string, poster: ?string, video: bool, meta: string, rating: array{label: string, tone: string}, classifiers: list<string>}|null
      */
     private function viewer(): ?array
     {
@@ -556,7 +564,65 @@ final class ListPosts extends Page
                 Number::fileSize((int) $asset->byte_size, precision: 1),
                 $asset->disk,
             ])),
+            'rating' => self::contentRating($asset),
+            'classifiers' => self::classifiers($asset),
         ];
+    }
+
+    /** @return array{label: string, tone: string} */
+    private static function contentRating(MediaAsset $asset): array
+    {
+        $by = $asset->content_rating_source === ContentRatingSource::Moderator ? ' · by a moderator' : '';
+
+        return [
+            'label' => $asset->content_rating->label().($asset->content_rating === ContentRating::Unknown ? '' : $by),
+            'tone' => match ($asset->content_rating) {
+                ContentRating::Sfw => 'success',
+                ContentRating::Nsfw => 'danger',
+                ContentRating::Unknown => 'outline',
+            },
+        ];
+    }
+
+    /**
+     * Each classifier's latest answer, one line apiece: its name and mode,
+     * then its three strongest categories — or that it failed.
+     *
+     * @return list<string>
+     */
+    private static function classifiers(MediaAsset $asset): array
+    {
+        // Each classifier's latest row, chosen by the database, before the
+        // limit: one answering often never pushes another's out.
+        return $asset->classifications()
+            ->select(['id', 'classifier', 'mode', 'status', 'scores'])
+            ->whereNotExists(MediaClassification::query()
+                ->from('media_classifications as newer')
+                ->whereColumn('newer.media_asset_id', 'media_classifications.media_asset_id')
+                ->whereColumn('newer.classifier', 'media_classifications.classifier')
+                ->whereColumn('newer.id', '>', 'media_classifications.id'))
+            ->latest('id')
+            ->limit(5)
+            ->get()
+            ->map(function (MediaClassification $classification): string {
+                $name = $classification->classifier.($classification->mode === ClassificationMode::Shadow ? ' (shadow)' : '');
+
+                if ($classification->status === ClassificationStatus::Failed) {
+                    return $name.': failed';
+                }
+
+                $scores = collect($classification->scores ?? [])
+                    ->map(fn (mixed $score): float => (float) $score)
+                    ->filter(fn (float $score): bool => $score >= 0.05)
+                    ->sortDesc()
+                    ->take(3)
+                    ->map(fn (float $score, string $category): string => (ContentCategory::tryFrom($category)?->label() ?? $category).' '.number_format($score, 2))
+                    ->implode(' · ');
+
+                return $name.': '.($scores !== '' ? $scores : 'nothing found');
+            })
+            ->values()
+            ->all();
     }
 
     /**

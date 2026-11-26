@@ -8,6 +8,7 @@ use App\Actions\Studio\RemoveStudioPlanImageAction;
 use App\Actions\Studio\RequestStudioImageAnalysisAction;
 use App\Actions\Studio\SetStudioPlanImageAction;
 use App\Data\Studio\StudioPlanData;
+use App\Enums\ContentRatingSource;
 use App\Enums\ImageInputSource;
 use App\Enums\StudioPlanApprovalProblem;
 use App\Enums\StudioPlanPublicationMode;
@@ -1105,8 +1106,8 @@ trait EditsStudioPlan
     }
 
     /**
-     * The plan's photo as the editor shows it, with what it is; none while
-     * the plan has none.
+     * The plan's photo as the editor shows it, with what it is — its size,
+     * type and content rating; none while the plan has none.
      *
      * @return array{url: ?string, name: ?string, details: list<string>}|null
      */
@@ -1123,6 +1124,7 @@ trait EditsStudioPlan
                 $saved->width !== null && $saved->height !== null ? $saved->width.' × '.$saved->height : null,
                 Number::fileSize((int) $saved->byte_size, precision: 1),
                 $saved->mime_type,
+                $saved->content_rating->label().($saved->content_rating_source === ContentRatingSource::Moderator ? ' by a moderator' : ''),
             ])),
         ];
     }

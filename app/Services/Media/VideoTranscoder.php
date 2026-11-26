@@ -92,11 +92,35 @@ final class VideoTranscoder
     }
 
     /**
+     * One frame at $atSeconds as a JPEG no larger than $maxSide on either
+     * side, never scaled up — what a content classifier is shown of a video.
+     *
+     * @throws VideoUnreadableException
+     * @throws MediaToolUnavailableException
+     * @throws MediaToolTimedOutException
+     */
+    public function frame(string $video, float $atSeconds, string $output, int $maxSide): void
+    {
+        $this->run([
+            // Before the input: a seek on the input, not a decode up to it.
+            '-ss', sprintf('%.3F', max(0.0, $atSeconds)),
+            ...FfmpegInput::arguments($video),
+            '-frames:v', '1',
+            '-an',
+            '-vf', "scale='min({$maxSide},iw)':'min({$maxSide},ih)':force_original_aspect_ratio=decrease",
+            '-c:v', 'mjpeg',
+            '-q:v', '3',
+            '-f', 'image2',
+            $output,
+        ], (int) config('media.video.frame_timeout_seconds'));
+    }
+
+    /**
      * @param  list<string>  $arguments
      */
-    private function run(array $arguments): void
+    private function run(array $arguments, ?int $timeoutSeconds = null): void
     {
-        $timeout = max(1, (int) config('media.video.transcode_timeout_seconds'));
+        $timeout = max(1, $timeoutSeconds ?? (int) config('media.video.transcode_timeout_seconds'));
 
         $result = $this->runner->run(MediaTool::Ffmpeg, [
             '-nostdin',

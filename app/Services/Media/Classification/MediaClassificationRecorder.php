@@ -65,6 +65,24 @@ final class MediaClassificationRecorder
     }
 
     /**
+     * That a classifier could not be asked at all — nothing could be taken
+     * from the media to show it — recorded as its answer would be, so the
+     * asset is not queued for it again unless failures are asked for.
+     */
+    public function unaskable(MediaAsset $asset, MediaContentClassifier $classifier, ClassificationMode $mode, MediaClassificationFailedException $reason): MediaClassification
+    {
+        return MediaClassification::query()->create([
+            'media_asset_id' => $asset->id,
+            'classifier' => self::bounded($classifier->name()),
+            'model_version' => self::bounded($classifier->modelVersion()),
+            'mode' => $mode,
+            'status' => ClassificationStatus::Failed,
+            'inputs' => ['frames' => []],
+            'error' => mb_substr($reason->getMessage(), 0, 500),
+        ]);
+    }
+
+    /**
      * Only the categories the project keeps, each a finite score in 0..1:
      * whatever a provider adds, or sends as NaN, never reaches the column.
      *
@@ -129,10 +147,13 @@ final class MediaClassificationRecorder
         return str_contains($class, '@anonymous') ? (get_parent_class($exception) ?: 'anonymous') : $class;
     }
 
-    /** A name or version as its column holds it: at most 64 characters. */
+    /**
+     * A name or version as its column holds it. The registry refuses a
+     * classifier whose identity is longer, so this only guards a direct call.
+     */
     private static function bounded(?string $value): ?string
     {
-        return $value === null ? null : mb_substr($value, 0, 64);
+        return $value === null ? null : mb_substr($value, 0, MediaClassifierRegistry::IDENTITY_LENGTH);
     }
 
     private static function millisecondsSince(int|float $started): int
