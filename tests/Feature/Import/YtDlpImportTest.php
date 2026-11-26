@@ -27,6 +27,7 @@ use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use Livewire\Livewire;
@@ -178,7 +179,7 @@ it('downloads a page\'s video through yt-dlp within the upload limits, then hand
     $download = collect($runner->calls)->first(fn (array $call): bool => $call['tool'] === MediaTool::YtDlp)['arguments'];
     $asset = MediaAsset::query()->findOrFail($post->image_asset_id);
 
-    expect($download)->toContain('--use-extractors', 'RedGifs', '--max-filesize', '100M', '--match-filters', 'duration<=90', '--merge-output-format', 'mp4', '--no-playlist')
+    expect($download)->toContain('--use-extractors', 'RedGifs', '--max-filesize', '100M', '--match-filters', 'duration<=?90', '--merge-output-format', 'mp4', '--no-playlist')
         ->and(array_slice($download, -2))->toBe(['--', 'https://www.redgifs.com/watch/aloop'])
         ->and($asset->metadata['import'])->toHaveKey('downloaded_at');
     Storage::disk('local')->assertExists($asset->path);
@@ -216,7 +217,8 @@ it('holds the host to one probe per author and a few at once, while the author w
     expect(Post::query()->count())->toBe(0);
 });
 
-it('refuses a page\'s video whose length the site does not say, and leaves a video file\'s link to the plain download', function () {
+it('takes a page\'s video whose length the site does not say, holding it to the limit once downloaded, and leaves a video file\'s link to the plain download', function () {
+    // As an Instagram reel read from its page: no length given.
     $runner = ytDlpStandIn(ytDlpVideoJson(['duration' => null]));
 
     Livewire::actingAs(User::factory()->create())
@@ -224,7 +226,15 @@ it('refuses a page\'s video whose length the site does not say, and leaves a vid
         ->set('title', 'No length')
         ->set('importedImageUrl', 'https://www.redgifs.com/watch/unknown')
         ->call('submit')
-        ->assertSet('submitError', __('ui.upload.error_invalid_video'));
+        ->assertHasNoErrors()
+        ->assertSet('submitError', null);
+
+    $post = Post::query()->where('title', 'No length')->sole();
+    app()->call([new ImportVideoAssetJob((int) $post->image_asset_id), 'handle']);
+    $download = collect($runner->calls)->first(fn (array $call): bool => $call['tool'] === MediaTool::YtDlp && in_array('-o', $call['arguments'], true))['arguments'];
+
+    // The download passes a length it does not know; processing holds the file to the limit.
+    expect($download)->toContain('--match-filters', 'duration<=?'.config('uploads.videos.max_duration_seconds'));
 
     $runner->calls = [];
 
@@ -236,7 +246,7 @@ it('refuses a page\'s video whose length the site does not say, and leaves a vid
         ->assertHasNoErrors();
 
     expect($runner->calls)->toBe([])
-        ->and(MediaAsset::query()->sole()->metadata['import']['url'])->toBe('https://media.redgifs.com/AFile.mp4');
+        ->and(MediaAsset::query()->latest('id')->firstOrFail()->metadata['import']['url'])->toBe('https://media.redgifs.com/AFile.mp4');
 });
 
 it('takes a page\'s video whose codec yt-dlp was not told — null, or none at all — and refuses only an explicit none', function () {
@@ -508,3 +518,12 @@ it('takes an answer that names no media for no answer at all, never for a page w
     'a carousel with one photo and an empty entry' => ['{"_type":"playlist","entries":[{"formats":[{"vcodec":"none","url":"https://x/1.jpg"}]},{}]}'],
     'a carousel with an entry that is no object' => ['{"_type":"playlist","entries":["x"]}'],
 ]);
+
+it('logs why a page could not be read: yt-dlp\'s last error line, or what was wrong with its answer', function () {
+    Log::spy();
+    ytDlpStandIn(null, probeError: "WARNING: something\nERROR: [Instagram] ABC123: Requested content is not available, rate-limit reached or login required\n");
+
+    expect(fn () => app(YtDlp::class)->probe('https://www.instagram.com/reel/ABC123/'))->toThrow(YtDlpProbeException::class);
+
+    Log::shouldHaveReceived('warning')->with('YtDlp: a page could not be read.', ['extractor' => 'Instagram', 'why' => 'ERROR: [Instagram] ABC123: Requested content is not available, rate-limit reached or login required']);
+});

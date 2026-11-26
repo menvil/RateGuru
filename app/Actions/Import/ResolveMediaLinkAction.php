@@ -80,13 +80,11 @@ final class ResolveMediaLinkAction
         if ($pageVideo !== null) {
             $maxSeconds = (int) config('uploads.videos.max_duration_seconds');
 
-            // A length the site does not say would only fail later: the
-            // download takes no clip it cannot hold to the limit.
-            if ($pageVideo->durationSeconds === null) {
-                throw MediaLinkRefusedException::unknownLength();
-            }
-
-            if ($pageVideo->durationSeconds > $maxSeconds) {
+            // Refused here when the site says it is too long. A length it does
+            // not say (an Instagram reel read from its page) is held to the
+            // limit once the file is there: processing refuses a longer one
+            // and tells the author, and the download is capped in size.
+            if ($pageVideo->durationSeconds !== null && $pageVideo->durationSeconds > $maxSeconds) {
                 throw MediaLinkRefusedException::tooLong($maxSeconds);
             }
 
