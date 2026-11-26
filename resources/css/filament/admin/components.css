@@ -5550,9 +5550,9 @@
         background: var(--rg-admin-surface-pill);
     }
 
-    /* Held to the box's own height, not a percentage: the grid's row grows
-       with its content, so 100% let a tall video (a phone's 480 × 854) spill
-       over the footer. */
+    /* Held to the box's own height rather than a percentage: the grid's row
+     * grows with its content, and 100% let a tall phone video spill over
+     * the footer. */
     .rg-admin-viewer__image img,
     .rg-admin-viewer__image video {
         max-width: 100%;

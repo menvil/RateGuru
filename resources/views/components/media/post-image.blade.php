@@ -98,7 +98,7 @@
             <button
                 type="button"
                 x-show="! playing"
-                x-on:click.stop="toggle()"
+                x-on:click.stop="playFrom($el)"
                 aria-label="{{ __('ui.post.video_play') }}"
                 data-testid="post-video-play"
                 class="absolute inset-0 m-auto grid size-14 place-items-center rg-post-video__control rounded-rgPill backdrop-blur-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent"

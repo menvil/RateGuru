@@ -93,6 +93,16 @@ document.addEventListener('alpine:init', () => {
             video.src = src;
         },
 
+        // From its play button, which hides once it plays: a keyboard user's
+        // focus moves on to the video, whose Enter and Space pause it.
+        playFrom(button) {
+            const focused = document.activeElement === button;
+
+            this.toggle();
+
+            if (focused) this.$refs.video.focus();
+        },
+
         toggle() {
             const video = this.$refs.video;
 
