@@ -1,0 +1,23 @@
+tests/Feature/Import/YtDlpSiteCheckTest.php
+  s_1f43f39fbe0537::t_9a143903e55670 393-408
+app/Support/Import/YtDlpSiteCheck.php
+  s_1f43f39fbe0537::t_9a143903e55670 20,70-77,214-215,219
+docs/architecture/media.md
+  s_1f43f39fbe0537::t_9a143903e55670 669-671
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "6578a0565993f4f0de8e0decd30fbbd220fdd056",
+  "prompts": {},
+  "sessions": {
+    "s_1f43f39fbe0537": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "526787d0-f443-4ad7-9610-cf9811fec895",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
