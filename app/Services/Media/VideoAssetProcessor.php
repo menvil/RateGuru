@@ -64,7 +64,7 @@ final class VideoAssetProcessor
 
         // One run per asset at a time: a retry racing the first attempt would
         // write the same files from two workers.
-        $lock = $this->lock("media-video-process:{$asset->id}");
+        $lock = self::lockFor($asset->id);
 
         if (! $lock->get()) {
             return false;
@@ -135,7 +135,13 @@ final class VideoAssetProcessor
 
         $this->storePosterVariants($asset, $master, $masterProbe, $work);
 
-        $asset->forceFill(['status' => MediaStatus::Ready, 'processing_error' => null])->save();
+        // When: media:sweep-videos deletes the original a retention period
+        // after it.
+        $asset->forceFill([
+            'status' => MediaStatus::Ready,
+            'processing_error' => null,
+            'metadata' => [...($asset->metadata ?? []), 'processed_at' => now()->toIso8601ZuluString()],
+        ])->save();
     }
 
     /**
@@ -223,12 +229,14 @@ final class VideoAssetProcessor
     }
 
     /**
-     * The database store, as MediaVariantWriter's own lock: one mutex for
-     * every process on every server. It expires a little after the job's
-     * timeout and before the media connection's retry window, so a job
-     * redelivered after its worker crashed always finds it free.
+     * The one lock a run holds on an asset — the database store, as
+     * MediaVariantWriter's own lock: one mutex for every process on every
+     * server. It expires a little after the job's timeout and before the
+     * media connection's retry window, so a job redelivered after its worker
+     * crashed always finds it free. VideoMediaSweeper asks for it too, to
+     * leave alone an asset a run is working on.
      */
-    private function lock(string $key): Lock
+    public static function lockFor(int $assetId): Lock
     {
         $store = Cache::store('database')->getStore();
 
@@ -236,6 +244,6 @@ final class VideoAssetProcessor
             throw new RuntimeException('The "database" cache store does not support locks.');
         }
 
-        return $store->lock($key, self::LOCK_SECONDS);
+        return $store->lock("media-video-process:{$assetId}", self::LOCK_SECONDS);
     }
 }

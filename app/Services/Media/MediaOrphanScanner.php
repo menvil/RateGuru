@@ -2,6 +2,7 @@
 
 namespace App\Services\Media;
 
+use App\Enums\MediaType;
 use App\Models\MediaAsset;
 use App\Models\MediaVariant;
 use App\Services\Media\Exceptions\MediaStorageException;
@@ -15,8 +16,9 @@ use App\Services\Media\Exceptions\MediaStorageException;
  * anything — deletion is a separate, explicit opt-in the caller performs
  * (MediaLifecycleService::purgeOrphanFile()).
  *
- * Scans config('media.disks.public') — the only disk this app's config
- * declares today, not generalized to a hypothetical multi-disk future.
+ * Scans every media directory on config('media.disks.public'), and the
+ * originals directory on config('media.disks.private'), where video uploads
+ * wait and are kept a while after processing.
  */
 final class MediaOrphanScanner
 {
@@ -33,12 +35,18 @@ final class MediaOrphanScanner
     public function scan(): array
     {
         $known = $this->knownLocations();
-        $disk = (string) config('media.disks.public');
         $cutoff = now()->subHours((int) config('media.lifecycle.orphan_grace_hours'))->getTimestamp();
+
+        // Every media directory on the public disk, and the private disk's
+        // originals — where a video upload waits, and is kept a while after.
+        $places = array_map(fn (string $directory): array => [(string) config('media.disks.public'), $directory], array_values(config('media.directories')));
+        $places[] = [(string) config('media.disks.private'), (string) config('media.directories.originals')];
+        // One disk serving both is scanned once.
+        $places = array_values(array_unique($places, SORT_REGULAR));
 
         $candidates = [];
 
-        foreach (config('media.directories') as $directory) {
+        foreach ($places as [$disk, $directory]) {
             foreach ($this->storage->allFiles($disk, $directory) as $path) {
                 if (isset($known["{$disk}\0{$path}"])) {
                     continue;
@@ -96,6 +104,19 @@ final class MediaOrphanScanner
             ->chunkById(500, function ($rows) use (&$known): void {
                 foreach ($rows as $row) {
                     $known["{$row->disk}\0{$row->path}"] = true;
+                }
+            });
+
+        // A processed video's original, still kept: its location is in
+        // metadata, not in a path column.
+        MediaAsset::withTrashed()->select('id', 'disk', 'path', 'metadata')->where('media_type', '!=', MediaType::Image)->orderBy('id')
+            ->chunkById(500, function ($rows) use (&$known): void {
+                foreach ($rows as $row) {
+                    $original = VideoOriginal::of($row);
+
+                    if ($original !== null) {
+                        $known["{$original->disk}\0{$original->path}"] = true;
+                    }
                 }
             });
 

@@ -94,6 +94,15 @@ return [
         'purge_lock' => [
             'ttl_seconds' => max(1, EnvironmentValue::integer(env('MEDIA_PURGE_LOCK_TTL_SECONDS'), 60)),
         ],
+        // How long a video's original is kept after it was processed, and
+        // the files of one that failed: long enough to look into a complaint
+        // or a failure, then gone (media:sweep-videos).
+        'video_original_retention_days' => 7,
+        // How long an upload may stay Processing before media:sweep-videos
+        // takes its job for lost and fails it. Far past every retry a job
+        // makes, so a worker that was down or a queue that backed up for a
+        // few hours delays uploads rather than failing them.
+        'video_stuck_after_hours' => 24,
     ],
 
     /*

@@ -160,6 +160,26 @@ final class MediaLifecycleService
                 }
             }
 
+            // A video's original, kept privately beside the master it was made
+            // into, goes with it.
+            $original = VideoOriginal::of($fresh);
+
+            if ($original !== null) {
+                try {
+                    $this->storage->deleteIfExists($original);
+                } catch (Throwable $exception) {
+                    Log::error('MediaLifecycleService: video original delete failed.', [
+                        'media_asset_id' => $fresh->id,
+                        'disk' => $original->disk,
+                        'path' => $original->path,
+                        'operation' => 'purge_original',
+                        'exception_class' => $exception::class,
+                    ]);
+
+                    return MediaPurgeResult::failed($fresh->id, $exception);
+                }
+            }
+
             try {
                 $this->storage->deleteIfExists(new MediaLocation($fresh->disk, $fresh->path));
             } catch (Throwable $exception) {

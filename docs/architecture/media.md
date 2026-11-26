@@ -1039,6 +1039,47 @@ default mode is scheduled — never `--orphans`, never `--force`. Physical-
 orphan deletion stays a deliberate, human-triggered `--orphans --force`
 operation, on purpose.
 
+### Video files
+
+A video upload leaves more files behind than a photo: its original on the
+private disk (`media.disks.private`, `media/originals/…`), recorded in
+`metadata.original` once processing moves the asset to its public master;
+the master under `media/post-videos/`; its renditions and poster variants.
+`media:sweep-videos` (`VideoMediaSweeper`, hourly, never overlapping)
+settles them:
+
+| What | When | What happens |
+|---|---|---|
+| A processed video's original | `media.lifecycle.video_original_retention_days` (7) after `metadata.processed_at` | the file is deleted; `metadata.original` gives way to `original_deleted_at` |
+| A failed upload's files — original, any master and variants written before it failed | the same period after it failed | the files and variant rows go; the row stays, `metadata.files_removed_at` set, since the draft post that holds it still points at it — and the audit counts no missing master for it |
+| An upload still Processing a day after it arrived (`media.lifecycle.video_stuck_after_hours`) | each run | its job was lost: it fails, unless the processor's own lock (`VideoAssetProcessor::lockFor`) shows a run working on it now, and its author is told (`FinalizePostMediaAction::failed`, once per asset). A worker down or a queue backed up for a few hours delays uploads; it does not fail them |
+| An outcome its author was not told of — ready or failed, its notice unclaimed because it could not be written on the job's last attempt | within `VideoMediaSweeper::UNTOLD_WITHIN_HOURS` (48) of it, each run | the author is told, once per asset; a ready video's draft still waiting is published on the way. A notice that cannot be written again stays unclaimed for the next run |
+
+A file that will not delete fails the run, as it fails `media:purge`.
+
+An asset's `metadata` has several writers.
+- **While the asset is Processing:** the processor and the import write
+  their keys, before anything below can touch it.
+- **Once it is settled:** these sweeps' markers and the author notices'
+  claims change only their own keys, through `MediaAssetMetadata::change`.
+  It reads the column under a lock on the row and writes it back in the same
+  transaction. Two of them meeting on one asset take turns, and neither
+  writes back a copy older than the other's key.
+
+A marker never moves `updated_at`, which the sweeps read as the time an
+upload failed.
+
+The rest of the lifecycle knows about video files too:
+
+- `MediaLifecycleService::purge()` deletes a video's kept original with its
+  master and variants (`VideoOriginal`).
+- `MediaOrphanScanner` also scans the private disk's originals, and counts a
+  processed video's kept original as known.
+- Media Diagnostics shows the videos still processing past the per-author
+  window (`uploads.videos.processing_window_minutes`). Its failed-jobs list
+  stays the image jobs': its retry regenerates image variants, which is no
+  retry for a video.
+
 ## Media observability and admin diagnostics
 
 **One audit implementation, reached three ways.** `MediaAuditService::run()`

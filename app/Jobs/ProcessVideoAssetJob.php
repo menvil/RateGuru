@@ -109,8 +109,14 @@ final class ProcessVideoAssetJob implements RunsOnMediaQueue, ShouldQueue
             return;
         }
 
+        // No attempt follows this one to retry a notice that could not be
+        // written: reported, and left unclaimed for media:sweep-videos.
         if ($failed === 1) {
-            app(FinalizePostMediaAction::class)->failed($asset);
+            try {
+                app(FinalizePostMediaAction::class)->failed($asset);
+            } catch (Throwable $exception) {
+                report($exception);
+            }
         } elseif ($asset->status === MediaStatus::Ready) {
             // The media was made and only publishing failed, every time: one
             // more try, so the post does not stay a draft with nothing left
