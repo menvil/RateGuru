@@ -106,6 +106,10 @@ it('gives yt-dlp only links to its sites, over https, and only their own extract
 
     expect($sites->extractorFor('https://www.redgifs.com/watch/aloop'))->toBe('RedGifs')
         ->and($sites->extractorFor('https://www.instagram.com/reel/ABC123/'))->toBe('Instagram')
+        // YouTube's videos and Shorts, on its subdomains too; a youtu.be link not yet.
+        ->and($sites->extractorFor('https://www.youtube.com/shorts/JcsN3h05J7k'))->toBe('Youtube')
+        ->and($sites->extractorFor('https://m.youtube.com/watch?v=JcsN3h05J7k'))->toBe('Youtube')
+        ->and($sites->extractorFor('https://youtu.be/JcsN3h05J7k'))->toBeNull()
         // Not on the list, whatever yt-dlp could do there.
         ->and($sites->extractorFor('https://coub.com/view/1'))->toBeNull()
         ->and($sites->extractorFor('https://www.youporn.com/watch/1/'))->toBeNull()

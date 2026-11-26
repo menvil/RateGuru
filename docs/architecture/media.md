@@ -579,8 +579,9 @@ the list, and its author hears of it in their notifications.
 
 #### From a site's page, with yt-dlp
 
-A link to a page on one of the sites in `import.ytdlp.sites` (RedGifs and
-Instagram to begin with; which sites, the project's call) is
+A link to a page on one of the sites in `import.ytdlp.sites` (RedGifs,
+Instagram and YouTube, its Shorts included; which sites, the project's
+call) is
 asked of yt-dlp first (`App\Support\Import\YtDlp`): its video's length and
 size are read before anything is downloaded, so a clip the site says is too
 long is refused while posting. A length the site does not say (an Instagram
