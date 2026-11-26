@@ -53,6 +53,19 @@ it('tells a reworded line apart until it is confirmed, never a new one, and drop
         ->and(array_keys($lines->recorded()))->toBe(['ui.hello', 'ui.nested.title', 'ui.new']);
 });
 
+it('refuses a record with any entry that is not a line\'s key and hash, rather than leave that line unguarded', function (mixed $entry) {
+    $root = catalogScratchDirectory();
+    scratchEnglishCatalog($root, ['hello' => 'Hello', 'bye' => 'Bye']);
+    $lines = new ConfirmedEnglishLines(new TranslationCatalogInspector($root), "{$root}/english.json");
+    $lines->record();
+    $recorded = json_decode((string) File::get("{$root}/english.json"), true);
+    $recorded['ui.bye'] = $entry;
+    File::put("{$root}/english.json", json_encode($recorded));
+
+    expect($lines->isReadable())->toBeFalse()
+        ->and($lines->recorded())->toBe([]);
+})->with(['null' => [null], 'a number' => [42], 'a hash of another length' => ['abc'], 'not hex' => ['zzzzzzzzzzzzzzzz']]);
+
 it('confirms the English from the command, saying what it confirmed', function () {
     $root = catalogScratchDirectory();
     scratchEnglishCatalog($root, ['hello' => 'Hello']);

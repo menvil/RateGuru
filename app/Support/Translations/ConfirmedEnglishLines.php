@@ -61,7 +61,9 @@ final class ConfirmedEnglishLines
 
     /**
      * The hashes recorded when the translations were last confirmed; none
-     * before the first confirmation.
+     * before the first confirmation, and none when any entry is not a line's
+     * key with a hash of the length kept — a bad merge of the file is refused
+     * whole rather than left with a line quietly unguarded.
      *
      * @return array<string, string>
      */
@@ -77,7 +79,17 @@ final class ConfirmedEnglishLines
             return [];
         }
 
-        return is_array($recorded) ? array_filter($recorded, fn (mixed $hash, mixed $key): bool => is_string($key) && is_string($hash), ARRAY_FILTER_USE_BOTH) : [];
+        if (! is_array($recorded)) {
+            return [];
+        }
+
+        foreach ($recorded as $key => $hash) {
+            if (! is_string($key) || ! is_string($hash) || preg_match('/^[0-9a-f]{'.self::HASH_LENGTH.'}$/', $hash) !== 1) {
+                return [];
+            }
+        }
+
+        return $recorded;
     }
 
     /**

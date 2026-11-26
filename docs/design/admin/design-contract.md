@@ -765,7 +765,7 @@ settings (`manage-project-settings`), the boundary Languages uses.
   lists the first six, counts the rest, says “A long text: read the whole translation again, since a change can
   alter the sentences around it.” and keeps the old English in full behind “The old English in full”.
 - **Elsewhere.** Languages shows “n to update” under a language's missing count, linking to Needs update in that
-  language, and “To update” in its header; Categories, Tags and Rating groups show “Translations to update” beside
+  language; Categories, Tags and Rating groups show “Translations to update” beside
   their figures while any of their texts' translations need one, linking to Needs update on the section.
 
 **Translation field states (DOM-01)** — they must never look alike:
