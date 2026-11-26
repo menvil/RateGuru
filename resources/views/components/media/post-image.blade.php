@@ -54,8 +54,11 @@
         $eagerVideo = $loading === null;
         $withControls = in_array($context, ['standalone', 'fullscreen'], true);
     @endphp
-    {{-- Muted until asked: a feed must never start making noise on its own. --}}
+    {{-- Muted until asked: a feed must never start making noise on its own. Keyed by
+         its post and file, so a drawer that shows another post gets a new player rather
+         than morphing this one — whose source was set once, for the post before. --}}
     <div
+        wire:key="post-video-{{ $context }}-{{ $post?->id }}-{{ substr(md5($video->src), 0, 12) }}"
         {{ $attributes->class([$containerClasses]) }}
         x-data="rgPostVideo({ src: @js($video->src), poster: @js($videoPoster) })"
         x-on:rg-video-sound.window="if ($event.detail !== $root) quiet()"

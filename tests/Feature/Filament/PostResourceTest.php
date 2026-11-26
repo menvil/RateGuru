@@ -242,3 +242,14 @@ it('marks a video post in the list and plays its master in the viewer, under its
         ->assertSeeHtml('poster="'.Storage::disk('public')->url($post->imageAsset->variants->firstWhere('name', MediaVariantName::PostDetail1920)->path).'"')
         ->assertSeeHtml('15 s');
 });
+
+it('opens a video in the viewer even when its poster files are missing', function () {
+    Storage::fake('public');
+    $this->actingAs(User::factory()->admin()->create());
+    $post = videoPostWithPosterVariants([], MediaVariantName::Video720);
+
+    Livewire::withQueryParams(['status' => 'all'])->test(ListPosts::class)
+        ->call('view', $post->id)
+        ->assertSeeHtml('<video src="'.Storage::disk('public')->url($post->imageAsset->path).'"')
+        ->assertDontSeeHtml('poster="');
+});

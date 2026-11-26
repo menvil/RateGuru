@@ -23,6 +23,15 @@ final class GamePostPickerQuery implements RawSqlPersistenceBoundary, StablePagi
     public const PER_PAGE = 25;
 
     /**
+     * Whether a post's picture may be a game round's: a ready still photo —
+     * never a video's poster. The rule paginate() offers by with $photosOnly.
+     */
+    public function offersAsRoundPhoto(Post $post): bool
+    {
+        return $post->imageAsset?->status === MediaStatus::Ready && $post->imageAsset->media_type === MediaType::Image;
+    }
+
+    /**
      * @param  list<int>  $except  posts not to offer, such as the round's other option
      * @return LengthAwarePaginator<int, Post>
      */

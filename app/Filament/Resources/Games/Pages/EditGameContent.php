@@ -11,8 +11,6 @@ use App\Enums\GameProfileIcon;
 use App\Enums\GameRoundMode;
 use App\Enums\GameVersionStatus;
 use App\Enums\ImageOrientation;
-use App\Enums\MediaStatus;
-use App\Enums\MediaType;
 use App\Enums\PostStatus;
 use App\Exceptions\Games\CannotManageGameException;
 use App\Filament\Resources\Games\Concerns\InteractsWithGameEditor;
@@ -23,6 +21,7 @@ use App\Models\GameContentSet;
 use App\Models\GameVersion;
 use App\Models\Post;
 use App\Queries\Games\GameDraftQuery;
+use App\Queries\Games\GamePostPickerQuery;
 use App\Queries\Games\GameUnpublishedChangesQuery;
 use App\Services\Games\GamePreviewDrafts;
 use App\Services\Media\Exceptions\ImageIngestException;
@@ -365,7 +364,7 @@ final class EditGameContent extends Page
         }
 
         // What the picker offers, held here too: a round needs a photo.
-        if ($post->imageAsset?->status !== MediaStatus::Ready || $post->imageAsset->media_type !== MediaType::Image) {
+        if (! app(GamePostPickerQuery::class)->offersAsRoundPhoto($post)) {
             $this->toast('A game round needs a post with a photo.', 'error');
 
             return;

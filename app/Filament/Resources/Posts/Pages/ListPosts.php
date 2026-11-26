@@ -527,7 +527,7 @@ final class ListPosts extends Page
     /**
      * The original image of the post being viewed, and what it is.
      *
-     * @return array{title: string, url: string, poster: string, video: bool, meta: string}|null
+     * @return array{title: string, url: string, poster: ?string, video: bool, meta: string}|null
      */
     private function viewer(): ?array
     {
@@ -535,13 +535,13 @@ final class ListPosts extends Page
         $post = $this->viewing !== null ? $this->find($this->viewing)?->loadMissing('imageAsset.variants') : null;
         $asset = $post?->imageAsset;
         $url = $post !== null ? app(PostImagePresenter::class)->url($post) : null;
+        // A video plays its master here, its poster shown until it starts —
+        // also when the poster's file is missing: the video still opens.
+        $video = $post !== null ? app(PostImagePresenter::class)->video($post, PostImageContext::Fullscreen) : null;
 
-        if ($post === null || $asset === null || $url === null) {
+        if ($post === null || $asset === null || ($url === null && $video === null)) {
             return null;
         }
-
-        // A video plays its master here, its poster shown until it starts.
-        $video = app(PostImagePresenter::class)->video($post, PostImageContext::Fullscreen);
 
         return [
             'title' => $post->title,

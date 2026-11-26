@@ -85,3 +85,17 @@ it('offers only photos for a round, and videos too for a post a flow step links 
     expect(app(GamePostPickerQuery::class)->paginate('', [], 1, photosOnly: true)->pluck('id')->all())->toBe([$photo->id])
         ->and(pickerPage())->toEqualCanonicalizing([$photo->id, $video->id, $animation->id]);
 });
+
+it('takes a ready still photo for a game round, never a video\'s poster or a picture still processing', function () {
+    $query = app(GamePostPickerQuery::class);
+    $photo = Post::factory()->published()->withImage()->create();
+    $video = Post::factory()->published()->withImage()->create();
+    $video->imageAsset->forceFill(['media_type' => MediaType::Video])->save();
+    $processing = Post::factory()->published()->withImage()->create();
+    $processing->imageAsset->forceFill(['status' => MediaStatus::Processing])->save();
+
+    expect($query->offersAsRoundPhoto($photo->fresh()))->toBeTrue()
+        ->and($query->offersAsRoundPhoto($video->fresh()))->toBeFalse()
+        ->and($query->offersAsRoundPhoto($processing->fresh()))->toBeFalse()
+        ->and($query->offersAsRoundPhoto(Post::factory()->published()->create(['image_asset_id' => null])))->toBeFalse();
+});

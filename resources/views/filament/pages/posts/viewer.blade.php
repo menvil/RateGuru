@@ -18,7 +18,7 @@
     >
         <div class="rg-admin-viewer__image">
             @if ($viewer['video'])
-                <video src="{{ $viewer['url'] }}" poster="{{ $viewer['poster'] }}" controls muted playsinline preload="metadata" aria-label="{{ $viewer['title'] }}"></video>
+                <video src="{{ $viewer['url'] }}" @if($viewer['poster']) poster="{{ $viewer['poster'] }}" @endif controls muted playsinline preload="metadata" aria-label="{{ $viewer['title'] }}"></video>
             @else
                 <img src="{{ $viewer['url'] }}" alt="{{ $viewer['title'] }}" />
             @endif

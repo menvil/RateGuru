@@ -69,10 +69,13 @@
             @endif
 
             <div class="mt-4">
-                @if($post->public_image_url)
+                @php
+                    // A video plays without its poster's file too: it still shows.
+                    $drawerImageVideo = $postImagePresenter->video($post, \App\Enums\PostImageContext::Drawer);
+                @endphp
+                @if($post->public_image_url || $drawerImageVideo)
                     @php
                         $drawerImage = $postImagePresenter->responsive($post, \App\Enums\PostImageContext::Drawer);
-                        $drawerImageVideo = $postImagePresenter->video($post, \App\Enums\PostImageContext::Drawer);
                     @endphp
                     <x-media.post-image
                         :post="$post"
@@ -186,10 +189,13 @@
             </x-ui.modal>
             @endif
 
-            @if($post->public_image_url)
+            @php
+                // A video plays without its poster's file too: it still shows.
+                $fullscreenImageVideo = $postImagePresenter->video($post, \App\Enums\PostImageContext::Fullscreen);
+            @endphp
+            @if($post->public_image_url || $fullscreenImageVideo)
                 @php
                     $fullscreenImage = $postImagePresenter->responsive($post, \App\Enums\PostImageContext::Fullscreen);
-                    $fullscreenImageVideo = $postImagePresenter->video($post, \App\Enums\PostImageContext::Fullscreen);
                 @endphp
                 <x-ui.modal :title="$post->title" title-dir="auto" state="imageOpen" size="fullscreen" below-header close-on-escape>
                     <x-media.post-image

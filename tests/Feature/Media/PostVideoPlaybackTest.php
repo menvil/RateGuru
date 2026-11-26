@@ -112,3 +112,26 @@ it('plays a master of 720 or less as it is, rather than the 480 rendition below 
     expect($presenter->video($small, PostImageContext::Feed)->src)->toBe(Storage::disk('public')->url($small->imageAsset->path))
         ->and($presenter->video($large, PostImageContext::Feed)->src)->toEndWith('video_480.mp4');
 });
+
+it('still plays a video whose poster files are missing, on the feed, the post page and its viewer', function () {
+    // The renditions are there; no poster variant is.
+    $post = videoPostWithPosterVariants([], MediaVariantName::Video720);
+
+    $feed = $this->get(route('feed'))->assertOk()->getContent();
+    $page = Livewire::test(PostShow::class, ['post' => $post])->html();
+
+    expect(substr_count($feed, 'data-testid="post-video"'))->toBe(2)
+        ->and(substr_count($page, 'data-testid="post-video"'))->toBe(2)
+        ->and($feed)->not->toContain('poster="');
+});
+
+it('keys each player by its post and file, so a drawer showing another post gets a new one', function () {
+    $first = fullVideoPost();
+    $second = fullVideoPost();
+
+    $html = $this->get(route('feed'))->assertOk()->getContent();
+
+    expect($html)->toContain('wire:key="post-video-feed-'.$first->id.'-')
+        ->toContain('wire:key="post-video-feed-'.$second->id.'-')
+        ->toContain('wire:key="post-video-fullscreen-'.$first->id.'-');
+});

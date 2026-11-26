@@ -37,13 +37,18 @@ it('plays one video at a time by itself, muted, and turns one video\'s sound on 
     waitForScript($page, $playing, 1);
     expect(array_column(feedVideoStates($page), 'muted'))->toBe([true, true]);
 
+    // The one asked plays, with its sound, and it alone.
     $page->script('document.querySelectorAll(\'[data-testid="post-video-sound"]\')[0].click()');
     waitForScript($page, $feedVideo(0).'.muted', false);
+    waitForScript($page, '! '.$feedVideo(0).'.paused');
+    waitForScript($page, $playing, 1);
     expect(array_column(feedVideoStates($page), 'muted'))->toBe([false, true]);
 
     $page->script('document.querySelectorAll(\'[data-testid="post-video-sound"]\')[1].click()');
     waitForScript($page, $feedVideo(1).'.muted', false);
+    waitForScript($page, '! '.$feedVideo(1).'.paused');
     waitForScript($page, $feedVideo(0).'.muted');
+    waitForScript($page, $playing, 1);
 });
 
 it('pauses a video scrolled out of view', function () {

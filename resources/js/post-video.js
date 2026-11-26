@@ -7,7 +7,8 @@
 //   fullscreen viewer's stays empty until the viewer opens.
 // - It plays muted while most of it is on screen and pauses when it scrolls
 //   away or its viewer closes; with reduced motion, or where the page cannot
-//   tell what is on screen, it waits for a tap or a key.
+//   tell what is on screen, it waits for a tap or a key to start — and with
+//   reduced motion still pauses once scrolled away.
 // - One plays at a time: one starting pauses the rest, so a card's video stops
 //   under the drawer or viewer that opened over it.
 // - Its sound comes on only when asked — by its button or the browser's own
@@ -54,15 +55,15 @@ document.addEventListener('alpine:init', () => {
 
             const reduceMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-            if (reduceMotion) {
-                return;
-            }
-
             this.player = new IntersectionObserver(([entry]) => {
                 if (entry.isIntersecting && entry.intersectionRatio >= 0.6) {
+                    // Started only by a tap or a key with reduced motion.
+                    if (reduceMotion) return;
+
                     this.load();
                     video.play().catch(() => {});
                 } else if (!video.paused) {
+                    // Never playing, nor sounding, out of sight.
                     video.pause();
                 }
             }, { threshold: [0, 0.6] });
