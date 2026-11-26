@@ -254,6 +254,7 @@ final class ManageCategories extends Page
                 'missing' => array_sum(array_map(fn (array $row): int => $row['missing'], $active)),
             ],
             'translationCenter' => $status->canTranslate() ? ContentTranslationStatus::sectionUrl(ProjectContentSection::Categories) : null,
+            'outdated' => $status->outdated([ProjectContentSection::Categories]),
             'drawer' => $this->drawer($rows, $status),
             'confirmation' => $rows[$this->deleting ?? 0] ?? null,
             'nameLimit' => self::nameLimit(),

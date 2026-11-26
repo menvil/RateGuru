@@ -47,4 +47,32 @@ final class ProjectTranslationSourcesQuery
             ->map(fn (mixed $fingerprint): string => (string) $fingerprint)
             ->all();
     }
+
+    /**
+     * The recorded fingerprints in each of these languages — of these units
+     * only, when they are named — by language and then unit id, in one query.
+     * A unit with nothing recorded in a language is absent from it.
+     *
+     * @param  list<string>  $locales
+     * @param  list<string>|null  $unitIds
+     * @return array<string, array<string, string>>
+     */
+    public function fingerprintsIn(array $locales, ?array $unitIds = null): array
+    {
+        if ($locales === [] || $unitIds === []) {
+            return [];
+        }
+
+        $fingerprints = [];
+
+        foreach (ProjectTranslationSource::query()
+            ->whereIn('locale', array_values(array_unique($locales)))
+            ->when($unitIds !== null, fn ($query) => $query->whereIn('unit_id', array_values(array_unique($unitIds ?? []))))
+            ->toBase()
+            ->get(['unit_id', 'locale', 'fingerprint']) as $source) {
+            $fingerprints[(string) $source->locale][(string) $source->unit_id] = (string) $source->fingerprint;
+        }
+
+        return $fingerprints;
+    }
 }

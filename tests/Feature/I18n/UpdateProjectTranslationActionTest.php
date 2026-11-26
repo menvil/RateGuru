@@ -433,9 +433,15 @@ it('removes a translation left behind once the English text is cleared, and refu
     $pages['about']['en']['content'] = '';
     ProjectSettings::query()->update(['static_pages' => json_encode($pages)]);
 
-    // The stale translation is still stored, and still what a visitor of that language is served.
+    // The stale translation is still stored, but no visitor of that language is served it: the text has no English.
+    app(ProjectSettingsManager::class)->flush();
+    app()->setLocale($target);
+
     expect($group->fresh()->description_translations[$target])->toBe('Какой он?')
-        ->and(TranslatableField::resolve($group->fresh()->description_translations, '', $target))->toBe('Какой он?');
+        ->and(TranslatableField::resolve($group->fresh()->description_translations, '', $target))->toBe('')
+        ->and(app(ProjectSettingsManager::class)->current()->staticPage('about')['content'])->toBe('');
+
+    app()->setLocale('en');
 
     $removed = saveTranslation($unit, $target, $blank);
     saveTranslation('static_pages:about:content', $target, $blank);

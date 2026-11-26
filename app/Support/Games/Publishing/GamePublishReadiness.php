@@ -3,6 +3,7 @@
 namespace App\Support\Games\Publishing;
 
 use App\Enums\GameFlowStepType;
+use App\Enums\GameStatus;
 use App\Models\Game;
 use App\Models\GameFlow;
 use App\Models\GameFlowStep;
@@ -35,6 +36,11 @@ final readonly class GamePublishReadiness
     {
         $lines = [];
         $set = $content->set;
+
+        // An archived game is out of Translation Center and of the site: it is restored before it gets a version.
+        if ($game->status === GameStatus::Archived) {
+            $lines[] = new ReadinessLine('game', false, 'The game is archived. Restore it before publishing a version.');
+        }
 
         if ($set->isArchived()) {
             $lines[] = new ReadinessLine('content', false, "The content set “{$set->name}” is archived. Restore it or choose another.");

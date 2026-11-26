@@ -19,6 +19,7 @@ use App\Models\ProjectSettings;
 use App\Models\User;
 use App\Support\Games\Flow\GameFlowTemplate;
 use App\Support\Games\Play\GameSessionAttempts;
+use App\Support\Settings\ProjectSettingsManager;
 use Illuminate\Support\Facades\Mail;
 use Livewire\Features\SupportTesting\Testable;
 use Livewire\Livewire;
@@ -242,4 +243,22 @@ it('counts leaving for a next game that went away as leaving for the feed, where
     $page->call('leave', 'next')->assertRedirect(route('feed'));
 
     expect(GameEvent::query()->where('type', GameEventType::Exit)->sole()->step_type)->toBe('feed');
+});
+
+it('names the next game in the player\'s language where its title is translated', function () {
+    [$target] = twoTranslatedLocales();
+    $next = publishableGameDraft(1);
+    $next['game']->forceFill(['title' => 'Cats or dogs', 'title_translations' => [$target => 'Translated next title']])->save();
+    liveGame($next);
+    replaceFlowSteps($this->draft['flow'], [GameFlowStepType::Landing, GameFlowStepType::Game, GameFlowStepType::FullResult, GameFlowStepType::NextGame], $next['game']);
+    liveGame($this->draft);
+    // The player's language, offered by the site and chosen in their session.
+    ProjectSettings::query()->update(['enabled_locales' => ['en', $target]]);
+    app(ProjectSettingsManager::class)->flush();
+    session(['locale' => $target]);
+    app()->setLocale($target);
+
+    playPastResult($this->draft['game']->slug)->assertSee('Translated next title')->assertDontSee('Cats or dogs');
+
+    app()->setLocale('en');
 });

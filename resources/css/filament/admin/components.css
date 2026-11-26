@@ -9122,6 +9122,16 @@
         font-weight: var(--rg-admin-weight-medium);
     }
 
+    /* Under what a language is missing: how many of its translations need an update, as the way to them. */
+    .rg-admin-languages__outdated {
+        display: block;
+        width: fit-content;
+        margin-top: 2px;
+        font-size: var(--rg-admin-text-caption);
+        line-height: var(--rg-admin-leading-caption);
+        white-space: nowrap;
+    }
+
     .rg-admin-languages__missing {
         display: inline-flex;
         white-space: nowrap;
@@ -9736,6 +9746,60 @@
         letter-spacing: var(--rg-admin-tracking-overline);
         text-transform: uppercase;
         color: var(--rg-admin-status-due-fg);
+    }
+
+    /* What changed: each changed sentence whole, the words taken out struck through and the words put in marked. */
+    .rg-admin-translation-row__changes {
+        display: flex;
+        flex-direction: column;
+        gap: var(--rg-admin-space-1);
+        padding: 8px var(--rg-admin-space-3);
+        border: 1px dashed var(--rg-admin-border-default);
+        border-radius: var(--rg-admin-radius-control);
+        font-size: var(--rg-admin-text-caption);
+        line-height: var(--rg-admin-leading-caption);
+        color: var(--rg-admin-text-secondary);
+        overflow-wrap: anywhere;
+    }
+
+    .rg-admin-translation-row__change,
+    .rg-admin-translation-row__change-more,
+    .rg-admin-translation-row__change-note {
+        margin: 0;
+    }
+
+    .rg-admin-translation-row__change del {
+        padding: 0 2px;
+        border-radius: 3px;
+        background: var(--rg-admin-status-danger-bg);
+        color: var(--rg-admin-status-danger-fg);
+        text-decoration: line-through;
+    }
+
+    .rg-admin-translation-row__change ins {
+        padding: 0 2px;
+        border-radius: 3px;
+        background: var(--rg-admin-status-success-bg);
+        color: var(--rg-admin-status-success-fg);
+        text-decoration: none;
+    }
+
+    .rg-admin-translation-row__change-more,
+    .rg-admin-translation-row__change-note {
+        font-size: var(--rg-admin-text-caption);
+        line-height: var(--rg-admin-leading-caption);
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-translation-row__previous-full summary {
+        cursor: pointer;
+        font-size: var(--rg-admin-text-caption);
+        line-height: var(--rg-admin-leading-caption);
+        color: var(--rg-admin-text-secondary);
+    }
+
+    .rg-admin-translation-row__previous-full[open] summary {
+        margin-bottom: var(--rg-admin-space-1);
     }
 
     .rg-admin-translation-row__previous-text {
@@ -11643,6 +11707,23 @@
         font-size: var(--rg-admin-text-caption);
         line-height: var(--rg-admin-leading-caption);
         color: var(--rg-admin-text-tertiary);
+    }
+
+    /* Versions: the texts a version would freeze untranslated, a line per language with the way to translate them. */
+    .rg-admin-games__translations-lead {
+        margin: 0 0 var(--rg-admin-space-1);
+    }
+
+    .rg-admin-games__translation-gaps {
+        display: grid;
+        gap: var(--rg-admin-space-1);
+        margin: 0;
+        padding: 0;
+        list-style: none;
+    }
+
+    .rg-admin-games__translation-language {
+        font-weight: var(--rg-admin-weight-medium);
     }
 
     .rg-admin-games__cover {

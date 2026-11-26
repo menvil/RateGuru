@@ -161,9 +161,10 @@ class ResolvedProjectSettings
     /** @param  array<string, mixed>  $page  the page as the project stores it */
     private function staticPageText(array $page, string $locale, string $field): string
     {
-        return $this->staticPageField($page, $locale, $field)
-            ?? $this->staticPageField($page, TranslatableField::REFERENCE_LOCALE, $field)
-            ?? '';
+        $english = $this->staticPageField($page, TranslatableField::REFERENCE_LOCALE, $field);
+
+        // A field with no English is empty in every language, a translation left behind included.
+        return $english === null ? '' : ($this->staticPageField($page, $locale, $field) ?? $english);
     }
 
     /**

@@ -36,7 +36,7 @@ project, in English alone; they are never a runtime fallback. See
 
 A disabled language stays installed: its catalogs are still checked, and its
 database translations (categories, tags, rating groups, project settings,
-static pages) can still be edited in admin — which is how a language is
+static pages, games) can still be edited in admin — which is how a language is
 prepared before it is offered. Translation editors list every installed
 language; everything a visitor can pick or be served uses the enabled ones.
 
@@ -171,6 +171,21 @@ read it — `TranslationKeyGuardTest` checks that too.
 | same `:placeholders` | dropping `:username` renders a sentence with the name silently gone |
 | no JSON catalogs | keyed by English prose, so nothing above can check them |
 | a line for every notification type | the bell builds `ui.notifications.messages.<type>` from the payload, so a missing line renders the key at the reader |
+
+## Rewording an English line
+
+Every check above passes when an English line is reworded under the same key
+and the other languages keep the old meaning. So the English each line's
+translations were made from is recorded, as a short hash per `catalog.key`, in
+`resources/translations/confirmed-english.json` (`ConfirmedEnglishLines`), and
+`ConfirmedEnglishLinesTest` fails while a recorded line's English reads
+otherwise.
+
+To reword a line: change it in `lang/en`, update it in every other language,
+then run `php artisan rateguru:translations:confirm-english` and commit the
+record it writes. A new key needs nothing more than parity already asks; it is
+recorded with the next confirmation. The English-only `admin.php` is not
+recorded.
 
 ## Emails
 

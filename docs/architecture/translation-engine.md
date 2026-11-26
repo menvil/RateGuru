@@ -195,7 +195,24 @@ UpdateProjectTranslationAction (one transaction, the unit's row locked)
   visitors see, until it is saved again — changed, or as it is — which records the English it stands beside now.
 - **Translation Center** marks an outdated row (English changed) and shows the English it was made from, counts
   the rows that need an update, and filters them with Needs update beside Missing only and All (`?mode=outdated`),
-  in the browser like the other filters.
+  in the browser like the other filters, and by game (`?game=`, `ProjectTranslationUnit::gameId()`).
+- **What changed.** An outdated row shows how its English changed since (`EnglishChange`): the changed sentences
+  whole, the words taken out and put in marked; a long text says to read the whole translation again and keeps the
+  old English in full.
+- **Counted beside missing.** `OutdatedProjectTranslationsQuery` counts outdated translations per language over the
+  catalog, or one section (`ProjectTranslationCatalog::unitsIn()`): Languages shows them per language, and the
+  Categories, Tags and Rating groups screens for their own texts (`ContentTranslationStatus::outdated()`).
+- **Interface catalogs.** Their lines are the repository's, not the project's: a reworded English line is caught by
+  `ConfirmedEnglishLines` against `resources/translations/confirmed-english.json` until its translations are
+  updated and the English confirmed (`lang/README.md`).
+- **No English, no text.** A field whose English is blank needs no translation, and none left from before is served:
+  `TranslatableField::resolve()`, a static page's fields and a game version's `LocalizedText::in()` read it as empty
+  in every language. The translation stays stored, so English written again brings it back, outdated if a record of
+  older English exists.
+- **Game versions warn before freezing.** A version freezes every translation as stored, outdated ones included, so
+  Versions counts, per offered language, the texts it would freeze missing or outdated
+  (`VersionTranslationCoverageQuery`, over `ProjectTranslationCatalog::unitsOfVersion()`) and warns, linking to
+  Translation Center narrowed to the game. It never holds a version back.
 - **Generate missing takes outdated translations too.** `StartProjectTranslationGenerationAction` plans every
   missing and every outdated unit; the chunk job sends an item only while its unit is still missing or still
   outdated; and `SaveProjectTranslationGenerationAction` replaces a stored translation only while it is still

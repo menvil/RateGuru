@@ -42,6 +42,7 @@
                 <dt class="rg-admin-stat__label">Missing translations</dt>
                 <dd class="rg-admin-stat__value">{{ number_format($stats['missing']) }}</dd>
             </div>
+            @include('filament.pages.translations.outdated-stat')
         </dl>
     </section>
 

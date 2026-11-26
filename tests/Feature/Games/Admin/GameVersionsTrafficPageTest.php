@@ -152,6 +152,8 @@ it('reads every content set of the Versions tab in the same few queries, however
         return $count;
     };
 
+    // A first read loads the project settings — the languages the translation warning counts — kept from then on.
+    $queries();
     $one = $queries();
 
     foreach (range(1, 3) as $copy) {

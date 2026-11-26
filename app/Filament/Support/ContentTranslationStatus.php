@@ -3,6 +3,7 @@
 namespace App\Filament\Support;
 
 use App\Filament\Pages\TranslationCenterPage;
+use App\Queries\Translations\OutdatedProjectTranslationsQuery;
 use App\Support\Locale\LocaleManager;
 use App\Support\Translations\ProjectContentSection;
 use App\Support\Translations\TranslatableField;
@@ -26,7 +27,10 @@ final class ContentTranslationStatus
     /** @var array<string, array{label: string, native: string, flag: string}>|null */
     private ?array $languages = null;
 
-    public function __construct(private readonly LocaleManager $locales) {}
+    public function __construct(
+        private readonly LocaleManager $locales,
+        private readonly OutdatedProjectTranslationsQuery $outdated,
+    ) {}
 
     /**
      * The offered languages besides English, in config order.
@@ -69,6 +73,38 @@ final class ContentTranslationStatus
     public static function missing(array $chips): int
     {
         return count(array_filter($chips, fn (array $chip): bool => $chip['value'] === null));
+    }
+
+    /**
+     * How many translations of these sections need an update — made from
+     * English since changed — over the offered languages, and the way to them:
+     * Translation Center's Needs update on the first of the sections that has
+     * one, in the first offered language that has one there.
+     *
+     * @param  list<ProjectContentSection>  $sections
+     * @return array{count: int, url: ?string}
+     */
+    public function outdated(array $sections): array
+    {
+        $count = 0;
+        $url = null;
+
+        // Section by section, so the way to them opens on the first section that has one — Translation Center
+        // filters one section at a time.
+        foreach ($sections as $section) {
+            $counts = $this->outdated->countsIn([$section], array_keys($this->languages()));
+            $count += array_sum($counts);
+
+            if ($url === null && array_sum($counts) > 0 && $this->canTranslate()) {
+                $url = TranslationCenterPage::getUrl([
+                    'locale' => array_key_first(array_filter($counts)),
+                    'section' => $section->value,
+                    'mode' => 'outdated',
+                ]);
+            }
+        }
+
+        return ['count' => $count, 'url' => $url];
     }
 
     /** Whether the signed-in user may open Translation Center at all. */

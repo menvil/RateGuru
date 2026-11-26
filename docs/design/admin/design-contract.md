@@ -655,9 +655,10 @@ settings (`manage-project-settings`), the boundary Languages uses.
   the same figures Languages shows for it, whatever the filters show — kept current as rows are saved.
 - **Filters in the browser.** The toolbar (TBL-02) has the clearable search (“Search source, key or translation”:
   English text, the content's name, its field, its keys and the stored and drafted translation), Section (FRM-10, with
-  each section's missing count) and Missing only / All (FRM-08), and the result count. They run over the units
-  already on the page — a bounded list — and send nothing to the server; the URL keeps them with replaceState
-  (`q`, `section`, `mode=missing`), and a value the page does not know is dropped.
+  each section's missing count), Game (FRM-10, each game whose texts are listed, with its missing count; shown only
+  when a game's texts are listed) and Missing only / Needs update / All (FRM-08), and the result count. They run over
+  the units already on the page — a bounded list — and send nothing to the server; the URL keeps them with
+  replaceState (`q`, `section`, `game`, `mode`), and a value the page does not know is dropped.
 - **Rows** (`240px minmax(0,1fr) minmax(0,1fr)`): the item (section badge, entity, field, mono key, constraint
   chips — “Max 80”, “Single line” or “Multiline”, each placeholder — and Context), the English reference in a
   sunken box with its length and Edit source ↗ to the editor of its English text, and the target field — an input
@@ -754,8 +755,18 @@ settings (`manage-project-settings`), the boundary Languages uses.
   Typing in a generated suggestion makes it an ordinary edit, saved as typed and left out of Save all generated;
   saving it lets the server's copy go. Discard and Discard generated let suggestions go on the server too; if
   the server cannot be told, the draft stays.
-- **Not in this step.** No review states and no translation history; source fingerprints exist only to keep a
-  generated suggestion from outliving the English it was made from, and go with it.
+- **Not in this step.** No review states and no translation history. A source fingerprint is kept with every
+  saved translation (`project_translation_sources`): it keeps a generated suggestion from outliving the English it
+  was made from, and tells an outdated translation — one made from English since changed — apart.
+- **English changed.** An outdated row has the warning badge “English changed · update”, the note “Made from older
+  English. Visitors see it until you save.”, Update with AI, and Save without an edit. Under the English, “Changed
+  since it was translated”: each changed sentence whole, the words taken out struck through (danger tones), the
+  words put in marked (success tones), every changed word of an edit marked; a long text — more than two sentences —
+  lists the first six, counts the rest, says “A long text: read the whole translation again, since a change can
+  alter the sentences around it.” and keeps the old English in full behind “The old English in full”.
+- **Elsewhere.** Languages shows “n to update” under a language's missing count, linking to Needs update in that
+  language; Categories, Tags and Rating groups show “Translations to update” beside
+  their figures while any of their texts' translations need one, linking to Needs update on the section.
 
 **Translation field states (DOM-01)** — they must never look alike:
 
@@ -1378,7 +1389,10 @@ games' actions (`docs/architecture/games.md`); the operator guide is `docs/admin
   Preview (Preview as Anonymous or Logged in; Theme Dark or Light, kept from step to step; the step in an iPhone from
   the flow as it stands, unsaved edits included; Open full preview).
 - **Versions:** a content set and a flow, the checks (rounds, results, flow) and Publish Vn — asked first, with
-  “take over Vm's traffic” as an option; the note when the set or flow, or a translation of it, changed since the
+  “take over Vm's traffic” as an option; under the checks a warning notice (never a hold) when the texts the version
+  would freeze are not all translated: a line per offered language, “Russian: 3 missing · 1 needs an update”, each
+  figure a link to Translation Center narrowed to the game and to Missing only or Needs update, and the languages
+  named again in the publish dialog; the note when the set or flow, or a translation of it, changed since the
   newest version made from them, naming the changes as the notice under the tabs does; the versions with their set, flow, rounds, traffic, attempts, publisher and
   Preview, Retire and Restore (retired versions behind Show archived).
 - **Traffic:** per audience — anonymous visitors and logged-in players — the shares of the active versions (FRM-05,

@@ -5,7 +5,8 @@ namespace App\Support\Games\Snapshot;
 /**
  * A text as a version froze it: its English and every translation it had,
  * by locale. Read in a locale, it falls back to English where that locale has
- * none — the semantics of TranslatableField::resolve().
+ * none, and is no text at all without English — the semantics of
+ * TranslatableField::resolve().
  */
 final readonly class LocalizedText
 {
@@ -40,9 +41,16 @@ final readonly class LocalizedText
         return self::of([self::REFERENCE => (string) $english, ...array_diff_key($translations ?? [], [self::REFERENCE => true])]);
     }
 
+    /**
+     * The text in a language, English where it has none. A text frozen with no
+     * English is no text in any language: a translation left from before its
+     * English was cleared is never read, whichever version froze it.
+     */
     public function in(string $locale): string
     {
-        return $this->values[$locale] ?? $this->values[self::REFERENCE] ?? '';
+        $english = $this->values[self::REFERENCE] ?? null;
+
+        return $english === null ? '' : ($this->values[$locale] ?? $english);
     }
 
     public function english(): string

@@ -48,6 +48,16 @@ final readonly class ProjectTranslationUnit
         public array $location = [],
     ) {}
 
+    /** The game a text belongs to: the game's own title and description, or its content's game; none for anything else. */
+    public function gameId(): ?int
+    {
+        return match ($this->section) {
+            ProjectContentSection::Games => $this->recordId,
+            ProjectContentSection::GameRounds, ProjectContentSection::GameRoundOptions, ProjectContentSection::GameResultProfiles, ProjectContentSection::GameFlowSteps => $this->parentId,
+            default => null,
+        };
+    }
+
     /** A blank English text needs no translation, and has none counted (TranslatableField::isPresent()). */
     public function requiresTranslation(): bool
     {

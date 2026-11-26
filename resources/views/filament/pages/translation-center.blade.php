@@ -7,7 +7,7 @@
      * (filament.pages.translation-center.script). The whole screen is keyed by
      * the target language, so choosing another one draws it afresh.
      */
-    $filtered = $target !== null && ($filters['query'] !== '' || $filters['section'] !== '' || $filters['mode'] !== 'all' || $filters['unit'] !== null);
+    $filtered = $target !== null && ($filters['query'] !== '' || $filters['section'] !== '' || $filters['game'] !== '' || $filters['mode'] !== 'all' || $filters['unit'] !== null);
     // A background generation the page opens with: running, or with suggestions waiting, it replaces Generate missing.
     $generation = $target !== null ? $client['generation'] : null;
     $generationBusy = $generation !== null && ($generation['status'] !== 'completed' || $generation['counts']['ready'] > 0);
@@ -143,6 +143,15 @@
                             :value="$filters['section']"
                             x-model="section"
                         />
+                        @if (count($games) > 1)
+                            <x-admin.ui.filter-dropdown
+                                id="rg-admin-translation-game"
+                                label="Game"
+                                :options="$games"
+                                :value="$filters['game']"
+                                x-model="game"
+                            />
+                        @endif
                         <x-admin.ui.segmented
                             label="Show"
                             :options="['missing' => 'Missing only', 'outdated' => 'Needs update', 'all' => 'All']"

@@ -107,9 +107,23 @@ A game is translated before and after it is published alike, but players
 read a game from its published version, which keeps the translations it was
 published with: a translation reaches them with the next version. Versions
 says when a set or flow, or a translation of it, changed after the version
-published from them.
+published from them, and warns before publishing when the texts it would
+freeze are missing a translation, or have one made from older English, in a
+language the project offers.
 
-A field whose English is blank needs no translation. English is complete
+**When the English changes.** Every saved translation keeps the English it was
+made from (`docs/architecture/translation-engine.md`). Once that English
+changes, the translation still shows, but it needs an update: Translation
+Center marks it **English changed**, shows what changed sentence by sentence,
+and lists it under **Needs update**; Languages and the Categories, Tags and
+Rating groups screens count it beside what is missing. The figures on
+completeness below count presence only, so an outdated translation counts as
+translated there.
+
+A field whose English is blank needs no translation, and shows none: a
+translation left from before its English was cleared stays stored, but no
+visitor is served it in any language — on the site, on a static page or in a
+game version, whichever version froze it. English is complete
 through the base columns. A translation is any non-blank string — presence
 only; nothing judges quality, and nothing compares it with the repository.
 Content an administrator created counts exactly like preset content. Inactive

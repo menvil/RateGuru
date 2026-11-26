@@ -6,6 +6,8 @@ use App\Filament\Pages\TranslationCenterPage;
 use App\Filament\Resources\Categories\Pages\ManageCategories;
 use App\Filament\Resources\Tags\Pages\ManageTags;
 use App\Models\Category;
+use App\Models\GameRound;
+use App\Models\GameRoundOption;
 use App\Models\ProjectSettings;
 use App\Models\RatingGroup;
 use App\Models\RatingOption;
@@ -376,8 +378,11 @@ it('marks a translation made from older English, keeping it on the row beside th
         ->and(collect($page->viewData('client')['units'])->firstWhere('id', $unit))->toMatchArray(['stored' => 'Willkommen', 'outdated' => true])
         ->and($row)
         ->toContain('lang="en">Hello</div>')
-        ->toContain('<span class="rg-admin-translation-row__previous-label">Translated from the old English</span>')
-        ->toContain('<div class="rg-admin-translation-row__previous-text" lang="en">Welcome</div>')
+        // What changed: the word taken out and the word put in, in their sentence.
+        ->toContain('<span class="rg-admin-translation-row__previous-label">Changed since it was translated</span>')
+        ->toContain('<del><span class="rg-admin-sr-only">Removed:</span>Welcome</del><ins><span class="rg-admin-sr-only">Added:</span>Hello</ins>')
+        // A short text needs no note and no old English in full.
+        ->not->toContain('A long text')
         ->toContain('x-show="units[unit].outdated"')
         // Still stored, and still what visitors see, until the row is saved.
         ->toContain('value="Willkommen"')
@@ -400,6 +405,43 @@ it('marks neither a current translation nor one with nothing recorded of its Eng
         expect(collect($page->viewData('rows'))->firstWhere('id', $unit))->toMatchArray(['outdated' => false, 'translatedFrom' => null])
             ->and(translationRow($page, $unit))->not->toContain('Translated from')->not->toContain('English changed')->toContain('Stored translation');
     }
+});
+
+it('shows what changed in a long text sentence by sentence, says to read it all again, and keeps the old English in full', function () {
+    [$target] = twoTranslatedLocales();
+    $before = "Welcome to our community. Post your pets. Vote for the cutest ones.\nBe kind to each other.";
+    $pages = staticPagesTranslatedInto([$target]);
+    $pages['about']['en']['content'] = $before;
+    ProjectSettings::query()->update(['static_pages' => json_encode($pages)]);
+    app(UpdateProjectTranslationAction::class)->handle(User::factory()->admin()->create(), 'static_pages:about:content', $target, "[{$target}] translated");
+    $pages['about']['en']['content'] = "Welcome to our community. Post your cats and dogs. Vote for the cutest ones.\nBe kind to each other.";
+    ProjectSettings::query()->update(['static_pages' => json_encode($pages)]);
+
+    $row = (string) translationRow(translationCenter($target), 'static_pages:about:content');
+
+    expect($row)
+        // Only the changed sentence, whole, with what was taken out and put in.
+        ->toContain('<p class="rg-admin-translation-row__change">Post your')
+        ->toContain('<del><span class="rg-admin-sr-only">Removed:</span>pets.</del><ins><span class="rg-admin-sr-only">Added:</span>cats and dogs.</ins></p>')
+        ->not->toContain('<p class="rg-admin-translation-row__change">Welcome to our community.')
+        ->toContain('A long text: read the whole translation again, since a change can alter the sentences around it.')
+        ->toContain('<summary>The old English in full</summary>')
+        ->toContain('Welcome to our community. Post your pets. Vote for the cutest ones.');
+});
+
+it('says when only spaces or line breaks changed in the English, and keeps the old English to compare', function () {
+    [$target] = twoTranslatedLocales();
+    $pages = staticPagesTranslatedInto([$target]);
+    $pages['about']['en']['content'] = 'Post your pets. Vote for the cutest ones.';
+    ProjectSettings::query()->update(['static_pages' => json_encode($pages)]);
+    app(UpdateProjectTranslationAction::class)->handle(User::factory()->admin()->create(), 'static_pages:about:content', $target, "[{$target}] translated");
+    $pages['about']['en']['content'] = "Post your pets.\nVote for the cutest ones.";
+    ProjectSettings::query()->update(['static_pages' => json_encode($pages)]);
+
+    expect((string) translationRow(translationCenter($target), 'static_pages:about:content'))
+        ->toContain('Only spaces or line breaks changed: check the translation keeps the ones that matter.')
+        ->toContain('<summary>The old English in full</summary>')
+        ->not->toContain('A long text');
 });
 
 it('counts the translations that need an update in the header, once there is one', function () {
@@ -431,6 +473,34 @@ it('offers Needs update beside Missing only and All, from the URL as well', func
         ->toContain('aria-checked="true" tabindex="0" x-bind:aria-checked="selected === \'outdated\'')
         // Filtered in the browser: the rows wait for it to apply the mode.
         ->and(livewireDom($page)->query("//*[@role='table'][@x-cloak]")->length)->toBe(1);
+});
+
+it('narrows to one game\'s texts by a Game filter, from the URL as well, and offers it only while games are listed', function () {
+    [$target] = twoTranslatedLocales();
+
+    expect(translationCenter($target)->viewData('games'))->toBe([['value' => '', 'label' => 'All games', 'trigger' => 'All']]);
+
+    $kittens = publishableGameDraft(1);
+    $other = publishableGameDraft(1);
+    $kittens['game']->update(['title' => 'Kittens or puppies']);
+    GameRoundOption::query()->whereIn('round_id', GameRound::query()->where('content_set_id', $kittens['set']->id)->select('id'))->update(['label' => 'This one']);
+    $page = translationCenter($target, ['game' => (string) $kittens['game']->id]);
+    $units = collect($page->viewData('client')['units']);
+
+    expect(array_column($page->viewData('games'), 'label'))->toContain('All games', 'Kittens or puppies')->toHaveCount(3)
+        ->and($page->viewData('filters')['game'])->toBe((string) $kittens['game']->id)
+        ->and($page->viewData('client')['games'])->toBe([(string) $kittens['game']->id, (string) $other['game']->id])
+        // Every text of the game carries it — its own, its rounds', options', results' and flow's — and nothing else does.
+        ->and($units->where('game', (string) $kittens['game']->id)->pluck('section')->unique()->sort()->values()->all())
+        ->toBe(['game_flow_steps', 'game_result_profiles', 'game_round_options', 'game_rounds', 'games'])
+        ->and($units->where('section', 'project_settings')->pluck('game')->unique()->values()->all())->toBe([''])
+        ->and(livewireFragment($page, "//*[@id='rg-admin-translation-game']/ancestor-or-self::*[@x-model='game'][1]"))->not->toBeNull()
+        // Narrowed to a game alone, the rows still wait for the browser rather than flash every game's.
+        ->and(livewireDom($page)->query("//*[@role='table'][@x-cloak]")->length)->toBe(1);
+
+    // A game the page lists no text of reads as every game.
+    expect(translationCenter($target, ['game' => '999999'])->viewData('filters')['game'])->toBe('')
+        ->and(translationCenter($target, ['game' => 'kittens'])->viewData('filters')['game'])->toBe('');
 });
 
 it('counts outdated translations into Generate missing, and says so', function () {

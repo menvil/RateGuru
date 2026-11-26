@@ -5,6 +5,8 @@ namespace App\Support\Translations;
 use App\Enums\GameStatus;
 use App\Models\Category;
 use App\Models\Game;
+use App\Models\GameContentSet;
+use App\Models\GameFlow;
 use App\Models\GameFlowStep;
 use App\Models\GameResultProfile;
 use App\Models\GameRound;
@@ -163,6 +165,32 @@ final class ProjectTranslationCatalog
                 ->flatMap(fn (GameResultProfile $profile): array => $this->gameResultProfileUnits($profile))->all(),
             ...$this->gameFlowSteps()->get()
                 ->sortBy(fn (GameFlowStep $step): array => [(int) $step->flow->game_id, (int) $step->flow->position, (int) $step->flow_id, (int) $step->position, (int) $step->id])
+                ->flatMap(fn (GameFlowStep $step): array => $this->gameFlowStepUnits($step))->all(),
+        ];
+    }
+
+    /**
+     * The units a version published from this content set and flow would
+     * freeze (VersionSnapshotBuilder): the game's title and description, the
+     * set's rounds, options and results, and the texts of the flow's steps —
+     * as they are now, in the order the catalog lists them, from one query per
+     * kind of content. None for a set or flow the catalog does not list, such
+     * as an archived one.
+     *
+     * @return list<ProjectTranslationUnit>
+     */
+    public function unitsOfVersion(Game $game, GameContentSet $set, GameFlow $flow): array
+    {
+        return [
+            ...$this->games()->whereKey($game->id)->get()->flatMap(fn (Game $listed): array => $this->gameUnits($listed))->all(),
+            ...$this->gameRounds()->where('content_set_id', $set->id)->orderBy('position')->orderBy('id')->get()
+                ->flatMap(fn (GameRound $round): array => $this->gameRoundUnits($round))->all(),
+            ...$this->gameRoundOptions()->whereHas('round', fn (Builder $round) => $round->where('content_set_id', $set->id))->get()
+                ->sortBy(fn (GameRoundOption $option): array => [(int) $option->round->position, (int) $option->round_id, (int) $option->position])
+                ->flatMap(fn (GameRoundOption $option): array => $this->gameRoundOptionUnits($option))->all(),
+            ...$this->gameResultProfiles()->where('content_set_id', $set->id)->orderBy('position')->orderBy('id')->get()
+                ->flatMap(fn (GameResultProfile $profile): array => $this->gameResultProfileUnits($profile))->all(),
+            ...$this->gameFlowSteps()->where('flow_id', $flow->id)->orderBy('position')->orderBy('id')->get()
                 ->flatMap(fn (GameFlowStep $step): array => $this->gameFlowStepUnits($step))->all(),
         ];
     }
@@ -333,10 +361,42 @@ final class ProjectTranslationCatalog
         };
     }
 
+    /**
+     * Every unit of one section, as units() lists them, from one read: the
+     * settings row for project settings and static pages, one query for any
+     * other section.
+     *
+     * @return list<ProjectTranslationUnit>
+     */
+    public function unitsIn(ProjectContentSection $section): array
+    {
+        if (in_array($section, [ProjectContentSection::ProjectSettings, ProjectContentSection::StaticPages], true)) {
+            return array_values(array_filter($this->settingsUnits(ProjectSettings::query()->find(1)), fn (ProjectTranslationUnit $unit): bool => $unit->section === $section));
+        }
+
+        return $this->records($section)->orderBy('id')->get()->flatMap(fn (Model $row): array => $this->rowUnits($section, $row))->values()->all();
+    }
+
     /** The unit with this id among the units of one row, or null. */
     private function unitIn(ProjectContentSection $section, ?Model $row, string $id): ?ProjectTranslationUnit
     {
-        $units = match (true) {
+        foreach ($this->rowUnits($section, $row) as $unit) {
+            if ($unit->id === $id) {
+                return $unit;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * The units of one row of a section.
+     *
+     * @return list<ProjectTranslationUnit>
+     */
+    private function rowUnits(ProjectContentSection $section, ?Model $row): array
+    {
+        return match (true) {
             $section === ProjectContentSection::ProjectSettings => $this->projectSettingUnits($this->settingsAttributes($row)),
             $section === ProjectContentSection::StaticPages => $this->staticPageUnits($row instanceof ProjectSettings ? $row->static_pages : $this->settings->defaults()['static_pages']),
             $row instanceof Category => $this->categoryUnits($row),
@@ -350,14 +410,6 @@ final class ProjectTranslationCatalog
             $row instanceof GameFlowStep => $this->gameFlowStepUnits($row),
             default => [],
         };
-
-        foreach ($units as $unit) {
-            if ($unit->id === $id) {
-                return $unit;
-            }
-        }
-
-        return null;
     }
 
     /**

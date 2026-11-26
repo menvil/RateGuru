@@ -30,7 +30,9 @@ class TranslatableField
      * isPresent()), otherwise the fallback — never blank text and never a
      * value that is not a string. English is the base column itself: an
      * English entry among the translations is never read, so the text its
-     * editor saves is the text a visitor sees.
+     * editor saves is the text a visitor sees. A text whose English is blank
+     * is no text in any language: a translation left from before the English
+     * was cleared stays stored, but no visitor is served it.
      */
     public static function resolve(
         mixed $translations,
@@ -39,7 +41,7 @@ class TranslatableField
     ): string {
         $locale ??= app()->getLocale();
 
-        if ($locale === self::REFERENCE_LOCALE) {
+        if ($locale === self::REFERENCE_LOCALE || trim($fallback) === '') {
             return $fallback;
         }
 
