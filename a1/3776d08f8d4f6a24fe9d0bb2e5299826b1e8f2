@@ -1,0 +1,24 @@
+docs/architecture/content-rating.md
+  ai_agent 129-131,156-157
+app/Jobs/ClassifyMediaAssetJob.php
+  ai_agent 103-104
+  s_1f43f39fbe0537::t_85f22a6ee605e4 5,14,60-62,129,141-148,150-154,157,164-177
+tests/Feature/Media/MediaClassificationPipelineTest.php
+  s_1f43f39fbe0537::t_8e10b06a169ec3 15-16,19,27,500-534
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "a13776d08f8d4f6a24fe9d0bb2e5299826b1e8f2",
+  "prompts": {},
+  "sessions": {
+    "s_1f43f39fbe0537": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "526787d0-f443-4ad7-9610-cf9811fec895",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
