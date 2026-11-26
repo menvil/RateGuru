@@ -1157,6 +1157,20 @@ After the first Prepare host run, check the boot once:
   empty;
 - `ls /run/rateguru-media-fetch.armed` should show the marker.
 
+**Container rehearsal of the per-target accounts (2026-11-26, Ubuntu 22.04, nftables 1.0.2, sudo 1.9.9, ufw enabled):**
+- `--apply` then `--verify`: pass=10, exit 0.
+- The live table lists the accounts by uid (`meta skuid { 996, 997 }`), and
+  `--verify` matches them.
+- `systemd-analyze verify` on the unit reported nothing.
+- **As `rateguru-staging-fetch` and as `rateguru-tits-guru-fetch`:**
+  `127.0.0.1` and the container's own address were refused (curl exit 7);
+  `http://1.1.1.1/` answered 301.
+- **As `nobody`:** loopback was still reachable.
+- **The staging runtime user:** could run yt-dlp as `rateguru-staging-fetch`;
+  as `rateguru-tits-guru-fetch` it was refused ("sudo: a password is
+  required").
+- ufw stayed active with its tables, and the marker was in `/run`.
+
 **Container rehearsal (2026-11-26, Ubuntu 22.04, nftables 1.0.2, sudo 1.9.9, ufw enabled), first with a single account:**
 - `--apply` then `--verify`: pass=7, exit 0. `nft list tables` showed ufw's
   `ip filter` and `ip6 filter`, plus `inet rateguru_media_fetch`.
