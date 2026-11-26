@@ -1,0 +1,168 @@
+app/Http/Requests/DeleteUserRequest.php
+  s_0f80700cf0b8c6::t_b2a9f8fca46383 26-28
+lang/bs/follows.php
+  s_0f80700cf0b8c6::t_6915f643218ebe 12
+app/Support/Moderation/ModerationReason.php
+  s_0f80700cf0b8c6::t_9fe1c22c4dd3ab 5-6,49
+lang/ro/follows.php
+  s_0f80700cf0b8c6::t_6915f643218ebe 12
+lang/ru/follows.php
+  s_0f80700cf0b8c6::t_6915f643218ebe 12
+lang/nl/follows.php
+  s_0f80700cf0b8c6::t_6915f643218ebe 12
+app/Livewire/Comments/CommentForm.php
+  s_0f80700cf0b8c6::t_905ffd544ab5b4 50-51
+tests/Feature/Livewire/CommentsSectionTest.php
+  s_0f80700cf0b8c6::t_43710c94ca886e 4,86-105
+  s_0f80700cf0b8c6::t_aa1411a5996c20 485-503
+lang/el/follows.php
+  s_0f80700cf0b8c6::t_6915f643218ebe 12
+lang/nb/follows.php
+  s_0f80700cf0b8c6::t_6915f643218ebe 12
+lang/da/follows.php
+  s_0f80700cf0b8c6::t_6915f643218ebe 12
+lang/uk/follows.php
+  s_0f80700cf0b8c6::t_6915f643218ebe 12
+tests/Feature/Filament/TagResourceFormTest.php
+  s_0f80700cf0b8c6::t_178922c936251a 101-102
+lang/hu/follows.php
+  s_0f80700cf0b8c6::t_6915f643218ebe 12
+lang/sk/follows.php
+  s_0f80700cf0b8c6::t_6915f643218ebe 12
+lang/es/follows.php
+  s_0f80700cf0b8c6::t_6915f643218ebe 12
+app/Filament/Resources/Posts/Pages/ListPosts.php
+  s_0f80700cf0b8c6::t_278748e790c002 235
+  s_0f80700cf0b8c6::t_9dfbba004b8513 237
+app/Filament/Resources/Users/Concerns/ModeratesUsers.php
+  s_0f80700cf0b8c6::t_278748e790c002 74
+  s_0f80700cf0b8c6::t_9dfbba004b8513 76
+app/Exceptions/Follows/CannotFollowAuthorException.php
+  s_0f80700cf0b8c6::t_03134c6753ef0e 9-10,18-27
+lang/de/follows.php
+  s_0f80700cf0b8c6::t_6915f643218ebe 12
+app/Livewire/Profile/EditProfileForm.php
+  s_0f80700cf0b8c6::t_ba1e4d9abb830b 34-36,47-51,55,73
+  s_0f80700cf0b8c6::t_3f71b1aaf75973 87-88,91
+lang/sl/follows.php
+  s_0f80700cf0b8c6::t_6915f643218ebe 12
+lang/fil/follows.php
+  s_0f80700cf0b8c6::t_6915f643218ebe 12
+lang/fi/follows.php
+  s_0f80700cf0b8c6::t_6915f643218ebe 12
+app/Filament/Resources/Reports/Pages/ListReports.php
+  s_0f80700cf0b8c6::t_278748e790c002 217
+  s_0f80700cf0b8c6::t_9dfbba004b8513 219
+lang/it/follows.php
+  s_0f80700cf0b8c6::t_6915f643218ebe 12
+lang/th/follows.php
+  s_0f80700cf0b8c6::t_6915f643218ebe 12
+lang/sv/follows.php
+  s_0f80700cf0b8c6::t_6915f643218ebe 12
+lang/et/follows.php
+  s_0f80700cf0b8c6::t_6915f643218ebe 12
+app/Rules/UniqueEffectiveTagSlug.php
+  s_0f80700cf0b8c6::t_b1479bbd56b4bf 22-24,27-28,49-58,70-74
+tests/Feature/Filament/PersonaResourceTest.php
+  s_0f80700cf0b8c6::t_e42ff649ccb45b 21,26,513-521,523-542
+  s_0f80700cf0b8c6::t_8e0228d9433d21 522
+app/Actions/Comments/AddCommentAction.php
+  s_0f80700cf0b8c6::t_9fe1c22c4dd3ab 17,69-71
+lang/ja/follows.php
+  s_0f80700cf0b8c6::t_6915f643218ebe 12
+lang/cnr/follows.php
+  s_0f80700cf0b8c6::t_6915f643218ebe 12
+tests/Feature/Filament/ReportResourceActionsTest.php
+  s_0f80700cf0b8c6::t_d33f0dc3f58f83 188,190-195,197,199-200
+resources/views/livewire/profile/edit-profile-form.blade.php
+  s_0f80700cf0b8c6::t_ba1e4d9abb830b 85-86,88-90
+lang/bg/follows.php
+  s_0f80700cf0b8c6::t_6915f643218ebe 12
+lang/cs/follows.php
+  s_0f80700cf0b8c6::t_6915f643218ebe 12
+app/Filament/Resources/Comments/Pages/ListComments.php
+  s_0f80700cf0b8c6::t_278748e790c002 148
+  s_0f80700cf0b8c6::t_9dfbba004b8513 150
+lang/is/follows.php
+  s_0f80700cf0b8c6::t_6915f643218ebe 12
+tests/Feature/Actions/AddCommentActionTest.php
+  s_0f80700cf0b8c6::t_03555c3d5d1af6 266-289
+lang/lt/follows.php
+  s_0f80700cf0b8c6::t_6915f643218ebe 12
+tests/Feature/Profile/AccountWithoutPasswordTest.php
+  s_0f80700cf0b8c6::t_06d97abe04278a 172-182
+app/Support/Text/InvisibleEdges.php
+  s_0f80700cf0b8c6::t_9fe1c22c4dd3ab 1-19,21-23
+lang/pt/follows.php
+  s_0f80700cf0b8c6::t_6915f643218ebe 12
+tests/Feature/Livewire/CommentFormTest.php
+  s_0f80700cf0b8c6::t_43710c94ca886e 149-162
+lang/mk/follows.php
+  s_0f80700cf0b8c6::t_6915f643218ebe 12
+app/Http/Requests/SubmitContactMessageRequest.php
+  s_0f80700cf0b8c6::t_b2a9f8fca46383 5,7-8,13,19-29
+lang/pl/follows.php
+  s_0f80700cf0b8c6::t_6915f643218ebe 12
+resources/views/livewire/comments/comments-section.blade.php
+  s_0f80700cf0b8c6::t_aa1411a5996c20 87
+tests/Feature/Routes/ContactFormTest.php
+  s_0f80700cf0b8c6::t_b2a9f8fca46383 126-156
+lang/ms/follows.php
+  s_0f80700cf0b8c6::t_6915f643218ebe 12
+lang/en/follows.php
+  s_0f80700cf0b8c6::t_6915f643218ebe 12
+lang/sq/follows.php
+  s_0f80700cf0b8c6::t_6915f643218ebe 12
+tests/Feature/Filament/ModerationFinalizeUiTest.php
+  s_0f80700cf0b8c6::t_d33f0dc3f58f83 167,169-174,176-177,179-181,183-184,186-188
+lang/fr/follows.php
+  s_0f80700cf0b8c6::t_6915f643218ebe 12
+app/Filament/Resources/Tags/Pages/ManageTags.php
+  s_0f80700cf0b8c6::t_b1479bbd56b4bf 131,135
+app/Livewire/Follows/FollowButton.php
+  s_0f80700cf0b8c6::t_03134c6753ef0e 63-68
+lang/hr/follows.php
+  s_0f80700cf0b8c6::t_6915f643218ebe 12
+tests/Feature/Livewire/FollowButtonTest.php
+  s_0f80700cf0b8c6::t_062aec387669e4 84-102
+app/Livewire/Comments/CommentsSection.php
+  s_0f80700cf0b8c6::t_905ffd544ab5b4 9-10,235-241,264-270,288-300
+  s_0f80700cf0b8c6::t_fa3ec25370e8d8 206,212-215,246,275,280-285
+lang/tr/follows.php
+  s_0f80700cf0b8c6::t_6915f643218ebe 12
+lang/lv/follows.php
+  s_0f80700cf0b8c6::t_6915f643218ebe 12
+tests/Feature/Filament/UserResourceActionsTest.php
+  s_0f80700cf0b8c6::t_d33f0dc3f58f83 145,147-150,152-155
+tests/Feature/Livewire/AvatarUploadTest.php
+  s_0f80700cf0b8c6::t_e42ff649ccb45b 234,252-260,262-265
+  s_0f80700cf0b8c6::t_8e0228d9433d21 261
+lang/zh/follows.php
+  s_0f80700cf0b8c6::t_6915f643218ebe 12
+lang/sr/follows.php
+  s_0f80700cf0b8c6::t_6915f643218ebe 12
+lang/ka/follows.php
+  s_0f80700cf0b8c6::t_6915f643218ebe 12
+tests/Feature/Livewire/EditProfileFormTest.php
+  s_0f80700cf0b8c6::t_c3db21e4ecd241 101,114-132
+lang/vi/follows.php
+  s_0f80700cf0b8c6::t_6915f643218ebe 12
+app/Filament/Resources/Personas/Concerns/EditsPersona.php
+  s_0f80700cf0b8c6::t_3f71b1aaf75973 14,158-160,164,189-193
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "5c3cb13cb23dbd1e91fcd7f39b1419a1c283824d",
+  "prompts": {},
+  "sessions": {
+    "s_0f80700cf0b8c6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9c487690-cbdd-45b4-bfb3-e59a0da356a9",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
