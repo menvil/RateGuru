@@ -11,9 +11,11 @@ return new class extends Migration
     {
         // Whether a picture or video is safe for work (docs/architecture/
         // content-rating.md): unknown until a classifier or a moderator says.
-        // The post carries its media's rating too, indexed, for the viewer's
-        // SFW mode to filter on. Constant defaults and nullable columns are
-        // added in place, waited for briefly, never behind a long write.
+        // The post carries its media's rating too, for the viewer's SFW mode
+        // to filter on; the index that filter needs comes with it, built
+        // concurrently and shaped by its query. Constant defaults and
+        // nullable columns are added in place, waited for briefly, never
+        // behind a long write.
         if (DB::getDriverName() === 'pgsql') {
             DB::statement("set local lock_timeout = '5s'");
         }
@@ -29,7 +31,6 @@ return new class extends Migration
 
         Schema::table('posts', function (Blueprint $table) {
             $table->string('content_rating')->default('unknown');
-            $table->index('content_rating');
         });
 
         Schema::create('media_classifications', function (Blueprint $table) {
@@ -61,7 +62,6 @@ return new class extends Migration
         Schema::dropIfExists('media_classifications');
 
         Schema::table('posts', function (Blueprint $table) {
-            $table->dropIndex(['content_rating']);
             $table->dropColumn('content_rating');
         });
 

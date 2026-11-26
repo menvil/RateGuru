@@ -4,8 +4,10 @@ namespace App\Services\Media\Classification;
 
 use App\Enums\ClassificationMode;
 use App\Enums\ClassificationStatus;
+use App\Enums\ContentCategory;
 use App\Models\MediaAsset;
 use App\Models\MediaClassification;
+use JsonException;
 use Throwable;
 
 /**
@@ -26,6 +28,12 @@ final class MediaClassificationRecorder
         try {
             $result = $classifier->classify($input);
         } catch (Throwable $exception) {
+            // A classifier saying it has no answer is expected; anything
+            // else is a bug in it, and goes where bugs go.
+            if (! $exception instanceof MediaClassificationFailedException) {
+                report($exception);
+            }
+
             return MediaClassification::query()->create([
                 'media_asset_id' => $asset->id,
                 'classifier' => $classifier->name(),
@@ -33,10 +41,8 @@ final class MediaClassificationRecorder
                 'mode' => $mode,
                 'status' => ClassificationStatus::Failed,
                 'inputs' => $inputs,
-                'latency_ms' => intdiv(hrtime(true) - $started, 1_000_000),
-                // A classifier's exception names no file and holds no key;
-                // anything else is kept to its class.
-                'error' => mb_substr($exception instanceof MediaClassificationFailedException ? $exception->getMessage() : $exception::class, 0, 500),
+                'latency_ms' => self::millisecondsSince($started),
+                'error' => mb_substr(self::reason($exception), 0, 500),
             ]);
         }
 
@@ -47,15 +53,43 @@ final class MediaClassificationRecorder
             'mode' => $mode,
             'status' => ClassificationStatus::Succeeded,
             'inputs' => $inputs,
-            'scores' => $result->scores,
-            'frame_scores' => $result->frameScores === [] ? null : $result->frameScores,
+            'scores' => self::scores($result->scores),
+            'frame_scores' => $result->frameScores === [] ? null : array_map(
+                fn (array $frame): array => ['at_ms' => $frame['at_ms'], 'scores' => self::scores($frame['scores'])],
+                $result->frameScores,
+            ),
             'raw' => self::trimmed($result->raw),
-            'latency_ms' => $result->latencyMs ?? intdiv(hrtime(true) - $started, 1_000_000),
+            'latency_ms' => $result->latencyMs ?? self::millisecondsSince($started),
             'cost_microusd' => $result->costMicroUsd,
         ]);
     }
 
     /**
+     * Only the categories the project keeps, each a finite score in 0..1:
+     * whatever a provider adds, or sends as NaN, never reaches the column.
+     *
+     * @param  array<string, float>  $scores
+     * @return array<string, float>
+     */
+    private static function scores(array $scores): array
+    {
+        $kept = [];
+
+        foreach (ContentCategory::cases() as $category) {
+            $score = $scores[$category->value] ?? null;
+
+            if (is_numeric($score) && is_finite((float) $score)) {
+                $kept[$category->value] = max(0.0, min(1.0, (float) $score));
+            }
+        }
+
+        return $kept;
+    }
+
+    /**
+     * The provider's answer as JSON can hold it — malformed UTF-8 replaced —
+     * while it is small; otherwise only that there was one.
+     *
      * @param  array<string, mixed>  $raw
      * @return array<string, mixed>|null
      */
@@ -65,8 +99,39 @@ final class MediaClassificationRecorder
             return null;
         }
 
-        $json = (string) json_encode($raw);
+        try {
+            $json = json_encode($raw, JSON_THROW_ON_ERROR | JSON_INVALID_UTF8_SUBSTITUTE | JSON_PRESERVE_ZERO_FRACTION);
+        } catch (JsonException) {
+            return ['unencodable' => true];
+        }
 
-        return strlen($json) <= self::RAW_LIMIT_BYTES ? $raw : ['truncated' => true, 'bytes' => strlen($json)];
+        if (strlen($json) > self::RAW_LIMIT_BYTES) {
+            return ['truncated' => true, 'bytes' => strlen($json)];
+        }
+
+        $decoded = json_decode($json, true);
+
+        return is_array($decoded) ? $decoded : ['unencodable' => true];
+    }
+
+    /**
+     * Why it failed, without what a message may carry: a classifier's own
+     * exception names no file and holds no key; anything else is kept to its
+     * class — an anonymous one's parent, whose name holds no path.
+     */
+    private static function reason(Throwable $exception): string
+    {
+        if ($exception instanceof MediaClassificationFailedException) {
+            return $exception->getMessage();
+        }
+
+        $class = $exception::class;
+
+        return str_contains($class, '@anonymous') ? (get_parent_class($exception) ?: 'anonymous') : $class;
+    }
+
+    private static function millisecondsSince(int|float $started): int
+    {
+        return (int) intdiv((int) (hrtime(true) - $started), 1_000_000);
     }
 }

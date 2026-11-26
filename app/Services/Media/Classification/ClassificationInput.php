@@ -12,7 +12,6 @@ final readonly class ClassificationInput
      * @param  list<ClassificationFrame>  $frames
      */
     public function __construct(
-        public int $mediaAssetId,
         public array $frames,
     ) {}
 }

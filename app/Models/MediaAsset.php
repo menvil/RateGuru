@@ -44,6 +44,11 @@ class MediaAsset extends Model
 
     protected $guarded = [];
 
+    /** Unrated until a classifier or a moderator says — as the column's default, before the row is read back. */
+    protected $attributes = [
+        'content_rating' => 'unknown',
+    ];
+
     protected function casts(): array
     {
         return [
@@ -90,15 +95,15 @@ class MediaAsset extends Model
     }
 
     /** @return HasMany<MediaVariant, $this> */
+    public function variants(): HasMany
+    {
+        return $this->hasMany(MediaVariant::class);
+    }
+
     /** @return HasMany<MediaClassification, $this> every classifier's answer about this asset */
     public function classifications(): HasMany
     {
         return $this->hasMany(MediaClassification::class);
-    }
-
-    public function variants(): HasMany
-    {
-        return $this->hasMany(MediaVariant::class);
     }
 
     /**

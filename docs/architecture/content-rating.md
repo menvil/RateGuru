@@ -23,7 +23,7 @@ decision, kept apart from this line.
 
 | Column | On | What |
 |---|---|---|
-| `content_rating` | `media_assets`, `posts` | `unknown` (default), `sfw`, `nsfw` (`App\Enums\ContentRating`). The post's carries its media's, indexed for the SFW mode to filter on |
+| `content_rating` | `media_assets`, `posts` | `unknown` (default), `sfw`, `nsfw` (`App\Enums\ContentRating`). The post's carries its media's, for the SFW mode to filter on |
 | `content_scores` | `media_assets` | the score per category the deciding classifiers gave |
 | `content_rating_source` | `media_assets` | `auto` (classifiers) or `moderator`, whose word is final |
 | `content_rated_at` | `media_assets` | when it was decided |
@@ -31,6 +31,15 @@ decision, kept apart from this line.
 A post is published whether or not its media is rated yet: a classifier
 failing never holds a post back, and an unknown rating is a signal to the
 monitoring, not to the author.
+
+The post's rating is its media's, kept in step:
+- whatever sets an asset's rating sets it on the posts showing that asset, in
+  the same transaction;
+- a post made later takes its asset's rating when it is made;
+- a post whose asset is gone keeps the rating it had.
+
+The index the SFW mode's filter needs comes with that filter: built
+concurrently, and shaped by its query.
 
 ## Every classifier's answer
 
@@ -63,3 +72,13 @@ provider calls things:
 
 `MediaClassificationRecorder` runs one classifier on one asset and records
 its answer or its failure. It never changes the asset's rating.
+
+- **Scores:** only the project's categories are kept, each a finite score in
+  0..1. Read a score as a number: JSON gives 1.0 back as 1.
+- **The provider's answer:** a classifier saying it has no answer
+  (`MediaClassificationFailedException`) is expected. Any other exception is
+  a bug in the classifier, and is reported as one.
+
+An asset's classifications go with it when it is purged: what was shown and
+said about deleted media leaves no trace. Cost reports come from the
+providers' billing, not from this table.

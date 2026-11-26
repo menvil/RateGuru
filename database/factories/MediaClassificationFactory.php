@@ -21,7 +21,7 @@ class MediaClassificationFactory extends Factory
             'model_version' => '1',
             'mode' => ClassificationMode::Shadow,
             'status' => ClassificationStatus::Succeeded,
-            'inputs' => ['variant' => 'post_feed_1280'],
+            'inputs' => ['frames' => [['label' => 'post_feed_1280', 'at_ms' => null]]],
             'scores' => ['breast_exposed' => 0.02, 'underwear' => 0.4],
             'frame_scores' => null,
             'raw' => null,

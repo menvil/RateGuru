@@ -37,6 +37,11 @@ class Post extends Model
 
     protected $guarded = [];
 
+    /** Unrated until a classifier or a moderator says — as the column's default, before the row is read back. */
+    protected $attributes = [
+        'content_rating' => 'unknown',
+    ];
+
     protected function casts(): array
     {
         return [
