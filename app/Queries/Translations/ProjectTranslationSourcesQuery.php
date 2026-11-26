@@ -68,6 +68,7 @@ final class ProjectTranslationSourcesQuery
         foreach (ProjectTranslationSource::query()
             ->whereIn('locale', array_values(array_unique($locales)))
             ->when($unitIds !== null, fn ($query) => $query->whereIn('unit_id', array_values(array_unique($unitIds ?? []))))
+            ->toBase()
             ->get(['unit_id', 'locale', 'fingerprint']) as $source) {
             $fingerprints[(string) $source->locale][(string) $source->unit_id] = (string) $source->fingerprint;
         }

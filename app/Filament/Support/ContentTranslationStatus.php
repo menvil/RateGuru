@@ -78,25 +78,33 @@ final class ContentTranslationStatus
     /**
      * How many translations of these sections need an update — made from
      * English since changed — over the offered languages, and the way to them:
-     * Translation Center's Needs update, in the first offered language that
-     * has one, on the section when there is one.
+     * Translation Center's Needs update on the first of the sections that has
+     * one, in the first offered language that has one there.
      *
      * @param  list<ProjectContentSection>  $sections
      * @return array{count: int, url: ?string}
      */
     public function outdated(array $sections): array
     {
-        $counts = $this->outdated->countsIn($sections, array_keys($this->languages()));
-        $count = array_sum($counts);
+        $count = 0;
+        $url = null;
 
-        return [
-            'count' => $count,
-            'url' => $count > 0 && $this->canTranslate() ? TranslationCenterPage::getUrl(array_filter([
-                'locale' => array_key_first(array_filter($counts)),
-                'section' => count($sections) === 1 ? $sections[0]->value : null,
-                'mode' => 'outdated',
-            ])) : null,
-        ];
+        // Section by section, so the way to them opens on the first section that has one — Translation Center
+        // filters one section at a time.
+        foreach ($sections as $section) {
+            $counts = $this->outdated->countsIn([$section], array_keys($this->languages()));
+            $count += array_sum($counts);
+
+            if ($url === null && array_sum($counts) > 0 && $this->canTranslate()) {
+                $url = TranslationCenterPage::getUrl([
+                    'locale' => array_key_first(array_filter($counts)),
+                    'section' => $section->value,
+                    'mode' => 'outdated',
+                ]);
+            }
+        }
+
+        return ['count' => $count, 'url' => $url];
     }
 
     /** Whether the signed-in user may open Translation Center at all. */

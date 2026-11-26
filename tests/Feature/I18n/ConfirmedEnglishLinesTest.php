@@ -21,7 +21,12 @@ function scratchEnglishCatalog(string $root, array $lines): void
 }
 
 it('finds every English line of the repository as its translations were last confirmed', function () {
-    $changed = app(ConfirmedEnglishLines::class)->changed();
+    $lines = app(ConfirmedEnglishLines::class);
+    $changed = $lines->changed();
+
+    // A missing or broken record would compare with nothing and pass whatever the English says.
+    expect($lines->isReadable())->toBeTrue(ConfirmedEnglishLines::RECORD.' is missing or is not a JSON object of hashes: run `php artisan rateguru:translations:confirm-english` and commit it.')
+        ->and(count($lines->recorded()))->toBeGreaterThan(100);
 
     expect($changed)->toBe([], 'The English of these interface lines changed since their translations were made: '
         .implode(', ', $changed).'. Update each in every language, then run `php artisan rateguru:translations:confirm-english` and commit '.ConfirmedEnglishLines::RECORD.'.');
@@ -32,8 +37,10 @@ it('tells a reworded line apart until it is confirmed, never a new one, and drop
     scratchEnglishCatalog($root, ['hello' => 'Hello', 'bye' => 'Bye', 'nested' => ['title' => 'Title']]);
     $lines = new ConfirmedEnglishLines(new TranslationCatalogInspector($root), "{$root}/record/english.json");
 
-    expect($lines->changed())->toBe([])
+    expect($lines->isReadable())->toBeFalse()
+        ->and($lines->changed())->toBe([])
         ->and($lines->record())->toBe(['changed' => 0, 'added' => 3, 'removed' => 0])
+        ->and($lines->isReadable())->toBeTrue()
         // The English-only catalog has no translations to keep in step.
         ->and(array_keys($lines->recorded()))->toBe(['ui.bye', 'ui.hello', 'ui.nested.title']);
 

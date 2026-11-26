@@ -1,10 +1,14 @@
 <?php
 
+use App\Actions\Translations\UpdateProjectTranslationAction;
 use App\Filament\Pages\LanguagesPage;
 use App\Filament\Pages\TranslationCenterPage;
 use App\Filament\Resources\Categories\Pages\ManageCategories;
+use App\Filament\Resources\RatingGroups\Pages\ManageRatingGroups;
 use App\Filament\Resources\Tags\Pages\ManageTags;
 use App\Models\ProjectSettings;
+use App\Models\RatingGroup;
+use App\Models\RatingOption;
 use App\Models\User;
 use App\Queries\Translations\OutdatedProjectTranslationsQuery;
 use App\Support\Translations\ProjectContentSection;
@@ -51,9 +55,20 @@ it('says on Languages how many translations of each language need an update, wit
     $page = Livewire::test(LanguagesPage::class);
 
     expect(collect($page->viewData('rows'))->firstWhere('code', $this->target)['outdated'])->toBe(1)
-        ->and(collect($page->viewData('rows'))->firstWhere('code', $this->other)['outdated'])->toBe(0)
-        ->and($page->viewData('stats')['outdated'])->toBe(1);
+        ->and(collect($page->viewData('rows'))->firstWhere('code', $this->other)['outdated'])->toBe(0);
 
     $page->assertSeeHtml('href="'.e(TranslationCenterPage::getUrl(['locale' => $this->target, 'mode' => 'outdated'])).'"')
         ->assertSee('1 to update');
+});
+
+it('opens the Rating groups figure on the section whose translations need an update, one section at a time', function () {
+    $group = RatingGroup::factory()->create(['is_active' => true]);
+    $option = RatingOption::factory()->create(['rating_group_id' => $group->id, 'label' => 'Cute', 'is_active' => true]);
+    app(UpdateProjectTranslationAction::class)->handle(User::factory()->admin()->create(), "rating_options:{$option->id}:label", $this->target, 'Translated');
+    $option->update(['label' => 'Adorable']);
+
+    expect(Livewire::test(ManageRatingGroups::class)->viewData('outdated'))->toBe([
+        'count' => 1,
+        'url' => TranslationCenterPage::getUrl(['locale' => $this->target, 'section' => 'rating_options', 'mode' => 'outdated']),
+    ]);
 });

@@ -87,6 +87,9 @@
             <div class="rg-admin-translation-row__previous" x-show="units[unit].outdated">
                 <span class="rg-admin-translation-row__previous-label">Changed since it was translated</span>
                 <div class="rg-admin-translation-row__changes" lang="en">
+                    @if ($row['change']->changed === 0)
+                        <p class="rg-admin-translation-row__change-more">Only spaces or line breaks changed: check the translation keeps the ones that matter.</p>
+                    @endif
                     @foreach ($row['change']->sentences as $sentence)
                         <p class="rg-admin-translation-row__change">@foreach ($sentence as $part)@if ($part['kind'] === 'removed')<del><span class="rg-admin-sr-only">Removed: </span>{{ $part['text'] }}</del>@elseif ($part['kind'] === 'added')<ins><span class="rg-admin-sr-only">Added: </span>{{ $part['text'] }}</ins>@else{{ $part['text'] }}@endif{{-- --}}@endforeach</p>
                     @endforeach
@@ -94,8 +97,10 @@
                         <p class="rg-admin-translation-row__change-more">and {{ $row['change']->unlisted() }} more {{ \Illuminate\Support\Str::plural('sentence', $row['change']->unlisted()) }}</p>
                     @endif
                 </div>
-                @if ($row['change']->long)
+                @if ($row['change']->long && $row['change']->changed > 0)
                     <p class="rg-admin-translation-row__change-note">A long text: read the whole translation again, since a change can alter the sentences around it.</p>
+                @endif
+                @if ($row['change']->long || $row['change']->changed === 0)
                     <details class="rg-admin-translation-row__previous-full">
                         <summary>The old English in full</summary>
                         <div class="rg-admin-translation-row__previous-text" lang="en" tabindex="0" role="region" aria-label="English the translation of {{ $row['name'] }} was made from">{{ $row['translatedFrom'] }}</div>

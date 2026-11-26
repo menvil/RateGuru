@@ -429,6 +429,21 @@ it('shows what changed in a long text sentence by sentence, says to read it all 
         ->toContain('Welcome to our community. Post your pets. Vote for the cutest ones.');
 });
 
+it('says when only spaces or line breaks changed in the English, and keeps the old English to compare', function () {
+    [$target] = twoTranslatedLocales();
+    $pages = staticPagesTranslatedInto([$target]);
+    $pages['about']['en']['content'] = 'Post your pets. Vote for the cutest ones.';
+    ProjectSettings::query()->update(['static_pages' => json_encode($pages)]);
+    app(UpdateProjectTranslationAction::class)->handle(User::factory()->admin()->create(), 'static_pages:about:content', $target, "[{$target}] translated");
+    $pages['about']['en']['content'] = "Post your pets.\nVote for the cutest ones.";
+    ProjectSettings::query()->update(['static_pages' => json_encode($pages)]);
+
+    expect((string) translationRow(translationCenter($target), 'static_pages:about:content'))
+        ->toContain('Only spaces or line breaks changed: check the translation keeps the ones that matter.')
+        ->toContain('<summary>The old English in full</summary>')
+        ->not->toContain('A long text');
+});
+
 it('counts the translations that need an update in the header, once there is one', function () {
     [$target] = twoTranslatedLocales();
     $before = translationCenterStats(translationCenter($target));
@@ -479,7 +494,9 @@ it('narrows to one game\'s texts by a Game filter, from the URL as well, and off
         ->and($units->where('game', (string) $kittens['game']->id)->pluck('section')->unique()->sort()->values()->all())
         ->toBe(['game_flow_steps', 'game_result_profiles', 'game_round_options', 'game_rounds', 'games'])
         ->and($units->where('section', 'project_settings')->pluck('game')->unique()->values()->all())->toBe([''])
-        ->and(livewireFragment($page, "//*[@id='rg-admin-translation-game']/ancestor-or-self::*[@x-model='game'][1]"))->not->toBeNull();
+        ->and(livewireFragment($page, "//*[@id='rg-admin-translation-game']/ancestor-or-self::*[@x-model='game'][1]"))->not->toBeNull()
+        // Narrowed to a game alone, the rows still wait for the browser rather than flash every game's.
+        ->and(livewireDom($page)->query("//*[@role='table'][@x-cloak]")->length)->toBe(1);
 
     // A game the page lists no text of reads as every game.
     expect(translationCenter($target, ['game' => '999999'])->viewData('filters')['game'])->toBe('')

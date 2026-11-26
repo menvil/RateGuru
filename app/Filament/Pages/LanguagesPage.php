@@ -408,7 +408,6 @@ final class LanguagesPage extends Page
             'enabled' => count(app(LocaleManager::class)->enabledCodes()),
             'translated' => $required === 0 ? 100 : intdiv($translated * 100, $required),
             'missing' => array_sum(array_map(fn (array $row): int => $row['missing'], $targets)),
-            'outdated' => array_sum(array_map(fn (array $row): int => $row['outdated'], $targets)),
         ];
     }
 

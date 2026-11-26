@@ -42,12 +42,7 @@
                 <dt class="rg-admin-stat__label">Missing</dt>
                 <dd class="rg-admin-stat__value">{{ number_format($stats['missing']) }}</dd>
             </div>
-            @if ($stats['outdated'] > 0)
-                <div class="rg-admin-stat" data-testid="languages-outdated">
-                    <dt class="rg-admin-stat__label">To update</dt>
-                    <dd class="rg-admin-stat__value">{{ number_format($stats['outdated']) }}</dd>
-                </div>
-            @endif
+
         </dl>
     </section>
 

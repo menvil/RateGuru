@@ -15,7 +15,7 @@ function englishChangeText(array $parts): string
 it('marks the words taken out and put in, the sentence shown whole around them', function () {
     $change = EnglishChange::between('Free kittens for adoption.', 'Free puppies and kittens for quick adoption.');
 
-    expect(array_map(englishChangeText(...), $change->sentences))->toBe(['Free {+puppies and +}kittens for {+quick +}adoption.'])
+    expect(array_map(englishChangeText(...), $change->sentences))->toBe(['Free {+puppies and +}kittens for{+ quick+} adoption.'])
         ->and($change->changed)->toBe(1)
         ->and($change->long)->toBeFalse();
 });
@@ -51,6 +51,18 @@ it('marks a sentence taken out whole as taken out', function () {
     $change = EnglishChange::between("First line.\nSecond line.\nThird line.", "First line.\nThird line.");
 
     expect(array_map(englishChangeText(...), $change->sentences))->toBe(['[-Second line.-]'])
+        ->and($change->long)->toBeTrue();
+});
+
+it('lists the one sentence changed in a very long text alone, however long the text', function () {
+    $sentences = array_map(fn (int $n): string => "Sentence number {$n} stays as it was.", range(1, 900));
+    $after = $sentences;
+    $after[450] = 'Sentence number 451 reads otherwise now.';
+
+    $change = EnglishChange::between(implode(' ', $sentences), implode(' ', $after));
+
+    expect(array_map(englishChangeText(...), $change->sentences))->toBe(['Sentence number 451 [-stays as-]{+reads+} [-it-]{+otherwise+} [-was.-]{+now.+}'])
+        ->and($change->changed)->toBe(1)
         ->and($change->long)->toBeTrue();
 });
 

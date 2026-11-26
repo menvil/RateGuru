@@ -81,6 +81,16 @@ final class ConfirmedEnglishLines
     }
 
     /**
+     * Whether the record is there and reads as one: a missing or broken file
+     * — a bad merge of it — would otherwise leave nothing to compare with,
+     * and no reworded line would be told apart.
+     */
+    public function isReadable(): bool
+    {
+        return $this->recorded() !== [];
+    }
+
+    /**
      * The lines whose English changed since their translations were
      * confirmed: recorded, still there, and reading otherwise now.
      *

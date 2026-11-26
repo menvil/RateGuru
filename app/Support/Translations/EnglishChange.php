@@ -56,11 +56,17 @@ final readonly class EnglishChange
             }
 
             foreach (array_keys($removed + $added) as $index) {
-                $changed[] = match (true) {
+                $parts = match (true) {
                     ! isset($added[$index]) => [['text' => $removed[$index], 'kind' => 'removed']],
                     ! isset($removed[$index]) => [['text' => $added[$index], 'kind' => 'added']],
                     default => self::words($removed[$index], $added[$index]),
                 };
+
+                // A sentence that reads the same on both sides — paired up where the texts were too long to compare
+                // sentence by sentence — did not change.
+                if (array_filter($parts, fn (array $part): bool => $part['kind'] !== 'same') !== []) {
+                    $changed[] = $parts;
+                }
             }
 
             $removed = [];
@@ -130,6 +136,39 @@ final readonly class EnglishChange
      * @return list<array{0: 'same'|'removed'|'added', 1: string}>
      */
     private static function diff(array $old, array $new): array
+    {
+        // What both start and end with stays: only what lies between is compared, so one edit in a long text
+        // compares a few items rather than the whole text.
+        $start = 0;
+
+        while ($start < count($old) && $start < count($new) && $old[$start] === $new[$start]) {
+            $start++;
+        }
+
+        $end = 0;
+
+        while ($end < count($old) - $start && $end < count($new) - $start && $old[count($old) - 1 - $end] === $new[count($new) - 1 - $end]) {
+            $end++;
+        }
+
+        $same = fn (array $items): array => array_map(fn (string $item): array => ['same', $item], $items);
+
+        return [
+            ...$same(array_slice($old, 0, $start)),
+            ...self::compared(array_slice($old, $start, count($old) - $start - $end), array_slice($new, $start, count($new) - $start - $end)),
+            ...$same(array_slice($old, count($old) - $end)),
+        ];
+    }
+
+    /**
+     * The middle of two lists compared item by item; too long to compare cell
+     * by cell, taken out and put in whole.
+     *
+     * @param  list<string>  $old
+     * @param  list<string>  $new
+     * @return list<array{0: 'same'|'removed'|'added', 1: string}>
+     */
+    private static function compared(array $old, array $new): array
     {
         $rows = count($old);
         $columns = count($new);
