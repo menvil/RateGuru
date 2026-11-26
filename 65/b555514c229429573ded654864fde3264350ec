@@ -1,0 +1,114 @@
+lang/ja/ui.php
+  s_1f43f39fbe0537::t_5f507e81a9e825 271
+lang/ur/ui.php
+  s_1f43f39fbe0537::t_5f507e81a9e825 279
+app/Support/Import/SafeImportHttpClient.php
+  s_1f43f39fbe0537::t_f14b6e7be6b907 50-51,61,150-153
+lang/en/ui.php
+  s_1f43f39fbe0537::t_5f507e81a9e825 271
+lang/et/ui.php
+  s_1f43f39fbe0537::t_5f507e81a9e825 271
+lang/fr/ui.php
+  s_1f43f39fbe0537::t_5f507e81a9e825 271
+lang/id/ui.php
+  s_1f43f39fbe0537::t_5f507e81a9e825 271
+lang/nb/ui.php
+  s_1f43f39fbe0537::t_5f507e81a9e825 271
+lang/sl/ui.php
+  s_1f43f39fbe0537::t_5f507e81a9e825 271
+lang/sq/ui.php
+  s_1f43f39fbe0537::t_5f507e81a9e825 271
+lang/bs/ui.php
+  s_1f43f39fbe0537::t_5f507e81a9e825 271
+lang/sv/ui.php
+  s_1f43f39fbe0537::t_5f507e81a9e825 271
+lang/ar/ui.php
+  s_1f43f39fbe0537::t_5f507e81a9e825 281
+lang/cs/ui.php
+  s_1f43f39fbe0537::t_5f507e81a9e825 271
+lang/lt/ui.php
+  s_1f43f39fbe0537::t_5f507e81a9e825 273
+lang/bg/ui.php
+  s_1f43f39fbe0537::t_5f507e81a9e825 271
+lang/fi/ui.php
+  s_1f43f39fbe0537::t_5f507e81a9e825 271
+lang/it/ui.php
+  s_1f43f39fbe0537::t_5f507e81a9e825 271
+lang/ru/ui.php
+  s_1f43f39fbe0537::t_5f507e81a9e825 275
+lang/hr/ui.php
+  s_1f43f39fbe0537::t_5f507e81a9e825 271
+lang/tr/ui.php
+  s_1f43f39fbe0537::t_5f507e81a9e825 271
+lang/he/ui.php
+  s_1f43f39fbe0537::t_5f507e81a9e825 278
+app/Jobs/ImportVideoAssetJob.php
+  s_1f43f39fbe0537::t_ebf428c6d2b787 118-144,206-215,217-218,220-221
+  s_1f43f39fbe0537::t_f14b6e7be6b907 12-13,21
+lang/da/ui.php
+  s_1f43f39fbe0537::t_5f507e81a9e825 271
+lang/pl/ui.php
+  s_1f43f39fbe0537::t_5f507e81a9e825 271
+lang/th/ui.php
+  s_1f43f39fbe0537::t_5f507e81a9e825 271
+lang/sk/ui.php
+  s_1f43f39fbe0537::t_5f507e81a9e825 271
+lang/uk/ui.php
+  s_1f43f39fbe0537::t_5f507e81a9e825 271
+lang/nl/ui.php
+  s_1f43f39fbe0537::t_5f507e81a9e825 271
+lang/ro/ui.php
+  s_1f43f39fbe0537::t_5f507e81a9e825 271
+lang/mk/ui.php
+  s_1f43f39fbe0537::t_5f507e81a9e825 271
+lang/bn/ui.php
+  s_1f43f39fbe0537::t_5f507e81a9e825 271
+lang/is/ui.php
+  s_1f43f39fbe0537::t_5f507e81a9e825 271
+lang/sr/ui.php
+  s_1f43f39fbe0537::t_5f507e81a9e825 271
+lang/cnr/ui.php
+  s_1f43f39fbe0537::t_5f507e81a9e825 271
+lang/es/ui.php
+  s_1f43f39fbe0537::t_5f507e81a9e825 271
+lang/lv/ui.php
+  s_1f43f39fbe0537::t_5f507e81a9e825 274
+tests/Feature/Import/VideoImportTest.php
+  s_1f43f39fbe0537::t_f14b6e7be6b907 156,161-162,182-184,186-246
+lang/fil/ui.php
+  s_1f43f39fbe0537::t_5f507e81a9e825 271
+lang/el/ui.php
+  s_1f43f39fbe0537::t_5f507e81a9e825 271
+lang/ms/ui.php
+  s_1f43f39fbe0537::t_5f507e81a9e825 271
+lang/pt/ui.php
+  s_1f43f39fbe0537::t_5f507e81a9e825 271
+lang/zh/ui.php
+  s_1f43f39fbe0537::t_5f507e81a9e825 271
+lang/hi/ui.php
+  s_1f43f39fbe0537::t_5f507e81a9e825 271
+lang/ka/ui.php
+  s_1f43f39fbe0537::t_5f507e81a9e825 271
+lang/vi/ui.php
+  s_1f43f39fbe0537::t_5f507e81a9e825 271
+lang/hu/ui.php
+  s_1f43f39fbe0537::t_5f507e81a9e825 271
+lang/de/ui.php
+  s_1f43f39fbe0537::t_5f507e81a9e825 271
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "65b555514c229429573ded654864fde3264350ec",
+  "prompts": {},
+  "sessions": {
+    "s_1f43f39fbe0537": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "526787d0-f443-4ad7-9610-cf9811fec895",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
