@@ -608,15 +608,27 @@ never reaches another's downloads.
   runs as the account without the table.
 - **Its files:**
   - a download's directory, inside the worker's own, is opened to the account
-    by ACL for the run;
-  - after the run the directory is closed to the account again, so it can
-    neither add, replace nor remove anything there;
+    by ACL for the run. The worker's own directory keeps only a traverse
+    right for it;
+  - after the run, also one a timeout ended, the download directory is closed
+    to the account again, so it can neither add, replace nor remove anything
+    there;
   - the file it wrote is taken only as a plain file with one name, no link,
-    and copied, so what the worker stores is its own.
+    no larger than an upload may be, and copied, so what the worker stores is
+    its own.
 - **A refused run:** sudo refusing it (the rule missing) is reported as
-  yt-dlp being unavailable, never taken for a page without a video.
-- **Where the account does not exist** (development, tests, a host not yet
-  prepared): yt-dlp runs as the worker, as before.
+  yt-dlp being unavailable, never taken for a page without a video. A
+  warning sudo prints before running the command is not a refusal.
+- **When yt-dlp cannot answer while posting:** the link is refused, to be
+  tried later, never posted as the page's picture. An Instagram reel would
+  otherwise go out as its poster.
+- **Where the account does not exist:** in development, tests, or a host not
+  yet prepared (no marker), yt-dlp runs as the worker, as before. A prepared
+  host with no account for this worker runs no yt-dlp at all.
+- **Remaining risk:** what a compromised account leaves in a download
+  directory it was given could be made unremovable for the worker, for
+  example by `chmod 000` on a subdirectory. It stays inside that target's own
+  temporary directory.
 
 The accounts, the rule and the firewall table are installed with the host
 (`install-media-fetch-isolation`).

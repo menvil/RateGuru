@@ -54,7 +54,7 @@ final class ProcessMediaToolRunner implements MediaToolRunner
         }
 
         // sudo refusing the run is the host's rule missing, not the page.
-        if ($tool === MediaTool::YtDlp && count($command) > 1 && YtDlpIsolation::refused($process->getErrorOutput())) {
+        if ($tool === MediaTool::YtDlp && count($command) > 1 && YtDlpIsolation::refused($process->getExitCode() ?? -1, $process->getErrorOutput())) {
             throw MediaToolUnavailableException::cannotStart($tool);
         }
 

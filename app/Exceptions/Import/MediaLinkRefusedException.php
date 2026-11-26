@@ -27,6 +27,12 @@ final class MediaLinkRefusedException extends RuntimeException
         return new self(__('ui.upload.error_video_too_long', ['seconds' => $maxSeconds]));
     }
 
+    /** yt-dlp could not answer — unavailable, too slow, cut short: to be tried again later. */
+    public static function couldNotRead(): self
+    {
+        return new self(__('import.errors.fetch_failed'));
+    }
+
     /** Nothing on the page to take: no video, no picture. */
     public static function nothingToTake(): self
     {

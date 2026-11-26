@@ -12,6 +12,7 @@ use App\Livewire\Feed\UploadPostForm;
 use App\Models\MediaAsset;
 use App\Models\Post;
 use App\Models\User;
+use App\Services\Media\Exceptions\MediaToolTimedOutException;
 use App\Services\Media\Exceptions\MediaToolUnavailableException;
 use App\Services\Media\MediaToolResult;
 use App\Services\Media\MediaToolRunner;
@@ -22,6 +23,7 @@ use App\Support\Import\YtDlpSites;
 use App\Support\Media\VideoUploadStorer;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
@@ -325,8 +327,10 @@ it('opens the download directory to the account for the run, closes it after, an
     }
 
     $refusing = new YtDlpIsolation(fn (): bool => true, fn (): bool => false, fn (): bool => true);
+    $there = makeScratchDir('ytdlp-refused');
     expect(fn () => $refusing->share('/tmp/x/download.d'))->toThrow(RuntimeException::class)
-        ->and(fn () => $refusing->take('/tmp/x/download.d', null))->toThrow(RuntimeException::class);
+        ->and(fn () => $refusing->take($there, null))->toThrow(RuntimeException::class);
+    removeScratchDir($there);
 
     // Without the account, nothing is opened or closed, and the file is taken as it is.
     $calls = [];
@@ -340,7 +344,75 @@ it('opens the download directory to the account for the run, closes it after, an
         ->and($calls)->toBe([]);
 });
 
-it('tells sudo refusing yt-dlp from yt-dlp failing on a page', function () {
-    expect(YtDlpIsolation::refused("sudo: a password is required\n"))->toBeTrue()
-        ->and(YtDlpIsolation::refused('ERROR: [RedGifs] aloop: Unable to extract'))->toBeFalse();
+it('tells sudo refusing yt-dlp from yt-dlp failing on a page, and from a warning sudo prints before it runs', function () {
+    expect(YtDlpIsolation::refused(1, "sudo: a password is required\n"))->toBeTrue()
+        ->and(YtDlpIsolation::refused(1, "sudo: user rateguru-staging is not allowed to execute '/bin/true' as rateguru-staging-fetch\n"))->toBeTrue()
+        ->and(YtDlpIsolation::refused(1, 'ERROR: [RedGifs] aloop: Unable to extract'))->toBeFalse()
+        // A warning, and yt-dlp ran: no refusal.
+        ->and(YtDlpIsolation::refused(0, "sudo: unable to resolve host web-1: Name or service not known\n"))->toBeFalse()
+        ->and(YtDlpIsolation::refused(1, "sudo: unable to resolve host web-1\nERROR: [RedGifs] Unable to extract\n"))->toBeFalse();
+});
+
+it('never runs yt-dlp as the worker on a host prepared for isolation that has no account for it', function () {
+    expect(fn () => (new YtDlpIsolation(fn (): bool => false, armed: fn (): bool => true))->command('/usr/local/bin/yt-dlp'))
+        ->toThrow(MediaToolUnavailableException::class)
+        // Nor opens anything to an account that may not run.
+        ->and(fn () => (new YtDlpIsolation(fn (): bool => true, fn (): bool => true, fn (): bool => false))->share('/tmp/x/download.d'))
+        ->toThrow(MediaToolUnavailableException::class);
+});
+
+it('closes the directory to the account when the run ends in an exception, and never copies a file larger than an upload may be', function () {
+    $calls = [];
+    $isolation = new YtDlpIsolation(fn (): bool => true, function (array $arguments) use (&$calls): bool {
+        $calls[] = $arguments[0];
+
+        return true;
+    }, fn (): bool => true);
+    app()->instance(YtDlpIsolation::class, $isolation);
+    app()->instance(MediaToolRunner::class, new class implements MediaToolRunner
+    {
+        public function run(MediaTool $tool, array $arguments, int $timeoutSeconds): MediaToolResult
+        {
+            throw MediaToolTimedOutException::after($tool, $timeoutSeconds);
+        }
+    });
+    $directory = makeScratchDir('ytdlp-run').'/download-abc.d';
+    mkdir($directory, 0o700);
+
+    try {
+        expect(fn () => app(YtDlp::class)->download('https://www.redgifs.com/watch/aloop', $directory))->toThrow(MediaToolTimedOutException::class)
+            ->and($calls)->toBe(['-m', '-m', '-x']);
+
+        config(['uploads.videos.max_kilobytes' => 1]);
+        file_put_contents($directory.'/download.mp4', str_repeat('x', 2048));
+        expect($isolation->take($directory, $directory.'/download.mp4'))->toBeNull();
+    } finally {
+        removeScratchDir(dirname($directory));
+    }
+});
+
+it('refuses a link to try later when yt-dlp cannot answer, never taking an Instagram reel for a photo post', function () {
+    Livewire::actingAs(User::factory()->create())
+        ->test(UploadPostForm::class)
+        ->set('title', 'A reel')
+        ->set('importedImageUrl', 'https://www.instagram.com/reel/ABC123/');
+
+    app()->instance(MediaToolRunner::class, new class implements MediaToolRunner
+    {
+        public function run(MediaTool $tool, array $arguments, int $timeoutSeconds): MediaToolResult
+        {
+            throw MediaToolUnavailableException::cannotStart($tool);
+        }
+    });
+    Exceptions::fake();
+
+    Livewire::actingAs(User::factory()->create())
+        ->test(UploadPostForm::class)
+        ->set('title', 'A reel')
+        ->set('importedImageUrl', 'https://www.instagram.com/reel/ABC123/')
+        ->call('submit')
+        ->assertSet('submitError', __('import.errors.fetch_failed'));
+
+    expect(Post::query()->count())->toBe(0);
+    Http::assertNothingSent();
 });

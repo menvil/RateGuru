@@ -4,6 +4,7 @@ namespace App\Support\Import;
 
 use App\Enums\MediaTool;
 use App\Services\Media\Exceptions\MediaToolUnavailableException;
+use App\Services\Media\VideoIngestPolicy;
 use Closure;
 use RuntimeException;
 use Symfony\Component\Process\Process;
@@ -73,8 +74,11 @@ final class YtDlpIsolation
     {
         $user = $this->user();
 
+        // A host prepared for isolation (its marker is there) that has no
+        // account for this worker — a target added since, a name too long
+        // for one — never runs yt-dlp as the worker, outside the firewall.
         if ($user === null) {
-            return [$binary];
+            return $this->armed() ? throw MediaToolUnavailableException::cannotStart(MediaTool::YtDlp) : [$binary];
         }
 
         if (! $this->armed()) {
@@ -97,6 +101,11 @@ final class YtDlpIsolation
 
         if ($user === null) {
             return;
+        }
+
+        // Nothing is opened to the account unless it may run at all.
+        if (! $this->armed()) {
+            throw MediaToolUnavailableException::cannotStart(MediaTool::YtDlp);
         }
 
         $worker = self::worker() ?? throw new RuntimeException('The worker\'s own account could not be named.');
@@ -126,25 +135,53 @@ final class YtDlpIsolation
             return $written;
         }
 
-        if (! $this->setfacl(['-x', "u:{$user},d:u:{$user}", $directory])) {
-            throw new RuntimeException('The download directory could not be closed to yt-dlp\'s account again.');
-        }
+        $this->close($directory);
 
         clearstatcache();
 
-        if ($written === null || is_link($written) || ! is_file($written) || (stat($written)['nlink'] ?? 0) !== 1) {
+        // A plain file with one name, never larger than an upload may be:
+        // what an account that ignored its limits wrote is never copied whole.
+        if ($written === null || is_link($written) || ! is_file($written) || (stat($written)['nlink'] ?? 0) !== 1
+            || (int) filesize($written) > VideoIngestPolicy::fromConfig()->maxBytes) {
             return null;
         }
 
         $copy = $directory.'/'.self::TAKEN.'.'.pathinfo($written, PATHINFO_EXTENSION);
 
-        return copy($written, $copy) ? $copy : null;
+        if (! copy($written, $copy)) {
+            report(new RuntimeException('A file yt-dlp wrote could not be copied into the worker\'s own.'));
+
+            return null;
+        }
+
+        return $copy;
     }
 
-    /** Whether a run's error output is sudo refusing it — the host's rule missing — rather than yt-dlp's own failure. */
-    public static function refused(string $errorOutput): bool
+    /**
+     * Closes $directory to the account again — after a run that ended in an
+     * exception too, before the directory is removed — so nothing it started
+     * can go on writing there.
+     *
+     * @throws RuntimeException when the directory cannot be closed to it
+     */
+    public function close(string $directory): void
     {
-        return str_starts_with(ltrim($errorOutput), 'sudo:');
+        $user = $this->user();
+
+        if ($user !== null && is_dir($directory) && ! $this->setfacl(['-x', "u:{$user},d:u:{$user}", $directory])) {
+            throw new RuntimeException('The download directory could not be closed to yt-dlp\'s account again.');
+        }
+    }
+
+    /**
+     * Whether a failed run was sudo refusing it — the host's rule missing —
+     * rather than yt-dlp's own failure. Only on a non-zero exit, and only by
+     * what sudo says when it refuses: a warning sudo prints before running
+     * the command ("unable to resolve host") is no refusal.
+     */
+    public static function refused(int $exitCode, string $errorOutput): bool
+    {
+        return $exitCode !== 0 && preg_match('/^sudo: (?:a password is required|a terminal is required|.* is not allowed to execute|unknown user|.*no new privileges)/m', $errorOutput) === 1;
     }
 
     private function armed(): bool
@@ -165,7 +202,7 @@ final class YtDlpIsolation
             return ($this->setfacl)($arguments);
         }
 
-        $process = new Process(['setfacl', ...$arguments]);
+        $process = new Process(['/usr/bin/setfacl', ...$arguments]);
         $process->run();
 
         return $process->isSuccessful();

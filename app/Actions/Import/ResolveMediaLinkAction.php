@@ -113,11 +113,13 @@ final class ResolveMediaLinkAction
     }
 
     /**
-     * The video yt-dlp finds on a page of one of its sites, or null — a page
-     * with no video, yt-dlp unavailable or failing. URL imports must be on,
-     * and the link a public address, before yt-dlp is given it.
+     * The video yt-dlp finds on a page of one of its sites, or null for a
+     * page with no video. yt-dlp unable to answer is a refusal to try later.
+     * URL imports must be on, and the link a public address, before yt-dlp is
+     * given it.
      *
      * @throws RateLimitExceededException when the author's or the host's probes are all in use
+     * @throws MediaLinkRefusedException when yt-dlp could not answer
      */
     private function pageVideo(User $author, string $url): ?YtDlpProbeResult
     {
@@ -142,9 +144,11 @@ final class ResolveMediaLinkAction
         try {
             return app(YtDlp::class)->probe($url);
         } catch (MediaToolTimedOutException|MediaToolUnavailableException|MediaToolInterruptedException $exception) {
+            // yt-dlp could not answer — never the same as "this page has no
+            // video": an Instagram reel would otherwise go on as its poster.
             report($exception);
 
-            return null;
+            throw MediaLinkRefusedException::couldNotRead();
         } finally {
             $slot->release();
             $mine->release();

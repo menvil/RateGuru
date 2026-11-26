@@ -5,6 +5,7 @@ namespace App\Support\Import;
 use App\Enums\MediaTool;
 use App\Services\Media\MediaToolRunner;
 use Symfony\Component\Process\ExecutableFinder;
+use Throwable;
 
 /**
  * yt-dlp, run only for a link to one of YtDlpSites' sites and only through
@@ -77,20 +78,28 @@ final class YtDlp
         // here, for this run.
         $this->isolation->share($directory);
 
-        $result = $this->runner->run(MediaTool::YtDlp, [
-            ...$this->baseOptions($extractor),
-            '--no-part',
-            '--no-progress',
-            '--retries', '2',
-            '--max-filesize', "{$maxMegabytes}M",
-            '--match-filters', "duration<={$maxSeconds}",
-            '-f', 'bv*[height<=1080][ext=mp4]+ba[ext=m4a]/b[height<=1080][ext=mp4]/bv*[height<=1080]+ba/b[height<=1080]/b',
-            '--merge-output-format', 'mp4',
-            ...$this->ffmpegLocation(),
-            '-o', $directory.'/download.%(ext)s',
-            '--',
-            $url,
-        ], max(1, (int) config('import.ytdlp.download_timeout_seconds')));
+        try {
+            $result = $this->runner->run(MediaTool::YtDlp, [
+                ...$this->baseOptions($extractor),
+                '--no-part',
+                '--no-progress',
+                '--retries', '2',
+                '--max-filesize', "{$maxMegabytes}M",
+                '--match-filters', "duration<={$maxSeconds}",
+                '-f', 'bv*[height<=1080][ext=mp4]+ba[ext=m4a]/b[height<=1080][ext=mp4]/bv*[height<=1080]+ba/b[height<=1080]/b',
+                '--merge-output-format', 'mp4',
+                ...$this->ffmpegLocation(),
+                '-o', $directory.'/download.%(ext)s',
+                '--',
+                $url,
+            ], max(1, (int) config('import.ytdlp.download_timeout_seconds')));
+        } catch (Throwable $exception) {
+            // Closed to the account before the job removes it: nothing it
+            // started, past a timeout's kill, goes on writing there.
+            $this->isolation->close($directory);
+
+            throw $exception;
+        }
 
         if (! $result->succeeded()) {
             $this->isolation->take($directory, null);
