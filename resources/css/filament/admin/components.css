@@ -5541,16 +5541,22 @@
     }
 
     .rg-admin-viewer__image {
+        --rg-admin-viewer-media-height: min(500px, 70vh);
+
         display: grid;
         place-items: center;
-        height: min(500px, 70vh);
+        overflow: hidden;
+        height: var(--rg-admin-viewer-media-height);
         background: var(--rg-admin-surface-pill);
     }
 
+    /* Held to the box's own height, not a percentage: the grid's row grows
+       with its content, so 100% let a tall video (a phone's 480 × 854) spill
+       over the footer. */
     .rg-admin-viewer__image img,
     .rg-admin-viewer__image video {
         max-width: 100%;
-        max-height: 100%;
+        max-height: var(--rg-admin-viewer-media-height);
         object-fit: contain;
     }
 
