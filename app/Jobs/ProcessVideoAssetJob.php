@@ -5,6 +5,7 @@ namespace App\Jobs;
 use App\Actions\Posts\FinalizePostMediaAction;
 use App\Enums\MediaStatus;
 use App\Models\MediaAsset;
+use App\Services\Media\Classification\QueueMediaClassification;
 use App\Services\Media\VideoAssetProcessor;
 use App\Support\Media\MediaQueue;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -55,7 +56,7 @@ final class ProcessVideoAssetJob implements RunsOnMediaQueue, ShouldQueue
         $this->onConnection(MediaQueue::connection());
     }
 
-    public function handle(VideoAssetProcessor $processor, FinalizePostMediaAction $finalize): void
+    public function handle(VideoAssetProcessor $processor, FinalizePostMediaAction $finalize, QueueMediaClassification $classification): void
     {
         $asset = MediaAsset::query()->find($this->mediaAssetId);
 
@@ -81,6 +82,7 @@ final class ProcessVideoAssetJob implements RunsOnMediaQueue, ShouldQueue
         // reaches them, also when an earlier run stopped between the two.
         if ($asset->status === MediaStatus::Ready) {
             $finalize->ready($asset);
+            $classification->ready($asset);
         } elseif ($asset->status === MediaStatus::Failed) {
             $finalize->failed($asset);
         }

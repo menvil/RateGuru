@@ -172,4 +172,22 @@ return [
         // own timeout bounds all of them together.
         'transcode_timeout_seconds' => 600,
     ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Content classification
+    |--------------------------------------------------------------------------
+    |
+    | The classifiers every new post's photo, video or GIF is shown to
+    | (docs/architecture/content-rating.md): each a container binding of a
+    | MediaContentClassifier, and its mode — 'shadow' (recorded, deciding
+    | nothing) or 'active'. None by default, and with none nothing is queued.
+    |
+    |   ['classifier' => SomeClassifier::class, 'mode' => 'shadow']
+    |
+    */
+
+    'classification' => [
+        'classifiers' => [],
+    ],
 ];

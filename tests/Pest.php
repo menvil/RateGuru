@@ -113,6 +113,9 @@ use App\Models\User;
 use App\Models\UserActivityDay;
 use App\Queries\Analytics\AnalyticsRollupGate;
 use App\Queries\Games\GameTrafficQuery;
+use App\Services\Media\Classification\ClassificationInput;
+use App\Services\Media\Classification\ClassificationResult;
+use App\Services\Media\Classification\MediaContentClassifier;
 use App\Services\Media\GeneratedMediaVariant;
 use App\Services\Media\ImageVariantProcessor;
 use App\Services\Media\MediaReferenceChecker;
@@ -16083,4 +16086,41 @@ function draftVideoPost(User $author, MediaStatus $status, MediaType $type = Med
     ]);
 
     return [$post, $asset];
+}
+
+/**
+ * A content classifier answering $scores for every asset, or failing with
+ * $failure, and counting the frames it was shown — for the tests of
+ * recording and queueing classifications.
+ */
+function standInClassifier(array $scores = [], ?Throwable $failure = null, string $name = 'stand-in'): MediaContentClassifier
+{
+    return new class($scores, $failure, $name) implements MediaContentClassifier
+    {
+        /** @var list<int> how many frames each call was shown */
+        public array $shown = [];
+
+        public function __construct(private array $scores, private ?Throwable $failure, private string $name) {}
+
+        public function name(): string
+        {
+            return $this->name;
+        }
+
+        public function modelVersion(): ?string
+        {
+            return 'v1';
+        }
+
+        public function classify(ClassificationInput $input): ClassificationResult
+        {
+            $this->shown[] = count($input->frames);
+
+            if ($this->failure !== null) {
+                throw $this->failure;
+            }
+
+            return new ClassificationResult($this->scores, [['at_ms' => 2000, 'scores' => $this->scores]], ['label' => 'Explicit'], 85, 1000);
+        }
+    };
 }

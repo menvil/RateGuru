@@ -82,3 +82,39 @@ its answer or its failure. It never changes the asset's rating.
 An asset's classifications go with it when it is purged: what was shown and
 said about deleted media leaves no trace. Cost reports come from the
 providers' billing, not from this table.
+
+## Showing media to the classifiers
+
+The classifiers in `media.classification.classifiers` see every post's media
+once it is ready. Each entry is a container binding of a classifier and its
+mode, `shadow` or `active`. There are none by default, and with none nothing
+is queued at all.
+
+**When:** `QueueMediaClassification` queues `ClassifyMediaAssetJob` after the
+commit that made the media ready:
+- a photo as it is stored (`MediaAssetCreator`), from wherever it was
+  uploaded: posts, Content Studio, game rounds;
+- a video or GIF when its processing finishes (`ProcessVideoAssetJob`).
+
+**What they see** (`ClassificationFrameSampler`): local JPEGs no larger than
+1280 on either side, the format and size every provider takes.
+- **A photo:** its master, scaled down.
+- **A video or GIF:**
+  - its poster frame, taken a tenth of the way in (at most 3 s), as the poster
+    is: what a feed shows before it plays;
+  - plus a frame from the middle of every two-second stretch, at most 30.
+
+**The job:**
+- It runs on the media queue: the frames are ffmpeg runs, and a cloud
+  classifier may take a while over thirty of them.
+- Its frames go into a directory of its own under the system temp directory,
+  readable by the worker alone and removed when it ends.
+- A classifier that already answered for the asset at its model version is
+  not asked again, so a retry asks only the rest.
+- What a classifier fails at is recorded, not retried. What fails the job is
+  the host (the file, ffmpeg), retried once.
+
+**Media stored before a classifier was configured:** `php artisan
+media:classify --limit=N` queues it, newest first, for every configured
+classifier that has not answered for it yet. Use it, for example, to try a
+classifier in shadow mode on real uploads.

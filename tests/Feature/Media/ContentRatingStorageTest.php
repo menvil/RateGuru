@@ -22,34 +22,6 @@ use Illuminate\Support\Facades\Schema;
  * classifier's answer about it.
  */
 
-/** A classifier answering $scores, or failing with $failure. */
-function standInClassifier(array $scores = [], ?Throwable $failure = null): MediaContentClassifier
-{
-    return new class($scores, $failure) implements MediaContentClassifier
-    {
-        public function __construct(private array $scores, private ?Throwable $failure) {}
-
-        public function name(): string
-        {
-            return 'stand-in';
-        }
-
-        public function modelVersion(): ?string
-        {
-            return 'v1';
-        }
-
-        public function classify(ClassificationInput $input): ClassificationResult
-        {
-            if ($this->failure !== null) {
-                throw $this->failure;
-            }
-
-            return new ClassificationResult($this->scores, [['at_ms' => 2000, 'scores' => $this->scores]], ['label' => 'Explicit'], 85, 1000);
-        }
-    };
-}
-
 it('starts every asset and post unrated, in memory as in the database', function () {
     $asset = MediaAsset::factory()->create();
     $post = Post::factory()->create(['image_asset_id' => $asset->id]);
