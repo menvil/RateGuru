@@ -4,6 +4,7 @@ namespace Tests\Browser\Support;
 
 use App\Enums\MediaKind;
 use App\Enums\MediaStatus;
+use App\Enums\MediaType;
 use App\Enums\MediaVisibility;
 use App\Models\MediaAsset;
 use App\Services\Media\MediaVariantGenerator;
@@ -156,6 +157,42 @@ final class ImageFixtures
         app(MediaVariantGenerator::class)->generateAll($asset);
 
         return $asset->fresh();
+    }
+
+    /**
+     * A Ready video post asset: tests/Fixtures/media/clip-with-sound.webm as
+     * its master (VP8 and Opus, which the test browser plays — it has no
+     * H.264), and a fixture picture's variants as its poster.
+     */
+    public static function writeVideo(bool $hasAudio = true): MediaAsset
+    {
+        $still = self::writeWithVariants(...self::LANDSCAPE_16X9);
+        $filename = 'fixture-video-'.bin2hex(random_bytes(4)).'.mp4';
+        copy(base_path('tests/Fixtures/media/clip-with-sound.webm'), self::directory().'/'.$filename);
+
+        $video = MediaAsset::create([
+            'kind' => MediaKind::PostImage,
+            'media_type' => MediaType::Video,
+            'duration_ms' => 2_000,
+            'has_audio' => $hasAudio,
+            'disk' => $still->disk,
+            'path' => $filename,
+            'original_filename' => $filename,
+            'mime_type' => 'video/mp4',
+            'extension' => 'mp4',
+            'byte_size' => filesize(self::directory().'/'.$filename) ?: 0,
+            'width' => 160,
+            'height' => 90,
+            'aspect_ratio' => round(160 / 90, 6),
+            'orientation' => app(ImageOrientationClassifier::class)->classify(160, 90),
+            'status' => MediaStatus::Ready,
+            'visibility' => MediaVisibility::Public,
+        ]);
+
+        // The picture's variants become the video's poster.
+        $still->variants()->update(['media_asset_id' => $video->id]);
+
+        return $video->fresh();
     }
 
     /**

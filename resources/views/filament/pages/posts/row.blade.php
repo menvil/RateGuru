@@ -23,11 +23,14 @@
 
     <div class="rg-admin-table__cell" role="cell">
         @if ($row['hasImage'])
-            <button type="button" class="rg-admin-table__thumb rg-admin-posts__thumb" aria-label="Open the original image of {{ $row['title'] }}" title="Open original image" wire:click="view({{ $row['id'] }})">
+            <button type="button" class="rg-admin-table__thumb rg-admin-posts__thumb" aria-label="Open the original {{ $row['isVideo'] ? 'video' : 'image' }} of {{ $row['title'] }}" title="Open original {{ $row['isVideo'] ? 'video' : 'image' }}" wire:click="view({{ $row['id'] }})">
                 @if ($row['thumbnail'] !== null)
                     <img src="{{ $row['thumbnail'] }}" alt="" loading="lazy" class="rg-admin-posts__thumb-image" />
                 @else
                     <x-admin.ui.icon name="image" :size="18" />
+                @endif
+                @if ($row['isVideo'])
+                    <span class="rg-admin-posts__thumb-badge" data-testid="admin-post-video-badge"><x-admin.ui.icon name="play" :size="12" /></span>
                 @endif
             </button>
         @else

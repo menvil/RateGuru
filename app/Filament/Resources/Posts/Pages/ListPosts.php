@@ -8,6 +8,8 @@ use App\Actions\Moderation\HidePostAction;
 use App\Actions\Moderation\MarkUserTrustedAction;
 use App\Actions\Moderation\RejectPostAction;
 use App\Actions\Moderation\RestorePostAction;
+use App\Enums\MediaType;
+use App\Enums\PostImageContext;
 use App\Enums\PostStatus;
 use App\Enums\ReportReason;
 use App\Enums\UserRole;
@@ -436,6 +438,8 @@ final class ListPosts extends Page
                 .' · '.($post->language !== null ? $post->language.' '.round(100 * (float) $post->language_share).'%' : 'no language'),
             'thumbnail' => app(PostImagePresenter::class)->thumbnailUrl($post),
             'hasImage' => $post->imageAsset !== null,
+            // A video or animation: its thumbnail is its poster.
+            'isVideo' => $post->imageAsset !== null && $post->imageAsset->media_type !== MediaType::Image,
             'url' => $url,
             'muted' => $post->trashed() || $finalized,
             'author' => $author === null ? null : [
@@ -523,24 +527,31 @@ final class ListPosts extends Page
     /**
      * The original image of the post being viewed, and what it is.
      *
-     * @return array{title: string, url: string, meta: string}|null
+     * @return array{title: string, url: string, poster: ?string, video: bool, meta: string}|null
      */
     private function viewer(): ?array
     {
-        $post = $this->viewing !== null ? $this->find($this->viewing) : null;
+        // Its variants too: a video's picture is its poster, a variant.
+        $post = $this->viewing !== null ? $this->find($this->viewing)?->loadMissing('imageAsset.variants') : null;
         $asset = $post?->imageAsset;
         $url = $post !== null ? app(PostImagePresenter::class)->url($post) : null;
+        // A video plays its master here, its poster shown until it starts —
+        // also when the poster's file is missing: the video still opens.
+        $video = $post !== null ? app(PostImagePresenter::class)->video($post, PostImageContext::Fullscreen) : null;
 
-        if ($post === null || $asset === null || $url === null) {
+        if ($post === null || $asset === null || ($url === null && $video === null)) {
             return null;
         }
 
         return [
             'title' => $post->title,
-            'url' => $url,
+            'url' => $video->src ?? $url,
+            'poster' => $url,
+            'video' => $video !== null,
             'meta' => implode(' · ', array_filter([
                 '#'.$post->id,
                 $asset->width !== null && $asset->height !== null ? $asset->width.' × '.$asset->height : null,
+                $asset->duration_ms !== null ? round($asset->duration_ms / 1000, 1).' s' : null,
                 Str::upper(Str::after((string) $asset->mime_type, '/')),
                 Number::fileSize((int) $asset->byte_size, precision: 1),
                 $asset->disk,

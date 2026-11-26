@@ -84,7 +84,11 @@
             </div>
         @endif
 
-        @if($post->public_image_url)
+        @php
+            // A video plays without its poster's file too: it still shows.
+            $feedImageVideo = $postImagePresenter->video($post, \App\Enums\PostImageContext::Feed);
+        @endphp
+        @if($post->public_image_url || $feedImageVideo)
             @php
                 $feedImage = $postImagePresenter->responsive($post, \App\Enums\PostImageContext::Feed);
             @endphp
@@ -96,6 +100,7 @@
                     :sizes="$feedImage?->sizes"
                     :width="$feedImage?->width"
                     :height="$feedImage?->height"
+                    :video="$feedImageVideo"
                     context="feed"
                     open-fullscreen="imageOpen = true"
                     testid="post-card-image-open"
@@ -240,7 +245,11 @@
                 </x-ui.modal>
             @endif
 
-            @if($post->public_image_url)
+            @php
+                // A video plays without its poster's file too: it still shows.
+                $fullscreenImageVideo = $postImagePresenter->video($post, \App\Enums\PostImageContext::Fullscreen);
+            @endphp
+            @if($post->public_image_url || $fullscreenImageVideo)
                 @php
                     $fullscreenImage = $postImagePresenter->responsive($post, \App\Enums\PostImageContext::Fullscreen);
                 @endphp
@@ -252,6 +261,7 @@
                         :sizes="$fullscreenImage?->sizes"
                         :width="$fullscreenImage?->width"
                         :height="$fullscreenImage?->height"
+                        :video="$fullscreenImageVideo"
                         context="fullscreen"
                         image-testid="post-card-fullscreen-image"
                         loading="lazy"

@@ -98,7 +98,11 @@
             </section>
 
             <div class="mt-4" data-testid="post-show-hero">
-            @if($post->public_image_url)
+            @php
+                // A video plays without its poster's file too: it still shows.
+                $standaloneImageVideo = $postImagePresenter->video($post, \App\Enums\PostImageContext::Standalone);
+            @endphp
+            @if($post->public_image_url || $standaloneImageVideo)
                 @php
                     $standaloneImage = $postImagePresenter->responsive($post, \App\Enums\PostImageContext::Standalone);
                 @endphp
@@ -109,6 +113,7 @@
                     :sizes="$standaloneImage?->sizes"
                     :width="$standaloneImage?->width"
                     :height="$standaloneImage?->height"
+                    :video="$standaloneImageVideo"
                     context="standalone"
                     open-fullscreen="imageOpen = true"
                     testid="post-show-image-open"
@@ -245,7 +250,11 @@
                 </x-ui.modal>
             @endif
 
-            @if($post->public_image_url)
+            @php
+                // A video plays without its poster's file too: it still shows.
+                $fullscreenImageVideo = $postImagePresenter->video($post, \App\Enums\PostImageContext::Fullscreen);
+            @endphp
+            @if($post->public_image_url || $fullscreenImageVideo)
                 @php
                     $fullscreenImage = $postImagePresenter->responsive($post, \App\Enums\PostImageContext::Fullscreen);
                 @endphp
@@ -257,6 +266,7 @@
                         :sizes="$fullscreenImage?->sizes"
                         :width="$fullscreenImage?->width"
                         :height="$fullscreenImage?->height"
+                        :video="$fullscreenImageVideo"
                         context="fullscreen"
                         image-testid="post-fullscreen-image"
                         loading="lazy"

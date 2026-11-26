@@ -2,6 +2,7 @@
 
 use App\Actions\Games\SaveContentSetAction;
 use App\Data\Games\ContentSetDraft;
+use App\Enums\MediaVariantName;
 use App\Enums\PostStatus;
 use App\Filament\Resources\Games\GameResource;
 use App\Filament\Resources\Games\Pages\EditGameContent;
@@ -438,4 +439,15 @@ it('says an uploaded option has no photo yet, or one that can\'t be shown', func
         ->set('rounds.0.options.1.asset_id', MediaAsset::factory()->failed()->create()->id)
         ->assertSee('Option A photo missing')
         ->assertSee('Option B image unavailable');
+});
+
+it('refuses a video post for an option even when its id is sent past the picker', function () {
+    Storage::fake('public');
+    $video = videoPostWithPosterVariants([], MediaVariantName::PostFeed640, MediaVariantName::PostFeed1280);
+    $before = $this->draft['set']->rounds()->first()->options()->where('position', 0)->first()->post_id;
+
+    Livewire::test(EditGameContent::class, ['record' => $this->draft['game']->id])
+        ->call('openPicker', 0, 0)
+        ->call('pickPost', $video->id)
+        ->assertSet('rounds.0.options.0.post_id', $before);
 });
