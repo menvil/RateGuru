@@ -1121,21 +1121,24 @@ never touches it.
 | `<runtime user>-fetch` (`rateguru-staging-fetch`, `rateguru-tits-guru-fetch`) | one system account per active target | no password, home (`/nonexistent`) or shell (`/usr/sbin/nologin`); one per target, so one target's yt-dlp never reaches another's downloads; an account of those names RateGuru did not create is never taken over |
 | the sudo rule | `/etc/sudoers.d/rateguru-media-fetch`, root:root 0440 | each active target's runtime user may run `/usr/local/bin/yt-dlp` as its own account, nothing else; rendered from the registry, checked by `visudo -cqf` |
 | the table | `/etc/rateguru/media-fetch.nft`, root:root 0644 | `inet rateguru_media_fetch`: the accounts may reach their resolver, `127.0.0.53:53`. Everything else on this host is refused: its own addresses (`fib daddr type local`), and every loopback, private, link-local and reserved address, IPv4 and IPv6. Checked by `nft -c -f` |
-| the unit | `rateguru-media-fetch-firewall.service`, enabled | loads the table at boot, early and without the default dependencies, as ufw's own unit does, so it never closes an ordering cycle with cloud-init. While the table is loaded it keeps the marker `/run/rateguru-media-fetch.armed` |
+| the unit | `rateguru-media-fetch-firewall.service`, enabled | loads the table at boot, early and without the default dependencies, as ufw's own unit does, so it never closes an ordering cycle with cloud-init. While the unit is active, which means it loaded the table, it keeps the marker `/run/rateguru-media-fetch.armed`. The marker follows the unit, not the table: a flush by hand removes the table and leaves the marker, and `--verify` reports the table as drift |
 
 What it never touches:
 - **The rest of the ruleset.** The table replaces only itself, so ufw's
   tables stay as they are.
-- **The distribution's `nftables.service`.** It is never enabled, and
-  `--verify` fails while it is: its `/etc/nftables.conf` flushes the whole
-  ruleset.
+- **The distribution's `nftables.service`.** It is never enabled.
+  `--check` and `--verify` fail while it is enabled or running, so the
+  whole host run stops before its first change: its `/etc/nftables.conf`
+  flushes the whole ruleset. Fix it with
+  `systemctl disable --now nftables.service`, then run Prepare host again.
 
 How `--apply` and `--verify` behave:
 - Every mode needs root.
 - `--apply` refuses a host whose `/etc/resolv.conf` names anything but
   `127.0.0.53`, since the accounts could not resolve there.
-- `install-bootstrap-services` asks for that refusal, and for a foreign
-  account, before its first change.
+- `install-bootstrap-services` asks for every refusal before its first
+  change: the resolver, a foreign account or one with a password, an enabled
+  or running `nftables.service`.
 - `--apply` loads the table before it installs the sudo rule.
 - If the table will not load, it puts back what it replaced, loaded and
   enabled as it was. A unit it enabled is disabled again.

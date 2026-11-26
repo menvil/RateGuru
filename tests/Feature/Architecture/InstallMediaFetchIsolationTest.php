@@ -40,7 +40,8 @@ function mediaFetchHost(array $options = []): array
                     *) shift ;;
                 esac
             done
-            echo "$1:x:998:998:$gecos:$home:$shell" >> "$STATE/passwd"
+            uid=$((900 + $(wc -l < "$STATE/passwd")))
+            echo "$1:x:$uid:$uid:$gecos:$home:$shell" >> "$STATE/passwd"
             echo "$1:!:19000::::::" >> "$STATE/shadow"
             SH,
         'visudo' => <<<'SH'
@@ -56,7 +57,11 @@ function mediaFetchHost(array $options = []): array
                 -f) [[ -f "$STATE/nft-load-fail" ]] && exit 1
                     [[ -f "$STATE/nft-load-fail-new" ]] && grep -q 'fib daddr' "$2" && exit 1
                     cp "$2" "$STATE/table" ;;
-                list) [[ -f "$STATE/table" ]] && cat "$STATE/table" ;;
+                # Listed as the real nft lists it: the accounts by uid.
+                list) [[ -f "$STATE/table" ]] || exit 1
+                    listed="$(cat "$STATE/table")"
+                    while IFS=: read -r name _ uid _; do listed="${listed//\"$name\"/$uid}"; done < "$STATE/passwd"
+                    printf '%s\n' "$listed" ;;
                 delete) rm -f "$STATE/table" ;;
                 *) exit 64 ;;
             esac
@@ -66,6 +71,7 @@ function mediaFetchHost(array $options = []): array
             echo "systemctl $*" >> "$LOG/systemctl.log"
             case "$1" in
                 is-enabled) [[ "$3" == nftables.service ]] && { [[ -f "$STATE/nftables-enabled" ]]; exit; }; [[ -f "$STATE/enabled" ]] ;;
+                is-active) [[ "$3" == nftables.service ]] && { [[ -f "$STATE/nftables-active" ]]; exit; }; [[ -f "$STATE/enabled" ]] ;;
                 enable) touch "$STATE/enabled" ;;
                 disable) rm -f "$STATE/enabled" ;;
                 restart) "$NFT_STUB" -f "$FS/etc/rateguru/media-fetch.nft" && touch "$FS/run/rateguru-media-fetch.armed" ;;
@@ -280,6 +286,7 @@ it('verifies as drift a rule that grants more, a table not loaded and a unit not
     'a password given' => [fn (array $host) => file_put_contents($host['state'].'/shadow', str_replace('rateguru-staging-fetch:!:', 'rateguru-staging-fetch:$6$hash:', (string) file_get_contents($host['state'].'/shadow'))), 'FAIL     account:rateguru-staging-fetch'],
     'the marker gone' => [fn (array $host) => unlink($host['fs'].'/run/rateguru-media-fetch.armed'), 'DRIFT    marker:/run/rateguru-media-fetch.armed'],
     'the distribution\'s nftables enabled' => [fn (array $host) => touch($host['state'].'/nftables-enabled'), 'FAIL     unit:nftables.service'],
+    'the distribution\'s nftables started by hand' => [fn (array $host) => touch($host['state'].'/nftables-active'), 'FAIL     unit:nftables.service'],
     'an account missing from the table' => [fn (array $host) => file_put_contents($host['state'].'/table', str_replace('"rateguru-tits-guru-fetch"', '', (string) file_get_contents($host['state'].'/table'))), 'DRIFT    table:inet rateguru_media_fetch'],
 ]);
 

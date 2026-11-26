@@ -413,11 +413,13 @@ report() {
     fi
 
     # The distribution's unit loads /etc/nftables.conf, which flushes the
-    # whole ruleset — this table with it — at whatever point of the boot it runs.
-    if "${SYSTEMCTL_BIN}" is-enabled --quiet nftables.service 2>/dev/null; then
-        item FAIL "unit:nftables.service" "enabled — its flush ruleset would remove this table at boot; disable it, or load this table from its configuration"
+    # whole ruleset — this table with it — whenever it starts, at boot or by
+    # hand, while the marker stays.
+    if "${SYSTEMCTL_BIN}" is-enabled --quiet nftables.service 2>/dev/null \
+        || "${SYSTEMCTL_BIN}" is-active --quiet nftables.service 2>/dev/null; then
+        item FAIL "unit:nftables.service" "enabled or running — its flush ruleset removes this table; systemctl disable --now nftables.service, then --apply"
     else
-        item PASS "unit:nftables.service" "not enabled: nothing flushes this table at boot"
+        item PASS "unit:nftables.service" "neither enabled nor running: nothing flushes this table"
     fi
 }
 
@@ -503,12 +505,21 @@ rollback() {
     if [[ "${incomplete}" == true ]]; then
         printf 'ROLLBACK INCOMPLETE: a replaced file could not be restored — check %s, %s and %s by hand\n' \
             "${FETCH_SUDOERS}" "${FETCH_RULESET}" "${FETCH_UNIT}" >&2
+        return 1
+    fi
+}
+
+# restored — what the failure message says of the rollback that just ran.
+restored() {
+    if rollback; then
+        printf 'what it replaced was restored'
+    else
+        printf 'the rollback was INCOMPLETE (above)'
     fi
 }
 
 on_apply_error() {
-    rollback
-    fail "--apply failed; what it replaced was restored (above)"
+    fail "--apply failed; $(restored)"
 }
 
 run_apply() {
@@ -542,7 +553,7 @@ run_apply() {
 
     # Checked once the accounts exist: the ruleset's skuid names real ones.
     "${NFT_BIN}" -c -f "${WORK}/ruleset" >/dev/null \
-        || fail "nft refuses the rendered ruleset — nothing was installed (the accounts, harmless without the rule, stay)"
+        || fail "nft refuses the rendered ruleset — nothing was installed. The accounts made stay; without the marker the application runs no yt-dlp until --apply succeeds"
 
     BACKUP="${WORK}/backup"
     mkdir -p "${BACKUP}"
@@ -560,12 +571,12 @@ run_apply() {
     "${SYSTEMCTL_BIN}" enable "${FETCH_UNIT_NAME}" >/dev/null
     action "loading the table inet ${FETCH_TABLE}"
     "${SYSTEMCTL_BIN}" restart "${FETCH_UNIT_NAME}"
-    table_live || { rollback; fail "the table inet ${FETCH_TABLE} is not loaded after --apply — what it replaced was restored"; }
+    table_live || fail "the table inet ${FETCH_TABLE} is not loaded after --apply — $(restored)"
 
     action "installing the sudoers rule ${FETCH_SUDOERS}: yt-dlp as each one's own account, for ${RUNTIME_USERS[*]}"
     install_file "${WORK}/sudoers" "${FETCH_SUDOERS}" 440
     "${VISUDO_BIN}" -cqf "$(physical "${FETCH_SUDOERS}")" >/dev/null \
-        || { rollback; fail "visudo refuses the installed sudoers rule — what this run replaced was restored"; }
+        || fail "visudo refuses the installed sudoers rule — $(restored)"
 
     trap - ERR
     COUNT_PASS=0 COUNT_FAIL=0 COUNT_DRIFT=0
