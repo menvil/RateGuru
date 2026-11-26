@@ -642,6 +642,48 @@ never reaches another's downloads.
 The accounts, the rule and the firewall table are installed with the host
 (`install-media-fetch-isolation`).
 
+Sites change, and yt-dlp's extractors break with them until a newer yt-dlp
+catches up. `import:check-ytdlp-sites` (`YtDlpSiteCheck`, daily at 04:20)
+asks each site about the pages its videos were last imported from — real
+links that worked, so no list of reference pages is kept: one still giving a
+video means the site works; the last few all giving none means its extractor
+most likely broke.
+
+- **Which pages:** only those yt-dlp itself took (never a link straight to a
+  file), and only those of posts still on the site, so a source taken down is
+  never asked for again. They are found in one pass over the newest imports
+  (at most `import.ytdlp.check_scan_limit`), so a site imported from rarely
+  is still found. A site is asked about its three newest at most.
+- **A slow page** is passed over for the next.
+- **One run at a time:** a lock holds the check from reading the last counts
+  to saving the new ones, whether the schedule or a person started it. The
+  lock lasts 30 minutes:
+  - a run asks no page after 20, and then counts, saves and says nothing,
+    reporting only that it ran out of time;
+  - a run whose lock lapsed anyway saves and says nothing. The write of its
+    results and the check that it still holds the lock are one transaction,
+    committed only if it does. Another run can take the lock only once that
+    transaction ends: PostgreSQL and MariaDB hold the lock's row, and on
+    SQLite the write holds its one writer's lock. A run paused after its
+    check therefore never writes over a later one
+    (`tests/Feature/Concurrency/YtDlpSiteCheckRaceTest.php`). That needs the
+    cache's locks on its own connection: the check refuses to run with
+    `DB_CACHE_LOCK_CONNECTION` set to another.
+- **Reported** (`YtDlpSiteBrokenException`: Sentry, and Nightwatch where it
+  runs), only once the run's results are saved:
+  - a site taking nothing on two calendar days running, once a day however
+    often the check runs. A day nobody checked, or a run where it worked,
+    starts the count again;
+  - yt-dlp itself failing to start, said as that and counted against no site,
+    not even one asked before it in that run.
+- **Media Diagnostics** shows every site's last result and when it was
+  checked. A site with no recent imports to ask about is named too, marked
+  when it was failing before.
+
+The fix is usually a newer pinned
+yt-dlp (`infrastructure/config/external-runtimes/versions.env`), installed by
+the Prepare host workflows.
+
 How the draft and its processing state appear to its author come later.
 
 ## Responsive media variants
