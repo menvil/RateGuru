@@ -27,6 +27,8 @@ function mediaFetchHost(array $options = []): array
         'getent' => <<<'SH'
             #!/bin/bash
             file="$STATE/$1"; [[ -f "$file" ]] || exit 2
+            # No key: every entry, as getent enumerates them.
+            [[ -z "${2:-}" ]] && { cat "$file"; exit; }
             grep -m1 "^$2:" "$file" || exit 2
             SH,
         'useradd' => <<<'SH'
@@ -287,7 +289,9 @@ it('verifies as drift a rule that grants more, a table not loaded and a unit not
     'the marker gone' => [fn (array $host) => unlink($host['fs'].'/run/rateguru-media-fetch.armed'), 'DRIFT    marker:/run/rateguru-media-fetch.armed'],
     'the distribution\'s nftables enabled' => [fn (array $host) => touch($host['state'].'/nftables-enabled'), 'FAIL     unit:nftables.service'],
     'the distribution\'s nftables started by hand' => [fn (array $host) => touch($host['state'].'/nftables-active'), 'FAIL     unit:nftables.service'],
-    'an account missing from the table' => [fn (array $host) => file_put_contents($host['state'].'/table', str_replace('"rateguru-tits-guru-fetch"', '', (string) file_get_contents($host['state'].'/table'))), 'DRIFT    table:inet rateguru_media_fetch'],
+    'an account missing from the table' => [fn (array $host) => file_put_contents($host['state'].'/table', str_replace('"rateguru-tits-guru-fetch"', '', (string) file_get_contents($host['state'].'/table'))), 'DRIFT    table:inet rateguru_media_fetch'],    'a range dropped from the live table' => [fn (array $host) => file_put_contents($host['state'].'/table', str_replace('169.254.0.0/16, ', '', (string) file_get_contents($host['state'].'/table'))), 'not exactly as --apply loaded and checked it'],
+    'a rule added to the live table' => [fn (array $host) => file_put_contents($host['state'].'/table', str_replace('policy accept;', "policy accept;\n        ip daddr 10.0.0.1 accept", (string) file_get_contents($host['state'].'/table'))), 'not exactly as --apply loaded and checked it'],
+    'the record of the live table gone' => [fn (array $host) => unlink($host['fs'].'/var/lib/rateguru-media-fetch/table.listed'), 'not exactly as --apply loaded and checked it'],
 ]);
 
 it('checks a host it has not installed on, changing nothing', function () {
@@ -356,3 +360,39 @@ it('refuses to run without root in every mode', function (string $mode) {
     expect($process->getExitCode())->not->toBe(0)
         ->and($process->getErrorOutput())->toContain("--{$mode} must run as root");
 })->with(['check', 'verify', 'apply']);
+
+it('keeps a retired target\'s account in the table, gives it no sudo rule, and leaves an account it did not make out', function () {
+    $retired = 'rateguru-retired-fetch:x:950:950:RateGuru media fetch for rateguru-retired (yt-dlp):/nonexistent:/usr/sbin/nologin';
+    $foreign = 'someone-fetch:x:951:951:Someone else:/home/someone:/bin/bash';
+    $host = $this->mediaFetchHosts[] = mediaFetchHost([
+        'passwd' => "root:x:0:0:root:/root:/bin/bash\n{$retired}\n{$foreign}\n",
+        'shadow' => "root:*:19000:0:99999:7:::\nrateguru-retired-fetch:!:19000::::::\nsomeone-fetch:\$6\$hash:19000::::::\n",
+    ]);
+
+    [$status, $output] = mediaFetchRun($host, 'apply');
+    $ruleset = (string) file_get_contents($host['fs'].'/etc/rateguru/media-fetch.nft');
+
+    expect($status)->toBe(0, $output)
+        ->and($output)->toContain('PASS     account:rateguru-retired-fetch')
+        ->and($output)->toContain('its target is retired')
+        ->and($ruleset)->toContain('"rateguru-retired-fetch"')
+        ->and($ruleset)->not->toContain('someone-fetch')
+        ->and((string) file_get_contents($host['fs'].'/etc/sudoers.d/rateguru-media-fetch'))->not->toContain('retired');
+
+    [$status, $output] = mediaFetchRun($host, 'verify');
+    expect($status)->toBe(0, $output);
+});
+
+it('refuses to apply while the distribution\'s nftables.service is enabled or running, before it changes anything', function (string $toggle) {
+    $host = $this->mediaFetchHosts[] = mediaFetchHost();
+    touch($host['state'].'/'.$toggle);
+
+    [$status, $output] = mediaFetchRun($host, 'apply');
+
+    expect($status)->not->toBe(0)
+        ->and($output)->toContain('nftables.service is enabled or running')
+        ->and($output)->toContain('Nothing was changed')
+        ->and(mediaFetchLog($host, 'mutations.log'))->toBe('')
+        ->and(file_exists($host['state'].'/table'))->toBeFalse()
+        ->and(file_exists($host['fs'].'/etc/sudoers.d/rateguru-media-fetch'))->toBeFalse();
+})->with(['enabled' => ['nftables-enabled'], 'running' => ['nftables-active']]);

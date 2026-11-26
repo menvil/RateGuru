@@ -34,6 +34,15 @@
 #                                        /run/rateguru-media-fetch.armed while it
 #                                        is loaded — without it the application
 #                                        never runs yt-dlp as the accounts
+#   /var/lib/rateguru-media-fetch/table.listed
+#                                        root:root 0644: the table as nft listed
+#                                        it once --apply had loaded and checked
+#                                        it, with the ruleset it came from —
+#                                        --verify compares the live table with
+#                                        it whole, every rule and address range
+#
+# A target retired since keeps its account, and the table keeps holding it: a
+# yt-dlp it started may still be running. Only the sudo rule drops it.
 #
 # The table replaces only itself: it never flushes the ruleset, so ufw's own
 # tables, and anything else, stay as they are. The distribution's
@@ -95,6 +104,7 @@ FETCH_UNIT_NAME="rateguru-media-fetch-firewall.service"
 FETCH_UNIT="/etc/systemd/system/${FETCH_UNIT_NAME}"
 FETCH_TABLE="rateguru_media_fetch"
 FETCH_MARKER="/run/rateguru-media-fetch.armed"
+FETCH_RECORD="/var/lib/rateguru-media-fetch/table.listed"
 # The one resolver the account may reach: systemd-resolved's stub, which
 # itself asks upstream as its own user, outside this table.
 FETCH_RESOLVER="127.0.0.53"
@@ -162,7 +172,7 @@ require_tools() {
 }
 
 require_host_tools() {
-    require_tools jq cmp stat awk install "${GETENT_BIN}" "${USERADD_BIN}" "${VISUDO_BIN}" "${NFT_BIN}" "${SYSTEMCTL_BIN}"
+    require_tools jq cmp stat awk install sha256sum "${GETENT_BIN}" "${USERADD_BIN}" "${VISUDO_BIN}" "${NFT_BIN}" "${SYSTEMCTL_BIN}"
 }
 
 # --- What the bundle says -----------------------------------------------------------
@@ -170,6 +180,9 @@ require_host_tools() {
 YTDLP_BINARY=""
 RUNTIME_USERS=()
 FETCH_USERS=()
+# Every account the table holds: the active targets', and any RateGuru made
+# for a target retired since.
+FILTERED_USERS=()
 
 load_sources() {
     [[ -f "${SRC_REGISTRY}" ]] || fail "the target registry is missing: ${SRC_REGISTRY}"
@@ -192,6 +205,37 @@ load_sources() {
 
     (( ${#RUNTIME_USERS[@]} > 0 )) \
         || fail "the registry declares no active target, so no runtime user may run yt-dlp — refusing to install an empty rule"
+
+    load_filtered_users
+}
+
+# load_filtered_users — the active targets' accounts and every media fetch
+# account RateGuru made that is still on the host, by name, once each. A
+# retired target's stays in the table: a yt-dlp it started may still run, and
+# without the table it would reach this host's network.
+load_filtered_users() {
+    local name
+    FILTERED_USERS=()
+    while IFS= read -r name; do
+        [[ -n "${name}" ]] && FILTERED_USERS+=("${name}")
+    done < <(
+        {
+            printf '%s\n' "${FETCH_USERS[@]}"
+            "${GETENT_BIN}" passwd 2>/dev/null | awk -F: -v suffix="${FETCH_SUFFIX}" -v home="${FETCH_HOME}" -v shell="${FETCH_SHELL}" '
+                length($1) > length(suffix) && substr($1, length($1) - length(suffix) + 1) == suffix \
+                    && $5 == "RateGuru media fetch for " substr($1, 1, length($1) - length(suffix)) " (yt-dlp)" \
+                    && $6 == home && $7 == shell { print $1 }'
+        } | sort -u
+    )
+}
+
+# retired USER — a media fetch account RateGuru made for a target no longer active.
+retired() {
+    local user="$1" active
+    for active in "${FETCH_USERS[@]}"; do
+        [[ "${active}" == "${user}" ]] && return 1
+    done
+    return 0
 }
 
 # --- What is rendered ------------------------------------------------------------------
@@ -212,7 +256,7 @@ render_sudoers() {
 render_ruleset() {
     local accounts user
     accounts=""
-    for user in "${FETCH_USERS[@]}"; do
+    for user in "${FILTERED_USERS[@]}"; do
         accounts+="${accounts:+, }\"${user}\""
     done
 
@@ -328,13 +372,14 @@ resolver_is_stub() {
     [[ "${nameservers}" == "${FETCH_RESOLVER}" ]]
 }
 
-# table_live — the table is loaded, holds every current account — by name or
-# by the uid nft lists — and refuses this host's own addresses and the
-# private ranges of both families.
+# table_live — the table is loaded, holds every account it filters — by name
+# or by the uid nft lists — and refuses this host's own addresses and the
+# private ranges of both families. What --apply asks before it records the
+# table; --verify compares the whole of it with that record as well.
 table_live() {
     local listed user uid
     listed="$("${NFT_BIN}" list table inet "${FETCH_TABLE}" 2>/dev/null)" || return 1
-    for user in "${FETCH_USERS[@]}"; do
+    for user in "${FILTERED_USERS[@]}"; do
         uid="$(fetch_uid "${user}")"
         grep -qE "\"${user}\"|[ {,]${uid:-x}([ },]|\$)" <<<"${listed}" || return 1
     done
@@ -343,8 +388,35 @@ table_live() {
         && grep -q 'fc00::/7' <<<"${listed}"
 }
 
+# render_record FILE — the live table as nft lists it, under the hash of the
+# ruleset rendered now.
+render_record() {
+    printf '# ruleset sha256 %s\n' "$(sha256sum "${WORK}/ruleset" | cut -d' ' -f1)" > "$1"
+    "${NFT_BIN}" list table inet "${FETCH_TABLE}" >> "$1"
+}
+
+# live_as_recorded — the live table is, rule for rule and range for range,
+# what --apply loaded and checked from the ruleset rendered now. A range
+# dropped by hand, a rule added, the chain's policy changed: all differ.
+live_as_recorded() {
+    local record
+    record="$(physical "${FETCH_RECORD}")"
+    [[ -f "${record}" && ! -L "${record}" ]] || return 1
+    render_record "${WORK}/live"
+    cmp -s "${record}" "${WORK}/live"
+}
+
 marker_present() {
     [[ -f "$(physical "${FETCH_MARKER}")" ]]
+}
+
+# distribution_nftables — the distribution's nftables.service is enabled or
+# running: it loads /etc/nftables.conf, which flushes the whole ruleset — this
+# table with it — whenever it starts, at boot or by hand, while the marker
+# stays.
+distribution_nftables() {
+    "${SYSTEMCTL_BIN}" is-enabled --quiet nftables.service 2>/dev/null \
+        || "${SYSTEMCTL_BIN}" is-active --quiet nftables.service 2>/dev/null
 }
 
 # --- Modes -------------------------------------------------------------------------------
@@ -368,6 +440,11 @@ report() {
             unlocked) item FAIL "account:${user}" "has a password — a media fetch account never logs in" ;;
             foreign)  item FAIL "account:${user}" "exists but was not created by RateGuru — it is never taken over" ;;
         esac
+    done
+
+    for user in "${FILTERED_USERS[@]}"; do
+        retired "${user}" || continue
+        item PASS "account:${user}" "its target is retired: kept in the table, and given no sudo rule"
     done
 
     if resolver_is_stub; then
@@ -400,10 +477,12 @@ report() {
         item DRIFT "unit:${FETCH_UNIT_NAME}" "not enabled — the table would be gone after a reboot"
     fi
 
-    if table_live; then
-        item PASS "table:inet ${FETCH_TABLE}" "loaded: every fetch account is refused this host's network now"
-    else
+    if ! table_live; then
         item DRIFT "table:inet ${FETCH_TABLE}" "not loaded as rendered — the application runs no yt-dlp as the accounts until it is"
+    elif ! live_as_recorded; then
+        item DRIFT "table:inet ${FETCH_TABLE}" "loaded, but not exactly as --apply loaded and checked it from this ruleset (${FETCH_RECORD}) — a rule, a range or the policy changed; --apply loads it again"
+    else
+        item PASS "table:inet ${FETCH_TABLE}" "loaded exactly as --apply checked it: every fetch account is refused this host's network now"
     fi
 
     if marker_present; then
@@ -412,12 +491,8 @@ report() {
         item DRIFT "marker:${FETCH_MARKER}" "missing — the application runs no yt-dlp as the accounts until the unit has loaded the table"
     fi
 
-    # The distribution's unit loads /etc/nftables.conf, which flushes the
-    # whole ruleset — this table with it — whenever it starts, at boot or by
-    # hand, while the marker stays.
-    if "${SYSTEMCTL_BIN}" is-enabled --quiet nftables.service 2>/dev/null \
-        || "${SYSTEMCTL_BIN}" is-active --quiet nftables.service 2>/dev/null; then
-        item FAIL "unit:nftables.service" "enabled or running — its flush ruleset removes this table; systemctl disable --now nftables.service, then --apply"
+    if distribution_nftables; then
+        item FAIL "unit:nftables.service" "enabled or running — its flush ruleset removes this table. Disable it as infrastructure/runbooks/bootstrap-host.md says (saving ufw's rules first), then --apply"
     else
         item PASS "unit:nftables.service" "neither enabled nor running: nothing flushes this table"
     fi
@@ -503,8 +578,8 @@ rollback() {
         rm -f "$(physical "${FETCH_MARKER}")"
     fi
     if [[ "${incomplete}" == true ]]; then
-        printf 'ROLLBACK INCOMPLETE: a replaced file could not be restored — check %s, %s and %s by hand\n' \
-            "${FETCH_SUDOERS}" "${FETCH_RULESET}" "${FETCH_UNIT}" >&2
+        printf 'ROLLBACK INCOMPLETE: a replaced file could not be restored — check %s, %s, %s and %s by hand\n' \
+            "${FETCH_SUDOERS}" "${FETCH_RULESET}" "${FETCH_UNIT}" "${FETCH_RECORD}" >&2
         return 1
     fi
 }
@@ -531,6 +606,11 @@ run_apply() {
 
     resolver_is_stub \
         || fail "${RESOLV_CONF} does not name ${FETCH_RESOLVER} alone — the table lets the accounts reach that resolver only, so yt-dlp could not resolve. Nothing was changed"
+
+    # Before anything is made: with it, the table could be flushed at any
+    # start of that unit while the marker and the sudo rule stay.
+    ! distribution_nftables \
+        || fail "the distribution's nftables.service is enabled or running — its flush ruleset would remove this table. Disable it as infrastructure/runbooks/bootstrap-host.md says (saving ufw's rules first). Nothing was changed"
 
     for user in "${FETCH_USERS[@]}"; do
         case "$(fetch_account "${user}")" in
@@ -572,6 +652,9 @@ run_apply() {
     action "loading the table inet ${FETCH_TABLE}"
     "${SYSTEMCTL_BIN}" restart "${FETCH_UNIT_NAME}"
     table_live || fail "the table inet ${FETCH_TABLE} is not loaded after --apply — $(restored)"
+    # What --verify holds the live table to from now on, whole.
+    render_record "${WORK}/record"
+    install_file "${WORK}/record" "${FETCH_RECORD}" 644
 
     action "installing the sudoers rule ${FETCH_SUDOERS}: yt-dlp as each one's own account, for ${RUNTIME_USERS[*]}"
     install_file "${WORK}/sudoers" "${FETCH_SUDOERS}" 440

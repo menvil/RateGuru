@@ -1118,19 +1118,30 @@ never touches it.
 
 | What | Where | Held to |
 |---|---|---|
-| `<runtime user>-fetch` (`rateguru-staging-fetch`, `rateguru-tits-guru-fetch`) | one system account per active target | no password, home (`/nonexistent`) or shell (`/usr/sbin/nologin`); one per target, so one target's yt-dlp never reaches another's downloads; an account of those names RateGuru did not create is never taken over |
+| `<runtime user>-fetch` (`rateguru-staging-fetch`, `rateguru-tits-guru-fetch`) | one system account per active target | no password, home (`/nonexistent`) or shell (`/usr/sbin/nologin`); one per target, so one target's yt-dlp never reaches another's downloads; an account of those names RateGuru did not create is never taken over. A retired target's account stays in the table, since a yt-dlp it started may still run, and loses only its sudo rule |
 | the sudo rule | `/etc/sudoers.d/rateguru-media-fetch`, root:root 0440 | each active target's runtime user may run `/usr/local/bin/yt-dlp` as its own account, nothing else; rendered from the registry, checked by `visudo -cqf` |
 | the table | `/etc/rateguru/media-fetch.nft`, root:root 0644 | `inet rateguru_media_fetch`: the accounts may reach their resolver, `127.0.0.53:53`. Everything else on this host is refused: its own addresses (`fib daddr type local`), and every loopback, private, link-local and reserved address, IPv4 and IPv6. Checked by `nft -c -f` |
 | the unit | `rateguru-media-fetch-firewall.service`, enabled | loads the table at boot, early and without the default dependencies, as ufw's own unit does, so it never closes an ordering cycle with cloud-init. While the unit is active, which means it loaded the table, it keeps the marker `/run/rateguru-media-fetch.armed`. The marker follows the unit, not the table: a flush by hand removes the table and leaves the marker, and `--verify` reports the table as drift |
+| the record | `/var/lib/rateguru-media-fetch/table.listed`, root:root 0644 | the table as `nft list` showed it once `--apply` had loaded and checked it, under the hash of the ruleset it came from. `--verify` compares the live table with it whole: a range dropped, a rule added or the policy changed by hand is drift |
 
 What it never touches:
 - **The rest of the ruleset.** The table replaces only itself, so ufw's
   tables stay as they are.
 - **The distribution's `nftables.service`.** It is never enabled.
-  `--check` and `--verify` fail while it is enabled or running, so the
-  whole host run stops before its first change: its `/etc/nftables.conf`
-  flushes the whole ruleset. Fix it with
-  `systemctl disable --now nftables.service`, then run Prepare host again.
+  `--check`, `--verify` and `--apply` fail while it is enabled or running,
+  so the whole host run stops before its first change: its
+  `/etc/nftables.conf` flushes the whole ruleset. Stopping it flushes the
+  whole ruleset too (`ExecStop=nft flush ruleset`), ufw's rules included,
+  since they live in nftables (`ip filter`, `ip6 filter`). To disable it
+  without losing them:
+  1. `nft list ruleset > /root/nftables-before.nft`, a copy of what is
+     loaded now;
+  2. `systemctl disable --now nftables.service`;
+  3. `systemctl restart ufw`, which loads ufw's rules again;
+  4. compare `nft list ruleset` with the copy, and restore by hand any other
+     service's table that is missing (`nft -f` with that table's part of the
+     copy);
+  5. run Prepare host again, which loads this table.
 
 How `--apply` and `--verify` behave:
 - Every mode needs root.
@@ -1139,7 +1150,11 @@ How `--apply` and `--verify` behave:
 - `install-bootstrap-services` asks for every refusal before its first
   change: the resolver, a foreign account or one with a password, an enabled
   or running `nftables.service`.
-- `--apply` loads the table before it installs the sudo rule.
+- `--apply` refuses an enabled or running `nftables.service` before its
+  first change too.
+- `--apply` loads the table before it installs the sudo rule, then records
+  it as `nft list` shows it. `--verify` holds the live table to that record,
+  whole.
 - If the table will not load, it puts back what it replaced, loaded and
   enabled as it was. A unit it enabled is disabled again.
 - It never re-permissions a directory that exists (`/etc/sudoers.d` stays
@@ -1158,7 +1173,9 @@ After the first Prepare host run, check the boot once:
   report nothing;
 - after a reboot, `journalctl -b | grep -i "ordering cycle"` should stay
   empty;
-- `ls /run/rateguru-media-fetch.armed` should show the marker.
+- after that reboot, `install-media-fetch-isolation --verify` should pass.
+  The marker alone is not enough: it shows the unit loaded the table, not
+  that something later in the boot left it as loaded.
 
 **Container rehearsal of the per-target accounts (2026-11-26, Ubuntu 22.04, nftables 1.0.2, sudo 1.9.9, ufw enabled):**
 - `--apply` then `--verify`: pass=10, exit 0.

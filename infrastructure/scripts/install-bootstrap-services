@@ -2260,7 +2260,7 @@ report_media_fetch_plan() {
         item PASS "media-fetch:plan" "install-media-fetch-isolation --check: yt-dlp's isolation can be converged"
     else
         item CONFLICT "media-fetch:plan" "install-media-fetch-isolation --check refuses (a resolver other than 127.0.0.53; an account of its names RateGuru did not create, or one with a password; the distribution's nftables.service enabled or running)" \
-            "run install-media-fetch-isolation --check for the reason; systemctl disable --now nftables.service where that is it; --apply never takes over an account it did not create"
+            "run install-media-fetch-isolation --check for the reason; where it is nftables.service, disable it as infrastructure/runbooks/bootstrap-host.md says (saving ufw's rules first); --apply never takes over an account it did not create"
     fi
 }
 
