@@ -93,17 +93,20 @@ final class YtDlp
         ], max(1, (int) config('import.ytdlp.download_timeout_seconds')));
 
         if (! $result->succeeded()) {
+            $this->isolation->take($directory, null);
+
             return null;
         }
 
         // The finished file alone: download.<ext>, never a part yt-dlp left
-        // behind (download.f137.mp4, a fragment) when joining failed.
+        // behind (download.f137.mp4, a fragment) when joining failed. Taken
+        // from the account, where it ran as one, so the worker stores its own.
         $files = array_values(array_filter(
             glob($directory.'/download.*') ?: [],
-            fn (string $path): bool => is_file($path) && preg_match('#/download\.[a-z0-9]+$#', $path) === 1,
+            fn (string $path): bool => ! is_link($path) && is_file($path) && preg_match('#/download\.[a-z0-9]+$#', $path) === 1,
         ));
 
-        return count($files) === 1 ? $files[0] : null;
+        return $this->isolation->take($directory, count($files) === 1 ? $files[0] : null);
     }
 
     /** @return list<string> */

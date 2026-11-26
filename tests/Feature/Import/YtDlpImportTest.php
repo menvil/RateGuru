@@ -12,6 +12,7 @@ use App\Livewire\Feed\UploadPostForm;
 use App\Models\MediaAsset;
 use App\Models\Post;
 use App\Models\User;
+use App\Services\Media\Exceptions\MediaToolUnavailableException;
 use App\Services\Media\MediaToolResult;
 use App\Services\Media\MediaToolRunner;
 use App\Support\Import\SafeImportHttpClient;
@@ -270,45 +271,73 @@ it('says a video-only site\'s page gave nothing, rather than posting its poster,
     Queue::assertNotPushed(ImportVideoAssetJob::class);
 });
 
-it('runs yt-dlp as its own account through sudo where the host has it, and as the worker where it does not', function () {
-    config(['import.ytdlp.isolation_user' => 'rateguru-media-fetch']);
+it('runs yt-dlp as its target\'s own account through sudo where the host has it and its firewall is loaded, as the worker where it has none', function () {
+    $worker = posix_getpwuid(posix_geteuid())['name'];
+    $account = fn (array &$asked): Closure => function (string $name) use (&$asked): bool {
+        $asked[] = $name;
 
-    expect((new YtDlpIsolation(fn (string $name): bool => $name === 'rateguru-media-fetch'))->command('/usr/local/bin/yt-dlp'))
-        ->toBe(['/usr/bin/sudo', '-n', '-u', 'rateguru-media-fetch', '--', '/usr/local/bin/yt-dlp'])
+        return true;
+    };
+    $asked = [];
+
+    expect((new YtDlpIsolation($account($asked), armed: fn (): bool => true))->command('/usr/local/bin/yt-dlp'))
+        ->toBe(['/usr/bin/sudo', '-n', '-u', "{$worker}-fetch", '--', '/usr/local/bin/yt-dlp'])
+        // The worker's own name and the suffix: one account per target.
+        ->and($asked)->toBe(["{$worker}-fetch"])
         ->and((new YtDlpIsolation(fn (): bool => false))->command('/usr/local/bin/yt-dlp'))->toBe(['/usr/local/bin/yt-dlp']);
 
-    config(['import.ytdlp.isolation_user' => '']);
-    expect((new YtDlpIsolation(fn (): bool => true))->command('yt-dlp'))->toBe(['yt-dlp']);
+    // The account there, its firewall not: never run as it without the table.
+    expect(fn () => (new YtDlpIsolation(fn (): bool => true, armed: fn (): bool => false))->command('/usr/local/bin/yt-dlp'))
+        ->toThrow(MediaToolUnavailableException::class);
 });
 
-it('opens the download directory to yt-dlp\'s account for the run, and refuses to go on when it cannot', function () {
-    config(['import.ytdlp.isolation_user' => 'rateguru-media-fetch']);
+it('opens the download directory to the account for the run, closes it after, and takes only a plain file it wrote as a copy of its own', function () {
+    $worker = posix_getpwuid(posix_geteuid())['name'];
     $calls = [];
     $isolation = new YtDlpIsolation(fn (): bool => true, function (array $arguments) use (&$calls): bool {
         $calls[] = $arguments;
 
         return true;
-    });
-    $worker = posix_getpwuid(posix_geteuid())['name'];
+    }, fn (): bool => true);
+    $directory = makeScratchDir('ytdlp-run').'/download-abc.d';
+    mkdir($directory, 0o700);
 
-    $isolation->share('/tmp/rateguru-video-import-1000/download-abc.d');
+    try {
+        $isolation->share($directory);
+        file_put_contents($directory.'/download.mp4', 'the video');
+        $taken = $isolation->take($directory, $directory.'/download.mp4');
 
-    expect($calls)->toBe([
-        ['-m', 'u:rateguru-media-fetch:x', '/tmp/rateguru-video-import-1000'],
-        ['-m', "u:rateguru-media-fetch:rwx,d:u:rateguru-media-fetch:rwx,d:u:{$worker}:rwx", '/tmp/rateguru-video-import-1000/download-abc.d'],
-    ]);
+        expect($calls)->toBe([
+            ['-m', "u:{$worker}-fetch:x", dirname($directory)],
+            ['-m', "u:{$worker}-fetch:rwx,d:u:{$worker}-fetch:rwx,d:u:{$worker}:rwx", $directory],
+            ['-x', "u:{$worker}-fetch,d:u:{$worker}-fetch", $directory],
+        ])
+            ->and($taken)->toBe($directory.'/taken.mp4')
+            ->and(file_get_contents($taken))->toBe('the video');
 
-    $refusing = new YtDlpIsolation(fn (): bool => true, fn (): bool => false);
-    expect(fn () => $refusing->share('/tmp/x/download.d'))->toThrow(RuntimeException::class);
+        // A link, or a file with a second name, is never taken.
+        symlink('/etc/hosts', $directory.'/linked.mp4');
+        link($directory.'/download.mp4', $directory.'/hard.mp4');
+        expect($isolation->take($directory, $directory.'/linked.mp4'))->toBeNull()
+            ->and($isolation->take($directory, $directory.'/download.mp4'))->toBeNull();
+    } finally {
+        removeScratchDir(dirname($directory));
+    }
 
-    // Without the account, nothing is opened.
+    $refusing = new YtDlpIsolation(fn (): bool => true, fn (): bool => false, fn (): bool => true);
+    expect(fn () => $refusing->share('/tmp/x/download.d'))->toThrow(RuntimeException::class)
+        ->and(fn () => $refusing->take('/tmp/x/download.d', null))->toThrow(RuntimeException::class);
+
+    // Without the account, nothing is opened or closed, and the file is taken as it is.
     $calls = [];
-    (new YtDlpIsolation(fn (): bool => false, function (array $arguments) use (&$calls): bool {
+    $none = new YtDlpIsolation(fn (): bool => false, function (array $arguments) use (&$calls): bool {
         $calls[] = $arguments;
 
         return true;
-    }))->share('/tmp/x/download.d');
-    expect($calls)->toBe([]);
+    });
+    $none->share('/tmp/x/download.d');
+    expect($none->take('/tmp/x/download.d', '/tmp/x/download.d/download.mp4'))->toBe('/tmp/x/download.d/download.mp4')
+        ->and($calls)->toBe([]);
 });
 
 it('tells sudo refusing yt-dlp from yt-dlp failing on a page', function () {

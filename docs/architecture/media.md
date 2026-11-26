@@ -592,22 +592,33 @@ user and system configuration, plugins and the cache, takes one video (no
 playlist), and gets the link after `--`.
 
 What is left is a listed site answering with an internal address. On a host
-prepared for it, yt-dlp therefore runs as an account of its own,
-`rateguru-media-fetch` (`import.ytdlp.isolation_user`, `YtDlpIsolation`):
-- **How it starts:** `sudo -n -u rateguru-media-fetch -- /usr/local/bin/yt-dlp …`,
-  through the one sudo rule that lets each target's runtime user run yt-dlp
-  as that account and nothing else.
-- **Its network:** the host's firewall keeps the account off every loopback,
-  private and link-local address, its resolver aside.
-- **Its files:** a download's directory, inside the worker's own, is opened
-  to the account by ACL for the run, and what it writes stays the worker's
-  to read and remove.
+prepared for it, each target's worker therefore runs yt-dlp as an account of
+that target's own: its runtime user's name and `-fetch`
+(`import.ytdlp.isolation_suffix`, `YtDlpIsolation`), so one target's yt-dlp
+never reaches another's downloads.
+- **How it starts:** `sudo -n -u rateguru-staging-fetch -- /usr/local/bin/yt-dlp …`,
+  through the one sudo rule that lets the target's runtime user run yt-dlp
+  as its account and nothing else.
+- **Its network:** the host's firewall keeps every such account off this
+  host's own addresses and every loopback, private and link-local one, its
+  resolver aside.
+- **Only with the firewall loaded:** the firewall's unit keeps a marker,
+  `/run/rateguru-media-fetch.armed`, while the table is loaded. Where the
+  account exists but the marker does not, yt-dlp is not run at all; it never
+  runs as the account without the table.
+- **Its files:**
+  - a download's directory, inside the worker's own, is opened to the account
+    by ACL for the run;
+  - after the run the directory is closed to the account again, so it can
+    neither add, replace nor remove anything there;
+  - the file it wrote is taken only as a plain file with one name, no link,
+    and copied, so what the worker stores is its own.
 - **A refused run:** sudo refusing it (the rule missing) is reported as
   yt-dlp being unavailable, never taken for a page without a video.
 - **Where the account does not exist** (development, tests, a host not yet
   prepared): yt-dlp runs as the worker, as before.
 
-The account, the rule and the firewall table are installed with the host
+The accounts, the rule and the firewall table are installed with the host
 (`install-media-fetch-isolation`).
 
 How the draft and its processing state appear to its author come later.
