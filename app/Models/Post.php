@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\ContentRating;
 use App\Enums\PostStatus;
 use App\Support\Media\PostImagePresenter;
 use App\Support\Posts\PostRetention;
@@ -19,6 +20,7 @@ use Illuminate\Support\Str;
 /**
  * @property PostStatus $status
  * @property PostStatus|null $deleted_from_status
+ * @property ContentRating $content_rating
  * @property-read int $score
  * @property-read string|null $public_image_url
  * @property Carbon|null $created_at
@@ -35,11 +37,17 @@ class Post extends Model
 
     protected $guarded = [];
 
+    /** Unrated until a classifier or a moderator says — as the column's default, before the row is read back. */
+    protected $attributes = [
+        'content_rating' => 'unknown',
+    ];
+
     protected function casts(): array
     {
         return [
             'status' => PostStatus::class,
             'deleted_from_status' => PostStatus::class,
+            'content_rating' => ContentRating::class,
             // Dates even while Post::withoutTimestamps() is on, under which
             // Eloquent stops treating them as dates on its own — as Content
             // Studio's executor runs it, so a historical post keeps its

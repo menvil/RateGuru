@@ -2,6 +2,8 @@
 
 namespace App\Models;
 
+use App\Enums\ContentRating;
+use App\Enums\ContentRatingSource;
 use App\Enums\ImageOrientation;
 use App\Enums\MediaKind;
 use App\Enums\MediaStatus;
@@ -15,6 +17,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Support\Carbon;
 
 /**
  * Master identity for an uploaded media file (a post image or a user
@@ -26,6 +29,10 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  * @property int|null $duration_ms
  * @property bool $has_audio
  * @property array<string, mixed>|null $metadata
+ * @property ContentRating $content_rating
+ * @property array<string, float>|null $content_scores
+ * @property ContentRatingSource|null $content_rating_source
+ * @property Carbon|null $content_rated_at
  * @property MediaStatus $status
  * @property MediaVisibility $visibility
  * @property string $disk
@@ -37,11 +44,20 @@ class MediaAsset extends Model
 
     protected $guarded = [];
 
+    /** Unrated until a classifier or a moderator says — as the column's default, before the row is read back. */
+    protected $attributes = [
+        'content_rating' => 'unknown',
+    ];
+
     protected function casts(): array
     {
         return [
             'kind' => MediaKind::class,
             'media_type' => MediaType::class,
+            'content_rating' => ContentRating::class,
+            'content_rating_source' => ContentRatingSource::class,
+            'content_scores' => 'array',
+            'content_rated_at' => 'datetime',
             'duration_ms' => 'integer',
             'has_audio' => 'boolean',
             'status' => MediaStatus::class,
@@ -82,6 +98,12 @@ class MediaAsset extends Model
     public function variants(): HasMany
     {
         return $this->hasMany(MediaVariant::class);
+    }
+
+    /** @return HasMany<MediaClassification, $this> every classifier's answer about this asset */
+    public function classifications(): HasMany
+    {
+        return $this->hasMany(MediaClassification::class);
     }
 
     /**
