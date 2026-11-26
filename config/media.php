@@ -17,6 +17,11 @@ return [
 
     'disks' => [
         'public' => env('MEDIA_PUBLIC_DISK', 'public'),
+        // Uploads nobody may fetch yet: a video as it arrived, until it has
+        // been processed into what pages play. Laravel's own private disk,
+        // on every target alike, so it is no key a target's environment has
+        // to supply.
+        'private' => 'local',
     ],
 
     /*

@@ -165,6 +165,7 @@ use Illuminate\Foundation\Http\Events\RequestHandled;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request as HttpClientRequest;
 use Illuminate\Http\Request;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Queue\Events\JobQueued;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Carbon;
@@ -1381,6 +1382,52 @@ function acceptableVideoProbe(array $changes = []): VideoProbeResult
         'audioStreamCount' => 1,
         'otherStreamCount' => 0,
     ]);
+}
+
+/**
+ * ffprobe's JSON for one file, shaped the way the real tool prints it.
+ *
+ * @param  list<array<string, mixed>>  $streams
+ * @param  array<string, mixed>  $format
+ */
+function ffprobeJson(array $streams, array $format = []): string
+{
+    return (string) json_encode([
+        'streams' => $streams,
+        'format' => $format + ['format_name' => 'mov,mp4,m4a,3gp,3g2,mj2', 'duration' => '14.960000'],
+    ]);
+}
+
+/**
+ * What ffprobe answers for an acceptable upload: a portrait H.264 clip of
+ * 15 s with sound, or — $gif — a short animated GIF. $format overrides
+ * fields of the format (a longer duration, another container).
+ *
+ * @param  array<string, mixed>  $format
+ */
+function acceptableFfprobeResult(array $format = [], bool $gif = false): MediaToolResult
+{
+    $streams = $gif
+        ? [['codec_type' => 'video', 'codec_name' => 'gif', 'width' => 480, 'height' => 270, 'avg_frame_rate' => '10/1']]
+        : [
+            ['codec_type' => 'video', 'codec_name' => 'h264', 'width' => 1080, 'height' => 1920, 'avg_frame_rate' => '30/1'],
+            ['codec_type' => 'audio', 'codec_name' => 'aac'],
+        ];
+
+    return new MediaToolResult(0, ffprobeJson($streams, $format + ($gif ? ['format_name' => 'gif', 'duration' => '2.400000'] : ['duration' => '15.000000'])), '');
+}
+
+/**
+ * An upload whose contents a type check reads as the video or GIF it says
+ * it is — enough for validation; ffprobe itself is faked by the test.
+ */
+function fakeVideoUpload(string $name = 'clip.mp4'): UploadedFile
+{
+    $contents = str_ends_with($name, '.gif')
+        ? "GIF89a\x01\x00\x01\x00\x80\x00\x00\x00\x00\x00\xff\xff\xff!\xf9\x04\x01\x00\x00\x00\x00,\x00\x00\x00\x00\x01\x00\x01\x00\x00\x02\x02D\x01\x00;"
+        : "\x00\x00\x00\x18ftypmp42\x00\x00\x00\x00mp42isom".str_repeat("\x00", 64);
+
+    return UploadedFile::fake()->createWithContent($name, $contents);
 }
 
 /**

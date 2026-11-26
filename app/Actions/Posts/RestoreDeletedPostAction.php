@@ -2,8 +2,11 @@
 
 namespace App\Actions\Posts;
 
+use App\Enums\MediaStatus;
+use App\Enums\PostStatus;
 use App\Exceptions\Posts\CannotRestoreDeletedPostException;
 use App\Models\Concerns\LocksActorForWrite;
+use App\Models\MediaAsset;
 use App\Models\Post;
 use App\Models\User;
 use App\Support\Cache\PostListCacheManager;
@@ -70,5 +73,16 @@ final class RestoreDeletedPostAction
         });
 
         $this->postListCache->invalidateForPost($post);
+
+        // A video post deleted while its media was processing comes back a
+        // draft; if the media was finished meanwhile, nothing else would
+        // ever publish it.
+        $media = $post->status === PostStatus::Draft && $post->image_asset_id !== null
+            ? MediaAsset::query()->find($post->image_asset_id)
+            : null;
+
+        if ($media?->status === MediaStatus::Ready) {
+            app(FinalizePostMediaAction::class)->ready($media);
+        }
     }
 }
