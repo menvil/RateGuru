@@ -1,0 +1,35 @@
+tests/Feature/Filament/StudioPlanImageUiTest.php
+  s_1f43f39fbe0537::t_f5fa227475aeb4 69-70
+docs/architecture/content-rating.md
+  ai_agent 121-129
+app/Filament/Resources/Posts/Pages/ListPosts.php
+  s_1f43f39fbe0537::t_4af8986f8515d7 577-584
+  s_1f43f39fbe0537::t_eefc09b28c5f76 28-29
+  s_1f43f39fbe0537::t_dc0fbfc0963ccd 11-15,535-536,538,567-568,572-576,585-616
+resources/views/filament/pages/posts/viewer.blade.php
+  s_1f43f39fbe0537::t_dc0fbfc0963ccd 4-5,30-35
+tests/Feature/Filament/PostResourceTest.php
+  s_1f43f39fbe0537::t_3f8ab567d226c8 245-263
+app/Enums/ContentRating.php
+  s_1f43f39fbe0537::t_4af8986f8515d7 18-27
+app/Enums/ContentCategory.php
+  s_1f43f39fbe0537::t_dc0fbfc0963ccd 22-36
+app/Filament/Resources/StudioPlans/Concerns/EditsStudioPlan.php
+  s_1f43f39fbe0537::t_4af8986f8515d7 11,1109-1110,1127
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "9e1184dabd7bc0736810cdd209460fc01c6eed95",
+  "prompts": {},
+  "sessions": {
+    "s_1f43f39fbe0537": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "526787d0-f443-4ad7-9610-cf9811fec895",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
