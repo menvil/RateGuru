@@ -545,8 +545,14 @@ posting. A link that names no file and gives nothing to take is tried as a
 picture's, as it always was. Instagram gives a post's photo; its videos wait
 for the yt-dlp import.
 
+What a link brings is decided by `ResolveMediaLinkAction`: a picture to
+fetch now, a video to download once the post exists, and the post's source.
+It counts the link against the author's link imports first, and refuses
+with `MediaLinkRefusedException` when there is nothing it may take. The form
+keeps the field's validation and what the author is told.
+
 ```text
-UploadPostForm -> CreatePostData::videoUrl -> CreatePostAction
+UploadPostForm -> ResolveMediaLinkAction -> CreatePostData::videoUrl -> CreatePostAction
   asset Processing, private, under a reserved path, metadata.import.url;
   the post a Draft; the per-author and import limits count it
   -> ImportVideoAssetJob (media queue)
@@ -564,6 +570,77 @@ UploadPostForm -> CreatePostData::videoUrl -> CreatePostAction
 The link is kept as the post's source when the author named none. Until it
 is downloaded the asset has no file, which the media audit does not count as
 a missing master.
+
+#### From a site's page, with yt-dlp
+
+A link to a page on one of the sites in `import.ytdlp.sites` (RedGifs and
+Instagram to begin with; which sites, the project's call) is
+asked of yt-dlp first (`App\Support\Import\YtDlp`): its video's length and
+size are read before anything is downloaded, so a clip that is too long is
+refused while posting. A page with no video it may take — an Instagram photo
+post — goes on as any link. `ImportVideoAssetJob` then downloads the video
+with yt-dlp instead of the plain client: an MP4 of at most 1080 lines,
+`--max-filesize` and `--match-filters duration<=…` at the upload limits,
+joined with the pinned ffmpeg.
+
+yt-dlp opens addresses itself, outside the pinned client, so it is never
+given a link to any other site, and only ever runs with that site's own
+extractor (`--use-extractors`): its generic extractor, which would open any
+address — an internal one included — is never among them. The link must be
+https and a public address first (`UrlImportValidator`). Every run ignores
+user and system configuration, plugins and the cache, takes one video (no
+playlist), and gets the link after `--`.
+
+What is left is a listed site answering with an internal address. On a host
+prepared for it, each target's worker therefore runs yt-dlp as an account of
+that target's own: its runtime user's name and `-fetch`
+(`import.ytdlp.isolation_suffix`, `YtDlpIsolation`), so one target's yt-dlp
+never reaches another's downloads.
+- **How it starts:** `sudo -n -u rateguru-staging-fetch -- /usr/local/bin/yt-dlp …`,
+  through the one sudo rule that lets the target's runtime user run yt-dlp
+  as its account and nothing else.
+- **Its network:** the host's firewall keeps every such account off this
+  host's own addresses and every loopback, private and link-local one, its
+  resolver aside.
+- **Only with the firewall loaded:** the firewall's unit keeps a marker,
+  `/run/rateguru-media-fetch.armed`, while the table is loaded. Where the
+  account exists but the marker does not, yt-dlp is not run at all; it never
+  runs as the account without the table.
+- **Its files:**
+  - a download's directory, inside the worker's own, is opened to the account
+    by ACL for the run. The worker's own directory keeps only a traverse
+    right for it;
+  - after the run, also one a timeout ended, the download directory is closed
+    to the account again, so it can neither add, replace nor remove anything
+    there;
+  - the file it wrote is taken only as a plain file with one name, no link,
+    no larger than an upload may be, and copied, so what the worker stores is
+    its own.
+- **A refused run:** sudo refusing it (the rule missing) is reported as
+  yt-dlp being unavailable, never taken for a page without a video. A
+  warning sudo prints before running the command is not a refusal.
+- **When yt-dlp cannot answer while posting:** the link is refused, to be
+  tried later, never posted as the page's picture. An Instagram reel would
+  otherwise go out as its poster.
+  - Only yt-dlp's own "there is no video in this post" counts as a page
+    without one. Any other failure, or an answer it cannot read, is a
+    refusal.
+  - An Instagram carousel with a video among its photos is refused ("cannot
+    be imported automatically"). One of photos alone goes on as a photo post.
+- **A download yt-dlp fails at** goes back to the job, to try once more. A
+  page with no video, or a video its filters refuse, is final.
+- **A silent video** downloads too: its video alone is the last format
+  chosen, after every choice with sound.
+- **Where the account does not exist:** in development, tests, or a host not
+  yet prepared (no marker), yt-dlp runs as the worker, as before. A prepared
+  host with no account for this worker runs no yt-dlp at all.
+- **Remaining risk:** what a compromised account leaves in a download
+  directory it was given could be made unremovable for the worker, for
+  example by `chmod 000` on a subdirectory. It stays inside that target's own
+  temporary directory.
+
+The accounts, the rule and the firewall table are installed with the host
+(`install-media-fetch-isolation`).
 
 How the draft and its processing state appear to its author come later.
 

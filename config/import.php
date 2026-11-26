@@ -14,6 +14,38 @@ return [
     // A video downloaded by ImportVideoAssetJob, in the background: up to
     // 100 MB needs far longer than a page or a picture.
     'video_timeout_seconds' => 120,
+
+    // A video taken from a site's page with yt-dlp. Only the sites named
+    // here, each through its own extractor alone (--use-extractors): never
+    // yt-dlp's generic extractor, which would open any address a link gave
+    // it. Adding a site is a line here; which sites, the project's call.
+    'ytdlp' => [
+        'binary' => 'yt-dlp',
+        // The probe runs while the author waits, in a web worker: short, one
+        // per author, two on the host at once (ResolveMediaLinkAction).
+        'probe_timeout_seconds' => 15,
+        'probe_slots' => 2,
+        'download_timeout_seconds' => 240,
+        // The sites yt-dlp may take a video from, each with the one extractor
+        // it may use there — the project's choice, reviewed site by site.
+        'sites' => [
+            'redgifs.com' => 'RedGifs',
+            'instagram.com' => 'Instagram',
+        ],
+        // The sites whose pages may hold a photo instead: when yt-dlp finds
+        // no video there, the page's photo is taken. On the others every page
+        // is a video, so finding none is a failure, said as one — never a
+        // poster frame posted in its place.
+        'photo_fallback' => ['Instagram'],
+        // The account yt-dlp runs as where the host has it: the worker's own
+        // name and this suffix — one per target — kept off every loopback,
+        // private and link-local address by the host's firewall
+        // (install-media-fetch-isolation), whose unit keeps the marker while
+        // the table is loaded. Where the account does not exist, yt-dlp runs
+        // as the worker; where the marker is missing, not at all.
+        'isolation_suffix' => '-fetch',
+        'isolation_marker' => '/run/rateguru-media-fetch.armed',
+    ],
     'max_redirects' => 3,
 
     // Bounds how many DNS answers a single A/AAAA lookup is allowed to

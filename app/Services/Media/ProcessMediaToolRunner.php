@@ -6,6 +6,7 @@ use App\Enums\MediaTool;
 use App\Services\Media\Exceptions\MediaToolInterruptedException;
 use App\Services\Media\Exceptions\MediaToolTimedOutException;
 use App\Services\Media\Exceptions\MediaToolUnavailableException;
+use App\Support\Import\YtDlpIsolation;
 use Symfony\Component\Process\Exception\ProcessSignaledException;
 use Symfony\Component\Process\Exception\ProcessTimedOutException;
 use Symfony\Component\Process\Exception\RuntimeException as ProcessRuntimeException;
@@ -32,10 +33,13 @@ final class ProcessMediaToolRunner implements MediaToolRunner
     public function run(MediaTool $tool, array $arguments, int $timeoutSeconds): MediaToolResult
     {
         $binary = $this->resolve($tool);
+        // yt-dlp, on a host prepared for it, runs as its own account, kept
+        // off the host's private network (YtDlpIsolation).
+        $command = $tool === MediaTool::YtDlp ? app(YtDlpIsolation::class)->command($binary) : [$binary];
 
         // A fixed locale keeps the tools' number formatting (ffprobe's
         // durations) the same whatever the worker's environment says.
-        $process = new Process([$binary, ...$arguments], null, ['LC_ALL' => 'C'], null, $timeoutSeconds);
+        $process = new Process([...$command, ...$arguments], null, ['LC_ALL' => 'C'], null, $timeoutSeconds);
 
         try {
             $process->run();
@@ -47,6 +51,11 @@ final class ProcessMediaToolRunner implements MediaToolRunner
             throw MediaToolInterruptedException::bySignal($tool);
         } catch (ProcessRuntimeException $exception) {
             throw MediaToolUnavailableException::cannotStart($tool, $exception);
+        }
+
+        // sudo refusing the run is the host's rule missing, not the page.
+        if ($tool === MediaTool::YtDlp && count($command) > 1 && YtDlpIsolation::refused($process->getExitCode() ?? -1, $process->getErrorOutput())) {
+            throw MediaToolUnavailableException::cannotStart($tool);
         }
 
         // ffmpeg catches the signal itself and exits 255, which says the same.
