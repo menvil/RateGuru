@@ -1,0 +1,30 @@
+tests/Feature/Import/YtDlpImportTest.php
+  s_1f43f39fbe0537::t_ac6b61e5173ec8 19,272-316
+config/import.php
+  s_1f43f39fbe0537::t_e7ce1ee1995af5 40-44
+app/Support/Import/YtDlp.php
+  s_1f43f39fbe0537::t_ac6b61e5173ec8 21,76-78
+app/Services/Media/ProcessMediaToolRunner.php
+  s_1f43f39fbe0537::t_e7ce1ee1995af5 36-38,42,56-58
+  s_1f43f39fbe0537::t_ac6b61e5173ec8 9
+docs/architecture/media.md
+  ai_agent 592-611
+app/Support/Import/YtDlpIsolation.php
+  s_1f43f39fbe0537::t_e7ce1ee1995af5 1-103
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "610bc6f6beea76fec805524f39b63d844a66f434",
+  "prompts": {},
+  "sessions": {
+    "s_1f43f39fbe0537": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "526787d0-f443-4ad7-9610-cf9811fec895",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
