@@ -18,8 +18,16 @@ final class ImportCheckYtDlpSitesCommand extends Command
 
     public function handle(YtDlpSiteCheck $check): int
     {
-        foreach ($check->run() as $extractor => $result) {
-            $this->line("{$extractor}: {$result['status']}".($result['failures'] > 0 ? " ({$result['failures']} check(s) running)" : ''));
+        $results = $check->run();
+
+        if ($results === null) {
+            $this->line('Another check is running; its results are what Media Diagnostics shows.');
+
+            return self::SUCCESS;
+        }
+
+        foreach ($results as $extractor => $result) {
+            $this->line("{$extractor}: {$result['status']}".($result['failures'] > 0 ? " ({$result['failures']} day(s) running)" : ''));
         }
 
         return self::SUCCESS;

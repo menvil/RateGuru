@@ -10,7 +10,7 @@ use App\Models\MediaAsset;
 use App\Models\Post;
 use App\Services\Media\Exceptions\MediaToolTimedOutException;
 use App\Services\Media\Exceptions\MediaToolUnavailableException;
-use Carbon\CarbonImmutable;
+use Illuminate\Contracts\Cache\LockProvider;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 
@@ -30,8 +30,11 @@ final class YtDlpSiteCheck
     /** The recent pages a site is asked about, newest first. */
     private const int SAMPLES = 3;
 
-    /** How far back through the imports it looks for them. */
-    private const int SCAN_LIMIT = 5000;
+    /** Days running a site takes nothing before it is reported. */
+    public const int REPORT_AFTER_DAYS = 2;
+
+    /** Longer than any run may take: a run that died frees it in time. */
+    private const int LOCK_SECONDS = 1800;
 
     public function __construct(
         private readonly YtDlp $ytDlp,
@@ -39,26 +42,58 @@ final class YtDlpSiteCheck
     ) {}
 
     /**
-     * @return array<string, array{status: string, checked_at: string, failures: int}>
-     *                                                                                 by extractor: ok, broken, or no_sample (nothing imported from it yet); failures counts the days running it took nothing
+     * One run at a time, however it is started — the schedule or by hand —
+     * so no two read the same day's counts and both report a site.
+     *
+     * @return array<string, array{status: string, checked_at: string, failures: int, failed_on: ?string}>|null
+     *                                                                                                          by extractor: ok, broken, or no_sample (nothing imported from it found); failures counts the days running it took nothing, failed_on the last of them. Null while another run holds the check.
      */
-    public function run(): array
+    public function run(): ?array
+    {
+        $store = Cache::store('database')->getStore();
+        $lock = $store instanceof LockProvider ? $store->lock(self::CACHE_KEY.':running', self::LOCK_SECONDS) : null;
+
+        if ($lock !== null && ! $lock->get()) {
+            return null;
+        }
+
+        try {
+            return $this->check();
+        } finally {
+            $lock?->release();
+        }
+    }
+
+    /**
+     * Whether a site's result has been reported: broken on enough days
+     * running. What Media Diagnostics marks as broken rather than failing.
+     *
+     * @param  array{status: string, failures: int}  $result
+     */
+    public static function reported(array $result): bool
+    {
+        return $result['status'] === 'broken' && $result['failures'] >= self::REPORT_AFTER_DAYS;
+    }
+
+    /** @return array<string, array{status: string, checked_at: string, failures: int, failed_on: ?string}> */
+    private function check(): array
     {
         $previous = self::results();
         $samples = $this->samples();
         $results = [];
+        $reports = [];
+        $today = now()->toDateString();
+        $yesterday = now()->subDay()->toDateString();
 
         foreach ($this->sites->extractors() as $extractor) {
             $before = $previous[$extractor] ?? null;
             $failures = (int) ($before['failures'] ?? 0);
-            // A second run on the same day — by hand, or overlapping — says
-            // nothing new about the site: it counts days, not runs.
-            $checkedToday = is_string($before['checked_at'] ?? null) && CarbonImmutable::parse($before['checked_at'])->isSameDay(now());
+            $failedOn = is_string($before['failed_on'] ?? null) ? $before['failed_on'] : null;
 
             if (($samples[$extractor] ?? []) === []) {
                 // Nothing to ask about is no news either way: a broken site
                 // whose last good pages aged out stays as counted.
-                $results[$extractor] = ['status' => 'no_sample', 'checked_at' => now()->toIso8601ZuluString(), 'failures' => $failures];
+                $results[$extractor] = ['status' => 'no_sample', 'checked_at' => now()->toIso8601ZuluString(), 'failures' => $failures, 'failed_on' => $failedOn];
 
                 continue;
             }
@@ -66,28 +101,48 @@ final class YtDlpSiteCheck
             try {
                 $works = $this->anyGivesVideo($samples[$extractor]);
             } catch (MediaToolUnavailableException) {
-                // Not the sites: yt-dlp itself. Nothing is counted, and it is
-                // said once, as what it is.
+                // Not the sites: yt-dlp itself. Nothing is counted or said of
+                // any site — not even one already asked — and it is said once,
+                // as what it is.
                 report(YtDlpSiteBrokenException::toolUnavailable());
 
                 return $previous;
             }
 
-            $counted = $works ? 0 : ($checkedToday && ($before['status'] ?? null) === 'broken' ? $failures : $failures + 1);
-            $results[$extractor] = ['status' => $works ? 'ok' : 'broken', 'checked_at' => now()->toIso8601ZuluString(), 'failures' => $counted];
+            if ($works) {
+                $results[$extractor] = ['status' => 'ok', 'checked_at' => now()->toIso8601ZuluString(), 'failures' => 0, 'failed_on' => null];
 
-            // Said once a day at most: a second run that day reported it already.
-            if ($counted >= 2 && ! ($checkedToday && $failures >= 2)) {
-                report(YtDlpSiteBrokenException::site($extractor, $counted));
+                continue;
+            }
+
+            // It counts days, not runs: a failure today counted already stays
+            // as it is. Days running means the failure before was yesterday;
+            // after a day nobody checked, or one it worked, it starts again.
+            $counted = match ($failedOn) {
+                $today => $failures,
+                $yesterday => $failures + 1,
+                default => 1,
+            };
+            $results[$extractor] = ['status' => 'broken', 'checked_at' => now()->toIso8601ZuluString(), 'failures' => $counted, 'failed_on' => $today];
+
+            // Said once a day at most: on the day it is counted.
+            if ($failedOn !== $today && $counted >= self::REPORT_AFTER_DAYS) {
+                $reports[] = YtDlpSiteBrokenException::site($extractor, $counted);
             }
         }
 
         Cache::store('database')->forever(self::CACHE_KEY, $results);
 
+        // Only once the run is saved: one that gave up on the tool part way
+        // never said anything of a site it had asked.
+        foreach ($reports as $report) {
+            report($report);
+        }
+
         return $results;
     }
 
-    /** @return array<string, array{status: string, checked_at: string, failures: int}> the last run's, or none */
+    /** @return array<string, array{status: string, checked_at: string, failures: int, failed_on: ?string}> the last run's, or none */
     public static function results(): array
     {
         $results = Cache::store('database')->get(self::CACHE_KEY);
@@ -127,8 +182,9 @@ final class YtDlpSiteCheck
 
     /**
      * The pages each site's videos were last imported from, newest first, up
-     * to SAMPLES each — in one pass over the newest imports, so a site
-     * imported from rarely is still found among busier ones. Only pages yt-dlp
+     * to SAMPLES each — in one pass over the newest imports, at most
+     * import.ytdlp.check_scan_limit of them, so a site imported from rarely
+     * is still found among busier ones. Only pages yt-dlp
      * itself took (a link straight to a file went through the plain download,
      * and its site's extractor would refuse it), and only those of posts still
      * on the site: a source taken down is never asked for again.
@@ -160,7 +216,7 @@ final class YtDlpSiteCheck
 
             $complete = array_filter($wanted, fn (string $name): bool => count($found[$name] ?? []) >= self::SAMPLES);
 
-            if (count($complete) === count($wanted) || ++$scanned >= self::SCAN_LIMIT) {
+            if (count($complete) === count($wanted) || ++$scanned >= max(1, (int) config('import.ytdlp.check_scan_limit'))) {
                 break;
             }
         }

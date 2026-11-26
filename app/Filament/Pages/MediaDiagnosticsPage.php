@@ -555,19 +555,27 @@ final class MediaDiagnosticsPage extends Page
         $results = YtDlpSiteCheck::results();
         $broken = array_keys(array_filter($results, fn (array $result): bool => $result['status'] === 'broken'));
         $working = count(array_filter($results, fn (array $result): bool => $result['status'] === 'ok'));
-        // Reported from the second day running; the first may be the site's
-        // own bad day.
-        $reported = array_filter($results, fn (array $result): bool => $result['status'] === 'broken' && $result['failures'] >= 2) !== [];
+        // A site with nothing recent to ask about is named too, with how it
+        // last fared when it had: its last result is never hidden.
+        $unchecked = array_map(
+            fn (string $site): string => $results[$site]['failures'] > 0 ? "{$site} (failing before)" : $site,
+            array_keys(array_filter($results, fn (array $result): bool => $result['status'] === 'no_sample')),
+        );
+        $reported = array_filter($results, fn (array $result): bool => YtDlpSiteCheck::reported($result)) !== [];
         $checked = collect($results)->pluck('checked_at')->filter()->max();
 
         return [
             'label' => 'yt-dlp sites',
-            'value' => $results === [] ? 'Not checked' : number_format($working).' working',
-            'note' => match (true) {
-                $results === [] => 'Checked daily',
-                $broken !== [] => 'Taking nothing: '.implode(', ', $broken),
-                default => 'Checked '.ModerationListFormat::when(CarbonImmutable::parse((string) $checked)),
+            'value' => match (true) {
+                $results === [] => 'Not checked',
+                count($unchecked) === count($results) => 'Nothing to check',
+                default => number_format($working).' working',
             },
+            'note' => $results === [] ? 'Checked daily' : implode(' · ', array_filter([
+                $broken === [] ? null : 'Taking nothing: '.implode(', ', $broken),
+                $unchecked === [] ? null : 'No recent imports: '.implode(', ', $unchecked),
+                $broken === [] ? 'Checked '.ModerationListFormat::when(CarbonImmutable::parse((string) $checked)) : null,
+            ])),
             'badge' => $broken === [] ? null : ($reported ? ['label' => 'Broken', 'tone' => 'danger'] : ['label' => 'Failing', 'tone' => 'warning']),
             'filter' => null,
         ];

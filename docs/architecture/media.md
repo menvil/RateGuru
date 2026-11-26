@@ -651,16 +651,22 @@ most likely broke.
 
 - **Which pages:** only those yt-dlp itself took (never a link straight to a
   file), and only those of posts still on the site, so a source taken down is
-  never asked for again. They are found in one pass over the newest imports,
-  so a site imported from rarely is still found.
+  never asked for again. They are found in one pass over the newest imports
+  (at most `import.ytdlp.check_scan_limit`), so a site imported from rarely
+  is still found. A site is asked about its three newest at most.
 - **A slow page** is passed over for the next.
+- **One run at a time:** a lock holds the check from reading the last counts
+  to saving the new ones, whether the schedule or a person started it.
 - **Reported** (`YtDlpSiteBrokenException`: Sentry, and Nightwatch where it
-  runs):
-  - a site taking nothing on two days running, once a day however often the
-    check runs;
-  - yt-dlp itself failing to start, said as that and counted against no site.
+  runs), only once the run's results are saved:
+  - a site taking nothing on two calendar days running, once a day however
+    often the check runs. A day nobody checked, or a run where it worked,
+    starts the count again;
+  - yt-dlp itself failing to start, said as that and counted against no site,
+    not even one asked before it in that run.
 - **Media Diagnostics** shows every site's last result and when it was
-  checked.
+  checked. A site with no recent imports to ask about is named too, marked
+  when it was failing before.
 
 The fix is usually a newer pinned
 yt-dlp (`infrastructure/config/external-runtimes/versions.env`), installed by

@@ -28,6 +28,8 @@ return [
         // The daily site check runs off any request, so it waits longer for
         // a slow site than a probe an author is waiting on may.
         'check_timeout_seconds' => 60,
+        // How far back through the imports it looks for each site's pages.
+        'check_scan_limit' => 5000,
         'download_timeout_seconds' => 240,
         // The sites yt-dlp may take a video from, each with the one extractor
         // it may use there — the project's choice, reviewed site by site.
