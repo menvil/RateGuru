@@ -29,9 +29,10 @@ final class MediaClassificationRecorder
             $result = $classifier->classify($input);
         } catch (Throwable $exception) {
             // A classifier saying it has no answer is expected; anything
-            // else is a bug in it, and goes where bugs go.
+            // else is a bug in it, and goes where bugs go — by its class and
+            // place, without the message a provider's answer may fill.
             if (! $exception instanceof MediaClassificationFailedException) {
-                report($exception);
+                report(MediaClassifierCrashedException::from($classifier->name(), $exception));
             }
 
             return MediaClassification::query()->create([
@@ -42,7 +43,7 @@ final class MediaClassificationRecorder
                 'status' => ClassificationStatus::Failed,
                 'inputs' => $inputs,
                 'latency_ms' => self::millisecondsSince($started),
-                'error' => mb_substr(self::reason($exception), 0, 500),
+                'error' => mb_substr($exception instanceof MediaClassificationFailedException ? $exception->getMessage() : self::reasonFor($exception), 0, 500),
             ]);
         }
 
@@ -115,16 +116,13 @@ final class MediaClassificationRecorder
     }
 
     /**
-     * Why it failed, without what a message may carry: a classifier's own
-     * exception names no file and holds no key; anything else is kept to its
-     * class — an anonymous one's parent, whose name holds no path.
+     * An exception other than a classifier's own "no answer", without what
+     * its message may carry: its class — an anonymous one's parent, whose
+     * name holds no path. A classifier's own exception names no file and
+     * holds no key, so its message is kept as it is.
      */
-    private static function reason(Throwable $exception): string
+    public static function reasonFor(Throwable $exception): string
     {
-        if ($exception instanceof MediaClassificationFailedException) {
-            return $exception->getMessage();
-        }
-
         $class = $exception::class;
 
         return str_contains($class, '@anonymous') ? (get_parent_class($exception) ?: 'anonymous') : $class;

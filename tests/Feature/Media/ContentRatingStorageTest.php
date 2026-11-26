@@ -12,6 +12,7 @@ use App\Services\Media\Classification\ClassificationInput;
 use App\Services\Media\Classification\ClassificationResult;
 use App\Services\Media\Classification\MediaClassificationFailedException;
 use App\Services\Media\Classification\MediaClassificationRecorder;
+use App\Services\Media\Classification\MediaClassifierCrashedException;
 use App\Services\Media\Classification\MediaContentClassifier;
 use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Schema;
@@ -110,8 +111,11 @@ it('records a classifier that failed, with a reason that names no file and holds
         ->and($crashed->error)->toBe(RuntimeException::class)
         ->and($broken->error)->toBe(TypeError::class)
         ->and($anonymous->error)->toBe(RuntimeException::class);
-    // A classifier's own "no answer" is expected; anything else is a bug in it.
+    // A classifier's own "no answer" is expected; anything else is a bug in
+    // it, reported by its class and place — never by its message.
     Exceptions::assertReportedCount(3);
+    Exceptions::assertReported(fn (MediaClassifierCrashedException $report): bool => str_starts_with($report->getMessage(), 'The stand-in classifier threw RuntimeException at tests/Feature/Media/ContentRatingStorageTest.php:')
+        && ! str_contains($report->getMessage(), 'secret'));
 });
 
 it('keeps only the project\'s categories, each a finite score in 0..1, and an answer JSON cannot hold as a note', function () {
