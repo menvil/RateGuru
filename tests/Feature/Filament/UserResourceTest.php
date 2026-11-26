@@ -735,3 +735,20 @@ it('tells in a person\'s editor when they confirmed their address, or when they 
     Livewire::test(UserEditor::class, ['userId' => $overdue->id])
         ->assertSeeText('Not confirmed · removed at the next cleanup');
 });
+
+it('shows a row with nothing to do on it — a deleted account — without Edit or the menu, and every other row with both', function () {
+    $this->actingAs(User::factory()->admin()->create());
+    $deleted = User::factory()->tombstoned()->create();
+    $member = User::factory()->create(['username' => 'biscuit_mum']);
+
+    $page = Livewire::withQueryParams(['status' => 'deleted'])->test(ListUsers::class);
+    expect(listedRow($page, $deleted)['actionable'])->toBeFalse();
+    $page->assertSee('No actions for '.listedRow($page, $deleted)['username'])
+        ->assertDontSee('Moderation actions for '.listedRow($page, $deleted)['username'])
+        ->assertDontSee('The account was deleted');
+
+    $page = Livewire::withQueryParams(['status' => 'all'])->test(ListUsers::class);
+    expect(listedRow($page, $member)['actionable'])->toBeTrue();
+    $page->assertSee('Moderation actions for biscuit_mum')
+        ->assertDontSee('No actions for biscuit_mum');
+});
