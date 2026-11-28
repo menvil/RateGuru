@@ -1261,8 +1261,9 @@ it('leaves every other operational script and workflow byte-identical to develop
         // hardening block. What it must still be is asserted directly below
         // rather than frozen, because "unchanged" stopped being the property
         // worth proving about it.
-        'infrastructure/config/nginx/rateguru-production',
-        'infrastructure/config/php-fpm/rateguru-production.conf',
+        // The shared production vhost and pool have left it as well: they
+        // described the shared production-root model the registry replaced,
+        // and are no longer committed at all.
         // The staging vhost, pool and Supervisor program have left this list
         // too. Video brought larger uploads, cached post media and a media
         // worker beside the default one. StagingAssetDeliveryTest and

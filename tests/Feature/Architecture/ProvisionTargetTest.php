@@ -839,24 +839,22 @@ it('names no brand anywhere, in the orchestrator or in the production renderer',
 it('renders a production target from the registry rather than from the old shared-production config', function () {
     $services = executableSourceLines(File::get(base_path('infrastructure/scripts/install-bootstrap-services')));
 
-    // The committed config/nginx/rateguru-production describes the OLD shared
-    // production-root model — one /home/www/rateguru/production tree for every
-    // brand — which the target registry replaced. It must never be reachable as
-    // a target's service source. It still exists, because
-    // install-target-operations installs and verifies it as part of the
-    // operational bundle the recovery prerequisite machinery reads.
+    // The old shared production-root model — one /home/www/rateguru/production
+    // tree for every brand — was replaced by the target registry, and its
+    // committed vhost and PHP-FPM pool are gone with it: a reader looking for
+    // production's service configuration finds the renderer, not a stale file
+    // with different limits.
     expect($services)->not->toContain('rateguru-production');
 
     expect(executableSourceLines(provisionSource()))->not->toContain('rateguru-production');
 
-    // The file is still committed, and still installed by its actual owner.
-    expect(File::exists(base_path('infrastructure/config/nginx/rateguru-production')))->toBeTrue();
-    expect(File::get(base_path('infrastructure/scripts/install-target-operations')))
-        ->toContain('SRC_NGINX_SOURCE_PRODUCTION="${REPO_ROOT}/infrastructure/config/nginx/rateguru-production"');
+    expect(File::exists(base_path('infrastructure/config/nginx/rateguru-production')))->toBeFalse();
+    expect(File::exists(base_path('infrastructure/config/php-fpm/rateguru-production.conf')))->toBeFalse();
 
-    // And it describes the model it always did, so nothing can mistake it for
-    // a per-target source: no registry-derived target root appears in it.
-    expect(File::get(base_path('infrastructure/config/nginx/rateguru-production')))
-        ->toContain('/home/www/rateguru/production/current/public')
-        ->not->toContain('/home/www/rateguru/production/tits-guru');
+    // The operations bundle no longer ships the vhost either; what it still
+    // knows of it is the path of the copy an earlier install left on a host,
+    // which its --apply removes.
+    expect(executableSourceLines(File::get(base_path('infrastructure/scripts/install-target-operations'))))
+        ->not->toContain('infrastructure/config/nginx/rateguru-production')
+        ->toContain('remove_regular_file_transactional "${RETIRED_NGINX_SOURCE_SHARED_PRODUCTION}"');
 });
