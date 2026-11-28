@@ -711,3 +711,20 @@ it('posts any other page\'s video yt-dlp finds, and takes a page it does not kno
     expect(Post::query()->where('title', 'A story')->exists())->toBeTrue();
     Log::shouldNotHaveReceived('warning');
 });
+
+it('says a page that did not show its own picture cannot be imported, rather than posting the site\'s logo', function () {
+    bindFakeHostResolver(['nsfw.example' => ['93.184.216.50']]);
+    Http::fake([
+        'nsfw.example/*' => Http::response('<head><meta property="og:url" content="https://nsfw.example/"><meta property="og:image" content="https://nsfw.example/assets/og-image.png"></head>', 200, ['Content-Type' => 'text/html']),
+    ]);
+    $this->mock(StoreImportedImageAction::class, fn ($mock) => $mock->shouldNotReceive('download'));
+
+    Livewire::actingAs(User::factory()->create())
+        ->test(UploadPostForm::class)
+        ->set('title', 'A logo')
+        ->set('importedImageUrl', 'https://nsfw.example/post/aRLwNBB')
+        ->call('submit')
+        ->assertSet('submitError', __('import.errors.unsupported'));
+
+    expect(Post::query()->count())->toBe(0);
+});

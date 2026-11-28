@@ -100,6 +100,13 @@ final class ResolveMediaLinkAction
         // goes on as any link.
         $preview = app(ImportFromUrlAction::class)->handle($url);
         $videoUrl = $preview->videoUrl;
+
+        // A page that did not show its own picture — an error page, the
+        // site's home page in its place — is said so, not tried as one.
+        if ($provider === 'open_graph' && $videoUrl === null && ! $preview->isSupported()) {
+            throw MediaLinkRefusedException::nothingToTake();
+        }
+
         // A link that names no file and is no known site's post may still be
         // a picture's (an image CDN's, "copy image address"): with nothing
         // else to take, it is tried as one, as it always was.

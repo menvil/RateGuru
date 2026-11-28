@@ -142,3 +142,33 @@ it('gives the image candidates one lookup budget, and shows the preview without 
     expect(app(OpenGraphImportAdapter::class)->preview('https://example.com/page')->imageUrl)->toBeNull()
         ->and($resolver->looked)->toBe(['slow1.example.net', 'slow2.example.net', 'slow3.example.net']);
 });
+
+it('takes no picture from a page whose tags describe the site\'s home page instead, as an app that loads its post in the browser answers a server', function () {
+    Http::fake([
+        'example.com/post/aRLwNBB' => Http::response(
+            '<head><meta property="og:url" content="https://example.com/"><meta property="og:image" content="https://example.com/assets/og-image.png"></head>',
+            200,
+            ['Content-Type' => 'text/html']
+        ),
+    ]);
+
+    $preview = app(OpenGraphImportAdapter::class)->preview('https://example.com/post/aRLwNBB');
+
+    expect($preview->imageUrl)->toBeNull()
+        ->and($preview->isSupported())->toBeFalse();
+});
+
+it('still takes the picture of a page whose tags describe that page, or name no page at all', function (string $ogUrl) {
+    Http::fake([
+        'example.com/post/aRLwNBB' => Http::response(
+            '<head>'.$ogUrl.'<meta property="og:image" content="https://example.com/post.jpg"></head>',
+            200,
+            ['Content-Type' => 'text/html']
+        ),
+    ]);
+
+    expect(app(OpenGraphImportAdapter::class)->preview('https://example.com/post/aRLwNBB')->imageUrl)->toBe('https://example.com/post.jpg');
+})->with([
+    'its own page' => ['<meta property="og:url" content="https://example.com/post/aRLwNBB">'],
+    'none' => [''],
+]);
