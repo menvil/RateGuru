@@ -76,8 +76,8 @@ it('installs recover-host through the existing installer, and adds no second ins
 
     // The authoritative counts were updated honestly, not left stale.
     expect($installer)
-        ->toContain('thirty-eight files')
-        ->toContain('all thirty-eight source files are present regular files')
+        ->toContain('thirty-seven files')
+        ->toContain('all thirty-seven source files are present regular files')
         ->toContain('bash -n passed for all twenty-six source shell scripts')
         ->not->toContain('twenty-three files')
         ->not->toContain('all twenty-one source');

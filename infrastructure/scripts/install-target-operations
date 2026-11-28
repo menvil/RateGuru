@@ -15,7 +15,7 @@
 #             restore-storage, restore-target, recover-host,
 #             install-target-prerequisites, mail-identity, mail-routing,
 #             verify-required-clis, verify-environment-contract), the two
-#             committed environment templates, the four
+#             committed environment templates, the three
 #             committed Nginx vhost sources the prerequisite table is derived
 #             from, the three mail contracts the DKIM row is derived from, the
 #             host-global deployment.conf and the deployment protocol
@@ -27,7 +27,7 @@
 #             backup.
 #
 # What this installs — and does not:
-#   * Thirty-eight files: the registry, the twenty-six scripts — targets,
+#   * Thirty-seven files: the registry, the twenty-six scripts — targets,
 #     common, restore-common and recovery-outbound-hold (sourced libraries),
 #     health-check and status
 #     (read-only), cleanup, deploy, rollback, backup, restore-test,
@@ -35,7 +35,7 @@
 #     The Restore Target Data restore primitives (fetch-backup, verify-backup,
 #     restore-database, restore-storage, restore-target), recover-host,
 #     install-target-prerequisites, mail-identity, mail-routing and
-#     verify-required-clis — the four committed Nginx vhost sources
+#     verify-required-clis — the three committed Nginx vhost sources
 #     (config/nginx/*), the three mail contracts (config/mail-identity.json,
 #     config/mail-routing.json, config/mail-outbound.json), deployment.conf, the
 #     host-global (non-target-specific) configuration those scripts source, and
@@ -106,9 +106,9 @@
 #
 # Destinations are fixed, hardcoded constants — see "Locations" below. They
 # are not configurable by environment variable or CLI argument, on purpose:
-# this installer's whole job is to put these thirty-eight files in these
-# thirty-eight places with these exact permissions, nothing else. The one
-# directory it creates is config/nginx, which exists solely to hold four of
+# this installer's whole job is to put these thirty-seven files in these
+# thirty-seven places with these exact permissions, nothing else. The one
+# directory it creates is config/nginx, which exists solely to hold three of
 # those files.
 #
 # --apply additionally takes the EXISTING per-namespace restore AND recovery
@@ -179,7 +179,6 @@ SRC_DEPLOYMENT_PROTOCOL="${REPO_ROOT}/infrastructure/config/deployment-protocol.
 # reason the prerequisite installer lists the mail vhosts: a glob would turn a
 # vhost nobody intended into a host requirement.
 SRC_NGINX_SOURCE_STAGING="${REPO_ROOT}/infrastructure/config/nginx/rateguru-staging"
-SRC_NGINX_SOURCE_PRODUCTION="${REPO_ROOT}/infrastructure/config/nginx/rateguru-production"
 SRC_NGINX_SOURCE_MAILPIT="${REPO_ROOT}/infrastructure/config/nginx/mailpit-staging"
 SRC_NGINX_SOURCE_MAILTRAP="${REPO_ROOT}/infrastructure/config/nginx/mailtrap-local-staging"
 # The committed environment templates, installed for STANDALONE host-side
@@ -234,14 +233,21 @@ DST_VERIFY_REQUIRED_CLIS="${DST_BIN_ROOT}/verify-required-clis"
 DST_VERIFY_ENV_CONTRACT="${DST_BIN_ROOT}/verify-environment-contract"
 DST_DEPLOYMENT_CONF="${DST_CONFIG_ROOT}/deployment.conf"
 DST_DEPLOYMENT_PROTOCOL="${DST_CONFIG_ROOT}/deployment-protocol.json"
-# The one directory this installer owns: it exists solely to hold the four
+# The one directory this installer owns: it exists solely to hold the three
 # vhost sources below, in the position install-target-prerequisites resolves
 # from its own installed location.
 DST_NGINX_SOURCES_ROOT="${DST_CONFIG_ROOT}/nginx"
 DST_NGINX_SOURCE_STAGING="${DST_CONFIG_ROOT}/nginx/rateguru-staging"
-DST_NGINX_SOURCE_PRODUCTION="${DST_CONFIG_ROOT}/nginx/rateguru-production"
 DST_NGINX_SOURCE_MAILPIT="${DST_CONFIG_ROOT}/nginx/mailpit-staging"
 DST_NGINX_SOURCE_MAILTRAP="${DST_CONFIG_ROOT}/nginx/mailtrap-local-staging"
+# The vhost source this installer used to install and no longer does: the
+# shared production-root vhost, which described one /home/www/rateguru/production
+# tree for every brand. The target registry replaced that model, no registered
+# target names it, and a production target's real vhost is rendered from the
+# registry by install-bootstrap-services — so the copy an earlier install left
+# here only misleads whoever reads it. --apply removes it. Deliberately not a
+# DST_ name: it is a path this installer clears, never one it installs.
+RETIRED_NGINX_SOURCE_SHARED_PRODUCTION="${DST_CONFIG_ROOT}/nginx/rateguru-production"
 # The second directory this installer owns, in the position `common`
 # resolves environment templates from on a deployed host.
 DST_ENV_TEMPLATES_ROOT="${DST_CONFIG_ROOT}/environment"
@@ -289,7 +295,7 @@ DEPLOYMENT_PROTOCOL_MODE="0644"
 MAIL_CONTRACT_MODE="0644"
 
 # The ownership this installer enforces on every privileged file it cares
-# about: the thirty-eight files it installs. A named constant (not a literal
+# about: the thirty-seven files it installs. A named constant (not a literal
 # "root"/0 at each call site) so the whole apply/verify flow can be
 # exercised against non-root scratch paths in tests, by reassigning these
 # alongside DST_*/SRC_*/BACKUP_ROOT — production always runs with the values
@@ -456,13 +462,13 @@ check_required_tools() {
 
 validate_source_files() {
     local path
-    for path in "${SRC_REGISTRY}" "${SRC_TARGETS}" "${SRC_COMMON}" "${SRC_RESTORE_COMMON}" "${SRC_RECOVERY_OUTBOUND_HOLD}" "${SRC_HEALTH_CHECK}" "${SRC_STATUS}" "${SRC_CLEANUP}" "${SRC_DEPLOY}" "${SRC_ROLLBACK}" "${SRC_BACKUP}" "${SRC_RESTORE_TEST}" "${SRC_OFFSITE_BACKUP}" "${SRC_OFFSITE_RETENTION}" "${SRC_OFFSITE_RESTORE_TEST}" "${SRC_BACKUP_CYCLE}" "${SRC_FETCH_BACKUP}" "${SRC_VERIFY_BACKUP}" "${SRC_RESTORE_DATABASE}" "${SRC_RESTORE_STORAGE}" "${SRC_RESTORE_TARGET}" "${SRC_RECOVER_HOST}" "${SRC_TARGET_PREREQUISITES}" "${SRC_MAIL_IDENTITY}" "${SRC_MAIL_ROUTING}" "${SRC_VERIFY_REQUIRED_CLIS}" "${SRC_DEPLOYMENT_CONF}" "${SRC_NGINX_SOURCE_STAGING}" "${SRC_NGINX_SOURCE_PRODUCTION}" "${SRC_NGINX_SOURCE_MAILPIT}" "${SRC_NGINX_SOURCE_MAILTRAP}" "${SRC_MAIL_IDENTITY_CONTRACT}" "${SRC_MAIL_ROUTING_POLICY}" "${SRC_MAIL_OUTBOUND_CONTRACT}" "${SRC_VERIFY_ENV_CONTRACT}" "${SRC_ENV_TEMPLATE_STAGING}" "${SRC_ENV_TEMPLATE_TITS_GURU}" "${SRC_DEPLOYMENT_PROTOCOL}"; do
+    for path in "${SRC_REGISTRY}" "${SRC_TARGETS}" "${SRC_COMMON}" "${SRC_RESTORE_COMMON}" "${SRC_RECOVERY_OUTBOUND_HOLD}" "${SRC_HEALTH_CHECK}" "${SRC_STATUS}" "${SRC_CLEANUP}" "${SRC_DEPLOY}" "${SRC_ROLLBACK}" "${SRC_BACKUP}" "${SRC_RESTORE_TEST}" "${SRC_OFFSITE_BACKUP}" "${SRC_OFFSITE_RETENTION}" "${SRC_OFFSITE_RESTORE_TEST}" "${SRC_BACKUP_CYCLE}" "${SRC_FETCH_BACKUP}" "${SRC_VERIFY_BACKUP}" "${SRC_RESTORE_DATABASE}" "${SRC_RESTORE_STORAGE}" "${SRC_RESTORE_TARGET}" "${SRC_RECOVER_HOST}" "${SRC_TARGET_PREREQUISITES}" "${SRC_MAIL_IDENTITY}" "${SRC_MAIL_ROUTING}" "${SRC_VERIFY_REQUIRED_CLIS}" "${SRC_DEPLOYMENT_CONF}" "${SRC_NGINX_SOURCE_STAGING}" "${SRC_NGINX_SOURCE_MAILPIT}" "${SRC_NGINX_SOURCE_MAILTRAP}" "${SRC_MAIL_IDENTITY_CONTRACT}" "${SRC_MAIL_ROUTING_POLICY}" "${SRC_MAIL_OUTBOUND_CONTRACT}" "${SRC_VERIFY_ENV_CONTRACT}" "${SRC_ENV_TEMPLATE_STAGING}" "${SRC_ENV_TEMPLATE_TITS_GURU}" "${SRC_DEPLOYMENT_PROTOCOL}"; do
         [[ -e "${path}" ]] || fail "missing required source file: ${path}"
         [[ ! -L "${path}" ]] || fail "source file must not be a symlink: ${path}"
         [[ -f "${path}" ]] || fail "source file must be a regular file: ${path}"
         [[ -r "${path}" ]] || fail "source file is not readable: ${path}"
     done
-    log "all thirty-eight source files are present regular files"
+    log "all thirty-seven source files are present regular files"
 }
 
 # The inclusive upper bound on any protocol version, matching deploy's own
@@ -858,6 +864,37 @@ install_regular_file_transactional() {
     fi
 }
 
+remove_regular_file_transactional() {
+    # remove_regular_file_transactional <path>
+    #
+    # The removal counterpart of install_regular_file_transactional, for a file
+    # an earlier install of this bundle left behind and this one no longer
+    # ships. Absent is already the wanted state, and nothing is recorded for
+    # it. A plain regular file — that earlier install's copy — is backed up
+    # through record_target before it is removed, so a later failure in the
+    # same run puts it back exactly as rollback_installed_files restores any
+    # other destination. A symlink, directory, FIFO, socket or device was never
+    # this installer's to own and is refused outright rather than unlinked or
+    # entered — the same fail-closed contract reject_unsafe_existing_destination
+    # gives the install side.
+    local path="$1"
+
+    if [[ -L "${path}" ]]; then
+        fail "refusing to remove an existing symlink: ${path}"
+    fi
+
+    [[ -e "${path}" ]] || return 0
+
+    if [[ ! -f "${path}" ]]; then
+        fail "refusing to remove an existing non-regular-file path: ${path}"
+    fi
+
+    record_target "${path}"
+
+    rm -f "${path}" || fail "failed to remove ${path}"
+    log "removed ${path}"
+}
+
 verify_installed_regular_file() {
     # verify_installed_regular_file <dst> <owner-id> <group-id> <mode> <src>
     local dst="$1" owner_id="$2" group_id="$3" mode="$4" src="$5"
@@ -1025,7 +1062,7 @@ assert_status_sections_present() {
 
 # The one directory this installer owns. It is created on --apply (root:root
 # 0755, exactly as the layout installer creates config itself) because it
-# exists solely to hold the four vhost sources, and verified in every mode.
+# exists solely to hold the three vhost sources, and verified in every mode.
 ensure_nginx_sources_root() {
     if [[ -e "${DST_NGINX_SOURCES_ROOT}" ]] || [[ -L "${DST_NGINX_SOURCES_ROOT}" ]]; then
         [[ ! -L "${DST_NGINX_SOURCES_ROOT}" ]] \
@@ -1153,13 +1190,18 @@ verify_installed_files() {
     verify_installed_regular_file "${DST_DEPLOYMENT_PROTOCOL}" "${INSTALL_OWNER_ID}" "${INSTALL_GROUP_ID}" "${DEPLOYMENT_PROTOCOL_MODE}" "${SRC_DEPLOYMENT_PROTOCOL}"
     verify_nginx_sources_root
     verify_installed_regular_file "${DST_NGINX_SOURCE_STAGING}" "${INSTALL_OWNER_ID}" "${INSTALL_GROUP_ID}" "${NGINX_SOURCE_MODE}" "${SRC_NGINX_SOURCE_STAGING}"
-    verify_installed_regular_file "${DST_NGINX_SOURCE_PRODUCTION}" "${INSTALL_OWNER_ID}" "${INSTALL_GROUP_ID}" "${NGINX_SOURCE_MODE}" "${SRC_NGINX_SOURCE_PRODUCTION}"
     verify_installed_regular_file "${DST_NGINX_SOURCE_MAILPIT}" "${INSTALL_OWNER_ID}" "${INSTALL_GROUP_ID}" "${NGINX_SOURCE_MODE}" "${SRC_NGINX_SOURCE_MAILPIT}"
     verify_installed_regular_file "${DST_NGINX_SOURCE_MAILTRAP}" "${INSTALL_OWNER_ID}" "${INSTALL_GROUP_ID}" "${NGINX_SOURCE_MODE}" "${SRC_NGINX_SOURCE_MAILTRAP}"
+    # The retired shared production vhost must be gone, not merely unverified.
+    # install-bootstrap-services skips this installer's --apply whenever
+    # --verify passes, so a --verify that ignored the stale copy would let a
+    # host keep it forever.
+    [[ ! -e "${RETIRED_NGINX_SOURCE_SHARED_PRODUCTION}" && ! -L "${RETIRED_NGINX_SOURCE_SHARED_PRODUCTION}" ]] \
+        || fail "the retired shared production vhost source is still installed: ${RETIRED_NGINX_SOURCE_SHARED_PRODUCTION} (--apply removes it)"
     verify_installed_regular_file "${DST_MAIL_IDENTITY_CONTRACT}" "${INSTALL_OWNER_ID}" "${INSTALL_GROUP_ID}" "${MAIL_CONTRACT_MODE}" "${SRC_MAIL_IDENTITY_CONTRACT}"
     verify_installed_regular_file "${DST_MAIL_ROUTING_POLICY}" "${INSTALL_OWNER_ID}" "${INSTALL_GROUP_ID}" "${MAIL_CONTRACT_MODE}" "${SRC_MAIL_ROUTING_POLICY}"
     verify_installed_regular_file "${DST_MAIL_OUTBOUND_CONTRACT}" "${INSTALL_OWNER_ID}" "${INSTALL_GROUP_ID}" "${MAIL_CONTRACT_MODE}" "${SRC_MAIL_OUTBOUND_CONTRACT}"
-    log "  ownership, mode and content: OK for all thirty-eight files"
+    log "  ownership, mode and content: OK for all thirty-seven files"
 
     # common, restore-common and recovery-outbound-hold are sourced
     # libraries, never CLIs —
@@ -1664,8 +1706,8 @@ run_check() {
     log "check passed: source files, host tooling and registry are valid"
 }
 
-# The directories every one of the thirty-eight destinations lives under.
-# This installer owns exactly thirty-eight *files* — it never creates, chowns or chmods
+# The directories every one of the thirty-seven destinations lives under.
+# This installer owns exactly thirty-seven *files* — it never creates, chowns or chmods
 # either directory. Both must already exist, safely, before --apply is
 # allowed to do anything else; a missing or unsafe directory aborts here,
 # before the backup directory is created or any destination is touched.
@@ -2013,7 +2055,6 @@ perform_apply() {
     install -m 0700 "${SRC_DEPLOYMENT_CONF}" "${STAGE_DIR}/deployment.conf"
     install -m 0600 "${SRC_DEPLOYMENT_PROTOCOL}" "${STAGE_DIR}/deployment-protocol.json"
     install -m 0600 "${SRC_NGINX_SOURCE_STAGING}" "${STAGE_DIR}/nginx-rateguru-staging"
-    install -m 0600 "${SRC_NGINX_SOURCE_PRODUCTION}" "${STAGE_DIR}/nginx-rateguru-production"
     install -m 0600 "${SRC_NGINX_SOURCE_MAILPIT}" "${STAGE_DIR}/nginx-mailpit-staging"
     install -m 0600 "${SRC_NGINX_SOURCE_MAILTRAP}" "${STAGE_DIR}/nginx-mailtrap-local-staging"
 
@@ -2060,9 +2101,12 @@ perform_apply() {
     # inside the one directory this installer creates for them.
     ensure_nginx_sources_root
     install_regular_file_transactional "${STAGE_DIR}/nginx-rateguru-staging" "${DST_NGINX_SOURCE_STAGING}" "${INSTALL_OWNER}" "${INSTALL_GROUP}" "${NGINX_SOURCE_MODE}"
-    install_regular_file_transactional "${STAGE_DIR}/nginx-rateguru-production" "${DST_NGINX_SOURCE_PRODUCTION}" "${INSTALL_OWNER}" "${INSTALL_GROUP}" "${NGINX_SOURCE_MODE}"
     install_regular_file_transactional "${STAGE_DIR}/nginx-mailpit-staging" "${DST_NGINX_SOURCE_MAILPIT}" "${INSTALL_OWNER}" "${INSTALL_GROUP}" "${NGINX_SOURCE_MODE}"
     install_regular_file_transactional "${STAGE_DIR}/nginx-mailtrap-local-staging" "${DST_NGINX_SOURCE_MAILTRAP}" "${INSTALL_OWNER}" "${INSTALL_GROUP}" "${NGINX_SOURCE_MODE}"
+    # The shared production vhost an earlier install of this bundle left here.
+    # Removed inside the same transaction, so a failed apply restores it with
+    # everything else rather than leaving the host half-converged.
+    remove_regular_file_transactional "${RETIRED_NGINX_SOURCE_SHARED_PRODUCTION}"
     # The mail contracts and their judge before the prerequisite installer
     # that asks it, the routing CLI before the judge that runs it.
     install_regular_file_transactional "${STAGE_DIR}/mail-identity.json" "${DST_MAIL_IDENTITY_CONTRACT}" "${INSTALL_OWNER}" "${INSTALL_GROUP}" "${MAIL_CONTRACT_MODE}"
@@ -2097,7 +2141,7 @@ perform_apply() {
     log "  scripts      : ${DST_TARGETS}, ${DST_COMMON}, ${DST_RESTORE_COMMON}, ${DST_RECOVERY_OUTBOUND_HOLD}, ${DST_HEALTH_CHECK}, ${DST_STATUS}, ${DST_CLEANUP}, ${DST_DEPLOY}, ${DST_ROLLBACK}, ${DST_BACKUP}, ${DST_RESTORE_TEST}, ${DST_OFFSITE_BACKUP}, ${DST_OFFSITE_RETENTION}, ${DST_OFFSITE_RESTORE_TEST}, ${DST_BACKUP_CYCLE}, ${DST_FETCH_BACKUP}, ${DST_VERIFY_BACKUP}, ${DST_RESTORE_DATABASE}, ${DST_RESTORE_STORAGE}, ${DST_RESTORE_TARGET}, ${DST_RECOVER_HOST}, ${DST_TARGET_PREREQUISITES}, ${DST_MAIL_IDENTITY}, ${DST_MAIL_ROUTING}, ${DST_VERIFY_REQUIRED_CLIS}, ${DST_VERIFY_ENV_CONTRACT}"
     log "  mail contracts: ${DST_MAIL_IDENTITY_CONTRACT}, ${DST_MAIL_ROUTING_POLICY}, ${DST_MAIL_OUTBOUND_CONTRACT}"
     log "  env templates: ${DST_ENV_TEMPLATE_STAGING}, ${DST_ENV_TEMPLATE_TITS_GURU}"
-    log "  vhost sources: ${DST_NGINX_SOURCE_STAGING}, ${DST_NGINX_SOURCE_PRODUCTION}, ${DST_NGINX_SOURCE_MAILPIT}, ${DST_NGINX_SOURCE_MAILTRAP}"
+    log "  vhost sources: ${DST_NGINX_SOURCE_STAGING}, ${DST_NGINX_SOURCE_MAILPIT}, ${DST_NGINX_SOURCE_MAILTRAP}"
     log "  deployment.conf: ${DST_DEPLOYMENT_CONF}"
     log "  deployment protocol: ${DST_DEPLOYMENT_PROTOCOL}"
     log "  backups      : ${BACKUP_DIR}"
