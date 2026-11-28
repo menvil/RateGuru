@@ -262,7 +262,7 @@ return [
         'title_placeholder' => 'Τίτλος ανάρτησης',
         'description' => 'Περιγραφή',
         'description_placeholder' => 'Προαιρετικές λεπτομέρειες',
-        'image' => 'Εικόνα',
+        'image' => 'Εικόνα, GIF ή βίντεο',
         'image_drop_text' => 'Επιλέξτε ένα αρχείο ή σύρετέ το εδώ',
         'image_drop_hint' => 'JPEG, PNG, GIF έως 5 MB',
         'image_browse' => 'Επιλογή αρχείου',

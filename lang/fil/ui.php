@@ -262,7 +262,7 @@ return [
         'title_placeholder' => 'Pamagat ng post',
         'description' => 'Paglalarawan',
         'description_placeholder' => 'Mga opsyonal na detalye',
-        'image' => 'Larawan',
+        'image' => 'Larawan, GIF o video',
         'image_drop_text' => 'Pumili ng file o i-drag at i-drop ito rito',
         'image_drop_hint' => 'JPEG, PNG, GIF hanggang 5MB',
         'image_browse' => 'Mag-browse ng File',

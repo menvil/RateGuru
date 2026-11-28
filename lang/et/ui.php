@@ -262,7 +262,7 @@ return [
         'title_placeholder' => 'Postituse pealkiri',
         'description' => 'Kirjeldus',
         'description_placeholder' => 'Valikulised üksikasjad',
-        'image' => 'Pilt',
+        'image' => 'Pilt, GIF või video',
         'image_drop_text' => 'Vali fail või lohista see siia',
         'image_drop_hint' => 'JPEG, PNG, GIF kuni 5 MB',
         'image_browse' => 'Sirvi faile',

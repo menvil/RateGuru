@@ -262,7 +262,7 @@ return [
         'title_placeholder' => 'Název příspěvku',
         'description' => 'Popis',
         'description_placeholder' => 'Nepovinné podrobnosti',
-        'image' => 'Obrázek',
+        'image' => 'Obrázek, GIF nebo video',
         'image_drop_text' => 'Vyber soubor nebo ho sem přetáhni',
         'image_drop_hint' => 'JPEG, PNG, GIF do 5 MB',
         'image_browse' => 'Procházet soubory',

@@ -262,7 +262,7 @@ return [
         'title_placeholder' => 'পোস্টের শিরোনাম',
         'description' => 'বিবরণ',
         'description_placeholder' => 'অতিরিক্ত বিবরণ (ঐচ্ছিক)',
-        'image' => 'ছবি',
+        'image' => 'ছবি, GIF বা ভিডিও',
         'image_drop_text' => 'একটি ফাইল বেছে নিন বা এখানে টেনে এনে ছাড়ুন',
         'image_drop_hint' => 'JPEG, PNG, GIF, সর্বোচ্চ 5MB',
         'image_browse' => 'ফাইল বেছে নিন',

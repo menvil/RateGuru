@@ -174,16 +174,17 @@
             </div>
         </div>
 
-        {{-- The post's picture: one block takes a file — picked or dropped — or a link, with no tabs to
-             switch between. Whichever is given last is the one posted. --}}
+        {{-- The post's picture: one framed field takes a file — picked or dropped — or a link, with no
+             tabs to switch between. Whichever is given last is the one posted. --}}
         <div data-testid="upload-media-input">
             <x-input-label :value="__('ui.upload.image')" />
 
+            <div class="mt-1 rounded-rgCard border border-rg-border bg-rg-card2 p-3" data-testid="upload-media-field">
             {{-- A file --}}
-            <div class="mt-1">
+            <div>
                 <label
                     for="image"
-                    class="flex cursor-pointer flex-col items-center justify-center rounded-rgCard border border-dashed border-rg-border2 bg-rg-card2 px-4 py-6 text-center transition hover:border-rg-accentBorder hover:bg-rg-card"
+                    class="flex cursor-pointer flex-col items-center justify-center rounded-rgCard border border-dashed border-rg-border2 bg-rg-card px-4 py-6 text-center transition hover:border-rg-accentBorder"
                     data-testid="upload-image-dropzone"
                     x-on:dragover.prevent
                     x-on:drop.prevent="
@@ -241,7 +242,7 @@
             {{-- Or a link --}}
             @if($uploadSettings->featureFlag('allow_url_imports'))
             <div class="mt-3 space-y-2">
-                <p class="flex items-center gap-3 text-xs text-rg-muted" aria-hidden="true">
+                <p class="flex items-center gap-3 text-sm font-semibold text-rg-text" aria-hidden="true" data-testid="upload-or-paste-link">
                     <span class="h-px flex-1 bg-rg-border"></span>
                     {{ __('ui.upload.or_paste_link') }}
                     <span class="h-px flex-1 bg-rg-border"></span>
@@ -279,6 +280,7 @@
                 @endif
             </div>
             @endif
+            </div>
 
             <div data-testid="field-error-image" class="mt-1">
                 <x-input-error :messages="$errors->get('image')" />

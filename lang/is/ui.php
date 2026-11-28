@@ -262,7 +262,7 @@ return [
         'title_placeholder' => 'Titill færslu',
         'description' => 'Lýsing',
         'description_placeholder' => 'Nánari upplýsingar (valfrjálst)',
-        'image' => 'Mynd',
+        'image' => 'Mynd, GIF eða myndband',
         'image_drop_text' => 'Veldu skrá eða dragðu hana hingað',
         'image_drop_hint' => 'JPEG, PNG, GIF allt að 5 MB',
         'image_browse' => 'Velja skrá',

@@ -262,7 +262,7 @@ return [
         'title_placeholder' => 'Inläggets titel',
         'description' => 'Beskrivning',
         'description_placeholder' => 'Valfria detaljer',
-        'image' => 'Bild',
+        'image' => 'Bild, GIF eller video',
         'image_drop_text' => 'Välj en fil eller dra och släpp den här',
         'image_drop_hint' => 'JPEG, PNG, GIF upp till 5 MB',
         'image_browse' => 'Bläddra efter fil',

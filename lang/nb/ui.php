@@ -262,7 +262,7 @@ return [
         'title_placeholder' => 'Tittel på innlegget',
         'description' => 'Beskrivelse',
         'description_placeholder' => 'Valgfrie detaljer',
-        'image' => 'Bilde',
+        'image' => 'Bilde, GIF eller video',
         'image_drop_text' => 'Velg en fil eller dra og slipp den her',
         'image_drop_hint' => 'JPEG, PNG, GIF på opptil 5 MB',
         'image_browse' => 'Bla gjennom filer',

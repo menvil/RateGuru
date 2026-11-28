@@ -262,7 +262,7 @@ return [
         'title_placeholder' => 'პოსტის სათაური',
         'description' => 'აღწერა',
         'description_placeholder' => 'დამატებითი დეტალები (არასავალდებულო)',
-        'image' => 'სურათი',
+        'image' => 'სურათი, GIF ან ვიდეო',
         'image_drop_text' => 'აირჩიეთ ფაილი ან გადმოათრიეთ აქ',
         'image_drop_hint' => 'JPEG, PNG, GIF — 5 მბ-მდე',
         'image_browse' => 'ფაილის არჩევა',

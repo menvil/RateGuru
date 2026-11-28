@@ -262,7 +262,7 @@ return [
         'title_placeholder' => 'Opslagets titel',
         'description' => 'Beskrivelse',
         'description_placeholder' => 'Valgfrie detaljer',
-        'image' => 'Billede',
+        'image' => 'Billede, GIF eller video',
         'image_drop_text' => 'Vælg en fil, eller træk og slip den her',
         'image_drop_hint' => 'JPEG, PNG, GIF op til 5 MB',
         'image_browse' => 'Gennemse filer',

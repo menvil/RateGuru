@@ -266,7 +266,7 @@ return [
         'title_placeholder' => 'Название поста',
         'description' => 'Описание',
         'description_placeholder' => 'Необязательно',
-        'image' => 'Изображение',
+        'image' => 'Картинка, GIF или видео',
         'image_drop_text' => 'Выберите файл или перетащите его сюда',
         'image_drop_hint' => 'JPEG, PNG, GIF до 5 МБ',
         'image_browse' => 'Выбрать файл',

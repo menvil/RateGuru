@@ -265,7 +265,7 @@ return [
         'title_placeholder' => 'Ieraksta virsraksts',
         'description' => 'Apraksts',
         'description_placeholder' => 'Papildu informācija (nav obligāta)',
-        'image' => 'Attēls',
+        'image' => 'Attēls, GIF vai video',
         'image_drop_text' => 'Izvēlieties failu vai ievelciet to šeit',
         'image_drop_hint' => 'JPEG, PNG, GIF līdz 5 MB',
         'image_browse' => 'Pārlūkot failus',

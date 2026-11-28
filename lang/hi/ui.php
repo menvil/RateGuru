@@ -262,7 +262,7 @@ return [
         'title_placeholder' => 'पोस्ट का शीर्षक',
         'description' => 'विवरण',
         'description_placeholder' => 'अतिरिक्त जानकारी (वैकल्पिक)',
-        'image' => 'तस्वीर',
+        'image' => 'तस्वीर, GIF या वीडियो',
         'image_drop_text' => 'फ़ाइल चुनें या उसे यहाँ खींचकर छोड़ें',
         'image_drop_hint' => 'JPEG, PNG, GIF, 5MB तक',
         'image_browse' => 'फ़ाइल चुनें',

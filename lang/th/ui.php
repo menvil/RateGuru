@@ -262,7 +262,7 @@ return [
         'title_placeholder' => 'ชื่อเรื่องของโพสต์',
         'description' => 'คำอธิบาย',
         'description_placeholder' => 'รายละเอียดเพิ่มเติม (ไม่บังคับ)',
-        'image' => 'รูปภาพ',
+        'image' => 'รูปภาพ GIF หรือวิดีโอ',
         'image_drop_text' => 'เลือกไฟล์หรือลากแล้ววางที่นี่',
         'image_drop_hint' => 'JPEG, PNG, GIF ขนาดไม่เกิน 5MB',
         'image_browse' => 'เลือกไฟล์',

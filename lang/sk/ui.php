@@ -262,7 +262,7 @@ return [
         'title_placeholder' => 'Názov príspevku',
         'description' => 'Popis',
         'description_placeholder' => 'Nepovinné podrobnosti',
-        'image' => 'Obrázok',
+        'image' => 'Obrázok, GIF alebo video',
         'image_drop_text' => 'Vyber súbor alebo ho sem presuň',
         'image_drop_hint' => 'JPEG, PNG, GIF do 5 MB',
         'image_browse' => 'Vybrať súbor',

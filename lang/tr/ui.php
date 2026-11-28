@@ -262,7 +262,7 @@ return [
         'title_placeholder' => 'Gönderi başlığı',
         'description' => 'Açıklama',
         'description_placeholder' => 'İsteğe bağlı ayrıntılar',
-        'image' => 'Görsel',
+        'image' => 'Resim, GIF veya video',
         'image_drop_text' => 'Bir dosya seçin veya buraya sürükleyip bırakın',
         'image_drop_hint' => 'JPEG, PNG, GIF; en fazla 5 MB',
         'image_browse' => 'Dosya seç',

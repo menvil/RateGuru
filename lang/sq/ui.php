@@ -262,7 +262,7 @@ return [
         'title_placeholder' => 'Titulli i postimit',
         'description' => 'Përshkrimi',
         'description_placeholder' => 'Detaje opsionale',
-        'image' => 'Imazhi',
+        'image' => 'Imazh, GIF ose video',
         'image_drop_text' => 'Zgjidh një skedar ose tërhiqe dhe lëshoje këtu',
         'image_drop_hint' => 'JPEG, PNG, GIF deri në 5 MB',
         'image_browse' => 'Zgjidh skedarin',

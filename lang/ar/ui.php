@@ -272,7 +272,7 @@ return [
         'title_placeholder' => 'عنوان المنشور',
         'description' => 'الوصف',
         'description_placeholder' => 'تفاصيل اختيارية',
-        'image' => 'الصورة',
+        'image' => 'صورة أو GIF أو فيديو',
         'image_drop_text' => 'اختر ملفًا أو اسحبه وأفلته هنا',
         'image_drop_hint' => 'JPEG أو PNG أو GIF حتى 5 ميغابايت',
         'image_browse' => 'تصفّح الملفات',

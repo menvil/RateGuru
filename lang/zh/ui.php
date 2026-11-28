@@ -262,7 +262,7 @@ return [
         'title_placeholder' => '帖子标题',
         'description' => '描述',
         'description_placeholder' => '补充说明（可选）',
-        'image' => '图片',
+        'image' => '图片、GIF 或视频',
         'image_drop_text' => '选择文件或将文件拖放到此处',
         'image_drop_hint' => '支持 JPEG、PNG、GIF，最大 5MB',
         'image_browse' => '浏览文件',

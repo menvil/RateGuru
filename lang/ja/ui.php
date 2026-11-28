@@ -262,7 +262,7 @@ return [
         'title_placeholder' => '投稿のタイトル',
         'description' => '説明',
         'description_placeholder' => '詳細（任意）',
-        'image' => '画像',
+        'image' => '画像・GIF・動画',
         'image_drop_text' => 'ファイルを選択するか、ここにドラッグ＆ドロップしてください',
         'image_drop_hint' => 'JPEG、PNG、GIF（最大5MB）',
         'image_browse' => 'ファイルを選択',

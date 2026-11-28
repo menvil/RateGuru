@@ -262,7 +262,7 @@ return [
         'title_placeholder' => 'Tajuk siaran',
         'description' => 'Penerangan',
         'description_placeholder' => 'Butiran pilihan',
-        'image' => 'Imej',
+        'image' => 'Gambar, GIF atau video',
         'image_drop_text' => 'Pilih fail atau seret dan lepaskannya di sini',
         'image_drop_hint' => 'JPEG, PNG, GIF sehingga 5MB',
         'image_browse' => 'Semak imbas fail',

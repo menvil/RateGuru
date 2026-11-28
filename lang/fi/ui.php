@@ -262,7 +262,7 @@ return [
         'title_placeholder' => 'Julkaisun otsikko',
         'description' => 'Kuvaus',
         'description_placeholder' => 'Valinnaiset lisätiedot',
-        'image' => 'Kuva',
+        'image' => 'Kuva, GIF tai video',
         'image_drop_text' => 'Valitse tiedosto tai vedä se tähän',
         'image_drop_hint' => 'JPEG, PNG, GIF, enintään 5 Mt',
         'image_browse' => 'Selaa tiedostoja',

@@ -262,7 +262,7 @@ return [
         'title_placeholder' => 'Titre de la publication',
         'description' => 'Description',
         'description_placeholder' => 'Détails facultatifs',
-        'image' => 'Image',
+        'image' => 'Image, GIF ou vidéo',
         'image_drop_text' => 'Choisissez un fichier ou glissez-déposez-le ici',
         'image_drop_hint' => 'JPEG, PNG, GIF jusqu\'à 5 Mo',
         'image_browse' => 'Parcourir',

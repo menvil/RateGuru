@@ -264,7 +264,7 @@ return [
         'title_placeholder' => 'Įrašo pavadinimas',
         'description' => 'Aprašymas',
         'description_placeholder' => 'Papildoma informacija (neprivaloma)',
-        'image' => 'Paveikslėlis',
+        'image' => 'Paveikslėlis, GIF arba vaizdo įrašas',
         'image_drop_text' => 'Pasirinkite failą arba nutempkite jį čia',
         'image_drop_hint' => 'JPEG, PNG, GIF iki 5 MB',
         'image_browse' => 'Pasirinkti failą',

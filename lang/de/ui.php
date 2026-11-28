@@ -262,7 +262,7 @@ return [
         'title_placeholder' => 'Titel des Beitrags',
         'description' => 'Beschreibung',
         'description_placeholder' => 'Optionale Details',
-        'image' => 'Bild',
+        'image' => 'Bild, GIF oder Video',
         'image_drop_text' => 'Wähle eine Datei oder zieh sie hierher',
         'image_drop_hint' => 'JPEG, PNG, GIF bis 5 MB',
         'image_browse' => 'Datei auswählen',

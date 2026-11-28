@@ -262,7 +262,7 @@ return [
         'title_placeholder' => 'Tiêu đề bài đăng',
         'description' => 'Mô tả',
         'description_placeholder' => 'Chi tiết (không bắt buộc)',
-        'image' => 'Hình ảnh',
+        'image' => 'Ảnh, GIF hoặc video',
         'image_drop_text' => 'Chọn tệp hoặc kéo và thả vào đây',
         'image_drop_hint' => 'JPEG, PNG, GIF tối đa 5MB',
         'image_browse' => 'Chọn tệp',

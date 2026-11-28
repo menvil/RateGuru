@@ -262,7 +262,7 @@ return [
         'title_placeholder' => 'Заголовок допису',
         'description' => 'Опис',
         'description_placeholder' => 'Додаткові подробиці (необов’язково)',
-        'image' => 'Зображення',
+        'image' => 'Зображення, GIF або відео',
         'image_drop_text' => 'Виберіть файл або перетягніть його сюди',
         'image_drop_hint' => 'JPEG, PNG, GIF до 5 МБ',
         'image_browse' => 'Вибрати файл',

@@ -262,7 +262,7 @@ return [
         'title_placeholder' => 'A bejegyzés címe',
         'description' => 'Leírás',
         'description_placeholder' => 'Nem kötelező részletek',
-        'image' => 'Kép',
+        'image' => 'Kép, GIF vagy videó',
         'image_drop_text' => 'Válassz egy fájlt, vagy húzd ide',
         'image_drop_hint' => 'JPEG, PNG, GIF, legfeljebb 5 MB',
         'image_browse' => 'Fájl kiválasztása',

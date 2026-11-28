@@ -262,7 +262,7 @@ return [
         'title_placeholder' => 'Post title',
         'description' => 'Description',
         'description_placeholder' => 'Optional details',
-        'image' => 'Image',
+        'image' => 'Image, GIF or video',
         'image_drop_text' => 'Choose a file or drag & drop it here',
         'image_drop_hint' => 'JPEG, PNG, GIF up to 5MB',
         'image_browse' => 'Browse File',

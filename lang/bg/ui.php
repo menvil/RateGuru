@@ -262,7 +262,7 @@ return [
         'title_placeholder' => 'Заглавие на поста',
         'description' => 'Описание',
         'description_placeholder' => 'По желание',
-        'image' => 'Изображение',
+        'image' => 'Снимка, GIF или видео',
         'image_drop_text' => 'Изберете файл или го плъзнете тук',
         'image_drop_hint' => 'JPEG, PNG, GIF до 5 МБ',
         'image_browse' => 'Преглед',

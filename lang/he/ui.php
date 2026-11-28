@@ -269,7 +269,7 @@ return [
         'title_placeholder' => 'כותרת הפוסט',
         'description' => 'תיאור',
         'description_placeholder' => 'פרטים נוספים (לא חובה)',
-        'image' => 'תמונה',
+        'image' => 'תמונה, GIF או וידאו',
         'image_drop_text' => 'בחרו קובץ או גררו אותו לכאן',
         'image_drop_hint' => 'JPEG, PNG, GIF עד 5MB',
         'image_browse' => 'בחירת קובץ',

@@ -262,7 +262,7 @@ return [
         'title_placeholder' => 'Titlul postării',
         'description' => 'Descriere',
         'description_placeholder' => 'Detalii opționale',
-        'image' => 'Imagine',
+        'image' => 'Imagine, GIF sau video',
         'image_drop_text' => 'Alege un fișier sau trage-l aici',
         'image_drop_hint' => 'JPEG, PNG, GIF de până la 5 MB',
         'image_browse' => 'Alege fișierul',

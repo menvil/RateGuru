@@ -262,7 +262,7 @@ return [
         'title_placeholder' => 'Judul postingan',
         'description' => 'Deskripsi',
         'description_placeholder' => 'Detail opsional',
-        'image' => 'Gambar',
+        'image' => 'Gambar, GIF, atau video',
         'image_drop_text' => 'Pilih file atau seret & lepas di sini',
         'image_drop_hint' => 'JPEG, PNG, GIF hingga 5MB',
         'image_browse' => 'Pilih file',

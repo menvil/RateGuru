@@ -262,7 +262,7 @@ return [
         'title_placeholder' => 'Titel van het bericht',
         'description' => 'Beschrijving',
         'description_placeholder' => 'Optionele details',
-        'image' => 'Afbeelding',
+        'image' => 'Afbeelding, GIF of video',
         'image_drop_text' => 'Kies een bestand of sleep het hierheen',
         'image_drop_hint' => 'JPEG, PNG, GIF tot 5 MB',
         'image_browse' => 'Bestand kiezen',

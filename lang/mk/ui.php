@@ -262,7 +262,7 @@ return [
         'title_placeholder' => 'Наслов на објавата',
         'description' => 'Опис',
         'description_placeholder' => 'Дополнителни детали (по избор)',
-        'image' => 'Слика',
+        'image' => 'Слика, GIF или видео',
         'image_drop_text' => 'Изберете датотека или повлечете ја и пуштете ја тука',
         'image_drop_hint' => 'JPEG, PNG, GIF до 5 MB',
         'image_browse' => 'Избери датотека',

@@ -270,7 +270,7 @@ return [
         'title_placeholder' => 'پوسٹ کا عنوان',
         'description' => 'تفصیل',
         'description_placeholder' => 'اضافی تفصیلات (اختیاری)',
-        'image' => 'تصویر',
+        'image' => 'تصویر، GIF یا ویڈیو',
         'image_drop_text' => 'فائل منتخب کریں یا اسے گھسیٹ کر یہاں چھوڑیں',
         'image_drop_hint' => 'JPEG، PNG، GIF، زیادہ سے زیادہ 5MB',
         'image_browse' => 'فائل منتخب کریں',

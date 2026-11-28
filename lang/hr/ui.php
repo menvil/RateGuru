@@ -262,7 +262,7 @@ return [
         'title_placeholder' => 'Naslov objave',
         'description' => 'Opis',
         'description_placeholder' => 'Neobavezne pojedinosti',
-        'image' => 'Slika',
+        'image' => 'Slika, GIF ili video',
         'image_drop_text' => 'Odaberi datoteku ili je povuci i ispusti ovdje',
         'image_drop_hint' => 'JPEG, PNG, GIF do 5 MB',
         'image_browse' => 'Odaberi datoteku',
