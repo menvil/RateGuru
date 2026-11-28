@@ -675,9 +675,9 @@ it('gives yt-dlp any other page, with every extractor but the generic one, only 
     expect($sites()->extractorFor('https://vimeo.com/123456'))->toBeNull();
 });
 
-it('posts any other page\'s video yt-dlp finds, and takes a page it does not know as any link, unlogged', function () {
+it('posts any other page\'s video yt-dlp finds', function () {
     app()->instance(YtDlpIsolation::class, new YtDlpIsolation(fn (): bool => true, fn (): bool => true, fn (): bool => true));
-    bindFakeHostResolver(['vimeo.com' => ['151.101.0.217'], 'news.example.org' => ['93.184.216.40'], 'cdn.example.org' => ['93.184.216.41']]);
+    bindFakeHostResolver(['vimeo.com' => ['151.101.0.217']]);
 
     $runner = ytDlpStandIn(ytDlpVideoJson(['extractor_key' => 'Vimeo']));
     Livewire::actingAs(User::factory()->create())
@@ -690,9 +690,16 @@ it('posts any other page\'s video yt-dlp finds, and takes a page it does not kno
     expect(Post::query()->where('title', 'From Vimeo')->sole()->status)->toBe(PostStatus::Draft)
         ->and($runner->calls[0]['arguments'])->toContain('--use-extractors', 'default,-generic');
 
-    // A page no extractor knows: not refused, not logged — its picture is taken.
+});
+
+// A page no extractor knows is not refused, not logged — its picture is
+// taken — whichever way yt-dlp says so: without the generic extractor, that
+// none matched; from one that matched, that it does not support the page.
+it('takes the picture of a page no yt-dlp extractor knows, as any link', function (string $diagnostic) {
+    app()->instance(YtDlpIsolation::class, new YtDlpIsolation(fn (): bool => true, fn (): bool => true, fn (): bool => true));
+    bindFakeHostResolver(['news.example.org' => ['93.184.216.40'], 'cdn.example.org' => ['93.184.216.41']]);
     Log::spy();
-    ytDlpStandIn(null, probeError: 'ERROR: Unsupported URL: https://news.example.org/story');
+    ytDlpStandIn(null, probeError: $diagnostic);
     Http::fake([
         'news.example.org/*' => Http::response('<head><meta property="og:image" content="https://cdn.example.org/story.jpg"></head>', 200, ['Content-Type' => 'text/html']),
     ]);
@@ -710,7 +717,10 @@ it('posts any other page\'s video yt-dlp finds, and takes a page it does not kno
 
     expect(Post::query()->where('title', 'A story')->exists())->toBeTrue();
     Log::shouldNotHaveReceived('warning');
-});
+})->with([
+    'no extractor matched' => 'ERROR: No suitable extractor found for URL https://news.example.org/story',
+    'the generic extractor\'s answer' => 'ERROR: Unsupported URL: https://news.example.org/story',
+]);
 
 it('says a page that did not show its own picture cannot be imported, rather than posting the site\'s logo', function () {
     bindFakeHostResolver(['nsfw.example' => ['93.184.216.50']]);

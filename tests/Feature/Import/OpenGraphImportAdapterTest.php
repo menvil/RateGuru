@@ -172,3 +172,26 @@ it('still takes the picture of a page whose tags describe that page, or name no 
     'its own page' => ['<meta property="og:url" content="https://example.com/post/aRLwNBB">'],
     'none' => [''],
 ]);
+
+it('gives no picture for a page within a site that names the site itself, even when it was sent on to the root', function () {
+    Http::fake([
+        'example.com/post/abc' => Http::response('', 302, ['Location' => 'https://example.com/']),
+        'example.com/' => Http::response('<head><meta property="og:url" content="https://example.com/"><meta property="og:image" content="https://example.com/logo.png"></head>', 200, ['Content-Type' => 'text/html']),
+    ]);
+
+    $preview = app(OpenGraphImportAdapter::class)->preview('https://example.com/post/abc');
+
+    expect($preview->imageUrl)->toBeNull()
+        ->and($preview->unsupportedReason)->not->toBeNull();
+});
+
+it('takes the picture of a post its page names at the root by a query, as /?p=123', function () {
+    Http::fake([
+        'example.com/posts/123' => Http::response('<head><meta property="og:url" content="https://example.com/?p=123"><meta property="og:image" content="https://example.com/post-123.jpg"></head>', 200, ['Content-Type' => 'text/html']),
+    ]);
+
+    $preview = app(OpenGraphImportAdapter::class)->preview('https://example.com/posts/123');
+
+    expect($preview->imageUrl)->toBe('https://example.com/post-123.jpg')
+        ->and($preview->unsupportedReason)->toBeNull();
+});
