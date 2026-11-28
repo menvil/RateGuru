@@ -268,7 +268,7 @@ return [
         'image_browse' => 'Procházet soubory',
         'image_url_placeholder' => 'https://example.com/image.jpg',
         'or_paste_link' => 'nebo vložte odkaz',
-        'media_url_hint' => 'Odkaz na obrázek nebo video, nebo na příspěvek: převezme se jeho video nebo GIF, kde to web dovolí, jinak jeho fotka.',
+        'media_url_hint' => 'Odkaz na veřejný příspěvek — na Instagram, X, YouTube, RedGifs, Facebook a mnoha dalších webech — nebo přímo na obrázek či video: vezme se video nebo GIF, kde to web dovolí, jinak obrázek.',
         'source_url' => 'URL zdroje',
         'source_url_placeholder' => 'https://example.com/original',
         'tags' => 'Štítky',

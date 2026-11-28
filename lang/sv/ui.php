@@ -268,7 +268,7 @@ return [
         'image_browse' => 'Bläddra efter fil',
         'image_url_placeholder' => 'https://example.com/image.jpg',
         'or_paste_link' => 'eller klistra in en länk',
-        'media_url_hint' => 'En länk till en bild eller video, eller till ett inlägg: dess video eller GIF hämtas där webbplatsen tillåter det, annars dess foto.',
+        'media_url_hint' => 'En länk till ett offentligt inlägg — på Instagram, X, YouTube, RedGifs, Facebook och många andra sajter — eller direkt till en bild eller videofil: videon eller GIF-animationen där sajten tillåter det, annars bilden.',
         'source_url' => 'Källadress',
         'source_url_placeholder' => 'https://example.com/original',
         'tags' => 'Taggar',

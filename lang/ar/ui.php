@@ -278,7 +278,7 @@ return [
         'image_browse' => 'تصفّح الملفات',
         'image_url_placeholder' => 'https://example.com/image.jpg',
         'or_paste_link' => 'أو الصق رابطًا',
-        'media_url_hint' => 'رابط إلى صورة أو فيديو، أو إلى منشور: يُؤخذ الفيديو أو GIF حيث يسمح الموقع، وإلا فالصورة.',
+        'media_url_hint' => 'رابط لمنشور عام — على Instagram, X, YouTube, RedGifs, Facebook ومواقع أخرى كثيرة — أو مباشرةً لصورة أو ملف فيديو: يُؤخذ الفيديو أو GIF حيث يسمح الموقع، وإلا فالصورة.',
         'source_url' => 'رابط المصدر',
         'source_url_placeholder' => 'https://example.com/original',
         'tags' => 'الوسوم',

@@ -93,8 +93,19 @@ trait EditsStudioPlan
     /** The other editors on the page whose writes and Reloads this one follows: the discussion's, the post votes' and the comment votes'. */
     private const OTHER_EDITORS = ['discussion', StudioPlanPostVotesEditor::SOURCE, StudioPlanDiscussionVotesEditor::SOURCE];
 
-    /** The social sites the importer knows a post of (ImportProviderDetector), by name. */
-    private const PLATFORMS = ['instagram' => 'Instagram', 'x' => 'X', 'facebook' => 'Facebook', 'pinterest' => 'Pinterest'];
+    /**
+     * The sites a pasted link is named as a post of ("Detected: Instagram
+     * post."), each with the hosts that mark a link as its. Any other public
+     * page works too; it is only not named.
+     */
+    private const PLATFORMS = [
+        'Instagram' => ['instagram.com'],
+        'X' => ['x.com', 'twitter.com'],
+        'YouTube' => ['youtube.com', 'youtu.be'],
+        'RedGifs' => ['redgifs.com'],
+        'Facebook' => ['facebook.com', 'fb.com', 'fb.watch'],
+        'Pinterest' => ['pinterest.com', 'pin.it'],
+    ];
 
     /**
      * The step on screen. Not part of the draft, and changed only through
@@ -908,7 +919,8 @@ trait EditsStudioPlan
         $category = $this->categoryId !== '' ? Category::query()->find((int) $this->categoryId) : null;
         $photo = $this->photoDetails($plan?->imageAsset);
         $mode = StudioPlanPublicationMode::tryFrom($this->publicationMode) ?? StudioPlanPublicationMode::Now;
-        $linkProvider = trim($this->imageUrl) !== '' ? app(ImportProviderDetector::class)->detect(trim($this->imageUrl)) : null;
+        $linkHost = strtolower((string) parse_url(trim($this->imageUrl), PHP_URL_HOST));
+        $detectedPlatform = $linkHost === '' ? null : array_key_first(array_filter(self::PLATFORMS, fn (array $hosts): bool => collect($hosts)->contains(fn (string $host): bool => $linkHost === $host || str_ends_with($linkHost, '.'.$host))));
 
         return [
             'steps' => collect(self::STEPS)->map(fn (array $step, string $key): array => ['key' => $key, 'label' => $step[0], 'caption' => $step[1]])->values()->all(),
@@ -920,8 +932,7 @@ trait EditsStudioPlan
             'analysisImageId' => $plan?->image_asset_id,
             'replacedPhoto' => $this->replacedPhoto,
             'analysisConfigured' => app(StudioImageAnalyzer::class)->isConfigured(),
-            'platforms' => self::PLATFORMS,
-            'detectedPlatform' => self::PLATFORMS[$linkProvider] ?? null,
+            'detectedPlatform' => $detectedPlatform,
             'maxImageSize' => Number::fileSize(self::maxImageKilobytes() * 1024),
             'author' => StudioPlanFormat::author($author),
             'authorChoices' => $this->authorChoices(),

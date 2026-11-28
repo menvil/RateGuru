@@ -268,7 +268,7 @@ return [
         'image_browse' => 'Velja skrá',
         'image_url_placeholder' => 'https://example.com/image.jpg',
         'or_paste_link' => 'eða límdu inn tengil',
-        'media_url_hint' => 'Hlekkur á mynd eða myndband, eða á færslu: myndband hennar eða GIF er tekið þar sem vefurinn leyfir, annars myndin.',
+        'media_url_hint' => 'Tengill á opinbera færslu — á Instagram, X, YouTube, RedGifs, Facebook og mörgum öðrum vefjum — eða beint á mynd eða myndbandsskrá: myndbandið eða GIF þar sem vefurinn leyfir, annars myndin.',
         'source_url' => 'Vefslóð heimildar',
         'source_url_placeholder' => 'https://example.com/original',
         'tags' => 'Merki',

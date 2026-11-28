@@ -268,7 +268,7 @@ return [
         'image_browse' => 'Zgjidh skedarin',
         'image_url_placeholder' => 'https://example.com/image.jpg',
         'or_paste_link' => 'ose ngjitni një lidhje',
-        'media_url_hint' => 'Një lidhje te një foto ose video, ose te një postim: merret videoja ose GIF-i i tij aty ku faqja e lejon, përndryshe fotoja.',
+        'media_url_hint' => 'Një lidhje te një postim publik — në Instagram, X, YouTube, RedGifs, Facebook dhe shumë faqe të tjera — ose drejtpërdrejt te një imazh ose skedar video: merret videoja ose GIF-i ku faqja e lejon, përndryshe imazhi.',
         'source_url' => 'URL-ja e burimit',
         'source_url_placeholder' => 'https://example.com/original',
         'tags' => 'Etiketat',

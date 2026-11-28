@@ -268,7 +268,7 @@ return [
         'image_browse' => 'เลือกไฟล์',
         'image_url_placeholder' => 'https://example.com/image.jpg',
         'or_paste_link' => 'หรือวางลิงก์',
-        'media_url_hint' => 'ลิงก์ไปยังรูปภาพหรือวิดีโอ หรือไปยังโพสต์: จะนำวิดีโอหรือ GIF มาเมื่อเว็บไซต์อนุญาต มิฉะนั้นจะใช้รูปภาพ',
+        'media_url_hint' => 'ลิงก์ไปยังโพสต์สาธารณะ บน Instagram, X, YouTube, RedGifs, Facebook และเว็บไซต์อื่นอีกมากมาย หรือไปยังไฟล์ภาพหรือวิดีโอโดยตรง: ใช้วิดีโอหรือ GIF หากเว็บไซต์อนุญาต มิฉะนั้นใช้ภาพ',
         'source_url' => 'URL ต้นทาง',
         'source_url_placeholder' => 'https://example.com/original',
         'tags' => 'แท็ก',

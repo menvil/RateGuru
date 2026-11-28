@@ -267,7 +267,7 @@
                         icon="link"
                         :value="$imageUrl"
                         placeholder="https://www.instagram.com/p/… or https://example.com/photo.jpg"
-                        hint="A link to a JPEG, PNG or WebP file, or to a public post. Its image is copied into the site's storage as soon as it is pasted. The post's source address is set on the Post step."
+                        hint="A link to a public post — on Instagram, X, YouTube, RedGifs, Facebook and many other sites — or straight to a JPEG, PNG or WebP file. Its picture is copied into the site's storage as soon as it is pasted; the post's source address is set on the Post step."
                         :error="$errors->first('imageUrl') ?: null"
                         autocomplete="off"
                         spellcheck="false"
@@ -277,12 +277,9 @@
                         x-on:keydown.enter.prevent="importFrom('link', $event.target.value)"
                     />
                     <p class="rg-admin-hint" x-show="incomplete.link" x-cloak>Paste the full link, starting with https://</p>
-                    <ul class="rg-admin-studio__platforms" aria-label="Sites whose posts are read directly">
-                        @foreach ($platforms as $platform)
-                            <li @class(['rg-admin-studio__platform', 'rg-admin-studio__platform--detected' => $platform === $detectedPlatform])>{{ $platform }}</li>
-                        @endforeach
-                    </ul>
-                    <p class="rg-admin-hint">{{ $detectedPlatform !== null ? "Detected: {$detectedPlatform} post." : 'Any other public page with a preview image works too.' }}</p>
+                    @if ($detectedPlatform !== null)
+                        <p class="rg-admin-hint">Detected: {{ $detectedPlatform }} post.</p>
+                    @endif
                     @error('imageUrl')
                         <div><x-admin.ui.button size="sm" icon="rotate-ccw" x-bind:disabled="busy" x-on:click="retry()">Try again</x-admin.ui.button></div>
                     @enderror

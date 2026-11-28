@@ -268,7 +268,7 @@ return [
         'image_browse' => 'Mag-browse ng File',
         'image_url_placeholder' => 'https://example.com/image.jpg',
         'or_paste_link' => 'o mag-paste ng link',
-        'media_url_hint' => 'Isang link sa larawan o video, o sa isang post: kinukuha ang video o GIF nito kung pinapayagan ng site, kung hindi ay ang larawan nito.',
+        'media_url_hint' => 'Link sa isang pampublikong post — sa Instagram, X, YouTube, RedGifs, Facebook at marami pang ibang site — o direkta sa larawan o video file: kinukuha ang video o GIF kung pinapayagan ng site, kung hindi ay ang larawan.',
         'source_url' => 'URL ng pinagmulan',
         'source_url_placeholder' => 'https://example.com/original',
         'tags' => 'Mga tag',

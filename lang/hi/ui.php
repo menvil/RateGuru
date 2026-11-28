@@ -268,7 +268,7 @@ return [
         'image_browse' => 'फ़ाइल चुनें',
         'image_url_placeholder' => 'https://example.com/image.jpg',
         'or_paste_link' => 'या लिंक पेस्ट करें',
-        'media_url_hint' => 'किसी तस्वीर या वीडियो का लिंक, या किसी पोस्ट का लिंक: जहाँ साइट अनुमति देती है वहाँ उसका वीडियो या GIF लिया जाता है, नहीं तो उसकी फ़ोटो।',
+        'media_url_hint' => 'किसी सार्वजनिक पोस्ट का लिंक — Instagram, X, YouTube, RedGifs, Facebook और कई अन्य साइटों पर — या सीधे किसी तस्वीर या वीडियो फ़ाइल का: जहाँ साइट अनुमति दे वहाँ वीडियो या GIF, नहीं तो तस्वीर।',
         'source_url' => 'सोर्स URL',
         'source_url_placeholder' => 'https://example.com/original',
         'tags' => 'टैग',

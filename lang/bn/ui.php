@@ -268,7 +268,7 @@ return [
         'image_browse' => 'ফাইল বেছে নিন',
         'image_url_placeholder' => 'https://example.com/image.jpg',
         'or_paste_link' => 'অথবা একটি লিঙ্ক পেস্ট করুন',
-        'media_url_hint' => 'একটি ছবি বা ভিডিওর লিংক, অথবা একটি পোস্টের লিংক: সাইট অনুমতি দিলে তার ভিডিও বা GIF নেওয়া হয়, নইলে তার ছবি।',
+        'media_url_hint' => 'কোনো পাবলিক পোস্টের লিঙ্ক — Instagram, X, YouTube, RedGifs, Facebook এবং আরও অনেক সাইটে — অথবা সরাসরি ছবি বা ভিডিও ফাইলের লিঙ্ক: সাইট অনুমতি দিলে ভিডিও বা GIF নেওয়া হয়, নইলে ছবি।',
         'source_url' => 'উৎস URL',
         'source_url_placeholder' => 'https://example.com/original',
         'tags' => 'ট্যাগ',

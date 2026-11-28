@@ -272,7 +272,7 @@ return [
         'image_browse' => 'Выбрать файл',
         'image_url_placeholder' => 'https://example.com/image.jpg',
         'or_paste_link' => 'или вставьте ссылку',
-        'media_url_hint' => 'Ссылка на картинку или видео либо на пост: берётся его видео или GIF, если сайт это позволяет, иначе фото.',
+        'media_url_hint' => 'Ссылка на публичный пост — в Instagram, X, YouTube, RedGifs, Facebook и на многих других сайтах — либо прямо на картинку или видеофайл: берётся видео или GIF, если сайт это позволяет, иначе картинка.',
         'source_url' => 'URL источника',
         'source_url_placeholder' => 'https://example.com/original',
         'tags' => 'Теги',

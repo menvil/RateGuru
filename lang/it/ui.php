@@ -268,7 +268,7 @@ return [
         'image_browse' => 'Sfoglia file',
         'image_url_placeholder' => 'https://example.com/image.jpg',
         'or_paste_link' => 'oppure incolla un link',
-        'media_url_hint' => 'Un link a un\'immagine o a un video, o a un post: se ne prende il video o la GIF dove il sito lo consente, altrimenti la foto.',
+        'media_url_hint' => 'Un link a un post pubblico — su Instagram, X, YouTube, RedGifs, Facebook e molti altri siti — o direttamente a un’immagine o a un video: il video o la GIF dove il sito lo consente, altrimenti l’immagine.',
         'source_url' => 'URL di origine',
         'source_url_placeholder' => 'https://example.com/original',
         'tags' => 'Tag',

@@ -268,7 +268,7 @@ return [
         'image_browse' => 'Вибрати файл',
         'image_url_placeholder' => 'https://example.com/image.jpg',
         'or_paste_link' => 'або вставте посилання',
-        'media_url_hint' => 'Посилання на зображення чи відео або на допис: береться його відео чи GIF, якщо сайт це дозволяє, інакше фото.',
+        'media_url_hint' => 'Посилання на публічний допис — в Instagram, X, YouTube, RedGifs, Facebook та на багатьох інших сайтах — чи прямо на зображення або відеофайл: береться відео чи GIF, якщо сайт це дозволяє, інакше зображення.',
         'source_url' => 'URL джерела',
         'source_url_placeholder' => 'https://example.com/original',
         'tags' => 'Теги',

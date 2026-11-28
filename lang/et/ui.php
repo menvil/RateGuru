@@ -268,7 +268,7 @@ return [
         'image_browse' => 'Sirvi faile',
         'image_url_placeholder' => 'https://example.com/image.jpg',
         'or_paste_link' => 'või kleebi link',
-        'media_url_hint' => 'Link pildile või videole või postitusele: võetakse selle video või GIF, kui sait seda lubab, muidu selle foto.',
+        'media_url_hint' => 'Link avalikule postitusele — Instagram, X, YouTube, RedGifs, Facebook ja paljudes teistes saitides — või otse pildi- või videofailile: võetakse video või GIF, kus sait lubab, muidu pilt.',
         'source_url' => 'Allika URL',
         'source_url_placeholder' => 'https://example.com/original',
         'tags' => 'Sildid',

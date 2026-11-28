@@ -270,7 +270,7 @@ return [
         'image_browse' => 'Pasirinkti failą',
         'image_url_placeholder' => 'https://example.com/image.jpg',
         'or_paste_link' => 'arba įklijuokite nuorodą',
-        'media_url_hint' => 'Nuoroda į paveikslėlį ar vaizdo įrašą arba į įrašą: paimamas jo vaizdo įrašas ar GIF, kur svetainė leidžia, kitaip – nuotrauka.',
+        'media_url_hint' => 'Nuoroda į viešą įrašą — Instagram, X, YouTube, RedGifs, Facebook ir daugelyje kitų svetainių — arba tiesiai į paveikslėlį ar vaizdo įrašo failą: paimamas vaizdo įrašas ar GIF, kur svetainė leidžia, kitaip paveikslėlis.',
         'source_url' => 'Šaltinio URL',
         'source_url_placeholder' => 'https://example.com/original',
         'tags' => 'Žymos',

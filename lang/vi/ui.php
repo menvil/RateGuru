@@ -268,7 +268,7 @@ return [
         'image_browse' => 'Chọn tệp',
         'image_url_placeholder' => 'https://example.com/image.jpg',
         'or_paste_link' => 'hoặc dán liên kết',
-        'media_url_hint' => 'Liên kết đến ảnh hoặc video, hoặc đến một bài đăng: lấy video hoặc GIF của bài khi trang cho phép, nếu không thì lấy ảnh.',
+        'media_url_hint' => 'Liên kết tới bài đăng công khai — trên Instagram, X, YouTube, RedGifs, Facebook và nhiều trang khác — hoặc trực tiếp tới ảnh hoặc tệp video: lấy video hoặc GIF nếu trang cho phép, nếu không thì lấy ảnh.',
         'source_url' => 'URL nguồn',
         'source_url_placeholder' => 'https://example.com/original',
         'tags' => 'Thẻ',

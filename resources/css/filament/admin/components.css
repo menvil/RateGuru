@@ -8567,35 +8567,6 @@
         background: var(--rg-admin-border-default);
     }
 
-    /* The social sites whose posts are read directly; the one a link is for stands out. */
-    .rg-admin-studio__platforms {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 6px;
-        margin: 0;
-        padding: 0;
-        list-style: none;
-    }
-
-    .rg-admin-studio__platform {
-        display: inline-flex;
-        align-items: center;
-        height: 24px;
-        padding: 0 9px;
-        border: 1px solid var(--rg-admin-border-default);
-        border-radius: var(--rg-admin-radius-full);
-        background: var(--rg-admin-surface-card);
-        color: var(--rg-admin-text-secondary);
-        font-size: var(--rg-admin-text-micro);
-        font-weight: var(--rg-admin-weight-medium);
-    }
-
-    .rg-admin-studio__platform--detected {
-        border-color: var(--rg-admin-surface-inverse);
-        background: var(--rg-admin-surface-inverse);
-        color: var(--rg-admin-text-inverse);
-    }
-
     .rg-admin-studio__analysis-idle {
         padding: 36px var(--rg-admin-space-3);
         text-align: center;

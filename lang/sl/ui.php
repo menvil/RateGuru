@@ -268,7 +268,7 @@ return [
         'image_browse' => 'Izberi datoteko',
         'image_url_placeholder' => 'https://example.com/image.jpg',
         'or_paste_link' => 'ali prilepite povezavo',
-        'media_url_hint' => 'Povezava do slike ali videoposnetka ali do objave: prevzame se njen videoposnetek ali GIF, kjer spletno mesto to dovoli, sicer fotografija.',
+        'media_url_hint' => 'Povezava do javne objave — na Instagram, X, YouTube, RedGifs, Facebook in mnogih drugih straneh — ali neposredno do slike ali videodatoteke: vzame se video ali GIF, kjer stran to dovoli, sicer slika.',
         'source_url' => 'URL vira',
         'source_url_placeholder' => 'https://example.com/original',
         'tags' => 'Oznake',

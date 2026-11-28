@@ -268,7 +268,7 @@ return [
         'image_browse' => 'Изабери датотеку',
         'image_url_placeholder' => 'https://example.com/image.jpg',
         'or_paste_link' => 'или налепите везу',
-        'media_url_hint' => 'Веза до слике или видеа, или до објаве: узима се њен видео или GIF где сајт дозвољава, иначе њена фотографија.',
+        'media_url_hint' => 'Веза до јавне објаве — на Instagram, X, YouTube, RedGifs, Facebook и многим другим сајтовима — или директно до слике или видео-датотеке: узима се видео или GIF где сајт дозвољава, иначе слика.',
         'source_url' => 'URL извора',
         'source_url_placeholder' => 'https://example.com/original',
         'tags' => 'Ознаке',

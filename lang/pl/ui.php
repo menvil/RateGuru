@@ -268,7 +268,7 @@ return [
         'image_browse' => 'Wybierz plik',
         'image_url_placeholder' => 'https://example.com/image.jpg',
         'or_paste_link' => 'lub wklej link',
-        'media_url_hint' => 'Link do obrazu lub filmu albo do posta: pobierany jest jego film lub GIF, jeśli strona na to pozwala, w przeciwnym razie zdjęcie.',
+        'media_url_hint' => 'Link do publicznego posta — na Instagram, X, YouTube, RedGifs, Facebook i wielu innych stronach — albo bezpośrednio do obrazu lub pliku wideo: brane jest wideo lub GIF, gdzie strona na to pozwala, w przeciwnym razie obraz.',
         'source_url' => 'Adres URL źródła',
         'source_url_placeholder' => 'https://example.com/original',
         'tags' => 'Tagi',

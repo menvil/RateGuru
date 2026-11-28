@@ -268,7 +268,7 @@ return [
         'image_browse' => 'Bestand kiezen',
         'image_url_placeholder' => 'https://example.com/image.jpg',
         'or_paste_link' => 'of plak een link',
-        'media_url_hint' => 'Een link naar een afbeelding of video, of naar een bericht: de video of gif wordt overgenomen waar de site dat toestaat, anders de foto.',
+        'media_url_hint' => 'Een link naar een openbaar bericht — op Instagram, X, YouTube, RedGifs, Facebook en veel andere sites — of rechtstreeks naar een afbeelding of videobestand: de video of GIF waar de site dat toestaat, anders de afbeelding.',
         'source_url' => 'Bron-URL',
         'source_url_placeholder' => 'https://example.com/original',
         'tags' => 'Tags',

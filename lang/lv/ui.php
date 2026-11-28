@@ -271,7 +271,7 @@ return [
         'image_browse' => 'Pārlūkot failus',
         'image_url_placeholder' => 'https://example.com/image.jpg',
         'or_paste_link' => 'vai ielīmējiet saiti',
-        'media_url_hint' => 'Saite uz attēlu vai video, vai uz ierakstu: tiek ņemts tā video vai GIF, ja vietne to atļauj, citādi tā foto.',
+        'media_url_hint' => 'Saite uz publisku ierakstu — Instagram, X, YouTube, RedGifs, Facebook un daudzās citās vietnēs — vai tieši uz attēlu vai video failu: tiek ņemts video vai GIF, ja vietne atļauj, citādi attēls.',
         'source_url' => 'Avota URL',
         'source_url_placeholder' => 'https://example.com/original',
         'tags' => 'Birkas',

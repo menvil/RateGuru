@@ -268,7 +268,7 @@ return [
         'image_browse' => '浏览文件',
         'image_url_placeholder' => 'https://example.com/image.jpg',
         'or_paste_link' => '或粘贴链接',
-        'media_url_hint' => '图片或视频的链接，或帖子的链接：网站允许时获取其视频或 GIF，否则获取其照片。',
+        'media_url_hint' => '公开帖子的链接（Instagram, X, YouTube, RedGifs, Facebook 及许多其他网站），或直接指向图片或视频文件的链接：网站允许时取其视频或 GIF，否则取图片。',
         'source_url' => '来源网址',
         'source_url_placeholder' => 'https://example.com/original',
         'tags' => '标签',

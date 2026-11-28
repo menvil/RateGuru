@@ -268,7 +268,7 @@ return [
         'image_browse' => 'ファイルを選択',
         'image_url_placeholder' => 'https://example.com/image.jpg',
         'or_paste_link' => 'またはリンクを貼り付け',
-        'media_url_hint' => '画像や動画、または投稿へのリンク：サイトが許す場合はその動画やGIFを、そうでなければ写真を取り込みます。',
+        'media_url_hint' => '公開投稿のリンク（Instagram, X, YouTube, RedGifs, Facebook ほか多数のサイト）、または画像・動画ファイルへの直接リンク：サイトが許せば動画やGIF、そうでなければ画像を取り込みます。',
         'source_url' => '出典URL',
         'source_url_placeholder' => 'https://example.com/original',
         'tags' => 'タグ',

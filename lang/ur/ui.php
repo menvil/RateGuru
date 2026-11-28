@@ -276,7 +276,7 @@ return [
         'image_browse' => 'فائل منتخب کریں',
         'image_url_placeholder' => 'https://example.com/image.jpg',
         'or_paste_link' => 'یا لنک پیسٹ کریں',
-        'media_url_hint' => 'کسی تصویر یا ویڈیو کا لنک، یا کسی پوسٹ کا لنک: جہاں سائٹ اجازت دے وہاں اس کی ویڈیو یا GIF لی جاتی ہے، ورنہ اس کی تصویر۔',
+        'media_url_hint' => 'کسی عوامی پوسٹ کا لنک — Instagram, X, YouTube, RedGifs, Facebook اور بہت سی دیگر سائٹس پر — یا براہ راست تصویر یا ویڈیو فائل کا: جہاں سائٹ اجازت دے وہاں ویڈیو یا GIF، ورنہ تصویر۔',
         'source_url' => 'ماخذ کا URL',
         'source_url_placeholder' => 'https://example.com/original',
         'tags' => 'ٹیگز',

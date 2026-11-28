@@ -275,7 +275,7 @@ return [
         'image_browse' => 'בחירת קובץ',
         'image_url_placeholder' => 'https://example.com/image.jpg',
         'or_paste_link' => 'או הדבק קישור',
-        'media_url_hint' => 'קישור לתמונה או לסרטון, או לפוסט: נלקחים הסרטון או ה-GIF שלו היכן שהאתר מאפשר, אחרת התמונה שלו.',
+        'media_url_hint' => 'קישור לפוסט ציבורי — ב-Instagram, X, YouTube, RedGifs, Facebook ובאתרים רבים אחרים — או ישירות לתמונה או לקובץ וידאו: נלקח הווידאו או ה-GIF כשהאתר מאפשר, אחרת התמונה.',
         'source_url' => 'כתובת המקור',
         'source_url_placeholder' => 'https://example.com/original',
         'tags' => 'תגיות',

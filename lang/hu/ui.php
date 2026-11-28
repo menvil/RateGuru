@@ -268,7 +268,7 @@ return [
         'image_browse' => 'Fájl kiválasztása',
         'image_url_placeholder' => 'https://example.com/image.jpg',
         'or_paste_link' => 'vagy illesszen be egy linket',
-        'media_url_hint' => 'Hivatkozás egy képre vagy videóra, vagy egy bejegyzésre: a videója vagy GIF-je kerül át, ahol az oldal engedi, különben a fotója.',
+        'media_url_hint' => 'Hivatkozás egy nyilvános bejegyzésre — Instagram, X, YouTube, RedGifs, Facebook és sok más oldalon — vagy közvetlenül egy képre vagy videofájlra: a videó vagy GIF, ahol az oldal engedi, különben a kép.',
         'source_url' => 'Forrás URL-je',
         'source_url_placeholder' => 'https://example.com/original',
         'tags' => 'Címkék',

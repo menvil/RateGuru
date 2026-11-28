@@ -268,7 +268,7 @@ return [
         'image_browse' => 'Bla gjennom filer',
         'image_url_placeholder' => 'https://example.com/image.jpg',
         'or_paste_link' => 'eller lim inn en lenke',
-        'media_url_hint' => 'En lenke til et bilde eller en video, eller til et innlegg: videoen eller GIF-en hentes der nettstedet tillater det, ellers bildet.',
+        'media_url_hint' => 'En lenke til et offentlig innlegg — på Instagram, X, YouTube, RedGifs, Facebook og mange andre sider — eller direkte til et bilde eller en videofil: videoen eller GIF-en der siden tillater det, ellers bildet.',
         'source_url' => 'Kilde-URL',
         'source_url_placeholder' => 'https://example.com/original',
         'tags' => 'Tagger',

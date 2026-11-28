@@ -268,7 +268,7 @@ return [
         'image_browse' => 'Преглед',
         'image_url_placeholder' => 'https://example.com/image.jpg',
         'or_paste_link' => 'или поставете връзка',
-        'media_url_hint' => 'Връзка към снимка или видео, или към публикация: взема се видеото или GIF, където сайтът позволява, иначе снимката.',
+        'media_url_hint' => 'Връзка към публична публикация — в Instagram, X, YouTube, RedGifs, Facebook и много други сайтове — или директно към снимка или видеофайл: взима се видеото или GIF, където сайтът позволява, иначе снимката.',
         'source_url' => 'URL на оригинала',
         'source_url_placeholder' => 'https://example.com/original',
         'tags' => 'Тагове',

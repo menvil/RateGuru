@@ -268,7 +268,7 @@ return [
         'image_browse' => 'ფაილის არჩევა',
         'image_url_placeholder' => 'https://example.com/image.jpg',
         'or_paste_link' => 'ან ჩასვით ბმული',
-        'media_url_hint' => 'ბმული სურათზე ან ვიდეოზე, ან პოსტზე: აიღება მისი ვიდეო ან GIF, სადაც საიტი ამის საშუალებას იძლევა, თორემ — ფოტო.',
+        'media_url_hint' => 'ბმული საჯარო პოსტზე — Instagram, X, YouTube, RedGifs, Facebook და ბევრ სხვა საიტზე — ან პირდაპირ სურათზე ან ვიდეოფაილზე: სადაც საიტი ნებას რთავს, აიღება ვიდეო ან GIF, თუ არა — სურათი.',
         'source_url' => 'წყაროს URL',
         'source_url_placeholder' => 'https://example.com/original',
         'tags' => 'თეგები',

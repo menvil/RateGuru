@@ -268,7 +268,7 @@ return [
         'image_browse' => 'Alege fișierul',
         'image_url_placeholder' => 'https://example.com/image.jpg',
         'or_paste_link' => 'sau lipește un link',
-        'media_url_hint' => 'Un link către o imagine sau un videoclip ori către o postare: se preia videoclipul sau GIF-ul ei acolo unde site-ul permite, altfel fotografia.',
+        'media_url_hint' => 'Un link către o postare publică — pe Instagram, X, YouTube, RedGifs, Facebook și multe alte site-uri — ori direct către o imagine sau un fișier video: se ia videoclipul sau GIF-ul unde site-ul permite, altfel imaginea.',
         'source_url' => 'URL sursă',
         'source_url_placeholder' => 'https://example.com/original',
         'tags' => 'Etichete',

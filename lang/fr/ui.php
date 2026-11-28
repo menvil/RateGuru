@@ -268,7 +268,7 @@ return [
         'image_browse' => 'Parcourir',
         'image_url_placeholder' => 'https://example.com/image.jpg',
         'or_paste_link' => 'ou collez un lien',
-        'media_url_hint' => 'Un lien vers une image ou une vidéo, ou vers une publication : sa vidéo ou son GIF est repris si le site le permet, sinon sa photo.',
+        'media_url_hint' => 'Un lien vers une publication publique — sur Instagram, X, YouTube, RedGifs, Facebook et bien d’autres sites — ou directement vers une image ou une vidéo : la vidéo ou le GIF quand le site le permet, sinon l’image.',
         'source_url' => 'URL source',
         'source_url_placeholder' => 'https://example.com/original',
         'tags' => 'Tags',

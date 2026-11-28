@@ -268,7 +268,7 @@ return [
         'image_browse' => 'Dosya seç',
         'image_url_placeholder' => 'https://example.com/image.jpg',
         'or_paste_link' => 'veya bir bağlantı yapıştırın',
-        'media_url_hint' => 'Bir resme veya videoya ya da bir gönderiye bağlantı: site izin veriyorsa videosu veya GIF\'i, aksi halde fotoğrafı alınır.',
+        'media_url_hint' => 'Herkese açık bir gönderiye — Instagram, X, YouTube, RedGifs, Facebook ve daha birçok sitede — ya da doğrudan bir resme veya video dosyasına bağlantı: site izin veriyorsa videosu veya GIF’i, aksi hâlde resmi alınır.',
         'source_url' => 'Kaynak URL',
         'source_url_placeholder' => 'https://example.com/original',
         'tags' => 'Etiketler',

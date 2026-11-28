@@ -268,7 +268,7 @@ return [
         'image_browse' => 'Seleccionar archivo',
         'image_url_placeholder' => 'https://example.com/image.jpg',
         'or_paste_link' => 'o pega un enlace',
-        'media_url_hint' => 'Un enlace a una imagen o un vídeo, o a una publicación: se toma su vídeo o GIF si el sitio lo permite; si no, su foto.',
+        'media_url_hint' => 'Un enlace a una publicación pública — en Instagram, X, YouTube, RedGifs, Facebook y muchos otros sitios — o directamente a una imagen o un vídeo: se toma el vídeo o GIF donde el sitio lo permite; si no, la imagen.',
         'source_url' => 'URL de origen',
         'source_url_placeholder' => 'https://example.com/original',
         'tags' => 'Etiquetas',

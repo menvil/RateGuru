@@ -268,7 +268,7 @@ return [
         'image_browse' => 'Selaa tiedostoja',
         'image_url_placeholder' => 'https://example.com/image.jpg',
         'or_paste_link' => 'tai liitä linkki',
-        'media_url_hint' => 'Linkki kuvaan tai videoon tai julkaisuun: siitä otetaan video tai GIF, jos sivusto sallii, muuten kuva.',
+        'media_url_hint' => 'Linkki julkiseen julkaisuun — Instagram, X, YouTube, RedGifs, Facebook ja monilla muilla sivustoilla — tai suoraan kuva- tai videotiedostoon: video tai GIF otetaan, jos sivusto sallii, muuten kuva.',
         'source_url' => 'Lähteen URL-osoite',
         'source_url_placeholder' => 'https://example.com/original',
         'tags' => 'Tunnisteet',

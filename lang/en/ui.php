@@ -268,7 +268,7 @@ return [
         'image_browse' => 'Browse File',
         'image_url_placeholder' => 'https://example.com/image.jpg',
         'or_paste_link' => 'or paste a link',
-        'media_url_hint' => 'A link to a picture or a video, or to a post: its video or GIF where the site allows, otherwise its photo.',
+        'media_url_hint' => 'A link to a public post — on Instagram, X, YouTube, RedGifs, Facebook and many other sites — or straight to a picture or video file: its video or GIF where the site allows, otherwise its picture.',
         'source_url' => 'Source URL',
         'source_url_placeholder' => 'https://example.com/original',
         'tags' => 'Tags',

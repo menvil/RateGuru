@@ -268,7 +268,7 @@ return [
         'image_browse' => 'Semak imbas fail',
         'image_url_placeholder' => 'https://example.com/image.jpg',
         'or_paste_link' => 'atau tampal pautan',
-        'media_url_hint' => 'Pautan ke gambar atau video, atau ke siaran: video atau GIF siaran itu diambil jika laman membenarkan, jika tidak fotonya.',
+        'media_url_hint' => 'Pautan ke siaran awam — di Instagram, X, YouTube, RedGifs, Facebook dan banyak laman lain — atau terus ke gambar atau fail video: video atau GIF diambil jika laman membenarkan, jika tidak gambarnya.',
         'source_url' => 'URL sumber',
         'source_url_placeholder' => 'https://example.com/original',
         'tags' => 'Tag',

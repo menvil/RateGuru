@@ -268,7 +268,7 @@ return [
         'image_browse' => 'Pilih file',
         'image_url_placeholder' => 'https://example.com/image.jpg',
         'or_paste_link' => 'atau tempel tautan',
-        'media_url_hint' => 'Tautan ke gambar atau video, atau ke sebuah postingan: video atau GIF-nya diambil jika situs mengizinkan, jika tidak fotonya.',
+        'media_url_hint' => 'Tautan ke postingan publik — di Instagram, X, YouTube, RedGifs, Facebook dan banyak situs lain — atau langsung ke gambar atau file video: video atau GIF-nya diambil jika situs mengizinkan, jika tidak gambarnya.',
         'source_url' => 'URL sumber',
         'source_url_placeholder' => 'https://example.com/original',
         'tags' => 'Tag',
