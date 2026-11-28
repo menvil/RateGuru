@@ -384,9 +384,11 @@ final class TrafficSourcesPage extends Page
         $this->listBy = $level === 'site' ? 'site' : 'zone';
         $this->segment = 'all';
         $this->q = is_string($ref) ? $ref : '';
-        // Looking up one site or zone: the row asked for shows, however few clicks it has.
+        // Looking up one site or zone: the row asked for shows, however few clicks it has and whatever its shares.
         if ($this->q !== '') {
             $this->minClicks = 0;
+            $this->shareColumn = '';
+            $this->sharePercent = '';
         }
         $this->pageNumber = 1;
         $this->selected = [];

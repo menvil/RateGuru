@@ -1064,7 +1064,7 @@ final class TrafficSourcesView
         $byZone = $page->listBy !== 'site';
         $judge = $this->judgeContext($filter);
         $reach = $this->reachByPlace($filter);
-        $rows = $this->places($filter, $byZone);
+        $rows = $this->places($filter, $byZone, withAddresses: true);
         $campaigns = TrafficCampaign::query()->whereKey(collect($rows)->pluck('campaign_id')->filter()->unique()->all())->get(['id', 'name', 'external_id'])->keyBy('id');
         $out = [];
 
@@ -1165,16 +1165,19 @@ final class TrafficSourcesView
      *
      * @return list<array{key: string, level: string, ref: string, site: string|null, source_id: int, campaign_id: int|null, campaigns: int, first_at: CarbonImmutable|null, figures: ReportFigures}>
      */
-    private function places(TrafficReportFilter $filter, bool $byZone): array
+    private function places(TrafficReportFilter $filter, bool $byZone, bool $withAddresses = false): array
     {
         $places = [];
         $listed = [];
-
-        $addresses = $this->reports->repeatAddresses($filter, $byZone);
+        // Only the list shows repeat addresses: the rule's counts never read them, so they skip the extra grouped read.
+        $addresses = $withAddresses ? $this->reports->repeatAddresses($filter, $byZone) : [];
 
         foreach ($this->reports->zones($filter, $byZone) as $row) {
-            $address = $addresses[TrafficReportQuery::placeKey($row['source_id'], $row['site_ref'], $row['zone_ref'])] ?? null;
-            $row['figures'] = $row['figures']->withAddresses($address['addressed'] ?? 0, $address['repeated'] ?? 0);
+            if ($withAddresses) {
+                $address = $addresses[TrafficReportQuery::placeKey($row['source_id'], $row['site_ref'], $row['zone_ref'])] ?? null;
+                $row['figures'] = $row['figures']->withAddresses($address['addressed'] ?? 0, $address['repeated'] ?? 0);
+            }
+
             $zone = $byZone && $row['zone_ref'] !== null && $row['zone_ref'] !== '';
             $ref = (string) ($zone ? $row['zone_ref'] : $row['site_ref']);
 

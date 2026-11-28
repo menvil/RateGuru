@@ -745,9 +745,12 @@ names the flags in Logs → Clicks and in a journey's visit step.
 
 The list keeps, past its clicks threshold and search, only the rows whose share
 in one column (`SiteZoneList::SHARES`, the share each column shows under its
-figure) is above or below a percent (`SiteZoneList::sharePasses()`, to the
-hundredth of a percent, strictly); a row with nothing to take the share of is
-on neither side. The page keeps the column, the side and the percent in its
+figure) is above or below a percent (`SiteZoneList::sharePasses()`, rounded
+to a tenth of a percent as the columns show it, strictly); a row with nothing
+to take the share of is on neither side. "Find in Sites & zones" clears the
+share filter with the clicks threshold, so the row it looks up shows, and
+only the list reads `repeatAddresses()` — `places()` skips it for the rule's
+counts (`withAddresses`). The page keeps the column, the side and the percent in its
 address (`share`, `than`, `pct`).
 
 `block_start_clicks` defaults to 1,000 (a migration moved a settings row still

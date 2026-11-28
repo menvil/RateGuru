@@ -237,6 +237,7 @@ final class TrafficReportQuery implements RawSqlPersistenceBoundary
             ->groupBy(...$columns)
             ->select($columns)
             ->selectRaw('SUM(visits) AS addressed, SUM(CASE WHEN visits > ? THEN visits ELSE 0 END) AS repeated', [1])
+            ->tap(fn (Builder $query) => self::byEveryColumn($query, $columns))
             ->toBase()
             ->get()
             ->mapWithKeys(fn (object $row): array => [self::placeKey((int) $row->source_id, $row->site_ref, $byZone ? $row->zone_ref : null) => [

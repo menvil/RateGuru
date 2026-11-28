@@ -115,7 +115,11 @@
 
 @if ($list['matching'] === [])
     <x-admin.ui.empty-state icon="search-x" title="No {{ $noun }} here">
-        {{ ($list['counts']['all'] ?? 0) === 0 ? 'No ad network sent a click with a '.($listBy === 'site' ? 'site' : 'zone or site').' ID on these filters.' : 'None match this segment and search.' }}
+        {{ match (true) {
+            ($list['counts']['all'] ?? 0) > 0 => 'None match this segment.',
+            ($list['hidden'] ?? 0) > 0 => 'None clear the clicks threshold, the search and the share above it: '.number_format($list['hidden']).' '.($list['hidden'] === 1 ? 'is' : 'are').' left out.',
+            default => 'No ad network sent a click with a '.($listBy === 'site' ? 'site' : 'zone or site').' ID on these filters.',
+        } }}
     </x-admin.ui.empty-state>
 @else
     <div class="rg-admin-traffic__perf rg-admin-table__scroll">

@@ -185,6 +185,22 @@ it('keeps only the sites whose share in a column is above or below a percent, pa
         ->set('shareColumn', 'nonsense')->assertSet('shareColumn', '');
 });
 
+it('compares a share as the column shows it, says when the filters left every row out, and clears the share to find one row', function () {
+    // 98 of 4,900 opened started: 2.0% on screen, on neither side of 2.
+    siteClicks($this->source, '73001', 4900, 4900);
+    TrafficVisit::query()->where('site_ref', '73001')->limit(98)->update(['started_at' => now()]);
+
+    $page = Livewire::withQueryParams(['view' => 'sites', 'list' => 'site', 'share' => 'started', 'than' => 'below', 'pct' => '2'])->test(TrafficSourcesPage::class)->call('load')
+        ->assertSee('None clear the clicks threshold, the search and the share above it: 1 is left out.')
+        ->assertDontSee('No ad network sent a click');
+
+    $page->set('shareSide', 'above')->assertDontSee('site 73001')
+        ->call('listSites', $this->source->id, 'site', '73001')
+        ->assertSet('shareColumn', '')
+        ->assertSet('sharePercent', '')
+        ->assertSee('site 73001');
+});
+
 it('calls a site that has cost past the money’s gate a weak start while the worth isn’t measured, saying how often its visitors started the game against the source', function () {
     // 300 clicks at a cent: past the rule's 200 clicks, and no run of chances measures the worth. This source judges a start from 250 clicks, not 1,000.
     $this->source->forceFill(['block_start_clicks' => 250])->save();
