@@ -1,0 +1,22 @@
+app/Filament/Resources/Posts/Pages/ListPosts.php
+  s_1f43f39fbe0537::t_2cdd12635b8d9a 589
+tests/Feature/Filament/PostResourceTest.php
+  s_1f43f39fbe0537::t_c0c5bdaceba0f5 300-301
+  s_1f43f39fbe0537::t_0478d2f7f55b0e 315-316
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "de262e0ebedeaa497886e3d785d962afd6c69669",
+  "prompts": {},
+  "sessions": {
+    "s_1f43f39fbe0537": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "526787d0-f443-4ad7-9610-cf9811fec895",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
