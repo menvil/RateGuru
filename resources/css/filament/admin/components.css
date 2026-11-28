@@ -5590,6 +5590,14 @@
         line-height: var(--rg-admin-leading-caption);
     }
 
+    /* Where the file came from: a link that opens the original post. */
+    .rg-admin-viewer__link {
+        color: inherit;
+        font-weight: var(--rg-admin-weight-medium);
+        text-decoration: underline;
+        text-underline-offset: 2px;
+    }
+
     /* Comments (ListComments): the text in two lines, its id and read-only note, the post */
     .rg-admin-comments__search {
         width: 340px;

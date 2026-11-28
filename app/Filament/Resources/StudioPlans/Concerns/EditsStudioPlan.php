@@ -397,7 +397,7 @@ trait EditsStudioPlan
             }
 
             try {
-                $kept = $this->keepPhoto($field, $file, ImageInputSource::UrlImport);
+                $kept = $this->keepPhoto($field, $file, ImageInputSource::UrlImport, $url);
             } finally {
                 $importer->cleanup($file);
             }
@@ -672,7 +672,7 @@ trait EditsStudioPlan
      * file the site can't use is said by the field it came from. Whether the
      * photo was kept.
      */
-    private function keepPhoto(string $field, UploadedFile $file, ImageInputSource $source): bool
+    private function keepPhoto(string $field, UploadedFile $file, ImageInputSource $source, ?string $takenFrom = null): bool
     {
         $plan = $this->photoPlan();
 
@@ -683,7 +683,7 @@ trait EditsStudioPlan
         $previous = $plan->image_asset_id !== null ? MediaAsset::query()->find($plan->image_asset_id)?->original_filename : null;
 
         try {
-            app(SetStudioPlanImageAction::class)->handle($this->admin(), $plan, $file, $this->lockVersion, $source);
+            app(SetStudioPlanImageAction::class)->handle($this->admin(), $plan, $file, $this->lockVersion, $source, $takenFrom);
         } catch (CannotManageStudioPlanException $exception) {
             $this->refusePhoto($exception);
 

@@ -151,9 +151,9 @@ final class CreatePostAction
 
                 $imageAssetId = match (true) {
                     $data->imageAssetId !== null => $this->lockStoredPostImage($data->imageAssetId),
-                    $storedImage !== null => $this->mediaAssetCreator->create($storedImage, MediaKind::PostImage, $user)->id,
+                    $storedImage !== null => $this->mediaAssetCreator->create($storedImage, MediaKind::PostImage, $user, $data->takenFrom)->id,
                     $storedVideo !== null => $this->mediaAssetCreator->createProcessing($storedVideo, $user)->id,
-                    $data->videoUrl !== null => $this->mediaAssetCreator->createAwaitingDownload($user, $data->videoUrl)->id,
+                    $data->videoUrl !== null => $this->mediaAssetCreator->createAwaitingDownload($user, $data->videoUrl, $data->takenFrom)->id,
                     default => null,
                 };
 

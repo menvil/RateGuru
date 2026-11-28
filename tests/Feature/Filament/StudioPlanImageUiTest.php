@@ -341,6 +341,8 @@ it('imports a photo from a direct link without Save, through the safe importer, 
 
     expect($plan->fresh()->imageAsset)->width->toBe(300)->height->toBe(200)
         ->and($plan->fresh()->source_url)->toBe('https://example.com/story')
+        // The link it was taken from stays on the file, for moderators to open.
+        ->and($plan->fresh()->imageAsset->takenFrom())->toBe('https://example.com/photo.png')
         ->and(glob(sys_get_temp_dir().'/rg_import_*') ?: [])->toBe($temporary)
         ->and(StudioPlanImageAnalysis::query()->sole()->source_image_asset_id)->toBe($plan->fresh()->image_asset_id);
     Queue::assertPushed(AnalyzeStudioPlanImageJob::class, 1);

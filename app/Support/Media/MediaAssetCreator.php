@@ -28,7 +28,7 @@ final class MediaAssetCreator
         private readonly QueueMediaClassification $classification,
     ) {}
 
-    public function create(StoredMedia $stored, MediaKind $kind, ?User $owner): MediaAsset
+    public function create(StoredMedia $stored, MediaKind $kind, ?User $owner, ?string $takenFrom = null): MediaAsset
     {
         $hasValidDimensions = $stored->width !== null
             && $stored->height !== null
@@ -59,6 +59,7 @@ final class MediaAssetCreator
                 : null,
             'status' => MediaStatus::Ready,
             'visibility' => MediaVisibility::Public,
+            'metadata' => MediaAsset::originMetadata($takenFrom) ?: null,
         ]);
 
         $this->classification->ready($asset);
@@ -105,7 +106,7 @@ final class MediaAssetCreator
      * there), until ImportVideoAssetJob has stored the file it fetched as an
      * upload's original and pointed the asset at it.
      */
-    public function createAwaitingDownload(User $owner, string $url): MediaAsset
+    public function createAwaitingDownload(User $owner, string $url, ?string $takenFrom = null): MediaAsset
     {
         $request = MediaStoreRequest::forVideoOriginal((int) $owner->id);
 
@@ -123,7 +124,7 @@ final class MediaAssetCreator
             'byte_size' => 0,
             'status' => MediaStatus::Processing,
             'visibility' => MediaVisibility::Private,
-            'metadata' => ['import' => ['url' => $url]],
+            'metadata' => ['import' => ['url' => $url], ...MediaAsset::originMetadata($takenFrom ?? $url)],
         ]);
     }
 }

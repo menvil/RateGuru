@@ -225,22 +225,10 @@
                 @endif
             </footer>
 
-            @if($post->category || $post->source_url)
+            {{-- The post's source is for moderators only (the admin's post viewer), never shown here. --}}
+            @if($post->category)
                 <section class="mt-4 flex flex-wrap items-center gap-2">
-                    @if($post->category)
-                        <x-posts.category-link :category="$post->category" test-id="post-show-category" />
-                    @endif
-
-                    @if($post->source_url)
-                        <a
-                            href="{{ $post->source_url }}"
-                            rel="nofollow noopener noreferrer"
-                            target="_blank"
-                            class="text-xs font-semibold text-rg-accent2 hover:underline"
-                        >
-                            {{ __('ui.upload.source_url') }}
-                        </a>
-                    @endif
+                    <x-posts.category-link :category="$post->category" test-id="post-show-category" />
                 </section>
             @endif
 

@@ -31,6 +31,9 @@ final readonly class CreatePostData
         // A video or animated GIF to download from a link — a file's, or the
         // one a post on another site carries — in the background.
         public ?string $videoUrl = null,
+        // The link the picture or video was taken from, as pasted — for
+        // moderators to open the original. Null for a file uploaded.
+        public ?string $takenFrom = null,
         /*
          * Trusted, and set only by Content Studio's executor
          * (ExecuteStudioAction), never from a request: a Ready post image
