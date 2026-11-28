@@ -1,0 +1,37 @@
+tests/Feature/Architecture/RecoverHostScopeTest.php
+  s_1f43f39fbe0537::t_4a377c2ce41209 79-80
+tests/Feature/Architecture/InstallTargetOperationsTest.php
+  s_1f43f39fbe0537::t_a8e1106e6999bb 2738
+  s_1f43f39fbe0537::t_5d65b8a9c43f09 4105-4274
+  s_1f43f39fbe0537::t_4a377c2ce41209 1101-1103,1204,1372,2658
+tests/Feature/Architecture/TargetAwareOperationsTest.php
+  s_1f43f39fbe0537::t_14e63e38510e2b 1264-1266
+infrastructure/scripts/install-bootstrap-services
+  s_1f43f39fbe0537::t_fd23bcab70679b 816-822
+infrastructure/scripts/install-target-operations
+  s_1f43f39fbe0537::t_f89d84edbf6f18 18,30,38,109-111,236,243-250,298,465,471,1065,1204,1709-1710,2144
+  s_1f43f39fbe0537::t_5e69d5340b58f0 1195-1200
+  s_1f43f39fbe0537::t_3cd245f9d1d5fa 867-897
+  s_1f43f39fbe0537::t_953ea7fa70f189 2106-2109
+tests/Feature/Architecture/ProvisionTargetTest.php
+  s_1f43f39fbe0537::t_5f9e00213996c2 842-846,851-852,854-859
+tests/Feature/Architecture/DeploymentTargetRegistryTest.php
+  s_1f43f39fbe0537::t_14e63e38510e2b 1620-1623
+  s_1f43f39fbe0537::t_ecf372df81a563 1641-1644
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "3ee8eaaac091cdd5acfd13190616279a06c46024",
+  "prompts": {},
+  "sessions": {
+    "s_1f43f39fbe0537": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "526787d0-f443-4ad7-9610-cf9811fec895",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
