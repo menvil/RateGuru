@@ -185,20 +185,22 @@ final class AddressRanges
     public static function contains(string $path, string $ip): bool
     {
         $packed = @inet_pton($ip);
-        $size = is_file($path) ? (int) filesize($path) : 0;
+        $file = $packed === false || ! is_file($path) ? false : @fopen($path, 'rb');
 
-        if ($packed === false || $size === 0 || $size % self::RECORD_BYTES !== 0) {
+        if ($packed === false || $file === false) {
             return false;
         }
 
         $address = self::sixteen($packed);
-        $file = @fopen($path, 'rb');
-
-        if ($file === false) {
-            return false;
-        }
 
         try {
+            // The size of the file this handle reads, not of the path: an update renames a new list over it at any moment.
+            $size = (int) (fstat($file)['size'] ?? 0);
+
+            if ($size === 0 || $size % self::RECORD_BYTES !== 0) {
+                return false;
+            }
+
             $low = 0;
             $high = intdiv($size, self::RECORD_BYTES) - 1;
 

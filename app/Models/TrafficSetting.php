@@ -76,7 +76,6 @@ class TrafficSetting extends Model
         ];
     }
 
-    /** The row, or the defaults while nobody has saved one; never written here. */
     /**
      * The city database chosen to place visitors: the networks' database names
      * networks and places no one, so a value that ever named it reads as the
@@ -89,6 +88,7 @@ class TrafficSetting extends Model
         return $edition->isCity() ? $edition : GeoEdition::GeoLite2City;
     }
 
+    /** The row, or the defaults while nobody has saved one; never written here. */
     public static function current(): self
     {
         return self::query()->find(1) ?? (new self)->forceFill(['id' => 1])->setRawAttributes([

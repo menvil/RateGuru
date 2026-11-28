@@ -51,30 +51,37 @@ final readonly class GeoAttribution
      * The networks' database and lists, as Tracking shows them: the build of
      * DB-IP ASN Lite installed, when it was last checked and its last error,
      * how many networks the hosting list names and how many ranges Private
-     * Relay's list holds — null while one is missing — and DB-IP's credit,
-     * which the networks' database asks for whichever city database serves.
+     * Relay's list holds — null while one is missing — each list's last
+     * error, and DB-IP's credit, which the networks' database asks for
+     * whichever city database serves.
      *
-     * @return array{installed: mixed, checked: mixed, error: mixed, hosting: int|null, relay: int|null, credit: array{text: string, url: string}}
+     * @return array{installed: mixed, checked: mixed, error: mixed, hosting: int|null, hostingError: string|null, relay: int|null, relayError: string|null, credit: array{text: string, url: string}}
      */
     public function networks(): array
     {
-        $state = is_file($this->locator->current(GeoEdition::DbipAsnLite)) ? $this->states->read(GeoEdition::DbipAsnLite) : [];
-        $entries = function (string $name): ?int {
-            if (! is_file($this->locator->networkList($name))) {
-                return null;
-            }
+        // The state whether or not a build serves: a first install that keeps failing shows its error.
+        $state = $this->states->read(GeoEdition::DbipAsnLite);
+        $list = function (string $name): array {
+            $path = $this->locator->networkState($name);
+            $state = is_file($path) ? json_decode((string) @file_get_contents($path), true) : null;
+            $state = is_array($state) ? $state : [];
 
-            $state = json_decode((string) @file_get_contents($this->locator->networkState($name)), true);
-
-            return is_array($state) && is_int($state['installed']['entries'] ?? null) ? $state['installed']['entries'] : null;
+            return [
+                is_file($this->locator->networkList($name)) && is_int($state['installed']['entries'] ?? null) ? $state['installed']['entries'] : null,
+                is_string($state['last_error']['code'] ?? null) ? $state['last_error']['code'] : null,
+            ];
         };
+        [$hosting, $hostingError] = $list('hosting');
+        [$relay, $relayError] = $list('relay');
 
         return [
-            'installed' => $state['installed'] ?? null,
+            'installed' => is_file($this->locator->current(GeoEdition::DbipAsnLite)) ? ($state['installed'] ?? null) : null,
             'checked' => $state['last_checked_at'] ?? null,
             'error' => $state['last_error']['code'] ?? null,
-            'hosting' => $entries('hosting'),
-            'relay' => $entries('relay'),
+            'hosting' => $hosting,
+            'hostingError' => $hostingError,
+            'relay' => $relay,
+            'relayError' => $relayError,
             'credit' => ['text' => self::DBIP_NETWORK_CREDIT, 'url' => self::DBIP_URL],
         ];
     }

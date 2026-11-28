@@ -27,7 +27,7 @@
         'flagged' => 'Flagged', 'repeat' => 'Repeat address',
     ];
     $sortTips = [
-        'flagged' => 'Visits with any sign of not being a person: a crawler or link preview, a prefetch, a headless browser, no browser headers, or a burst from one address. Point at a row\'s share for which.',
+        'flagged' => 'Visits with any sign of not being a person: a crawler or link preview, a prefetch, a headless browser, no browser headers, a burst from one address, or an address on a hosting, cloud or VPN network. Point at a row\'s share for which.',
         'repeat' => 'Visits from an address this place sent another visit from too, of those whose address is still on record (90 days). Mobile networks share addresses, so compare places of one source and device.',
     ];
     $pageTicked = $list['selectable'] !== [] && array_diff($list['selectable'], $selected) === [];

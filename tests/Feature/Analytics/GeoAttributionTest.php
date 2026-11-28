@@ -6,6 +6,7 @@ use App\Models\User;
 use App\Services\Geo\GeoAttribution;
 use App\Support\Geo\Update\GeoStateStore;
 use Carbon\CarbonImmutable;
+use Illuminate\Support\Facades\File;
 use Livewire\Livewire;
 
 /*
@@ -104,6 +105,26 @@ it('names the networks’ database and lists on Tracking with DB-IP’s credit, 
 
     trafficSourcesTracking()
         ->assertSee('Networks: DB-IP ASN Lite, build 2026-11:asn-1 · 3 hosting and VPN networks · 1 Private Relay ranges.')
+        ->assertSee(GeoAttribution::MAXMIND_CREDIT)
+        ->assertSee('IP to ASN data by DB-IP');
+});
+
+it('shows the networks’ database’s last error before a first build serves, and each list’s', function () {
+    File::ensureDirectoryExists($this->geoDirectory.'/dbip_asn_lite');
+    app(GeoStateStore::class)->write(GeoEdition::DbipAsnLite, ['installed' => null, 'last_error' => ['code' => 'discovery_failed']]);
+    installNetworkLists([3223]);
+    file_put_contents($this->geoDirectory.'/networks/hosting.json', json_encode(['installed' => ['entries' => 1], 'last_error' => ['code' => 'list_invalid']]));
+    unlink($this->geoDirectory.'/networks/relay.list');
+    file_put_contents($this->geoDirectory.'/networks/relay.json', json_encode(['last_error' => ['code' => 'download_failed']]));
+
+    trafficSourcesTracking()
+        ->assertSee('Networks: DB-IP ASN Lite, none yet · last error: discovery_failed · 1 hosting and VPN networks (last error: list_invalid) · no Private Relay list yet (last error: download_failed).');
+});
+
+it('keeps both credits on Tracking whichever city database serves', function () {
+    installGeoDatabase('geolite2_city');
+
+    trafficSourcesTracking()
         ->assertSee(GeoAttribution::MAXMIND_CREDIT)
         ->assertSee('IP to ASN data by DB-IP');
 });

@@ -372,7 +372,7 @@ it('keeps the network lists: the hosting and VPN networks of every list joined, 
     expect($listCalls())->toBe($before);
 });
 
-it('keeps the network list in service when a fetched one is short, unreadable or not there, and tries again later', function (callable $answer) {
+it('keeps the network list in service when a fetched one is short, unreadable or not there, and tries again later', function (callable $answer, GeoUpdateFailure $failure) {
     config(['geo.network_lists.hosting.min_entries' => 2]);
     geoServes([
         ...fakeNpm('1.0.116', geoPackage(file_get_contents(base_path(GEO_FIXTURE)))),
@@ -390,14 +390,34 @@ it('keeps the network list in service when a fetched one is short, unreadable or
     $state = json_decode((string) file_get_contents($this->geoDirectory.'/networks/hosting.json'), true);
     expect(file_get_contents($this->geoDirectory.'/networks/hosting.list'))->toBe("3223\n45090\n")
         ->and($state['failures'])->toBe(1)
+        ->and($state['last_error']['code'])->toBe($failure->value)
         ->and($state['next_check_at'])->toBe('2026-11-18T10:15:00+00:00')
         ->and(glob($this->geoDirectory.'/networks/*.part'))->toBe([]);
 })->with([
-    'short' => [fn () => fn () => Http::response("AS45090\n")],
-    'no ASN in it' => [fn () => fn () => Http::response('<html>not a list</html>')],
-    'not there' => [fn () => fn () => Http::response('', 404)],
-    'too large' => [fn () => fn () => Http::response(str_repeat('AS1 # x'."\n", 400000))],
+    'short' => [fn () => fn () => Http::response("AS45090\n"), GeoUpdateFailure::ListInvalid],
+    'no ASN in it' => [fn () => fn () => Http::response('<html>not a list</html>'), GeoUpdateFailure::ListInvalid],
+    'not there' => [fn () => fn () => Http::response('', 404), GeoUpdateFailure::DownloadFailed],
+    // Distinct ASNs past the 2 MB cap: only the cap refuses it.
+    'too large' => [fn () => fn () => Http::response(implode('', array_map(fn (int $asn): string => 'AS'.$asn.' # a hosting network'."\n", range(1, 120000)))), GeoUpdateFailure::TooLarge],
 ]);
+
+it('waits after a first run that died fetching a list not installed yet, instead of fetching it again a minute later', function () {
+    // What a run killed during its fetch leaves behind: the attempt and its next try, no list, no failure counted.
+    File::ensureDirectoryExists($this->geoDirectory.'/networks');
+    file_put_contents($this->geoDirectory.'/networks/relay.json', json_encode(['last_attempt_at' => '2026-11-17T09:59:00+00:00', 'next_check_at' => '2026-11-17T10:14:00+00:00']));
+    geoServes([
+        ...fakeNpm('1.0.116', geoPackage(file_get_contents(base_path(GEO_FIXTURE)))),
+        'mask-api.icloud.com/egress-ip-ranges.csv' => Http::response("172.224.226.0/27,GB\n"),
+    ]);
+    $relayCalls = fn (): int => Http::recorded(fn (Request $request): bool => str_contains($request->url(), 'icloud'))->count();
+
+    $this->artisan('geo:update')->assertSuccessful();
+    expect($relayCalls())->toBe(0);
+
+    CarbonImmutable::setTestNow('2026-11-17 10:14:00');
+    $this->artisan('geo:update')->assertSuccessful();
+    expect($relayCalls())->toBe(1);
+});
 
 it('records a network list’s next try before it fetches, so a run that dies on the way waits instead of fetching again a minute later', function () {
     $seen = null;

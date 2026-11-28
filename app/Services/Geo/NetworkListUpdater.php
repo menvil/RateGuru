@@ -172,9 +172,10 @@ final readonly class NetworkListUpdater
     }
 
     /**
-     * Due when forced, when there is no list yet and none has just failed,
+     * Due when forced, when there is no list yet and no attempt has been made,
      * when the administrator asked for a refresh after the last attempt, or
-     * once the next check — or the retry after a failure — has come.
+     * once the next check — or the retry after a failure, or after a run that
+     * died on the way and left only its next try — has come.
      *
      * @param  array<string, mixed>  $state
      */
@@ -184,7 +185,7 @@ final readonly class NetworkListUpdater
         $nextCheck = self::time($state['next_check_at'] ?? null);
 
         return $force
-            || (! $exists && (int) ($state['failures'] ?? 0) === 0)
+            || (! $exists && $lastAttempt === null && (int) ($state['failures'] ?? 0) === 0)
             || ($refreshRequestedAt !== null && ($lastAttempt === null || $refreshRequestedAt->greaterThan($lastAttempt)))
             || $nextCheck === null
             || $now->greaterThanOrEqualTo($nextCheck);

@@ -57,7 +57,15 @@ and joins runs of touching ranges as it reads (some 280,000 lines become under
 7,000 ranges, 220 KB), so it stays a few MB above an ordinary run's memory. A
 run writes the list's next try — the first retry's time — before it fetches,
 so one that dies on the way waits as a failure does instead of fetching again
-the next minute.
+the next minute — on a first install too: a list that isn't there yet is due
+at once only while no attempt has been recorded. Tracking shows each list's
+last error, and the networks' database's even before a first build serves.
+
+`geo:update --rollback` restores the chosen city edition only. The networks'
+database keeps its `previous.mmdb` for seven days like the others; putting it
+back is done by hand (rename it over `current.mmdb` and set `skip_version` in
+its `state.json` to the bad build's version), since a misnamed network only
+flags or unflags visits and never places one.
 
 `NetworkLookup::lookup($ip)` (`MmdbNetworkLookup`, bound scoped) answers a
 `NetworkInfo`: the ASN and organisation, and its kind (`NetworkKind`) —
