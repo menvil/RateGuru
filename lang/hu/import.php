@@ -20,6 +20,7 @@ return [
         'provider_blocked' => 'A szolgáltató letiltotta a kérést.',
         'feature_disabled' => 'Az URL-ből történő importálás jelenleg ki van kapcsolva.',
         'fetch_failed' => 'Nem sikerült lekérni ezt az URL-t. Próbáld újra.',
+        'site_refusing' => 'Az oldal most nem adja ki ezt a fájlt. Töltsd le, és töltsd fel a saját eszközödről.',
     ],
 
     'manual_upload_hint' => 'Töltsd le a képet, és töltsd fel kézzel.',

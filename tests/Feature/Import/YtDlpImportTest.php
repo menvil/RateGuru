@@ -8,6 +8,7 @@ use App\Enums\MediaStatus;
 use App\Enums\MediaTool;
 use App\Enums\PostStatus;
 use App\Exceptions\Import\ImportFetchException;
+use App\Exceptions\Import\ImportSiteRefusingException;
 use App\Jobs\ImportVideoAssetJob;
 use App\Jobs\ProcessVideoAssetJob;
 use App\Livewire\Feed\UploadPostForm;
@@ -265,7 +266,7 @@ it('takes a page\'s video whose codec yt-dlp was not told — null, or none at a
 });
 
 it('refuses a page of a site yt-dlp knows but could not read, rather than posting its poster, and takes a photo post\'s photo', function () {
-    ytDlpStandIn(null, probeError: 'ERROR: [RedGifs] aloop: Unable to download JSON metadata: HTTP Error 403');
+    ytDlpStandIn(null, probeError: 'ERROR: [RedGifs] aloop: Unable to extract video data; please report this issue');
 
     Livewire::actingAs(User::factory()->create())
         ->test(UploadPostForm::class)
@@ -529,11 +530,11 @@ it('takes an answer that names no media for no answer at all, never for a page w
 
 it('logs why a page could not be read: yt-dlp\'s last error line, or what was wrong with its answer', function () {
     Log::spy();
-    ytDlpStandIn(null, probeError: "WARNING: something\nERROR: [Instagram] ABC123: Requested content is not available, rate-limit reached or login required\n");
+    ytDlpStandIn(null, probeError: "WARNING: something\nERROR: [Instagram] ABC123: Unable to extract shared data; please report this issue\n");
 
     expect(fn () => app(YtDlp::class)->probe('https://www.instagram.com/reel/ABC123/'))->toThrow(YtDlpProbeException::class);
 
-    Log::shouldHaveReceived('warning')->with('YtDlp: a page could not be read.', ['extractor' => 'Instagram', 'why' => 'ERROR: [Instagram] ABC123: Requested content is not available, rate-limit reached or login required']);
+    Log::shouldHaveReceived('warning')->with('YtDlp: a page could not be read.', ['extractor' => 'Instagram', 'why' => 'ERROR: [Instagram] ABC123: Unable to extract shared data; please report this issue']);
 });
 
 it('shows a pasted page\'s video before posting — its still and length — and posts it without reading the link again', function () {
@@ -738,3 +739,26 @@ it('says a page that did not show its own picture cannot be imported, rather tha
 
     expect(Post::query()->count())->toBe(0);
 });
+
+it('tells the author a site refusing this server is to be uploaded from instead, and reports it as the site refusing, nothing else', function (string $diagnostic) {
+    Exceptions::fake();
+    Log::spy();
+    ytDlpStandIn(null, probeError: $diagnostic);
+
+    Livewire::actingAs(User::factory()->create())
+        ->test(UploadPostForm::class)
+        ->set('title', 'Refused')
+        ->set('importedImageUrl', 'https://www.redgifs.com/watch/aloop')
+        ->call('submit')
+        ->assertSet('submitError', __('import.errors.site_refusing'));
+
+    expect(Post::query()->count())->toBe(0);
+    Log::shouldHaveReceived('warning')->with('Import: a site refused a link.', Mockery::on(fn (array $context): bool => $context['site'] === 'redgifs.com'));
+    Exceptions::assertReported(fn (ImportSiteRefusingException $exception): bool => str_starts_with($exception->getMessage(), 'redgifs.com refused https://www.redgifs.com/watch/aloop ('));
+    Exceptions::assertReportedCount(1);
+})->with([
+    'too many requests' => 'ERROR: [RedGifs] aloop: Unable to download JSON metadata: HTTP Error 429: Too Many Requests',
+    'forbidden' => 'ERROR: [RedGifs] aloop: Unable to download JSON metadata: HTTP Error 403: Forbidden',
+    'a check that it is no robot' => 'ERROR: [youtube] abc: Sign in to confirm you’re not a bot. Use --cookies-from-browser or --cookies for the authentication.',
+    'a rate limit' => 'ERROR: [Instagram] ABC: Requested content is not available, rate-limit reached or login required.',
+]);

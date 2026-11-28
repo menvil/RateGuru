@@ -14,9 +14,30 @@ use RuntimeException;
  */
 class ImportFetchException extends RuntimeException
 {
+    /** The status a site answered with, when it answered and said no. */
+    public ?int $status = null;
+
     public static function requestFailed(string $url, int $status): self
     {
-        return new self("Import request to '".self::sanitizeUrl($url)."' failed with status {$status}.");
+        $exception = new self("Import request to '".self::sanitizeUrl($url)."' failed with status {$status}.");
+        $exception->status = $status;
+
+        return $exception;
+    }
+
+    /**
+     * Whether the site refused this server — too many requests, or
+     * forbidden — rather than the link: what a site blocking it answers.
+     */
+    public function refusedByTheSite(): bool
+    {
+        return in_array($this->status, [403, 429], true);
+    }
+
+    /** Whether the site answered that the link leads nowhere it gives out: the link's matter, not ours. */
+    public function answeredNoSuchPage(): bool
+    {
+        return $this->status !== null && $this->status >= 400 && $this->status < 500 && ! $this->refusedByTheSite();
     }
 
     /**

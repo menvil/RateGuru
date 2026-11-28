@@ -144,7 +144,13 @@ class SafeImportHttpClient
         // support for reassembling partial content. Both are rejected
         // rather than silently treated as a normal 2xx.
         if ($response->status < 200 || $response->status >= 300 || $response->status === 204 || $response->status === 206) {
-            throw ImportFetchException::requestFailed($url, $response->status);
+            $exception = ImportFetchException::requestFailed($url, $response->status);
+
+            if ($exception->refusedByTheSite()) {
+                app(ImportRefusalMonitor::class)->record($url, "HTTP {$response->status}");
+            }
+
+            throw $exception;
         }
     }
 

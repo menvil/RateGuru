@@ -20,6 +20,7 @@ return [
         'provider_blocked' => 'Ce fournisseur a bloqué la requête.',
         'feature_disabled' => 'L\'import depuis une URL est actuellement désactivé.',
         'fetch_failed' => 'Impossible de récupérer cette URL. Veuillez réessayer.',
+        'site_refusing' => 'Le site ne fournit pas ce fichier pour le moment. Téléchargez-le et importez-le depuis votre appareil.',
     ],
 
     'manual_upload_hint' => 'Téléchargez l\'image sur votre appareil, puis importez-la manuellement.',

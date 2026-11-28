@@ -20,6 +20,7 @@ return [
         'provider_blocked' => 'Poskytovatel požadavek zablokoval.',
         'feature_disabled' => 'Import z URL je momentálně vypnutý.',
         'fetch_failed' => 'Tuto URL se nepodařilo načíst. Zkus to prosím znovu.',
+        'site_refusing' => 'Web teď tento soubor nevydá. Stáhněte si ho a nahrajte ze svého zařízení.',
     ],
 
     'manual_upload_hint' => 'Stáhni obrázek a nahraj ho ručně.',

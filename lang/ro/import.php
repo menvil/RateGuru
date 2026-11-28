@@ -20,6 +20,7 @@ return [
         'provider_blocked' => 'Acest furnizor a blocat cererea.',
         'feature_disabled' => 'Importul din URL este dezactivat momentan.',
         'fetch_failed' => 'Nu s-a putut accesa acest URL. Încearcă din nou.',
+        'site_refusing' => 'Site-ul nu oferă acest fișier acum. Descarcă-l și încarcă-l de pe dispozitivul tău.',
     ],
 
     'manual_upload_hint' => 'Descarcă imaginea și încarc-o manual.',

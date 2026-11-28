@@ -20,6 +20,7 @@ return [
         'provider_blocked' => 'This provider blocked the request.',
         'feature_disabled' => 'URL import is currently disabled.',
         'fetch_failed' => 'Could not fetch this URL. Please try again.',
+        'site_refusing' => 'The site is not giving out this file right now. Download it and upload it from your device instead.',
     ],
 
     'manual_upload_hint' => 'Download the image and upload it manually.',

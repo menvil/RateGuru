@@ -131,6 +131,7 @@
     "import.errors.fetch_failed": "68214488c50af37c",
     "import.errors.invalid_url": "d713f592677736dc",
     "import.errors.provider_blocked": "98f81d0cbdccb742",
+    "import.errors.site_refusing": "18430e92cf33e198",
     "import.errors.timeout": "e5893a0d55652fe7",
     "import.errors.too_large": "42e5e59b080614ea",
     "import.errors.unsafe_url": "2b325647464647d8",

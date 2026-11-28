@@ -20,6 +20,7 @@ return [
         'provider_blocked' => 'Ten serwis zablokował żądanie.',
         'feature_disabled' => 'Import z adresu URL jest obecnie wyłączony.',
         'fetch_failed' => 'Nie udało się pobrać zawartości z tego adresu URL. Spróbuj ponownie.',
+        'site_refusing' => 'Strona nie udostępnia teraz tego pliku. Pobierz go i prześlij ze swojego urządzenia.',
     ],
 
     'manual_upload_hint' => 'Pobierz obraz i prześlij go ręcznie.',

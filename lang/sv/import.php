@@ -20,6 +20,7 @@ return [
         'provider_blocked' => 'Tjänsten blockerade begäran.',
         'feature_disabled' => 'Import från länk är avstängd just nu.',
         'fetch_failed' => 'Det gick inte att hämta länken. Försök igen.',
+        'site_refusing' => 'Sajten lämnar inte ut filen just nu. Ladda ner den och ladda upp den från din enhet.',
     ],
 
     'manual_upload_hint' => 'Ladda ned bilden och ladda upp den manuellt.',

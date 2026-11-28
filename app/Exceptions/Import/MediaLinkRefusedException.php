@@ -21,6 +21,12 @@ final class MediaLinkRefusedException extends RuntimeException
         return new self(__('import.errors.fetch_failed'));
     }
 
+    /** The site refuses this server for now: its file is to be uploaded from the author's device instead. */
+    public static function siteRefusing(): self
+    {
+        return new self(__('import.errors.site_refusing'));
+    }
+
     /** A carousel with a video among its photos: one of several is not taken. */
     public static function carouselWithVideo(): self
     {

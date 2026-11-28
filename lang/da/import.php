@@ -20,6 +20,7 @@ return [
         'provider_blocked' => 'Udbyderen blokerede anmodningen.',
         'feature_disabled' => 'Import fra URL er slået fra i øjeblikket.',
         'fetch_failed' => 'Denne URL kunne ikke hentes. Prøv igen.',
+        'site_refusing' => 'Siden udleverer ikke filen lige nu. Hent den, og upload den fra din enhed.',
     ],
 
     'manual_upload_hint' => 'Download billedet, og upload det manuelt.',

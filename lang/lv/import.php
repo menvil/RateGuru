@@ -20,6 +20,7 @@ return [
         'provider_blocked' => 'Šī vietne bloķēja pieprasījumu.',
         'feature_disabled' => 'Importēšana no URL pašlaik ir izslēgta.',
         'fetch_failed' => 'Neizdevās ielādēt šo URL. Lūdzu, mēģiniet vēlreiz.',
+        'site_refusing' => 'Vietne šobrīd neizsniedz šo failu. Lejupielādējiet to un augšupielādējiet no savas ierīces.',
     ],
 
     'manual_upload_hint' => 'Lejupielādējiet attēlu un augšupielādējiet to manuāli.',

@@ -22,6 +22,7 @@ final class YtDlp
         private readonly MediaToolRunner $runner,
         private readonly YtDlpSites $sites,
         private readonly YtDlpIsolation $isolation,
+        private readonly ImportRefusalMonitor $refusals,
     ) {}
 
     /**
@@ -62,6 +63,12 @@ final class YtDlp
             // "Unsupported URL" is what one that matched says of the page.
             if ($extractor === YtDlpSites::ANY && preg_match('/^ERROR: (?:Unsupported URL|No suitable extractor(?: \([^)]*\))? found for URL)/m', $result->errorOutput) === 1) {
                 return null;
+            }
+
+            if (self::saysRefused($result->errorOutput)) {
+                $this->refusals->record($url, self::lastLine($result->errorOutput));
+
+                throw YtDlpProbeException::refused($extractor);
             }
 
             throw self::unread($extractor, self::lastLine($result->errorOutput));
@@ -177,6 +184,10 @@ final class YtDlp
                 return null;
             }
 
+            if (self::saysRefused($result->errorOutput)) {
+                $this->refusals->record($url, self::lastLine($result->errorOutput));
+            }
+
             throw ImportFetchException::connectionError($url, 'yt-dlp could not take the video from that page.');
         }
 
@@ -238,6 +249,16 @@ final class YtDlp
         $lines = array_values(array_filter(array_map('trim', preg_split('/\R/', $errorOutput) ?: []), fn (string $line): bool => $line !== ''));
 
         return mb_substr($lines === [] ? 'no error output' : $lines[array_key_last($lines)], 0, 300);
+    }
+
+    /**
+     * Whether yt-dlp's error says the site refused this server — too many
+     * requests, forbidden, a check that it is no robot, a rate limit —
+     * rather than that the page is private, gone or not a video's.
+     */
+    private static function saysRefused(string $errorOutput): bool
+    {
+        return preg_match('/HTTP Error (?:403|429)|Too Many Requests|confirm (?:you|that you)(?:\x{2019}|\')?re not a bot|rate[- ]limit/iu', $errorOutput) === 1;
     }
 
     /** Whether yt-dlp's error says the page holds no video at all, rather than that it failed. */

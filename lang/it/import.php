@@ -20,6 +20,7 @@ return [
         'provider_blocked' => 'Il servizio ha bloccato la richiesta.',
         'feature_disabled' => 'L\'importazione da URL è al momento disattivata.',
         'fetch_failed' => 'Impossibile recuperare questo URL. Riprova.',
+        'site_refusing' => 'Il sito al momento non fornisce questo file. Scaricalo e caricalo dal tuo dispositivo.',
     ],
 
     'manual_upload_hint' => 'Scarica l\'immagine e caricala manualmente.',

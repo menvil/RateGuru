@@ -20,6 +20,7 @@ return [
         'provider_blocked' => 'Tjenesten blokkerte forespørselen.',
         'feature_disabled' => 'Import fra URL er deaktivert for øyeblikket.',
         'fetch_failed' => 'Kunne ikke hente denne URL-en. Prøv igjen.',
+        'site_refusing' => 'Siden gir ikke ut denne filen akkurat nå. Last den ned og last den opp fra enheten din.',
     ],
 
     'manual_upload_hint' => 'Last ned bildet og last det opp manuelt.',

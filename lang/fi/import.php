@@ -20,6 +20,7 @@ return [
         'provider_blocked' => 'Palveluntarjoaja esti pyynnön.',
         'feature_disabled' => 'URL-tuonti on tällä hetkellä poistettu käytöstä.',
         'fetch_failed' => 'URL-osoitetta ei voitu hakea. Yritä uudelleen.',
+        'site_refusing' => 'Sivusto ei luovuta tätä tiedostoa juuri nyt. Lataa se ja lähetä se laitteeltasi.',
     ],
 
     'manual_upload_hint' => 'Tallenna kuva laitteellesi ja lataa se palveluun itse.',

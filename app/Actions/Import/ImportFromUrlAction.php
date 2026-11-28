@@ -102,6 +102,7 @@ class ImportFromUrlAction
                 provider: ImportProvider::from($provider),
                 sourceUrl: $url,
                 unsupportedReason: __('import.unsupported_reason_download_and_upload'),
+                refusedByTheSite: $e->refusedByTheSite(),
             );
         }
     }

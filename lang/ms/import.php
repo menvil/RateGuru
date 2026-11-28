@@ -20,6 +20,7 @@ return [
         'provider_blocked' => 'Penyedia ini telah menyekat permintaan.',
         'feature_disabled' => 'Import URL dinyahdayakan buat masa ini.',
         'fetch_failed' => 'Tidak dapat mengambil URL ini. Sila cuba lagi.',
+        'site_refusing' => 'Laman ini tidak memberikan fail ini sekarang. Muat turun dan muat naik dari peranti anda.',
     ],
 
     'manual_upload_hint' => 'Muat turun imej itu dan muat naiknya secara manual.',

@@ -20,6 +20,7 @@ return [
         'provider_blocked' => 'Nhà cung cấp này đã chặn yêu cầu.',
         'feature_disabled' => 'Tính năng nhập từ URL hiện đang bị tắt.',
         'fetch_failed' => 'Không thể tải URL này. Vui lòng thử lại.',
+        'site_refusing' => 'Trang này hiện không cho lấy tệp. Hãy tải xuống rồi tải lên từ thiết bị của bạn.',
     ],
 
     'manual_upload_hint' => 'Hãy tải ảnh về máy và tải lên thủ công.',
