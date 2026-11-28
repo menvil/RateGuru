@@ -1,0 +1,62 @@
+app/Queries/Analytics/JourneyQuery.php
+  s_4b9dc6ab6b25d3::t_e3fca86ca7e037 23,65,399
+app/Support/Traffic/Blocking/BlockJudge.php
+  s_4b9dc6ab6b25d3::t_f01f893fd09f0a 32-36,75-76
+tests/Unit/Support/Analytics/JourneyTimelineTest.php
+  s_4b9dc6ab6b25d3::t_6a73f58510e792 232-238
+docs/admin/traffic-sources.md
+  s_4b9dc6ab6b25d3::t_f2f7afceef4201 185-190,348-368,386-389
+resources/views/filament/pages/traffic-sources/quality-cells.blade.php
+  s_4b9dc6ab6b25d3::t_26f785c96f2241 1-18
+app/Support/Analytics/JourneyTimeline.php
+  s_4b9dc6ab6b25d3::t_e3fca86ca7e037 246
+  s_4b9dc6ab6b25d3::t_261971be61b9bb 245,247
+app/Queries/Traffic/TrafficReportQuery.php
+  s_4b9dc6ab6b25d3::t_c95ce4459e8c8f 230
+  s_4b9dc6ab6b25d3::t_01f93656ff29bf 16,189,197,627-647
+  s_4b9dc6ab6b25d3::t_4a663eb764f9d4 215-229,231,233-238,240-254
+  s_4b9dc6ab6b25d3::t_50addbbc53d98d 232,239
+tests/Feature/Traffic/TrafficReportPageTest.php
+  s_4b9dc6ab6b25d3::t_6744b24f554f98 35,148-170,172-183,1213-1218
+  s_4b9dc6ab6b25d3::t_f0294348e46ba8 171
+app/Support/Traffic/Reports/ReportFigures.php
+  s_4b9dc6ab6b25d3::t_ad1c76fa087f92 195-199
+  s_4b9dc6ab6b25d3::t_2f36e7064823db 5,16-18,38-45,69-74,83-105,112-154
+app/Support/Traffic/Reports/SiteZoneList.php
+  s_4b9dc6ab6b25d3::t_0abe0fb1e2fde4 40,150-151
+docs/architecture/traffic.md
+  s_4b9dc6ab6b25d3::t_f2f7afceef4201 436-445,735-744
+resources/views/filament/pages/traffic-sources/logs.blade.php
+  s_4b9dc6ab6b25d3::t_e3fca86ca7e037 132
+tests/Unit/Support/Traffic/BlockJudgeTest.php
+  s_4b9dc6ab6b25d3::t_dbf9326fa4ccf6 15-17,43-47,153,155
+tests/Feature/Traffic/TrafficReportsTest.php
+  s_4b9dc6ab6b25d3::t_fcd5c436f4019a 22,27,108-134,137-141,143-145
+  s_4b9dc6ab6b25d3::t_7518a4678cbcaa 135-136,142
+app/Filament/Pages/TrafficSources/TrafficSourcesView.php
+  s_4b9dc6ab6b25d3::t_9cfd13f2f91690 829,839-840,845,865-866
+  s_4b9dc6ab6b25d3::t_c95ce4459e8c8f 1172-1173,1175-1176
+app/Support/Traffic/Capture/BotSignals.php
+  s_4b9dc6ab6b25d3::t_b48c224510ff44 24-32,65-72
+resources/css/filament/admin/components.css
+  s_4b9dc6ab6b25d3::t_26f785c96f2241 16469,16473
+resources/views/filament/pages/traffic-sources/sites.blade.php
+  s_4b9dc6ab6b25d3::t_26f785c96f2241 8-10
+  s_4b9dc6ab6b25d3::t_3c93f892b667ca 27-31,115,134,141
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "6a61dca70feadb63e6ef6d727ff0daa451b40a42",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
