@@ -129,7 +129,7 @@
     {{-- A try that failed may be made again with the same address. --}}
     x-on:rg-studio-import-failed.window="imported[$event.detail.source] = ''"
 >
-    <x-admin.ui.card flush title="Photo for the publication" description="Upload a file, paste an image link or import from a social post. The upload rules and checks every post's image goes through apply.">
+    <x-admin.ui.card flush title="Photo for the publication" description="Drop a file, or paste a link to an image or a post. The upload rules and checks every post's image goes through apply.">
         @if ($hasPhoto)
             <x-slot:aside>
                 <x-admin.ui.badge tone="success" :dot="true">{{ $replacedPhoto !== null ? 'Replaced' : 'Saved' }}</x-admin.ui.badge>
@@ -216,21 +216,13 @@
             x-show="{{ $hasPhoto ? 'replacing && ! previewing' : '! previewing' }}"
             @if ($hasPhoto) x-cloak @endif
         >
-            <div class="rg-admin-studio__chooser-bar">
-                <x-admin.ui.segmented
-                    label="Image source"
-                    class="rg-admin-studio__segmented"
-                    :options="['upload' => 'Upload', 'link' => 'From link']"
-                    :icons="['upload' => 'upload', 'link' => 'link']"
-                    :value="$imageSource"
-                    wire:model.live="imageSource"
-                />
-                @if ($hasPhoto)
+            {{-- One block for a new photo, as the site's own upload form has: a file, picked or dropped, or a link — no source to switch to first. --}}
+            @if ($hasPhoto)
+                <div class="rg-admin-studio__chooser-bar">
                     <x-admin.ui.button size="sm" x-bind:disabled="busy" x-on:click="replacing = false">Cancel</x-admin.ui.button>
-                @endif
-            </div>
+                </div>
+            @endif
 
-            @if ($imageSource === 'upload')
                 <div
                     class="rg-admin-studio__dropzone"
                     wire:key="studio-plan-image-upload"
@@ -263,8 +255,10 @@
                         </x-slot:actions>
                     </x-admin.ui.inline-notice>
                 @enderror
-            @else
-                {{-- One field for any link, as the site's own upload form has: a file is taken as it is, a post or a page gives its picture. --}}
+
+                <p class="rg-admin-studio__or" aria-hidden="true"><span>or paste a link</span></p>
+
+                {{-- One field for any link: a file is taken as it is, a post or a page gives its picture. --}}
                 <div class="rg-admin-studio__stack" wire:key="studio-plan-image-link">
                     <x-admin.ui.text-field
                         label="Link"
@@ -273,7 +267,7 @@
                         icon="link"
                         :value="$imageUrl"
                         placeholder="https://www.instagram.com/p/… or https://example.com/photo.jpg"
-                        hint="A link to a JPEG, PNG or WebP file, or to a public post. Its image is copied into the site's storage as soon as it is pasted. The post's source address is set on the Post step."
+                        hint="A link to a public post — on Instagram, X, YouTube, RedGifs, Facebook and many other sites — or straight to a JPEG, PNG or WebP file. Its picture is copied into the site's storage as soon as it is pasted; the post's source address is set on the Post step."
                         :error="$errors->first('imageUrl') ?: null"
                         autocomplete="off"
                         spellcheck="false"
@@ -283,17 +277,13 @@
                         x-on:keydown.enter.prevent="importFrom('link', $event.target.value)"
                     />
                     <p class="rg-admin-hint" x-show="incomplete.link" x-cloak>Paste the full link, starting with https://</p>
-                    <ul class="rg-admin-studio__platforms" aria-label="Sites whose posts are read directly">
-                        @foreach ($platforms as $platform)
-                            <li @class(['rg-admin-studio__platform', 'rg-admin-studio__platform--detected' => $platform === $detectedPlatform])>{{ $platform }}</li>
-                        @endforeach
-                    </ul>
-                    <p class="rg-admin-hint">{{ $detectedPlatform !== null ? "Detected: {$detectedPlatform} post." : 'Any other public page with a preview image works too.' }}</p>
+                    @if ($detectedPlatform !== null)
+                        <p class="rg-admin-hint">Detected: {{ $detectedPlatform }} post.</p>
+                    @endif
                     @error('imageUrl')
                         <div><x-admin.ui.button size="sm" icon="rotate-ccw" x-bind:disabled="busy" x-on:click="retry()">Try again</x-admin.ui.button></div>
                     @enderror
                 </div>
-            @endif
         </div>
     </x-admin.ui.card>
 

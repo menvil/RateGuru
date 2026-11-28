@@ -41,20 +41,15 @@ it('switches to upload mode when applying import preview', function () {
         ->assertSet('activeTab', 'upload');
 });
 
-it('upload form has import tab option', function () {
-    $user = User::factory()->create();
-
-    Livewire::actingAs($user)
+it('takes a file or a link in one block, with no tabs to switch between', function () {
+    Livewire::actingAs(User::factory()->create())
         ->test(UploadPostForm::class)
-        ->assertSee('data-testid="image-tab-url"', false);
-});
-
-it('upload form has upload tab option', function () {
-    $user = User::factory()->create();
-
-    Livewire::actingAs($user)
-        ->test(UploadPostForm::class)
-        ->assertSee('data-testid="image-tab-file"', false);
+        ->assertSeeHtml('data-testid="upload-media-input"')
+        ->assertSeeHtml('data-testid="upload-image-dropzone"')
+        ->assertSeeHtml('data-testid="upload-image-url-input"')
+        ->assertSee(__('ui.upload.or_paste_link'))
+        ->assertDontSeeHtml('data-testid="image-tab-file"')
+        ->assertDontSeeHtml('data-testid="image-tab-url"');
 });
 
 it('submit downloads importedImageUrl before validation and creates post', function () {
