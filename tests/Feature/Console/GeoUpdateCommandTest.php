@@ -426,6 +426,24 @@ it('updates the network lists even when the networks’ database fails in a way 
         ->and(is_file($this->geoDirectory.'/geolite2_city/current.mmdb'))->toBeTrue();
 });
 
+it('updates the next network list when one fails in a way its update does not catch', function () {
+    config(['geo.network_lists.relay.min_entries' => 1]);
+    // The hosting list's state file the run cannot write: here a directory where the file would go.
+    File::ensureDirectoryExists($this->geoDirectory.'/networks/hosting.json');
+    geoServes([
+        ...fakeNpm('1.0.116', geoPackage(file_get_contents(base_path(GEO_FIXTURE)))),
+        'X4BNet/lists_vpn/main/input/*' => fn () => Http::response("AS45090\nAS3223\n"),
+        'mask-api.icloud.com/egress-ip-ranges.csv' => Http::response("172.224.226.0/27,GB,GB-EN,London,\n"),
+    ]);
+
+    $this->artisan('geo:update')
+        ->expectsOutputToContain('Hosting and VPN networks: failed.')
+        ->expectsOutputToContain('iCloud Private Relay addresses: updated.')
+        ->assertSuccessful();
+
+    expect(filesize($this->geoDirectory.'/networks/relay.list'))->toBe(32);
+});
+
 it('waits after a first run that died fetching a list not installed yet, instead of fetching it again a minute later', function () {
     // What a run killed during its fetch leaves behind: the attempt and its next try, no list, no failure counted.
     File::ensureDirectoryExists($this->geoDirectory.'/networks');

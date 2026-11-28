@@ -39,13 +39,24 @@ final readonly class NetworkListUpdater
         private DomainLogger $logger,
     ) {}
 
-    /** @return array<string, GeoUpdateOutcome> by the list's label */
+    /**
+     * Each list on its own: one that fails in a way its update does not turn
+     * into an outcome — a state file it cannot write — is reported and told
+     * as failed, and the next list is still updated.
+     *
+     * @return array<string, GeoUpdateOutcome> by the list's label
+     */
     public function update(CarbonImmutable $now, ?CarbonImmutable $refreshRequestedAt, bool $force): array
     {
         $outcomes = [];
 
         foreach (array_keys(self::LABELS) as $name) {
-            $outcomes[self::LABELS[$name]] = $this->updateList($name, $now, $refreshRequestedAt, $force);
+            try {
+                $outcomes[self::LABELS[$name]] = $this->updateList($name, $now, $refreshRequestedAt, $force);
+            } catch (Throwable $exception) {
+                report($exception);
+                $outcomes[self::LABELS[$name]] = GeoUpdateOutcome::Failed;
+            }
         }
 
         return $outcomes;
