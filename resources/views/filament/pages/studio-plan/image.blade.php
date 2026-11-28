@@ -216,21 +216,13 @@
             x-show="{{ $hasPhoto ? 'replacing && ! previewing' : '! previewing' }}"
             @if ($hasPhoto) x-cloak @endif
         >
-            <div class="rg-admin-studio__chooser-bar">
-                <x-admin.ui.segmented
-                    label="Image source"
-                    class="rg-admin-studio__segmented"
-                    :options="['upload' => 'Upload', 'link' => 'From link']"
-                    :icons="['upload' => 'upload', 'link' => 'link']"
-                    :value="$imageSource"
-                    wire:model.live="imageSource"
-                />
-                @if ($hasPhoto)
+            {{-- One block for a new photo, as the site's own upload form has: a file, picked or dropped, or a link — no source to switch to first. --}}
+            @if ($hasPhoto)
+                <div class="rg-admin-studio__chooser-bar">
                     <x-admin.ui.button size="sm" x-bind:disabled="busy" x-on:click="replacing = false">Cancel</x-admin.ui.button>
-                @endif
-            </div>
+                </div>
+            @endif
 
-            @if ($imageSource === 'upload')
                 <div
                     class="rg-admin-studio__dropzone"
                     wire:key="studio-plan-image-upload"
@@ -263,8 +255,10 @@
                         </x-slot:actions>
                     </x-admin.ui.inline-notice>
                 @enderror
-            @else
-                {{-- One field for any link, as the site's own upload form has: a file is taken as it is, a post or a page gives its picture. --}}
+
+                <p class="rg-admin-studio__or" aria-hidden="true"><span>or paste a link</span></p>
+
+                {{-- One field for any link: a file is taken as it is, a post or a page gives its picture. --}}
                 <div class="rg-admin-studio__stack" wire:key="studio-plan-image-link">
                     <x-admin.ui.text-field
                         label="Link"
@@ -293,7 +287,6 @@
                         <div><x-admin.ui.button size="sm" icon="rotate-ccw" x-bind:disabled="busy" x-on:click="retry()">Try again</x-admin.ui.button></div>
                     @enderror
                 </div>
-            @endif
         </div>
     </x-admin.ui.card>
 

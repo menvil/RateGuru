@@ -44,10 +44,9 @@ function analysisNoticeShown(string $text): string
     return "[...document.querySelectorAll('.rg-admin-notice')].some((notice) => notice.textContent.includes(".json_encode($text).') && notice.offsetParent !== null)';
 }
 
-/** Pastes a link into the Image step's From link field, as a person would. */
+/** Pastes a link into the Image step's link field — beside the drop zone, no source to switch to — as a person would. */
 function pasteImageLink(mixed $page, string $url): void
 {
-    $page->script("[...document.querySelectorAll('.rg-admin-studio__segmented [role=\"radio\"]')].find((option) => option.textContent.trim() === 'From link').click()");
     waitForScript($page, "!! document.getElementById('rg-admin-studio-image-url')");
     $page->script('(() => { const field = document.getElementById("rg-admin-studio-image-url"); field.value = '.json_encode($url).'; field.dispatchEvent(new Event("input", { bubbles: true })) })()');
 }
@@ -164,7 +163,7 @@ it('sends a link with a port on to be imported, rather than call it incomplete',
     expect($page->script("[...document.querySelectorAll('.rg-admin-hint')].some((hint) => hint.textContent.includes('Paste the full link') && hint.offsetParent !== null)"))->toBeFalse();
 });
 
-it('tries a link that failed again when it is pasted again after switching the source away and back', function () {
+it('tries a link that failed again when it is pasted again', function () {
     $plan = StudioPlan::factory()->create(['title' => 'A harbour']);
     $page = visitAdminEditor("/admin/studio-plans/{$plan->id}/edit");
     waitForScript($page, "document.querySelector('[data-analysis]')?.dataset.analysis", 'no_image');
@@ -174,11 +173,9 @@ it('tries a link that failed again when it is pasted again after switching the s
     pasteImageLink($page, 'https://nowhere.invalid/harbour.jpg');
     waitForScript($page, $refused, true, 10.0);
 
-    $page->script("[...document.querySelectorAll('.rg-admin-studio__segmented [role=\"radio\"]')].find((option) => option.textContent.trim() === 'Upload').click()");
-    waitForScript($page, "! document.getElementById('rg-admin-studio-image-url')");
-
+    // Cleared and given again: sent again, not answered from what the browser remembers.
+    pasteImageLink($page, '');
     pasteImageLink($page, 'https://nowhere.invalid/harbour.jpg');
-    waitForScript($page, "!! document.getElementById('rg-admin-studio-image-url') && ! document.querySelector('#rg-admin-studio-image-url[aria-invalid=\"true\"]')");
 
     // Tried again, and refused again.
     waitForScript($page, $refused, true, 10.0);

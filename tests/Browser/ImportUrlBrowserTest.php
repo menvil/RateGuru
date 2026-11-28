@@ -12,14 +12,15 @@ beforeEach(function () {
     actingAs(User::factory()->create());
 });
 
-it('import url input is present on import tab', function () {
+it('shows the drop zone and the link field together, with no tabs', function () {
     visit(route('feed'))
         ->click('[data-testid="open-upload-button"]')
-        ->click('[data-testid="image-tab-url"]')
-        ->assertVisible('[data-testid="upload-image-url-input"]');
+        ->assertVisible('[data-testid="upload-image-dropzone"]')
+        ->assertVisible('[data-testid="upload-image-url-input"]')
+        ->assertMissing('[data-testid="image-tab-url"]');
 });
 
-it('lets the chosen file go when the link tab is taken, so the file tab shows no picture it would not post', function () {
+it('lets the chosen file go when a link is typed, so no picture shows that would not be posted', function () {
     $page = visit(route('feed'))->click('[data-testid="open-upload-button"]');
 
     // A picture chosen from the device, as the form keeps it in the browser.
@@ -36,23 +37,23 @@ it('lets the chosen file go when the link tab is taken, so the file tab shows no
     JS);
     waitForScript($page, "!! document.querySelector('[data-testid=\"upload-image-dropzone\"] img')");
 
-    $page->click('[data-testid="image-tab-url"]')->click('[data-testid="image-tab-file"]');
+    $page->type('[data-testid="upload-image-url-input"]', 'https://images.rateguru.test/dish.jpg');
 
     waitForScript($page, "document.querySelector('[data-testid=\"upload-image-dropzone\"] img') === null && document.querySelector('#image').files.length === 0");
 });
 
-it('lets a typed link go when the file tab is taken', function () {
+it('lets a typed link go when a file is chosen', function () {
     $page = visit(route('feed'))
         ->click('[data-testid="open-upload-button"]')
-        ->click('[data-testid="image-tab-url"]')
-        ->type('[data-testid="upload-image-url-input"]', 'https://images.rateguru.test/dish.jpg')
-        ->click('[data-testid="image-tab-file"]')
-        ->click('[data-testid="image-tab-url"]');
+        ->type('[data-testid="upload-image-url-input"]', 'https://images.rateguru.test/dish.jpg');
 
-    $page->assertValue('[data-testid="upload-image-url-input"]', '');
+    // A file chosen — as the form takes one — after the link.
+    $page->script("Alpine.\$data(document.querySelector('[data-testid=\"upload-form\"]')).useFile()");
+
+    waitForScript($page, "document.querySelector('[data-testid=\"upload-image-url-input\"]').value === ''");
 });
 
-it('sends a source link the link tab hides, and shows it with what is wrong', function () {
+it('sends a source link a typed link hides, and shows it with what is wrong', function () {
     bindFakeHostResolver(['images.rateguru.test' => ['93.184.216.34']]);
     app()->instance(ImportHttpTransport::class, new ScriptedImportHttpTransport([
         new ImportTransportResponse(200, ['content-type' => 'image/jpeg'], jpegMarkerBytes(640, 480)),
@@ -62,7 +63,6 @@ it('sends a source link the link tab hides, and shows it with what is wrong', fu
         ->click('[data-testid="open-upload-button"]')
         ->type('#title', 'A dish with a wrong source')
         ->type('#source_url', 'not a link')
-        ->click('[data-testid="image-tab-url"]')
         ->type('[data-testid="upload-image-url-input"]', 'https://images.rateguru.test/dish.jpg')
         ->click('[data-testid="upload-form"] button[type="submit"]');
 

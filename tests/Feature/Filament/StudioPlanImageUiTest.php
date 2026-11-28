@@ -468,9 +468,10 @@ it('imports the image of a public post without Save, from the one link field, an
     $plan = StudioPlan::factory()->create();
 
     Livewire::test(EditStudioPlan::class, ['record' => $plan->id])
-        // One field for any link: no separate tab for a post.
-        ->set('imageSource', 'link')
-        ->assertSee('From link')
+        // One block, as the site's own form has: the drop zone and one link field, no source to switch to.
+        ->assertSee('Drop a photo here')
+        ->assertSee('or paste a link')
+        ->assertDontSee('Image source')
         ->assertDontSee('From social post')
         ->assertSee('Instagram')
         ->set('imageUrl', 'https://example.com/story')

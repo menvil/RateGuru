@@ -17,6 +17,8 @@
         data-testid="upload-form"
         class="space-y-4"
         x-data="{
+            {{-- Which the post's picture comes from — a file or a link — set by whichever was given last:
+                 one block takes both, and giving one lets the other go. --}}
             imageTab: @if($importedImageUrl) 'url' @else 'file' @endif,
             previewUrl: null,
             previewIsVideo: false,
@@ -45,6 +47,21 @@
                 this.$wire.set('image', null, false);
                 this.$wire.set('video', null, false);
             },
+            {{-- A file given: the link lets go, here and on the server, so what is shown is what is posted. --}}
+            useFile() {
+                this.imageTab = 'file';
+                this.$wire.importedImageUrl = null;
+                this.$wire.set('linkPreview', null, false);
+            },
+            {{-- A link given: the file lets go — one still on its way too, or it would be posted instead. --}}
+            useLink() {
+                if (this.imageTab === 'url') return;
+                this.imageTab = 'url';
+                this.clearMedia();
+                this.mediaError = null;
+                if (this.$refs.image) this.$refs.image.value = '';
+                this.forgetFiles();
+            },
             {{-- A video or animated GIF goes to $video, anything else to $image. Some systems give
                  a clip no type at all; its name decides then. --}}
             pickMedia(file) {
@@ -52,6 +69,7 @@
                 this.clearMedia();
                 this.forgetFiles();
                 if (!file) return;
+                this.useFile();
                 const pick = this.pick;
                 const current = () => pick === this.pick;
                 const isVideo = file.type.startsWith('video/') || file.type === 'image/gif' || file.type === 'application/mp4'
@@ -156,54 +174,13 @@
             </div>
         </div>
 
-        {{-- Image with tabs --}}
-        <div>
+        {{-- The post's picture: one block takes a file — picked or dropped — or a link, with no tabs to
+             switch between. Whichever is given last is the one posted. --}}
+        <div data-testid="upload-media-input">
             <x-input-label :value="__('ui.upload.image')" />
 
-            @if($uploadSettings->featureFlag('allow_url_imports'))
-            {{-- Each tab's picture is the only one: changing tabs lets the other tab's go, here and
-                 on the server, so what is shown is what is posted. --}}
-            <div class="mt-1 flex gap-1 border-b border-rg-border pb-2">
-                <button
-                    type="button"
-                    x-on:click="
-                        if (imageTab === 'file') return;
-                        imageTab = 'file';
-                        previewUrl = null;
-                        $wire.importedImageUrl = null;
-                        $wire.set('linkPreview', null, false);
-                    "
-                    data-testid="image-tab-file"
-                    :class="imageTab === 'file'
-                        ? 'bg-rg-accent text-rg-onAccent'
-                        : 'text-rg-muted hover:text-rg-text'"
-                    class="rounded-rgSm px-3 py-1 text-xs font-medium transition"
-                >{{ __('ui.upload.image_tab_file') }}</button>
-                <button
-                    type="button"
-                    x-on:click="
-                        if (imageTab === 'url') return;
-                        imageTab = 'url';
-                        clearMedia();
-                        mediaError = null;
-                        $refs.image.value = '';
-                        {{-- A file still on its way is stopped too: arriving after the switch, it would be posted instead of the link's. --}}
-                        $wire.cancelUpload('image');
-                        $wire.cancelUpload('video');
-                        $wire.set('video', null, false);
-                        $wire.set('image', null);
-                    "
-                    data-testid="image-tab-url"
-                    :class="imageTab === 'url'
-                        ? 'bg-rg-accent text-rg-onAccent'
-                        : 'text-rg-muted hover:text-rg-text'"
-                    class="rounded-rgSm px-3 py-1 text-xs font-medium transition"
-                >{{ __('ui.upload.image_tab_url') }}</button>
-            </div>
-            @endif
-
-            {{-- File upload tab --}}
-            <div x-show="imageTab === 'file'" class="mt-2">
+            {{-- A file --}}
+            <div class="mt-1">
                 <label
                     for="image"
                     class="flex cursor-pointer flex-col items-center justify-center rounded-rgCard border border-dashed border-rg-border2 bg-rg-card2 px-4 py-6 text-center transition hover:border-rg-accentBorder hover:bg-rg-card"
@@ -261,16 +238,23 @@
                 <p x-show="mediaError" x-cloak x-text="mediaError" role="alert" data-testid="upload-media-error" class="mt-1 text-sm text-rg-dangerText"></p>
             </div>
 
-            {{-- URL tab --}}
+            {{-- Or a link --}}
             @if($uploadSettings->featureFlag('allow_url_imports'))
-            <div x-show="imageTab === 'url'" class="mt-2 space-y-2">
+            <div class="mt-3 space-y-2">
+                <p class="flex items-center gap-3 text-xs text-rg-muted" aria-hidden="true">
+                    <span class="h-px flex-1 bg-rg-border"></span>
+                    {{ __('ui.upload.or_paste_link') }}
+                    <span class="h-px flex-1 bg-rg-border"></span>
+                </p>
                 <x-ui.input
                     name="importedImageUrl"
                     type="url"
                     wire:model.defer="importedImageUrl"
                     :placeholder="__('ui.upload.image_url_placeholder')"
+                    :aria-label="__('ui.upload.or_paste_link')"
                     data-testid="upload-image-url-input"
-                    x-on:input.debounce.800ms="if (imageTab === 'url') $wire.previewLink($event.target.value)"
+                    x-on:input="$event.target.value.trim() !== '' ? useLink() : (imageTab = 'file')"
+                    x-on:input.debounce.800ms="$wire.previewLink($event.target.value)"
                 />
                 <p class="text-xs text-rg-muted" data-testid="upload-link-hint">{{ __('ui.upload.media_url_hint') }}</p>
                 <div data-testid="field-error-image-url">
@@ -281,7 +265,7 @@
                      and the video is still said to be one. --}}
                 <p wire:loading wire:target="previewLink" class="text-xs text-rg-muted" data-testid="upload-link-reading">{{ __('ui.upload.link_reading') }}</p>
                 @if($linkPreview)
-                    <div wire:loading.remove wire:target="previewLink" data-testid="upload-link-preview" class="overflow-hidden rounded-rgMedia border border-rg-border bg-rg-card2">
+                    <div x-show="imageTab === 'url'" wire:loading.remove wire:target="previewLink" data-testid="upload-link-preview" class="overflow-hidden rounded-rgMedia border border-rg-border bg-rg-card2">
                         @if($linkPreview['image'])
                             <img src="{{ $linkPreview['image'] }}" alt="{{ __('ui.upload.url_image_alt') }}" decoding="async" referrerpolicy="no-referrer" x-on:error="$el.remove()" class="max-h-48 w-full object-contain" />
                         @endif

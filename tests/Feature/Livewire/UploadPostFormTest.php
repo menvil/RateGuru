@@ -47,10 +47,12 @@ it('renders the upload form fields, loading state and image preview for an authe
     expect($html)
         ->toContain('wire:loading')
         ->toContain('Uploading')
-        // Switching to the image url tab clears the selected file, here and on the server,
-        // and stops one still uploading from arriving after the switch.
-        ->toContain("\$wire.cancelUpload('image')")
-        ->toContain("\$wire.set('image', null)")
+        // A link typed lets the chosen file go, here and on the server, and stops one still
+        // uploading from arriving after it; a file chosen lets the link go.
+        ->toContain('useLink()')
+        ->toContain("this.\$wire.cancelUpload('image')")
+        ->toContain("this.\$wire.set('image', null, false)")
+        ->toContain('useFile()')
         ->toContain('x-data')
         ->toContain('previewUrl')
         ->toContain('FileReader');
