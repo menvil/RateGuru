@@ -2,7 +2,7 @@
 
 namespace App\Enums;
 
-/** Why an update of the IP location database did not install a new build. */
+/** Why an update of an IP database, or of a network list, did not install a new build. */
 enum GeoUpdateFailure: string
 {
     case ZlibMissing = 'zlib_missing';
@@ -21,6 +21,7 @@ enum GeoUpdateFailure: string
     case ProbeMismatch = 'probe_mismatch';
     case SwapFailed = 'swap_failed';
     case NothingToRollBack = 'nothing_to_roll_back';
+    case ListInvalid = 'list_invalid';
 
     /** What the administrator reads on the Traffic sources page. */
     public function description(): string
@@ -39,9 +40,10 @@ enum GeoUpdateFailure: string
             self::MetadataInvalid => 'The file is not a usable IP location database.',
             self::BuildTooOld => 'The newest build is older than the installed one, or past its licence age.',
             self::BuildInFuture => 'The build date is in the future.',
-            self::ProbeMismatch => 'The database placed well-known addresses in the wrong countries.',
+            self::ProbeMismatch => 'The database placed well-known addresses in the wrong countries, or named the wrong networks for them.',
             self::SwapFailed => 'The new file could not be put in place of the old one.',
             self::NothingToRollBack => 'There is no earlier database to go back to.',
+            self::ListInvalid => 'The list held far fewer entries than a real one, or none could be read.',
         };
     }
 }

@@ -355,8 +355,9 @@ person at all:
 
 - **Flagged** — the share of its visits with any sign of a bot that RateGuru
   records on every click: a crawler or link preview, a prefetch, a headless
-  browser, a request without the headers every browser sends, or a burst of
-  clicks from one address. Hovering a share lists which, with how many. Most
+  browser, a request without the headers every browser sends, a burst of
+  clicks from one address, or an address on a hosting, cloud or VPN
+  provider's network (see Networks below). Hovering a share lists which, with how many. Most
   bots on pop traffic look like ordinary browsers, so a low share clears
   nothing; a high one is worth a look.
 - **Repeat address** — the share of its visits, of those whose address is
@@ -386,6 +387,20 @@ share all the same. **Find in Sites & zones** clears the share filter, so the
 row it opens always shows. The filter is kept in the page's address, like the
 rest, and when it leaves nothing the list says so rather than that no network
 sent a click.
+
+## Networks
+
+RateGuru names the network every click comes from — its ASN, never the
+address — with DB-IP's free ASN database, kept current by itself the way the
+IP database is (Sources → Tracking shows its build and how many networks the
+lists hold). A click from a hosting, cloud or VPN provider's network — AWS,
+Google Cloud, Azure, Hetzner, OVH, NordVPN and some thousand more, as
+X4BNet's curated list names them — is flagged **Datacenter or VPN network**:
+counted in Flagged, named in Logs and Journeys, never refused. People on
+iPhones behind iCloud Private Relay come through Akamai, Cloudflare or Fastly,
+which are on that list; their addresses are Apple's published Private Relay
+ranges, so they are not flagged. Clicks recorded before the database came, or
+while it is missing, have no network.
 
 ## Logs
 

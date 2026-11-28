@@ -49,7 +49,12 @@ afterEach(function () {
     removeGeoDirectory($this);
 });
 
-/** @param  array<string, mixed>  $routes  URL pattern => response, or a callable given the request */
+/**
+ * A response's body is read once, so a pattern more than one request matches
+ * takes a callable that makes a fresh response for each.
+ *
+ * @param  array<string, mixed>  $routes  URL pattern => response, or a callable given the request
+ */
 function geoServes(array $routes): void
 {
     test()->geoRoutes = $routes;
@@ -115,17 +120,19 @@ it('installs the newest build from npm and serves it at once', function () {
 
 it('downloads nothing while the next check has not come, nor when the source still offers the installed build', function () {
     geoServes(fakeNpm('1.0.116', geoPackage(file_get_contents(base_path(GEO_FIXTURE)))));
+    // The city database's own calls: the networks' database and lists keep schedules of their own.
+    $cityCalls = fn (): int => Http::recorded(fn (Request $request): bool => str_contains($request->url(), 'geolite2-city'))->count();
     $this->artisan('geo:update')->assertSuccessful();
-    Http::assertSentCount(2);
+    expect($cityCalls())->toBe(2);
 
     $this->artisan('geo:update')->assertSuccessful();
-    Http::assertSentCount(2);
+    expect($cityCalls())->toBe(2);
 
     CarbonImmutable::setTestNow('2026-11-18 10:00:00');
     $this->artisan('geo:update')->assertSuccessful();
 
-    Http::assertSentCount(3);
-    expect(geoState()['last_result'])->toBe('current');
+    expect($cityCalls())->toBe(3)
+        ->and(geoState()['last_result'])->toBe('current');
 });
 
 it('tries the next source when the first does not answer', function () {
@@ -309,7 +316,166 @@ it('changes nothing at the two levels the host checks once the first run made it
     geoServes(fakeNpm('1.0.117', geoPackage(file_get_contents(base_path(GEO_FIXTURE)))));
     $this->artisan('geo:update', ['--force' => true])->assertSuccessful();
 
-    expect($listing())->toBe($before)->toBe(['dbip_city_lite', 'geolite2_city']);
+    expect($listing())->toBe($before)->toBe(['dbip_asn_lite', 'dbip_city_lite', 'geolite2_city', 'networks']);
+});
+
+it('installs the networks’ database from DB-IP beside the city one, held to network probes of its own, and keeps it when a build names the wrong networks', function () {
+    $asn = file_get_contents(base_path('tests/Fixtures/geo/GeoLite2-ASN-Test.mmdb'));
+    config([
+        'geo.editions.dbip_asn_lite.min_database_bytes' => 1024,
+        'geo.editions.dbip_asn_lite.database_types' => ['GeoLite2-ASN'],
+        'geo.editions.dbip_asn_lite.probes' => ['1.128.0.0' => 1221, '12.81.92.0' => 7018, '2600:6000::' => 237],
+    ]);
+    $gz = gzencode($asn);
+    geoServes([
+        ...fakeNpm('1.0.116', geoPackage(file_get_contents(base_path(GEO_FIXTURE)))),
+        'download.db-ip.com/free/dbip-asn-lite-2026-11.mmdb.gz' => Http::response($gz, 200, ['Content-Length' => (string) strlen($gz), 'ETag' => '"asn-1"']),
+    ]);
+
+    $this->artisan('geo:update')->expectsOutputToContain('DB-IP ASN Lite: updated.')->assertSuccessful();
+
+    expect(geoState('dbip_asn_lite')['installed'])->toMatchArray(['source' => 'dbip'])
+        ->and(hash_file('sha256', $this->geoDirectory.'/dbip_asn_lite/current.mmdb'))->toBe(hash('sha256', $asn));
+
+    // A newer build whose answers name other networks never replaces it.
+    config(['geo.editions.dbip_asn_lite.probes' => ['1.128.0.0' => 15169, '12.81.92.0' => 13335, '2600:6000::' => 19281]]);
+    geoServes([
+        ...fakeNpm('1.0.116', geoPackage(file_get_contents(base_path(GEO_FIXTURE)))),
+        'download.db-ip.com/free/dbip-asn-lite-2026-11.mmdb.gz' => Http::response($gz, 200, ['Content-Length' => (string) strlen($gz), 'ETag' => '"asn-2"']),
+    ]);
+
+    $this->artisan('geo:update', ['--force' => true])->expectsOutputToContain('DB-IP ASN Lite: failed.')->assertSuccessful();
+
+    expect(geoState('dbip_asn_lite')['last_error']['code'])->toBe(GeoUpdateFailure::ProbeMismatch->value)
+        ->and(geoState('dbip_asn_lite')['installed']['version'])->toBe('2026-11:asn-1')
+        ->and(is_file($this->geoDirectory.'/dbip_asn_lite/current.mmdb'))->toBeTrue();
+});
+
+it('keeps the network lists: the hosting and VPN networks of every list joined, Private Relay’s ranges merged, each on its own schedule', function () {
+    config(['geo.network_lists.hosting.min_entries' => 3, 'geo.network_lists.relay.min_entries' => 2]);
+    geoServes([
+        ...fakeNpm('1.0.116', geoPackage(file_get_contents(base_path(GEO_FIXTURE)))),
+        'X4BNet/lists_vpn/main/input/datacenter/ASN.txt' => Http::response("AS45090 # Tencent\nAS3223 # VOXILITY\n"),
+        'X4BNet/lists_vpn/main/input/vpn/ASN.txt' => Http::response("AS9009 # M247 (NordVPN)\nAS3223 # twice\n"),
+        'mask-api.icloud.com/egress-ip-ranges.csv' => Http::response("172.224.226.0/27,GB,GB-EN,London,\n172.224.226.32/31,GB,GB-SC,Aberdeen,\n2a02:26f7:b3c0:4000::/64,GB,GB-EN,London,\n"),
+    ]);
+
+    $this->artisan('geo:update')->expectsOutputToContain('Hosting and VPN networks: updated.')->expectsOutputToContain('iCloud Private Relay addresses: updated.')->assertSuccessful();
+
+    $state = fn (string $list): array => json_decode((string) file_get_contents($this->geoDirectory.'/networks/'.$list.'.json'), true);
+    expect(file_get_contents($this->geoDirectory.'/networks/hosting.list'))->toBe("3223\n9009\n45090\n")
+        ->and($state('hosting')['installed']['entries'])->toBe(3)
+        ->and($state('relay')['installed']['entries'])->toBe(2)
+        ->and(filesize($this->geoDirectory.'/networks/relay.list'))->toBe(64)
+        ->and($state('hosting')['next_check_at'])->toBe('2026-11-18T10:00:00+00:00')
+        ->and($state('relay')['next_check_at'])->toBe('2026-11-24T10:00:00+00:00');
+
+    // Nothing is fetched again before its next check.
+    $listCalls = fn (): int => Http::recorded(fn (Request $request): bool => str_contains($request->url(), 'X4BNet') || str_contains($request->url(), 'icloud'))->count();
+    $before = $listCalls();
+    $this->artisan('geo:update')->assertSuccessful();
+    expect($listCalls())->toBe($before);
+});
+
+it('keeps the network list in service when a fetched one is short, unreadable or not there, and tries again later', function (callable $answer, GeoUpdateFailure $failure) {
+    config(['geo.network_lists.hosting.min_entries' => 2]);
+    geoServes([
+        ...fakeNpm('1.0.116', geoPackage(file_get_contents(base_path(GEO_FIXTURE)))),
+        'X4BNet/lists_vpn/main/input/*' => fn () => Http::response("AS45090\nAS3223\n"),
+    ]);
+    $this->artisan('geo:update')->assertSuccessful();
+
+    CarbonImmutable::setTestNow('2026-11-18 10:00:00');
+    geoServes([
+        ...fakeNpm('1.0.116', geoPackage(file_get_contents(base_path(GEO_FIXTURE)))),
+        'X4BNet/lists_vpn/main/input/*' => $answer,
+    ]);
+    $this->artisan('geo:update')->expectsOutputToContain('Hosting and VPN networks: failed.')->assertSuccessful();
+
+    $state = json_decode((string) file_get_contents($this->geoDirectory.'/networks/hosting.json'), true);
+    expect(file_get_contents($this->geoDirectory.'/networks/hosting.list'))->toBe("3223\n45090\n")
+        ->and($state['failures'])->toBe(1)
+        ->and($state['last_error']['code'])->toBe($failure->value)
+        ->and($state['next_check_at'])->toBe('2026-11-18T10:15:00+00:00')
+        ->and(glob($this->geoDirectory.'/networks/*.part'))->toBe([]);
+})->with([
+    'short' => [fn () => fn () => Http::response("AS45090\n"), GeoUpdateFailure::ListInvalid],
+    'no ASN in it' => [fn () => fn () => Http::response('<html>not a list</html>'), GeoUpdateFailure::ListInvalid],
+    'not there' => [fn () => fn () => Http::response('', 404), GeoUpdateFailure::DownloadFailed],
+    // The datacenter list alone fills the union past the entries a real list holds: the empty VPN list still refuses it.
+    'one of its lists empty' => [fn () => fn (Request $request) => str_contains($request->url(), '/vpn/') ? Http::response("# nothing listed\n") : Http::response("AS45090\nAS3223\nAS9009\n"), GeoUpdateFailure::ListInvalid],
+    // Distinct ASNs past the 2 MB cap: only the cap refuses it.
+    'too large' => [fn () => fn () => Http::response(implode('', array_map(fn (int $asn): string => 'AS'.$asn.' # a hosting network'."\n", range(1, 120000)))), GeoUpdateFailure::TooLarge],
+]);
+
+it('updates the network lists even when the networks’ database fails in a way its updater does not catch', function () {
+    config(['geo.network_lists.hosting.min_entries' => 2]);
+    // A state file the run cannot write: here a directory where the file would go.
+    File::ensureDirectoryExists($this->geoDirectory.'/dbip_asn_lite/state.json');
+    geoServes([
+        ...fakeNpm('1.0.116', geoPackage(file_get_contents(base_path(GEO_FIXTURE)))),
+        'X4BNet/lists_vpn/main/input/*' => fn () => Http::response("AS45090\nAS3223\n"),
+    ]);
+
+    $this->artisan('geo:update')
+        ->expectsOutputToContain('DB-IP ASN Lite: failed')
+        ->expectsOutputToContain('Hosting and VPN networks: updated.')
+        ->assertSuccessful();
+
+    expect(file_get_contents($this->geoDirectory.'/networks/hosting.list'))->toBe("3223\n45090\n")
+        ->and(is_file($this->geoDirectory.'/geolite2_city/current.mmdb'))->toBeTrue();
+});
+
+it('updates the next network list when one fails in a way its update does not catch', function () {
+    config(['geo.network_lists.relay.min_entries' => 1]);
+    // The hosting list's state file the run cannot write: here a directory where the file would go.
+    File::ensureDirectoryExists($this->geoDirectory.'/networks/hosting.json');
+    geoServes([
+        ...fakeNpm('1.0.116', geoPackage(file_get_contents(base_path(GEO_FIXTURE)))),
+        'X4BNet/lists_vpn/main/input/*' => fn () => Http::response("AS45090\nAS3223\n"),
+        'mask-api.icloud.com/egress-ip-ranges.csv' => Http::response("172.224.226.0/27,GB,GB-EN,London,\n"),
+    ]);
+
+    $this->artisan('geo:update')
+        ->expectsOutputToContain('Hosting and VPN networks: failed.')
+        ->expectsOutputToContain('iCloud Private Relay addresses: updated.')
+        ->assertSuccessful();
+
+    expect(filesize($this->geoDirectory.'/networks/relay.list'))->toBe(32);
+});
+
+it('waits after a first run that died fetching a list not installed yet, instead of fetching it again a minute later', function () {
+    // What a run killed during its fetch leaves behind: the attempt and its next try, no list, no failure counted.
+    File::ensureDirectoryExists($this->geoDirectory.'/networks');
+    file_put_contents($this->geoDirectory.'/networks/relay.json', json_encode(['last_attempt_at' => '2026-11-17T09:59:00+00:00', 'next_check_at' => '2026-11-17T10:14:00+00:00']));
+    geoServes([
+        ...fakeNpm('1.0.116', geoPackage(file_get_contents(base_path(GEO_FIXTURE)))),
+        'mask-api.icloud.com/egress-ip-ranges.csv' => Http::response("172.224.226.0/27,GB\n"),
+    ]);
+    $relayCalls = fn (): int => Http::recorded(fn (Request $request): bool => str_contains($request->url(), 'icloud'))->count();
+
+    $this->artisan('geo:update')->assertSuccessful();
+    expect($relayCalls())->toBe(0);
+
+    CarbonImmutable::setTestNow('2026-11-17 10:14:00');
+    $this->artisan('geo:update')->assertSuccessful();
+    expect($relayCalls())->toBe(1);
+});
+
+it('records a network list’s next try before it fetches, so a run that dies on the way waits instead of fetching again a minute later', function () {
+    $seen = null;
+    geoServes([
+        ...fakeNpm('1.0.116', geoPackage(file_get_contents(base_path(GEO_FIXTURE)))),
+        'mask-api.icloud.com/egress-ip-ranges.csv' => function () use (&$seen) {
+            $seen = json_decode((string) file_get_contents(test()->geoDirectory.'/networks/relay.json'), true);
+
+            return Http::response('', 503);
+        },
+    ]);
+
+    $this->artisan('geo:update')->assertSuccessful();
+
+    expect($seen)->toMatchArray(['last_attempt_at' => '2026-11-17T10:00:00+00:00', 'next_check_at' => '2026-11-17T10:15:00+00:00']);
 });
 
 it('runs every minute in the background, without overlapping for more than an hour, and reads no environment variable', function () {

@@ -44,6 +44,8 @@ use App\Support\Games\Play\GameVisitorResolver;
 use App\Support\Geo\GeoDatabaseLocator;
 use App\Support\Geo\GeoLookup;
 use App\Support\Geo\MmdbGeoLookup;
+use App\Support\Geo\MmdbNetworkLookup;
+use App\Support\Geo\NetworkLookup;
 use App\Support\Import\Dns\DnsHostResolver;
 use App\Support\Import\Dns\HostResolver;
 use App\Support\Import\ImportHttpTransport;
@@ -134,7 +136,13 @@ class AppServiceProvider extends ServiceProvider
         $this->app->singleton(GeoDatabaseLocator::class, fn (): GeoDatabaseLocator => new GeoDatabaseLocator((string) config('geo.directory')));
         $this->app->scoped(GeoLookup::class, fn ($app): GeoLookup => new MmdbGeoLookup(
             $app->make(GeoDatabaseLocator::class),
-            TrafficSetting::current()->geo_edition,
+            TrafficSetting::current()->cityEdition(),
+            $app->make(PublicIpClassifier::class),
+            $app->make(DomainLogger::class),
+        ));
+        // The networks' database and lists beside it, scoped the same way.
+        $this->app->scoped(NetworkLookup::class, fn ($app): NetworkLookup => new MmdbNetworkLookup(
+            $app->make(GeoDatabaseLocator::class),
             $app->make(PublicIpClassifier::class),
             $app->make(DomainLogger::class),
         ));

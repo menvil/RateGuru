@@ -743,6 +743,14 @@ of the visits that still have one. Sites & zones shows both as **Flagged** and
 **Repeat address**, sortable (`SiteZoneList::SORTS`), and `BotSignals::words()`
 names the flags in Logs → Clicks and in a journey's visit step.
 
+`BotSignals::DATACENTER` (32) is set from the address's network, not the
+request: `RequestSignals` asks `NetworkLookup` (docs/architecture/geo.md,
+"Network lists") and flags a hosting, cloud or VPN network; a relay — iCloud
+Private Relay — is not flagged. The visit keeps the network's ASN
+(`traffic_visits.asn`, null without the networks' database); a click a
+second browser takes over takes its ASN too. `flagMetrics()` counts the flag
+as `datacenters`.
+
 The list keeps, past its clicks threshold and search, only the rows whose share
 in one column (`SiteZoneList::SHARES`, the share each column shows under its
 figure) is above or below a percent (`SiteZoneList::sharePasses()`, rounded

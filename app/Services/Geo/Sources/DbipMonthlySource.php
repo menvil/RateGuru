@@ -10,8 +10,9 @@ use App\Support\Geo\Update\GeoRelease;
 use Carbon\CarbonImmutable;
 
 /**
- * DB-IP's own download of the free City Lite database, one file a month:
- * this month's, or last month's until this month's is out. DB-IP publishes no
+ * DB-IP's own download of a free Lite database — City or ASN, named by the
+ * edition's package — one file a month: this month's, or last month's until
+ * this month's is out. DB-IP publishes no
  * machine-readable checksum, so the file is held to the size its server
  * announces, the gzip check of its own end and the database checks.
  */
@@ -29,7 +30,7 @@ final readonly class DbipMonthlySource implements GeoDatabaseSource
         $month = CarbonImmutable::now('UTC')->startOfMonth();
 
         foreach ([$month, $month->subMonth()] as $candidate) {
-            $url = 'https://download.db-ip.com/free/dbip-city-lite-'.$candidate->format('Y-m').'.mmdb.gz';
+            $url = 'https://download.db-ip.com/free/'.$spec->package.'-'.$candidate->format('Y-m').'.mmdb.gz';
             $response = $this->http->head($url, $this->key());
 
             if ($response->status() === 404) {

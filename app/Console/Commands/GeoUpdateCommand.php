@@ -7,9 +7,11 @@ use App\Exceptions\Geo\GeoUpdateException;
 use App\Models\TrafficSetting;
 use App\Services\Geo\GeoDatabaseUpdater;
 use App\Services\Geo\GeoUpdateOutcome;
+use App\Services\Geo\NetworkListUpdater;
 use App\Support\Geo\GeoDatabaseLocator;
 use Carbon\CarbonImmutable;
 use Illuminate\Console\Command;
+use Throwable;
 
 /**
  * Keeps the local IP location database current (docs/architecture/geo.md).
@@ -23,6 +25,11 @@ use Illuminate\Console\Command;
  * the other edition: lookups answer unknown until the edition's next check
  * finds that it no longer matches its recorded size and SHA-256 and installs
  * it again.
+ *
+ * The networks' database (DB-IP ASN Lite) and the network lists — the
+ * hosting and VPN networks, the addresses of iCloud Private Relay — are kept
+ * the same way on their own schedules in the same run; none of them stands
+ * in for another, and a failure of theirs never fails the run.
  */
 final class GeoUpdateCommand extends Command
 {
@@ -32,7 +39,7 @@ final class GeoUpdateCommand extends Command
 
     protected $description = 'Download, check and install the newest IP location database when there is one.';
 
-    public function handle(GeoDatabaseUpdater $updater, GeoDatabaseLocator $locator): int
+    public function handle(GeoDatabaseUpdater $updater, GeoDatabaseLocator $locator, NetworkListUpdater $lists): int
     {
         $now = CarbonImmutable::now('UTC');
         [$chosen, $requestedAt] = $this->preferences();
@@ -73,6 +80,28 @@ final class GeoUpdateCommand extends Command
             $this->line("{$chosen->label()}: {$outcome->value}.");
         }
 
+        // The networks' database on its own schedule beside the city one: its failure leaves the city one serving, and is told, not
+        // fatal — even one the updater does not turn into an outcome, such as a state file it cannot write, which would otherwise
+        // stop the run before the network lists.
+        try {
+            $networks = $updater->update(GeoEdition::DbipAsnLite, $now, $requestedAt, (bool) $this->option('force'));
+
+            if ($networks !== GeoUpdateOutcome::Idle) {
+                $this->line(GeoEdition::DbipAsnLite->label().": {$networks->value}.");
+            }
+        } catch (Throwable $exception) {
+            report($exception);
+            $this->error(GeoEdition::DbipAsnLite->label().': failed ('.$exception->getMessage().').');
+        }
+
+        $lists = $lists->update($now, $requestedAt, (bool) $this->option('force'));
+
+        foreach ($lists as $list => $listOutcome) {
+            if ($listOutcome !== GeoUpdateOutcome::Idle) {
+                $this->line("{$list}: {$listOutcome->value}.");
+            }
+        }
+
         return $outcome === GeoUpdateOutcome::Failed ? self::FAILURE : self::SUCCESS;
     }
 
@@ -86,6 +115,6 @@ final class GeoUpdateCommand extends Command
     {
         $settings = TrafficSetting::current();
 
-        return [$settings->geo_edition, $settings->geo_refresh_requested_at];
+        return [$settings->cityEdition(), $settings->geo_refresh_requested_at];
     }
 }

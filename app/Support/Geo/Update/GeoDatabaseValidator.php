@@ -5,6 +5,7 @@ namespace App\Support\Geo\Update;
 use App\Enums\GeoUpdateFailure;
 use App\Exceptions\Geo\GeoUpdateException;
 use App\Support\Geo\GeoRecordMapper;
+use App\Support\Geo\NetworkRecordMapper;
 use Carbon\CarbonImmutable;
 use MaxMind\Db\Reader;
 use Throwable;
@@ -14,12 +15,13 @@ use Throwable;
  * readable MaxMind DB of the expected type, IPv6-capable, binary format 2, a
  * build no older than the installed one, not dated in the future and — for
  * an edition with a licence age — young enough, and enough of the probe
- * addresses placed in their countries through the same mapping the site uses.
+ * addresses placed in their countries through the same mapping the site uses
+ * — or, for the networks' database, named by their ASNs.
  */
 final class GeoDatabaseValidator
 {
     /**
-     * @param  array<string, string>  $probes
+     * @param  array<string, string|int>  $probes  address => country code, or ASN for the networks' database
      * @return array{database_type: string, build_epoch: int}
      */
     public function check(
@@ -69,14 +71,18 @@ final class GeoDatabaseValidator
 
             $placed = 0;
 
-            foreach ($probes as $ip => $country) {
+            foreach ($probes as $ip => $expected) {
                 try {
                     $record = $reader->get((string) $ip);
                 } catch (Throwable) {
                     throw GeoUpdateException::because(GeoUpdateFailure::MetadataInvalid);
                 }
 
-                if (GeoRecordMapper::map(is_array($record) ? $record : null)->countryCode === $country) {
+                $answer = $spec->edition->isCity()
+                    ? GeoRecordMapper::map(is_array($record) ? $record : null)->countryCode
+                    : NetworkRecordMapper::asn(is_array($record) ? $record : null);
+
+                if ($answer === $expected) {
                     $placed++;
                 }
             }

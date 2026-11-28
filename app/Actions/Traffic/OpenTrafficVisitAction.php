@@ -254,6 +254,7 @@ final class OpenTrafficVisitAction
                 'country_group' => $group['key'],
                 'worth_percent' => $group['percent'],
                 'bot_flags' => $signals->botFlags,
+                'asn' => $signals->network->asn,
                 'arrived_at' => $now,
                 'network_day' => $now->setTimezone('UTC')->format('Y-m-d'),
                 'last_seen_at' => $now,
