@@ -47,8 +47,17 @@ it('lets a typed link go when a file is chosen', function () {
         ->click('[data-testid="open-upload-button"]')
         ->type('[data-testid="upload-image-url-input"]', 'https://images.rateguru.test/dish.jpg');
 
-    // A file chosen — as the form takes one — after the link.
-    $page->script("Alpine.\$data(document.querySelector('[data-testid=\"upload-form\"]')).useFile()");
+    // A file chosen after the link, through the input's own change event: the
+    // link lets go as the file is picked, before anything is uploaded.
+    $page->script(<<<'JS'
+        (() => {
+            const files = new DataTransfer();
+            files.items.add(new File(['dish'], 'dish.png', { type: 'image/png' }));
+            const input = document.querySelector('#image');
+            input.files = files.files;
+            input.dispatchEvent(new Event('change', { bubbles: true }));
+        })()
+    JS);
 
     waitForScript($page, "document.querySelector('[data-testid=\"upload-image-url-input\"]').value === ''");
 });
