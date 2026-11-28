@@ -826,7 +826,7 @@ final class TrafficSourcesView
             return ['verdict' => null, 'state' => 'low_reach', 'tip' => $explain ? $hint['tip'] : null, 'from' => $from];
         }
 
-        return [...$judged, 'tip' => $explain ? $this->verdictTip($judged['state'], $figures, $rule, $openRate, $target, $firstAt, $from) : null, 'from' => $from];
+        return [...$judged, 'tip' => $explain ? $this->verdictTip($judged['state'], $figures, $rule, $openRate, $judge['startRates'][$sourceId] ?? null, $target, $firstAt, $from) : null, 'from' => $from];
     }
 
     /**
@@ -836,12 +836,13 @@ final class TrafficSourcesView
      * site is bots always — and its source's average; its ROI against the
      * line, and what it had to spend first — so many times its campaign's or
      * its source's target, or the rule's spend or clicks; and, while it
-     * waits, until when.
+     * waits, until when; how often those who opened the page started the
+     * game, against the share of its source's that it fell under.
      *
      * @param  array<string, int|string>  $rule
      * @param  array{amount: string, from: 'campaign'|'source'}|null  $target
      */
-    private function verdictTip(string $state, ReportFigures $figures, array $rule, ?float $openRate, ?array $target, ?CarbonImmutable $firstAt, ?CarbonImmutable $from): ?string
+    private function verdictTip(string $state, ReportFigures $figures, array $rule, ?float $openRate, ?float $startRate, ?array $target, ?CarbonImmutable $firstAt, ?CarbonImmutable $from): ?string
     {
         $percent = fn (float $value): string => (abs($value - round($value)) < 0.05 ? number_format($value, 0) : number_format($value, 1)).'%';
         $signed = fn (float $value): string => ($value < 0 ? '−' : '').$percent(abs($value));
@@ -861,7 +862,8 @@ final class TrafficSourcesView
             'losing' => 'Meets the block rule: ROI '.$signed((float) $roi).', below '.$signed((float) (int) $rule['block_roi_below']).', with '.TrafficMoney::format($figures->spend).' spent — past '.$money,
             'waiting' => 'ROI '.$signed((float) $roi).' is below '.$signed((float) (int) $rule['block_roi_below']).', but the rule waits '.(int) $rule['block_grace_days'].' '.Str::plural('day', (int) $rule['block_grace_days']).' after its first click in the last 30 days'
                 .($firstAt !== null ? ', on '.$firstAt->format('j M') : '').', so its accounts can arrive: losing is judged from '.$from?->format('j M H:i').'.',
-            'weak_start' => 'Starts the game far less often than the source’s other places',
+            'weak_start' => 'Starts the game far less often than the source’s other places: '.$percent(($figures->startRate() ?? 0) * 100).' of the '.number_format($figures->opened)
+                .' who opened the page started it, under '.(int) $rule['block_start_percent'].'% of the source’s '.$percent(($startRate ?? 0) * 100),
             'profit' => 'Enough data, value above spend',
             default => null,
         };
@@ -1004,7 +1006,8 @@ final class TrafficSourcesView
     private function siteList(TrafficSourcesPage $page, TrafficReportFilter $filter, $sources, ?array $rows = null): array
     {
         $rows ??= $this->siteRows($page, $filter, $sources);
-        $list = SiteZoneList::of($rows, (string) $page->segment, (string) $page->q, (int) $page->minClicks, (string) $page->sort, (string) $page->dir, (int) $page->pageNumber);
+        $share = $page->shareColumn !== '' && $page->sharePercent !== '' ? ['column' => (string) $page->shareColumn, 'side' => $page->shareSide === 'above' ? 'above' : 'below', 'percent' => (float) $page->sharePercent] : null;
+        $list = SiteZoneList::of($rows, (string) $page->segment, (string) $page->q, (int) $page->minClicks, (string) $page->sort, (string) $page->dir, (int) $page->pageNumber, $share);
         $all = collect($rows)->filter(fn (array $row): bool => SiteZoneList::clears($row, (int) $page->minClicks));
         $spend = $all->sum(fn (array $row): float => (float) $row['figures']->spend);
         $running = 0.0;
@@ -1061,7 +1064,7 @@ final class TrafficSourcesView
         $byZone = $page->listBy !== 'site';
         $judge = $this->judgeContext($filter);
         $reach = $this->reachByPlace($filter);
-        $rows = $this->places($filter, $byZone);
+        $rows = $this->places($filter, $byZone, withAddresses: true);
         $campaigns = TrafficCampaign::query()->whereKey(collect($rows)->pluck('campaign_id')->filter()->unique()->all())->get(['id', 'name', 'external_id'])->keyBy('id');
         $out = [];
 
@@ -1162,12 +1165,19 @@ final class TrafficSourcesView
      *
      * @return list<array{key: string, level: string, ref: string, site: string|null, source_id: int, campaign_id: int|null, campaigns: int, first_at: CarbonImmutable|null, figures: ReportFigures}>
      */
-    private function places(TrafficReportFilter $filter, bool $byZone): array
+    private function places(TrafficReportFilter $filter, bool $byZone, bool $withAddresses = false): array
     {
         $places = [];
         $listed = [];
+        // Only the list shows repeat addresses: the rule's counts never read them, so they skip the extra grouped read.
+        $addresses = $withAddresses ? $this->reports->repeatAddresses($filter, $byZone) : [];
 
         foreach ($this->reports->zones($filter, $byZone) as $row) {
+            if ($withAddresses) {
+                $address = $addresses[TrafficReportQuery::placeKey($row['source_id'], $row['site_ref'], $row['zone_ref'])] ?? null;
+                $row['figures'] = $row['figures']->withAddresses($address['addressed'] ?? 0, $address['repeated'] ?? 0);
+            }
+
             $zone = $byZone && $row['zone_ref'] !== null && $row['zone_ref'] !== '';
             $ref = (string) ($zone ? $row['zone_ref'] : $row['site_ref']);
 

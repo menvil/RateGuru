@@ -21,6 +21,15 @@ final class BotSignals
 
     public const int BURST = 16;
 
+    /** @var array<int, string> each flag as the admin names it, in the order it is listed */
+    public const array WORDS = [
+        self::CRAWLER => 'Crawler or link preview',
+        self::PREFETCH => 'Prefetch',
+        self::HEADLESS => 'Headless browser',
+        self::NO_BROWSER_HEADERS => 'No browser headers',
+        self::BURST => 'Burst from one address',
+    ];
+
     // "bot" as a word or the end of a crawler's name (Googlebot, bingbot/2.0) — not inside a phone's brand such as CUBOT.
     private const string CRAWLER_AGENT = '/(?<!cu)bot\b|bot\/|crawl|spider|slurp|preview|fetch|scrap|monitor|curl|wget|python|java\/|go-http|httpclient|okhttp|facebookexternalhit|whatsapp|telegram|discord|skype|embedly|headlesschrome/i';
 
@@ -51,6 +60,16 @@ final class BotSignals
         }
 
         return $flags;
+    }
+
+    /**
+     * The flags a visit carries, as the admin names them.
+     *
+     * @return list<string>
+     */
+    public static function words(int $flags): array
+    {
+        return array_values(array_filter(self::WORDS, fn (int $flag): bool => ($flags & $flag) !== 0, ARRAY_FILTER_USE_KEY));
     }
 
     public static function isCrawler(int $flags): bool

@@ -32,6 +32,7 @@ use App\Models\TrafficVisit;
 use App\Models\TrafficVisitDetail;
 use App\Models\User;
 use App\Support\Analytics\JourneyTimeline;
+use App\Support\Traffic\Capture\BotSignals;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
@@ -142,6 +143,79 @@ it('lists sites and zones in the block rule’s segments, searched, sorted and p
         ->call('sortBy', 'visits')
         ->assertSet('dir', 'asc')
         ->assertSeeInOrder(['site 50002', 'site 50001']);
+});
+
+it('shows in Sites & zones how many of each place’s visits carried a sign of a bot, and came from an address it sent another from, sortable by both', function () {
+    siteClicks($this->source, '70001', 4, 4, ['bot_flags' => BotSignals::NO_BROWSER_HEADERS]);
+    siteClicks($this->source, '70002', 4, 4);
+    TrafficVisit::query()->where('site_ref', '70002')->get()->each(fn (TrafficVisit $visit) => TrafficVisitDetail::query()->forceCreate(['visit_id' => $visit->id, 'landing_path' => '/', 'ip_hash' => hash('sha256', 'one address'), 'created_at' => now()]));
+
+    $page = Livewire::withQueryParams(['view' => 'sites', 'list' => 'site'])->test(TrafficSourcesPage::class)->call('load');
+    $rows = collect($page->viewData('list')['rows'])->keyBy('ref');
+
+    expect($rows['70001']['figures']->flaggedRate())->toBe(1.0)
+        ->and($rows['70001']['figures']->repeatAddressRate())->toBeNull()
+        ->and($rows['70002']['figures']->flaggedRate())->toBe(0.0)
+        ->and($rows['70002']['figures']->repeatAddressRate())->toBe(1.0);
+
+    $page->assertSee('Flagged')
+        ->assertSee('Repeat address')
+        ->assertSee('No browser headers 4')
+        ->assertSee('of 4')
+        ->call('sortBy', 'flagged')->assertSeeInOrder(['site 70001', 'site 70002'])
+        ->call('sortBy', 'repeat')->assertSeeInOrder(['site 70002', 'site 70001']);
+});
+
+it('keeps only the sites whose share in a column is above or below a percent, past the clicks threshold', function () {
+    siteClicks($this->source, '72001', 40, 10);
+    siteClicks($this->source, '72002', 40, 30);
+    siteClicks($this->source, '72003', 5, 1);
+
+    $page = Livewire::withQueryParams(['view' => 'sites', 'list' => 'site'])->test(TrafficSourcesPage::class)->call('load')
+        ->set('minClicks', 10)
+        ->set('shareColumn', 'opened')
+        ->set('sharePercent', '50');
+
+    expect(collect($page->viewData('list')['rows'])->pluck('ref')->all())->toBe(['72001']);
+
+    $page->set('shareSide', 'above')->assertSee('site 72002')->assertDontSee('site 72001')
+        // 75% exactly is on neither side of 75.
+        ->set('sharePercent', '75')->assertDontSee('site 72002')
+        ->set('sharePercent', 'many')->assertSet('sharePercent', '')->assertSee('site 72001')->assertSee('site 72002')
+        ->set('shareColumn', 'nonsense')->assertSet('shareColumn', '');
+});
+
+it('compares a share as the column shows it, says when the filters left every row out, and clears the share to find one row', function () {
+    // 1 of 49 opened started (2.04%) and 1 of 51 (1.96%): both read 2.0% on screen, so neither is on either side of 2.
+    siteClicks($this->source, '73001', 49, 49);
+    siteClicks($this->source, '73002', 51, 51);
+    TrafficVisit::query()->whereIn('site_ref', ['73001', '73002'])->get()->groupBy('site_ref')->each(fn ($visits) => $visits->first()->forceFill(['started_at' => now()])->save());
+
+    $page = Livewire::withQueryParams(['view' => 'sites', 'list' => 'site', 'share' => 'started', 'than' => 'below', 'pct' => '2'])->test(TrafficSourcesPage::class)->call('load')
+        ->assertSee('None clear the clicks threshold, the search and the share above it: 2 are left out.')
+        ->assertDontSee('No ad network sent a click');
+
+    $page->set('shareSide', 'above')->assertDontSee('site 73001')->assertDontSee('site 73002')
+        ->call('listSites', $this->source->id, 'site', '73001')
+        ->assertSet('shareColumn', '')
+        ->assertSet('sharePercent', '')
+        ->assertSee('site 73001');
+});
+
+it('calls a site that has cost past the money’s gate a weak start while the worth isn’t measured, saying how often its visitors started the game against the source', function () {
+    // 300 clicks at a cent: past the rule's 200 clicks, and no run of chances measures the worth. This source judges a start from 250 clicks, not 1,000.
+    $this->source->forceFill(['block_start_clicks' => 250])->save();
+    siteClicks($this->source, '71001', 300, 200);
+    TrafficVisit::query()->where('site_ref', '71001')->limit(2)->update(['started_at' => now()]);
+    siteClicks($this->source, '71002', 300, 200);
+    TrafficVisit::query()->where('site_ref', '71002')->limit(40)->update(['started_at' => now()]);
+
+    $page = Livewire::withQueryParams(['view' => 'sites', 'list' => 'site'])->test(TrafficSourcesPage::class)->call('load');
+    $rows = collect($page->viewData('list')['rows'])->keyBy('ref');
+
+    expect($rows['71001']['state'])->toBe('weak_start')
+        ->and($rows['71002']['state'])->toBe('early')
+        ->and($rows['71001']['flag']['tip'])->toContain('1% of the 200 who opened the page started it, under 60% of the source’s 10.5%');
 });
 
 it('ticks sites across pages and blocks them by hand, then unblocks them from Blocked', function () {
@@ -1171,6 +1245,14 @@ it('lays out Logs: postbacks first, with the milestone, the click, the exact req
         ->assertSee('Resend')
         ->set('logFilter', 'failed')->assertSee('tag-81442')
         ->set('log', 'clicks')->assertSee('/games/x');
+});
+
+it('names in Logs → Clicks each sign of a bot a click carried', function () {
+    $visit = TrafficVisit::factory()->create(['source_id' => $this->source->id, 'arrived_at' => now()->subHour(), 'opened_at' => null, 'bot_flags' => BotSignals::HEADLESS | BotSignals::BURST]);
+    TrafficVisitDetail::query()->forceCreate(['visit_id' => $visit->id, 'landing_path' => '/games/x', 'created_at' => now()]);
+
+    Livewire::withQueryParams(['tab' => 'logs', 'log' => 'clicks'])->test(TrafficSourcesPage::class)->call('load')
+        ->assertSee('Not opened · headless browser · burst from one address');
 });
 
 it('shows a click’s spend under a cent in full, and says on hovering where it comes from', function () {

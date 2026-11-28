@@ -145,6 +145,17 @@ final class TrafficSourcesPage extends Page
     #[Url(as: 'min', except: 0)]
     public mixed $minClicks = 0;
 
+    /** Sites & zones keeps only those whose share in one column is above or below so many percent: the column, '' for none. */
+    #[Url(as: 'share', except: '')]
+    public mixed $shareColumn = '';
+
+    #[Url(as: 'than', except: 'below')]
+    public mixed $shareSide = 'below';
+
+    /** The percent, '' while none is typed. */
+    #[Url(as: 'pct', except: '')]
+    public mixed $sharePercent = '';
+
     #[Url(as: 'seg', except: 'all')]
     public mixed $segment = 'all';
 
@@ -280,7 +291,7 @@ final class TrafficSourcesPage extends Page
 
     public function updated(string $property): void
     {
-        if (in_array($property, ['tab', 'period', 'from', 'to', 'source', 'type', 'campaignId', 'game', 'device', 'country', 'log', 'logFilter', 'reportView', 'listBy', 'q', 'minClicks', 'segment'], true)) {
+        if (in_array($property, ['tab', 'period', 'from', 'to', 'source', 'type', 'campaignId', 'game', 'device', 'country', 'log', 'logFilter', 'reportView', 'listBy', 'q', 'minClicks', 'shareColumn', 'shareSide', 'sharePercent', 'segment'], true)) {
             $this->pageNumber = 1;
         }
 
@@ -373,9 +384,11 @@ final class TrafficSourcesPage extends Page
         $this->listBy = $level === 'site' ? 'site' : 'zone';
         $this->segment = 'all';
         $this->q = is_string($ref) ? $ref : '';
-        // Looking up one site or zone: the row asked for shows, however few clicks it has.
+        // Looking up one site or zone: the row asked for shows, however few clicks it has and whatever its shares.
         if ($this->q !== '') {
             $this->minClicks = 0;
+            $this->shareColumn = '';
+            $this->sharePercent = '';
         }
         $this->pageNumber = 1;
         $this->selected = [];
@@ -1273,6 +1286,9 @@ final class TrafficSourcesPage extends Page
         $this->spendOpen = array_values(array_map('intval', array_filter($this->spendOpen, 'is_numeric')));
         $this->q = is_string($this->q) ? mb_substr($this->q, 0, 80) : '';
         $this->minClicks = is_numeric($this->minClicks) ? max(0, min(100000, (int) $this->minClicks)) : 0;
+        $this->shareColumn = is_string($this->shareColumn) && array_key_exists($this->shareColumn, SiteZoneList::SHARES) ? $this->shareColumn : '';
+        $this->shareSide = $this->shareSide === 'above' ? 'above' : 'below';
+        $this->sharePercent = is_numeric($this->sharePercent) ? (string) round(max(0.0, min(100.0, (float) $this->sharePercent)), 2) : '';
         $this->segment = is_string($this->segment) && array_key_exists($this->segment, SiteZoneList::SEGMENTS) ? $this->segment : 'all';
         $this->sort = is_string($this->sort) && in_array($this->sort, SiteZoneList::SORTS, true) ? $this->sort : 'spend';
         $this->dir = $this->dir === 'asc' ? 'asc' : 'desc';

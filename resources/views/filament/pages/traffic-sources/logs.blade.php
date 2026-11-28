@@ -129,7 +129,7 @@
                                 <span role="cell" class="rg-admin-traffic__mono">{{ implode(' · ', array_filter([$row->site_ref, $row->zone_ref])) ?: '—' }}</span>
                                 <span role="cell">{{ ucfirst($row->device->value) }} · {{ $row->country ?? '—' }}{{ $row->city !== null ? ', '.$row->city : '' }}</span>
                                 <span role="cell" class="rg-admin-traffic__mono rg-admin-traffic__log-request">{{ $row->detail?->landing_path ?? '—' }}</span>
-                                <span role="cell" class="rg-admin-traffic__note">{{ implode(' · ', array_filter([$row->opened_at !== null ? 'Opened' : 'Not opened', $row->started_at !== null ? 'played' : null, $row->account_at !== null ? 'account' : null, $row->known ? 'known' : null, $row->blocked_hit ? 'from a blocked place' : null])) }}</span>
+                                <span role="cell" class="rg-admin-traffic__note">{{ implode(' · ', array_filter([$row->opened_at !== null ? 'Opened' : 'Not opened', $row->started_at !== null ? 'played' : null, $row->account_at !== null ? 'account' : null, $row->known ? 'known' : null, $row->blocked_hit ? 'from a blocked place' : null, ...array_map('strtolower', \App\Support\Traffic\Capture\BotSignals::words($row->bot_flags))])) }}</span>
                                 @php($spendHint = $spendHints[$row->id] ?? '')
                                 <span role="cell" class="rg-admin-traffic__fig" title="{{ $spendHint }}" data-testid="traffic-log-click-spend">{{ \App\Support\Traffic\Money\TrafficMoney::fine($row->spend) }}<span class="rg-admin-sr-only">, {{ $spendHint }}</span></span>
                             </div>

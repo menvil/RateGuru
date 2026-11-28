@@ -49,8 +49,8 @@ it('starts the tracker switched off, with the default block rule and GeoLite2, b
         ->and($settings->postbacks_enabled)->toBeFalse()
         ->and($settings->geo_edition)->toBe(GeoEdition::GeoLite2City)
         ->and([$settings->block_min_spend, $settings->block_min_clicks, $settings->block_roi_below, $settings->block_open_below, $settings->block_bot_clicks, $settings->block_start_clicks, $settings->block_start_percent])
-        // Bots are judged from 100 clicks: a few dozen pop clicks say too little.
-        ->toBe(['2.00', 200, -40, 50, 100, 60, 60])
+        // Bots are judged from 100 clicks and a weak start from 1,000: a few dozen, or hundred, pop clicks say too little.
+        ->toBe(['2.00', 200, -40, 50, 100, 1000, 60])
         // Gentler on its own: half the source's average, three days after a first click, twice a target price.
         ->and([$settings->block_open_below_average, $settings->block_grace_days, $settings->block_target_multiple])->toBe([50, 3, '2.0'])
         // Yet below 5% opened a site is bots whatever its source's average.

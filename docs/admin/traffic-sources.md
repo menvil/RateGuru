@@ -182,7 +182,17 @@ The rule is gentle with traffic it can't judge yet:
   account, a site is judged once it has spent twice that target (a $0.60
   target: from $1.20); without one, from $2 spent or 200 clicks. The badge on
   a site says which applied.
-- Weak starts and bots wait for neither.
+- **Weak start** needs at least 1,000 clicks on the site: on pop traffic a
+  few hundred bring a start or two at most, too few to tell a weak site from
+  an unlucky one. Then it means, of those who opened the page, the game
+  started below 60 % as often as on the source. A settings row still on the
+  old 60 clicks moved to 1,000; a number you chose, and a source's own, stay.
+- Weak starts and bots wait for neither. A weak start is judged whenever the
+  money can't judge a site yet — it hasn't cost enough, or the value of an
+  account isn't measured (it needs 30 confirmed accounts across the site,
+  which on pop traffic can take months) — however much the site has cost by
+  then. Its badge says how often those who opened the page started the game
+  there, against the source.
 - **Low reach** — paid impressions that mostly never arrive (Impressions that
   never arrive, below) — is only shown and counted in Worth blocking: the
   rule never blocks a site for it, and it never hides the rule's own verdict.
@@ -340,6 +350,43 @@ come's figures. Many email sign-ups with few confirmations from one zone or
 country usually means bots: **Find in Sites & zones** opens a network's zone
 in the list where it is blocked.
 
+Two more columns of **Sites & zones** say how much of a place looks like no
+person at all:
+
+- **Flagged** — the share of its visits with any sign of a bot that RateGuru
+  records on every click: a crawler or link preview, a prefetch, a headless
+  browser, a request without the headers every browser sends, or a burst of
+  clicks from one address. Hovering a share lists which, with how many. Most
+  bots on pop traffic look like ordinary browsers, so a low share clears
+  nothing; a high one is worth a look.
+- **Repeat address** — the share of its visits, of those whose address is
+  still on record (a visit's details are kept 90 days; only a hash of the
+  address, never the address), that came from an address the same place sent
+  another visit from too. Mobile networks put many people behind one address,
+  so compare places of one source and device: a place far above the others
+  sends the same few machines again and again, and one at almost none may
+  rotate proxies for every visit.
+
+Both sort like the other columns. The share under **Started** — of those who
+opened the page, how many started the game — is the one that tells bots from
+people best on pop traffic so far.
+
+The columns sort by their figures; to cut the list by a share instead, use
+**Where … below / above … %** above it: pick the share — Reached (of paid
+impressions), Opened (of visits), Started (of opened), Finished (of started),
+Accounts (of finished), Flagged, Repeat address — and a percent, and only the
+rows on that side of it stay, in the counts of the segments too. With **Hide
+under 1,000 clicks** and *Started (of opened) below 2 %*, say, the list is the
+big places where almost nobody starts. A row with nothing to take that share
+of — no visit opened the page, for Started — is on neither side, and a share
+that reads exactly the percent (2.0% against 2) is on neither side either:
+shares are compared as the columns show them, to a tenth. Accounts shows its
+share of finished only until a post is published there; the filter uses that
+share all the same. **Find in Sites & zones** clears the share filter, so the
+row it opens always shows. The filter is kept in the page's address, like the
+rest, and when it leaves nothing the list says so rather than that no network
+sent a click.
+
 ## Logs
 
 Logs → Clicks, Milestones and Postbacks (in a postback's path too) name each
@@ -356,6 +403,11 @@ was counted when that is not it — the rate you set, the campaign's price, or a
 fixed price, a typed-in or CSV figure or the network's bill shared out over the
 day — whether it is still an estimate, or that it is not counted (yet: a click
 on a fixed price is not counted until that price is first shared out).
+
+**What happened** in Logs → Clicks also names each sign of a bot the click
+carried — crawler or link preview, prefetch, headless browser, no browser
+headers, burst from one address — and a visit's step in Journeys says the same
+("Signs of a bot: …").
 
 ## Privacy page
 

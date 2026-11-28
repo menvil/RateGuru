@@ -5,8 +5,9 @@
     found by its ID, network or campaign, leaving out those under so many
     clicks but for Low reach; split into the block rule's segments with their counts; what the
     list says at a glance; the impressions its network billed for it and the
-    share that reached RateGuru, where the network reports it; sorted by any
-    column and paged; ticked across pages to block, unblock or copy the IDs
+    share that reached RateGuru, where the network reports it; how many of its
+    visits looked automated and how many came from an address it sent
+    another from; sorted by any column and paged; ticked across pages to block, unblock or copy the IDs
     of.
 --}}
 @php
@@ -23,6 +24,11 @@
         'impressions' => 'Paid impr.', 'reach' => 'Reached',
         'visits' => 'Visits', 'opened' => 'Opened', 'started' => 'Started', 'finished' => 'Finished', 'accounts' => 'Accounts', 'spend' => 'Spend',
         'value' => 'Value', 'profit' => 'Profit', 'roi' => 'ROI', 'cpv' => 'Cost / visit', 'vpv' => 'Value / visit', 'cpa' => 'Cost / account',
+        'flagged' => 'Flagged', 'repeat' => 'Repeat address',
+    ];
+    $sortTips = [
+        'flagged' => 'Visits with any sign of not being a person: a crawler or link preview, a prefetch, a headless browser, no browser headers, or a burst from one address. Point at a row\'s share for which.',
+        'repeat' => 'Visits from an address this place sent another visit from too, of those whose address is still on record (90 days). Mobile networks share addresses, so compare places of one source and device.',
     ];
     $pageTicked = $list['selectable'] !== [] && array_diff($list['selectable'], $selected) === [];
     // Looked up by key on every row: Select all may have ticked tens of thousands.
@@ -45,10 +51,25 @@
     <label class="rg-admin-traffic__list-control" title="Low reach rows show whatever their clicks: their paid impressions judge them">
         <span class="rg-admin-traffic__note">Hide under</span>
         <select class="rg-admin-traffic__select" wire:model.live="minClicks" aria-label="Hide those under so many clicks">
-            @foreach ([0 => 'no limit', 50 => '50 clicks', 100 => '100 clicks', 200 => '200 clicks', 500 => '500 clicks', 1000 => '1,000 clicks'] as $value => $label)
+            @foreach ([0 => 'no limit', 50 => '50 clicks', 100 => '100 clicks', 200 => '200 clicks', 500 => '500 clicks', 1000 => '1,000 clicks', 2000 => '2,000 clicks', 5000 => '5,000 clicks'] as $value => $label)
                 <option value="{{ $value }}">{{ $label }}</option>
             @endforeach
         </select>
+    </label>
+    <label class="rg-admin-traffic__list-control" title="Keep only the rows whose share in one column — the percent under its figure — is above or below so many percent">
+        <span class="rg-admin-traffic__note">Where</span>
+        <select class="rg-admin-traffic__select" wire:model.live="shareColumn" aria-label="Share to keep rows by" data-testid="traffic-share-column">
+            <option value="">any share</option>
+            @foreach (\App\Support\Traffic\Reports\SiteZoneList::SHARES as $value => $label)
+                <option value="{{ $value }}">{{ $label }}</option>
+            @endforeach
+        </select>
+        <select class="rg-admin-traffic__select" wire:model.live="shareSide" aria-label="Above or below" @disabled($shareColumn === '')>
+            <option value="below">below</option>
+            <option value="above">above</option>
+        </select>
+        <input type="number" min="0" max="100" step="0.1" class="rg-admin-input rg-admin-traffic__share-input" wire:model.live.debounce.500ms="sharePercent" aria-label="Percent" placeholder="%" @disabled($shareColumn === '') data-testid="traffic-share-percent" />
+        <span class="rg-admin-traffic__note">%</span>
     </label>
 </div>
 
@@ -94,7 +115,11 @@
 
 @if ($list['matching'] === [])
     <x-admin.ui.empty-state icon="search-x" title="No {{ $noun }} here">
-        {{ ($list['counts']['all'] ?? 0) === 0 ? 'No ad network sent a click with a '.($listBy === 'site' ? 'site' : 'zone or site').' ID on these filters.' : 'None match this segment and search.' }}
+        {{ match (true) {
+            ($list['counts']['all'] ?? 0) > 0 => 'None match this segment.',
+            ($list['hidden'] ?? 0) > 0 => 'None clear the clicks threshold, the search and the share above it: '.number_format($list['hidden']).' '.($list['hidden'] === 1 ? 'is' : 'are').' left out.',
+            default => 'No ad network sent a click with a '.($listBy === 'site' ? 'site' : 'zone or site').' ID on these filters.',
+        } }}
     </x-admin.ui.empty-state>
 @else
     <div class="rg-admin-traffic__perf rg-admin-table__scroll">
@@ -106,7 +131,7 @@
                 </span>
                 @foreach ($sorts as $key => $heading)
                     <span role="columnheader" aria-sort="{{ $sort === $key ? ($dir === 'asc' ? 'ascending' : 'descending') : 'none' }}">
-                        <button type="button" @class(['rg-admin-traffic__sort', 'rg-admin-traffic__sort--on' => $sort === $key]) wire:click="sortBy('{{ $key }}')">{{ $heading }}@if ($sort === $key) {{ $dir === 'asc' ? '↑' : '↓' }}@endif</button>
+                        <button type="button" @class(['rg-admin-traffic__sort', 'rg-admin-traffic__sort--on' => $sort === $key]) @isset($sortTips[$key]) title="{{ $sortTips[$key] }}" @endisset wire:click="sortBy('{{ $key }}')">{{ $heading }}@if ($sort === $key) {{ $dir === 'asc' ? '↑' : '↓' }}@endif</button>
                     </span>
                 @endforeach
             </div>
@@ -125,12 +150,14 @@
                     </span>
                     @include('filament.pages.traffic-sources.reach-cells', ['r' => $row['reach']])
                     @include('filament.pages.traffic-sources.figure-cells', ['f' => $row['figures']])
+                    @include('filament.pages.traffic-sources.quality-cells', ['f' => $row['figures']])
                 </div>
             @endforeach
             <div class="rg-admin-traffic__perf-row rg-admin-traffic__perf-row--total" role="row">
                 <span class="rg-admin-traffic__perf-name" role="gridcell"><span class="rg-admin-traffic__perf-label"><span class="rg-admin-traffic__perf-title">Total · {{ number_format(count($list['matching'])) }} {{ $noun }}</span><span class="rg-admin-traffic__note">{{ $segment === 'all' ? 'Every page' : 'Every page of '.strtolower($segments[$segment][0]) }}</span></span></span>
                 @include('filament.pages.traffic-sources.reach-cells', ['r' => $list['reach']])
                 @include('filament.pages.traffic-sources.figure-cells', ['f' => $list['total']])
+                @include('filament.pages.traffic-sources.quality-cells', ['f' => $list['total']])
             </div>
         </div>
     </div>
