@@ -1,0 +1,111 @@
+lang/bs/ui.php
+  s_1f43f39fbe0537::t_d762873edd505f 265
+lang/uk/ui.php
+  s_1f43f39fbe0537::t_d762873edd505f 265
+lang/hu/ui.php
+  s_1f43f39fbe0537::t_d762873edd505f 265
+lang/lt/ui.php
+  s_1f43f39fbe0537::t_d762873edd505f 267
+lang/ur/ui.php
+  s_1f43f39fbe0537::t_d762873edd505f 273
+lang/ru/ui.php
+  s_1f43f39fbe0537::t_d762873edd505f 269
+lang/en/ui.php
+  s_1f43f39fbe0537::t_d762873edd505f 265
+lang/vi/ui.php
+  s_1f43f39fbe0537::t_d762873edd505f 265
+lang/fi/ui.php
+  s_1f43f39fbe0537::t_d762873edd505f 265
+lang/he/ui.php
+  s_1f43f39fbe0537::t_d762873edd505f 272
+lang/ka/ui.php
+  s_1f43f39fbe0537::t_d762873edd505f 265
+lang/nl/ui.php
+  s_1f43f39fbe0537::t_d762873edd505f 265
+lang/mk/ui.php
+  s_1f43f39fbe0537::t_d762873edd505f 265
+lang/pl/ui.php
+  s_1f43f39fbe0537::t_d762873edd505f 265
+lang/sq/ui.php
+  s_1f43f39fbe0537::t_d762873edd505f 265
+lang/sr/ui.php
+  s_1f43f39fbe0537::t_d762873edd505f 265
+lang/is/ui.php
+  s_1f43f39fbe0537::t_d762873edd505f 265
+lang/bn/ui.php
+  s_1f43f39fbe0537::t_d762873edd505f 265
+lang/sv/ui.php
+  s_1f43f39fbe0537::t_d762873edd505f 265
+lang/fil/ui.php
+  s_1f43f39fbe0537::t_d762873edd505f 265
+resources/views/livewire/feed/upload-post-form.blade.php
+  s_1f43f39fbe0537::t_d762873edd505f 177-178,182,184,187,245,283
+lang/sk/ui.php
+  s_1f43f39fbe0537::t_d762873edd505f 265
+lang/fr/ui.php
+  s_1f43f39fbe0537::t_d762873edd505f 265
+lang/hr/ui.php
+  s_1f43f39fbe0537::t_d762873edd505f 265
+lang/de/ui.php
+  s_1f43f39fbe0537::t_d762873edd505f 265
+lang/es/ui.php
+  s_1f43f39fbe0537::t_d762873edd505f 265
+lang/lv/ui.php
+  s_1f43f39fbe0537::t_d762873edd505f 268
+lang/cnr/ui.php
+  s_1f43f39fbe0537::t_d762873edd505f 265
+lang/nb/ui.php
+  s_1f43f39fbe0537::t_d762873edd505f 265
+lang/el/ui.php
+  s_1f43f39fbe0537::t_d762873edd505f 265
+lang/ro/ui.php
+  s_1f43f39fbe0537::t_d762873edd505f 265
+lang/it/ui.php
+  s_1f43f39fbe0537::t_d762873edd505f 265
+lang/zh/ui.php
+  s_1f43f39fbe0537::t_d762873edd505f 265
+lang/pt/ui.php
+  s_1f43f39fbe0537::t_d762873edd505f 265
+lang/da/ui.php
+  s_1f43f39fbe0537::t_d762873edd505f 265
+lang/bg/ui.php
+  s_1f43f39fbe0537::t_d762873edd505f 265
+lang/th/ui.php
+  s_1f43f39fbe0537::t_d762873edd505f 265
+lang/id/ui.php
+  s_1f43f39fbe0537::t_d762873edd505f 265
+lang/ms/ui.php
+  s_1f43f39fbe0537::t_d762873edd505f 265
+lang/et/ui.php
+  s_1f43f39fbe0537::t_d762873edd505f 265
+lang/hi/ui.php
+  s_1f43f39fbe0537::t_d762873edd505f 265
+lang/cs/ui.php
+  s_1f43f39fbe0537::t_d762873edd505f 265
+resources/translations/confirmed-english.json
+  s_1f43f39fbe0537::t_d762873edd505f 489
+lang/ar/ui.php
+  s_1f43f39fbe0537::t_d762873edd505f 275
+lang/ja/ui.php
+  s_1f43f39fbe0537::t_d762873edd505f 265
+lang/sl/ui.php
+  s_1f43f39fbe0537::t_d762873edd505f 265
+lang/tr/ui.php
+  s_1f43f39fbe0537::t_d762873edd505f 265
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "7ddc320212166227efa9875f057058ea878b66b7",
+  "prompts": {},
+  "sessions": {
+    "s_1f43f39fbe0537": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "526787d0-f443-4ad7-9610-cf9811fec895",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
