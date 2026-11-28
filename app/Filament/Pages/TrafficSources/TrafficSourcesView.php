@@ -1006,7 +1006,8 @@ final class TrafficSourcesView
     private function siteList(TrafficSourcesPage $page, TrafficReportFilter $filter, $sources, ?array $rows = null): array
     {
         $rows ??= $this->siteRows($page, $filter, $sources);
-        $list = SiteZoneList::of($rows, (string) $page->segment, (string) $page->q, (int) $page->minClicks, (string) $page->sort, (string) $page->dir, (int) $page->pageNumber);
+        $share = $page->shareColumn !== '' && $page->sharePercent !== '' ? ['column' => (string) $page->shareColumn, 'side' => $page->shareSide === 'above' ? 'above' : 'below', 'percent' => (float) $page->sharePercent] : null;
+        $list = SiteZoneList::of($rows, (string) $page->segment, (string) $page->q, (int) $page->minClicks, (string) $page->sort, (string) $page->dir, (int) $page->pageNumber, $share);
         $all = collect($rows)->filter(fn (array $row): bool => SiteZoneList::clears($row, (int) $page->minClicks));
         $spend = $all->sum(fn (array $row): float => (float) $row['figures']->spend);
         $running = 0.0;

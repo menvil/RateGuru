@@ -51,10 +51,25 @@
     <label class="rg-admin-traffic__list-control" title="Low reach rows show whatever their clicks: their paid impressions judge them">
         <span class="rg-admin-traffic__note">Hide under</span>
         <select class="rg-admin-traffic__select" wire:model.live="minClicks" aria-label="Hide those under so many clicks">
-            @foreach ([0 => 'no limit', 50 => '50 clicks', 100 => '100 clicks', 200 => '200 clicks', 500 => '500 clicks', 1000 => '1,000 clicks'] as $value => $label)
+            @foreach ([0 => 'no limit', 50 => '50 clicks', 100 => '100 clicks', 200 => '200 clicks', 500 => '500 clicks', 1000 => '1,000 clicks', 2000 => '2,000 clicks', 5000 => '5,000 clicks'] as $value => $label)
                 <option value="{{ $value }}">{{ $label }}</option>
             @endforeach
         </select>
+    </label>
+    <label class="rg-admin-traffic__list-control" title="Keep only the rows whose share in one column — the percent under its figure — is above or below so many percent">
+        <span class="rg-admin-traffic__note">Where</span>
+        <select class="rg-admin-traffic__select" wire:model.live="shareColumn" aria-label="Share to keep rows by" data-testid="traffic-share-column">
+            <option value="">any share</option>
+            @foreach (\App\Support\Traffic\Reports\SiteZoneList::SHARES as $value => $label)
+                <option value="{{ $value }}">{{ $label }}</option>
+            @endforeach
+        </select>
+        <select class="rg-admin-traffic__select" wire:model.live="shareSide" aria-label="Above or below" @disabled($shareColumn === '')>
+            <option value="below">below</option>
+            <option value="above">above</option>
+        </select>
+        <input type="number" min="0" max="100" step="0.1" class="rg-admin-input rg-admin-traffic__share-input" wire:model.live.debounce.500ms="sharePercent" aria-label="Percent" placeholder="%" @disabled($shareColumn === '') data-testid="traffic-share-percent" />
+        <span class="rg-admin-traffic__note">%</span>
     </label>
 </div>
 

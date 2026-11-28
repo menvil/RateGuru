@@ -166,8 +166,28 @@ it('shows in Sites & zones how many of each place’s visits carried a sign of a
         ->call('sortBy', 'repeat')->assertSeeInOrder(['site 70002', 'site 70001']);
 });
 
+it('keeps only the sites whose share in a column is above or below a percent, past the clicks threshold', function () {
+    siteClicks($this->source, '72001', 40, 10);
+    siteClicks($this->source, '72002', 40, 30);
+    siteClicks($this->source, '72003', 5, 1);
+
+    $page = Livewire::withQueryParams(['view' => 'sites', 'list' => 'site'])->test(TrafficSourcesPage::class)->call('load')
+        ->set('minClicks', 10)
+        ->set('shareColumn', 'opened')
+        ->set('sharePercent', '50');
+
+    expect(collect($page->viewData('list')['rows'])->pluck('ref')->all())->toBe(['72001']);
+
+    $page->set('shareSide', 'above')->assertSee('site 72002')->assertDontSee('site 72001')
+        // 75% exactly is on neither side of 75.
+        ->set('sharePercent', '75')->assertDontSee('site 72002')
+        ->set('sharePercent', 'many')->assertSet('sharePercent', '')->assertSee('site 72001')->assertSee('site 72002')
+        ->set('shareColumn', 'nonsense')->assertSet('shareColumn', '');
+});
+
 it('calls a site that has cost past the money’s gate a weak start while the worth isn’t measured, saying how often its visitors started the game against the source', function () {
-    // 300 clicks at a cent: past the rule's 200 clicks, and no run of chances measures the worth.
+    // 300 clicks at a cent: past the rule's 200 clicks, and no run of chances measures the worth. This source judges a start from 250 clicks, not 1,000.
+    $this->source->forceFill(['block_start_clicks' => 250])->save();
     siteClicks($this->source, '71001', 300, 200);
     TrafficVisit::query()->where('site_ref', '71001')->limit(2)->update(['started_at' => now()]);
     siteClicks($this->source, '71002', 300, 200);

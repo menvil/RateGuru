@@ -743,6 +743,17 @@ of the visits that still have one. Sites & zones shows both as **Flagged** and
 **Repeat address**, sortable (`SiteZoneList::SORTS`), and `BotSignals::words()`
 names the flags in Logs → Clicks and in a journey's visit step.
 
+The list keeps, past its clicks threshold and search, only the rows whose share
+in one column (`SiteZoneList::SHARES`, the share each column shows under its
+figure) is above or below a percent (`SiteZoneList::sharePasses()`, to the
+hundredth of a percent, strictly); a row with nothing to take the share of is
+on neither side. The page keeps the column, the side and the percent in its
+address (`share`, `than`, `pct`).
+
+`block_start_clicks` defaults to 1,000 (a migration moved a settings row still
+on the first default of 60): a few hundred pop clicks bring a start or two,
+too few for a share of the source's.
+
 ## Retention
 
 `traffic:purge-expired`, daily: visits, conversions, spend figures, the block

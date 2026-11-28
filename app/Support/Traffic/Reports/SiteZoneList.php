@@ -37,19 +37,32 @@ final class SiteZoneList
     public const array WORTH_BLOCKING = ['bots', 'losing', 'weak_start', 'low_reach'];
 
     /** @var list<string> */
+    /** @var array<string, string> a share a row can be kept by, as the filter names it: what of what the column's share is */
+    public const array SHARES = [
+        'reach' => 'Reached (of paid impressions)',
+        'opened' => 'Opened (of visits)',
+        'started' => 'Started (of opened)',
+        'finished' => 'Finished (of started)',
+        'accounts' => 'Accounts (of finished)',
+        'flagged' => 'Flagged (of visits)',
+        'repeat' => 'Repeat address (of those on record)',
+    ];
+
     public const array SORTS = ['impressions', 'reach', 'visits', 'opened', 'started', 'finished', 'accounts', 'spend', 'value', 'profit', 'roi', 'cpv', 'vpv', 'cpa', 'flagged', 'repeat'];
 
     /**
      * @template TRow of array{key: string, ref: string, source: string, campaign: string|null, state: string, blocked: bool, figures: ReportFigures, reach?: ReachFigures|null}
      *
      * @param  list<TRow>  $rows
+     * @param  array{column: string, side: 'above'|'below', percent: float}|null  $share  keep only rows whose share in a column (SHARES) is above or below so many percent; a row with no share there is left out
      * @return array{rows: list<TRow>, counts: array<string, int>, matching: list<string>, total: ReportFigures, reach: ReachFigures|null, pages: int, page: int, hidden: int}
      */
-    public static function of(array $rows, string $segment, string $search, int $minVisits, string $sort, string $direction, int $page): array
+    public static function of(array $rows, string $segment, string $search, int $minVisits, string $sort, string $direction, int $page, ?array $share = null): array
     {
         $search = mb_strtolower(trim($search));
         $visible = array_values(array_filter($rows, fn (array $row): bool => self::clears($row, $minVisits)
-            && ($search === '' || str_contains(mb_strtolower($row['ref'].' '.$row['source'].' '.(string) $row['campaign']), $search))));
+            && ($search === '' || str_contains(mb_strtolower($row['ref'].' '.$row['source'].' '.(string) $row['campaign']), $search))
+            && ($share === null || self::sharePasses($row, $share))));
         $hidden = count($rows) - count($visible);
         $counts = array_fill_keys(array_keys(self::SEGMENTS), 0);
 
@@ -117,6 +130,50 @@ final class SiteZoneList
             in_array($row['state'], ['profit', 'watch'], true) => $row['state'],
             $row['state'] === 'waiting' => 'watch',
             default => 'early',
+        };
+    }
+
+    /**
+     * Whether a row's share in a column is above or below the percent: the
+     * share the column shows under its figure, to the hundredth of a percent
+     * as the filter takes it. A row with nothing to take a share of there is
+     * on neither side.
+     *
+     * @param  array{figures: ReportFigures, reach?: ReachFigures|null}  $row
+     * @param  array{column: string, side: 'above'|'below', percent: float}  $share
+     */
+    public static function sharePasses(array $row, array $share): bool
+    {
+        $rate = self::share($row, $share['column']);
+
+        if ($rate === null) {
+            return false;
+        }
+
+        $percent = round($rate * 100, 2);
+
+        return $share['side'] === 'above' ? $percent > $share['percent'] : $percent < $share['percent'];
+    }
+
+    /**
+     * A row's share in a column, 0–1, as the column shows it under its
+     * figure; null where there is nothing to take it of.
+     *
+     * @param  array{figures: ReportFigures, reach?: ReachFigures|null}  $row
+     */
+    public static function share(array $row, string $column): ?float
+    {
+        $figures = $row['figures'];
+
+        return match ($column) {
+            'reach' => ($row['reach'] ?? null)?->reachRate(),
+            'opened' => $figures->openRate(),
+            'started' => $figures->startRate(),
+            'finished' => $figures->started === 0 ? null : $figures->completed / $figures->started,
+            'accounts' => $figures->completed === 0 ? null : $figures->accounts / $figures->completed,
+            'flagged' => $figures->flaggedRate(),
+            'repeat' => $figures->repeatAddressRate(),
+            default => null,
         };
     }
 

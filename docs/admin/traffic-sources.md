@@ -182,6 +182,11 @@ The rule is gentle with traffic it can't judge yet:
   account, a site is judged once it has spent twice that target (a $0.60
   target: from $1.20); without one, from $2 spent or 200 clicks. The badge on
   a site says which applied.
+- **Weak start** needs at least 1,000 clicks on the site: on pop traffic a
+  few hundred bring a start or two at most, too few to tell a weak site from
+  an unlucky one. Then it means, of those who opened the page, the game
+  started below 60 % as often as on the source. A settings row still on the
+  old 60 clicks moved to 1,000; a number you chose, and a source's own, stay.
 - Weak starts and bots wait for neither. A weak start is judged whenever the
   money can't judge a site yet — it hasn't cost enough, or the value of an
   account isn't measured (it needs 30 confirmed accounts across the site,
@@ -365,6 +370,17 @@ person at all:
 Both sort like the other columns. The share under **Started** — of those who
 opened the page, how many started the game — is the one that tells bots from
 people best on pop traffic so far.
+
+The columns sort by their figures; to cut the list by a share instead, use
+**Where … below / above … %** above it: pick the share — Reached (of paid
+impressions), Opened (of visits), Started (of opened), Finished (of started),
+Accounts (of finished), Flagged, Repeat address — and a percent, and only the
+rows on that side of it stay, in the counts of the segments too. With **Hide
+under 1,000 clicks** and *Started (of opened) below 2 %*, say, the list is the
+big places where almost nobody starts. A row with nothing to take that share
+of — no visit opened the page, for Started — is on neither side, and a share
+exactly at the percent is on neither side either. The filter is kept in the
+page's address, like the rest.
 
 ## Logs
 
