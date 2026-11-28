@@ -1,0 +1,50 @@
+app/Livewire/Feed/UploadPostForm.php
+  s_1f43f39fbe0537::t_72b7ca6a07392e 199-200,243,273
+  s_1f43f39fbe0537::t_9c6a6326610840 241-242
+app/Actions/Posts/CreatePostAction.php
+  s_1f43f39fbe0537::t_72b7ca6a07392e 154,156
+app/Actions/Studio/SetStudioPlanImageAction.php
+  s_1f43f39fbe0537::t_72b7ca6a07392e 74,85,90
+app/Models/MediaAsset.php
+  s_1f43f39fbe0537::t_72b7ca6a07392e 119-141
+app/Filament/Resources/StudioPlans/Concerns/EditsStudioPlan.php
+  s_1f43f39fbe0537::t_b69f7ccfce82f3 96,100-108,922-923,935
+  s_1f43f39fbe0537::t_f6b93ebbd29a3d 97-99
+  s_1f43f39fbe0537::t_72b7ca6a07392e 400,675,686
+resources/views/livewire/posts/post-show.blade.php
+  s_1f43f39fbe0537::t_45b5891bac19b0 228-229,231
+resources/css/filament/admin/components.css
+  s_1f43f39fbe0537::t_3811b613ebb8b2 5593-5600
+tests/Feature/Routes/PostShowRouteTest.php
+  s_1f43f39fbe0537::t_806dfa60b91734 145-146
+app/Data/Posts/CreatePostData.php
+  s_1f43f39fbe0537::t_72b7ca6a07392e 34-36
+tests/Feature/Filament/PostResourceTest.php
+  s_1f43f39fbe0537::t_2a20ea7b46bf82 296-322
+app/Filament/Resources/Posts/Pages/ListPosts.php
+  s_1f43f39fbe0537::t_45b5891bac19b0 569-573,577-590
+resources/views/filament/pages/posts/viewer.blade.php
+  s_1f43f39fbe0537::t_3811b613ebb8b2 8-10,38-49
+tests/Feature/Filament/StudioPlanImageUiTest.php
+  s_1f43f39fbe0537::t_2a20ea7b46bf82 344-345
+tests/Feature/Livewire/UploadPostFormImportIntegrationTest.php
+  s_1f43f39fbe0537::t_2a20ea7b46bf82 5,77-79
+app/Support/Media/MediaAssetCreator.php
+  s_1f43f39fbe0537::t_72b7ca6a07392e 31,62,109,127
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "0adba0414771cc7dd70f64d0c9959c50fc65dbfa",
+  "prompts": {},
+  "sessions": {
+    "s_1f43f39fbe0537": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "526787d0-f443-4ad7-9610-cf9811fec895",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
