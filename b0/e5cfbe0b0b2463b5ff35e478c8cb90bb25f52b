@@ -1,0 +1,40 @@
+app/Filament/Pages/TrafficSources/TrafficSourcesView.php
+  s_4b9dc6ab6b25d3::t_fbf63497f0a45c 1009-1010
+app/Support/Traffic/Reports/SiteZoneList.php
+  s_4b9dc6ab6b25d3::t_fbf63497f0a45c 40-50,57,60,64-65,136-176
+tests/Feature/Traffic/TrafficReportPageTest.php
+  s_4b9dc6ab6b25d3::t_78f4cc3e63177f 169-187,189-190
+docs/architecture/traffic.md
+  s_4b9dc6ab6b25d3::t_42db75bce1ca8b 746-756
+tests/Feature/Database/TrafficBlockRuleThresholdColumnsTest.php
+  s_4b9dc6ab6b25d3::t_b6bc1a6750fafe 103-105
+  s_4b9dc6ab6b25d3::t_ab0bc82632dde0 83-102,106
+app/Models/TrafficSetting.php
+  s_4b9dc6ab6b25d3::t_e8e5fe294289e7 93
+database/migrations/2026_11_28_100000_raise_block_start_clicks_default.php
+  s_4b9dc6ab6b25d3::t_e8e5fe294289e7 1-32
+docs/admin/traffic-sources.md
+  s_4b9dc6ab6b25d3::t_42db75bce1ca8b 185-189,374-383
+resources/views/filament/pages/traffic-sources/sites.blade.php
+  s_4b9dc6ab6b25d3::t_b6a04a465c5160 54,59-72
+app/Filament/Pages/TrafficSourcesPage.php
+  s_4b9dc6ab6b25d3::t_fbf63497f0a45c 148-158,294,1287-1289
+resources/css/filament/admin/components.css
+  s_4b9dc6ab6b25d3::t_7fd0e29223b834 16563-16568
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "b0e5cfbe0b0b2463b5ff35e478c8cb90bb25f52b",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
