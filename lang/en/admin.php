@@ -44,6 +44,7 @@ return [
         'show_saved_posts' => 'Show saved posts',
         'allow_user_uploads' => 'Allow user uploads',
         'allow_url_imports' => 'Allow imports from a link',
+        'autoplay_feed_videos' => 'Play feed videos by themselves',
         'allow_games' => 'Allow games',
         'allow_guest_viewing' => 'Allow guest viewing',
         'guest_actions_open_sign_up' => 'Offer new guests sign-up when they vote',

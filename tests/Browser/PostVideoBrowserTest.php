@@ -1,6 +1,7 @@
 <?php
 
 use App\Models\Post;
+use App\Models\ProjectSettings;
 use Tests\Browser\Support\ImageFixtures;
 
 /*
@@ -90,4 +91,16 @@ it('moves a keyboard user\'s focus from the play button to the video, whose Spac
 
     $page->keys(':focus', 'Space');
     waitForScript($page, "{$video}.paused");
+});
+
+it('plays a feed\'s video by itself, muted, one at a time, when Project settings say so', function () {
+    ProjectSettings::factory()->create(['feature_flags' => ['autoplay_feed_videos' => true]]);
+    Post::factory()->published()->create(['title' => 'First Clip', 'image_asset_id' => ImageFixtures::writeVideo()->id]);
+    Post::factory()->published()->create(['title' => 'Second Clip', 'image_asset_id' => ImageFixtures::writeVideo()->id]);
+
+    $page = visit(route('feed'))->resize(1440, 2400)->assertSee('First Clip');
+    $playing = "Array.from(document.querySelectorAll('[data-testid=\"post-card-image-open\"]')).filter((b) => ! b.closest('[data-testid=\"post-video\"]').querySelector('video').paused).length";
+
+    waitForScript($page, $playing, 1);
+    expect(array_column(feedVideoStates($page), 'muted'))->toBe([true, true]);
 });
