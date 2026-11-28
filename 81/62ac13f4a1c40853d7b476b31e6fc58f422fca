@@ -1,0 +1,9 @@
+infrastructure/runbooks/install-target-operations.md
+  ai_agent 68,294,377
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "8162ac13f4a1c40853d7b476b31e6fc58f422fca",
+  "prompts": {}
+}
