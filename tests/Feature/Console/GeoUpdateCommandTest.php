@@ -49,7 +49,12 @@ afterEach(function () {
     removeGeoDirectory($this);
 });
 
-/** @param  array<string, mixed>  $routes  URL pattern => response, or a callable given the request */
+/**
+ * A response's body is read once, so a pattern more than one request matches
+ * takes a callable that makes a fresh response for each.
+ *
+ * @param  array<string, mixed>  $routes  URL pattern => response, or a callable given the request
+ */
 function geoServes(array $routes): void
 {
     test()->geoRoutes = $routes;
@@ -376,7 +381,7 @@ it('keeps the network list in service when a fetched one is short, unreadable or
     config(['geo.network_lists.hosting.min_entries' => 2]);
     geoServes([
         ...fakeNpm('1.0.116', geoPackage(file_get_contents(base_path(GEO_FIXTURE)))),
-        'X4BNet/lists_vpn/main/input/*' => Http::response("AS45090\nAS3223\n"),
+        'X4BNet/lists_vpn/main/input/*' => fn () => Http::response("AS45090\nAS3223\n"),
     ]);
     $this->artisan('geo:update')->assertSuccessful();
 
@@ -397,9 +402,29 @@ it('keeps the network list in service when a fetched one is short, unreadable or
     'short' => [fn () => fn () => Http::response("AS45090\n"), GeoUpdateFailure::ListInvalid],
     'no ASN in it' => [fn () => fn () => Http::response('<html>not a list</html>'), GeoUpdateFailure::ListInvalid],
     'not there' => [fn () => fn () => Http::response('', 404), GeoUpdateFailure::DownloadFailed],
+    // The datacenter list alone fills the union past the entries a real list holds: the empty VPN list still refuses it.
+    'one of its lists empty' => [fn () => fn (Request $request) => str_contains($request->url(), '/vpn/') ? Http::response("# nothing listed\n") : Http::response("AS45090\nAS3223\nAS9009\n"), GeoUpdateFailure::ListInvalid],
     // Distinct ASNs past the 2 MB cap: only the cap refuses it.
     'too large' => [fn () => fn () => Http::response(implode('', array_map(fn (int $asn): string => 'AS'.$asn.' # a hosting network'."\n", range(1, 120000)))), GeoUpdateFailure::TooLarge],
 ]);
+
+it('updates the network lists even when the networks’ database fails in a way its updater does not catch', function () {
+    config(['geo.network_lists.hosting.min_entries' => 2]);
+    // A state file the run cannot write: here a directory where the file would go.
+    File::ensureDirectoryExists($this->geoDirectory.'/dbip_asn_lite/state.json');
+    geoServes([
+        ...fakeNpm('1.0.116', geoPackage(file_get_contents(base_path(GEO_FIXTURE)))),
+        'X4BNet/lists_vpn/main/input/*' => fn () => Http::response("AS45090\nAS3223\n"),
+    ]);
+
+    $this->artisan('geo:update')
+        ->expectsOutputToContain('DB-IP ASN Lite: failed')
+        ->expectsOutputToContain('Hosting and VPN networks: updated.')
+        ->assertSuccessful();
+
+    expect(file_get_contents($this->geoDirectory.'/networks/hosting.list'))->toBe("3223\n45090\n")
+        ->and(is_file($this->geoDirectory.'/geolite2_city/current.mmdb'))->toBeTrue();
+});
 
 it('waits after a first run that died fetching a list not installed yet, instead of fetching it again a minute later', function () {
     // What a run killed during its fetch leaves behind: the attempt and its next try, no list, no failure counted.

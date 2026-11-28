@@ -16,8 +16,8 @@ return new class extends Migration
         Schema::table('traffic_visits', function (Blueprint $table) {
             // The network the visit's address belongs to, by the local networks' database (DB-IP ASN Lite): its
             // autonomous system number, never the address. Empty while that database is missing, and for every
-            // visit recorded before it came.
-            $table->unsignedInteger('asn')->nullable();
+            // visit recorded before it came. A big integer: a 4-byte ASN reaches 4294967295, past PostgreSQL's integer.
+            $table->unsignedBigInteger('asn')->nullable();
         });
     }
 

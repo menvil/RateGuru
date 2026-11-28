@@ -44,9 +44,11 @@ its own schedule (`config('geo.network_lists')`):
 | `relay` | the addresses iCloud Private Relay sends people's traffic from | Apple's `egress-ip-ranges.csv` | weekly |
 
 A fetched list is read and must hold at least `min_entries` (500 networks,
-100 merged ranges) before it is written beside the one in service and
-renamed over it; a fetch that fails, a list too short or unreadable, or one
-past its size cap leaves the one in service as it was, waits as a database
+100 merged ranges) — and each address it is joined from must give some
+networks of its own, so an empty VPN file cannot drop every VPN network while
+the datacenter file alone fills the count — before it is written beside the
+one in service and renamed over it; a fetch that fails, a list too short or
+unreadable, or one past its size cap leaves the one in service as it was, waits as a database
 does (15 minutes, an hour, …) and is logged as an error from the third
 failure in a row. `hosting.list` is one ASN a line (`HostingAsnList`);
 `relay.list` holds the ranges merged and sorted, 32 bytes each — the first

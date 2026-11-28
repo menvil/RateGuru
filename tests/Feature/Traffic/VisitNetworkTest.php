@@ -57,3 +57,27 @@ it('keeps no network and flags nothing while the networks’ database is missing
     expect($click->asn)->toBeNull()
         ->and($click->bot_flags & BotSignals::DATACENTER)->toBe(0);
 });
+
+it('gives a click another browser takes before any opened it the network of the browser that took it', function () {
+    installGeoDatabase('dbip_asn_lite', 'GeoLite2-ASN-Test.mmdb');
+    installNetworkLists([1221]);
+
+    $this->withServerVariables(['REMOTE_ADDR' => '1.128.0.9']);
+    clickOn('/?rg_src=exo&cid=tag-5', 'prefetchprefetchprefetchprefetchprefetch')->assertOk();
+    app()->forgetScopedInstances();
+    expect(TrafficVisit::query()->sole())->asn->toBe(1221)->bot_flags->toBe(BotSignals::DATACENTER);
+
+    $this->withServerVariables(['REMOTE_ADDR' => '12.81.92.1']);
+    clickOn('/?rg_src=exo&cid=tag-5', 'personApersonApersonApersonApersonAperso')->assertOk();
+
+    expect(TrafficVisit::query()->sole())
+        ->visitor_hash->toBe(browserHashOf('personApersonApersonApersonApersonAperso'))
+        ->asn->toBe(7018)
+        ->bot_flags->toBe(0);
+});
+
+it('keeps the highest 4-byte ASN there is', function () {
+    $visit = TrafficVisit::factory()->create(['source_id' => $this->source->id, 'asn' => 4294967295]);
+
+    expect($visit->fresh()->asn)->toBe(4294967295);
+});
