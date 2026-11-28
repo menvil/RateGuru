@@ -70,7 +70,6 @@ it('asks a newcomer to confirm their email before they post, then publishes thei
     $page->navigate(route('feed'))
         ->assertMissing('@account-confirmation-notice')
         ->click('@open-upload-button')
-        ->click('@image-tab-url')
         ->type('@upload-image-url-input', 'https://images.rateguru.test/second-dish.jpg')
         ->type('#title', 'My second dish')
         ->click('[data-testid="upload-form"] button[type="submit"]')

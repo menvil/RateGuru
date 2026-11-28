@@ -93,8 +93,19 @@ trait EditsStudioPlan
     /** The other editors on the page whose writes and Reloads this one follows: the discussion's, the post votes' and the comment votes'. */
     private const OTHER_EDITORS = ['discussion', StudioPlanPostVotesEditor::SOURCE, StudioPlanDiscussionVotesEditor::SOURCE];
 
-    /** The social sites the importer knows a post of (ImportProviderDetector), by name. */
-    private const PLATFORMS = ['instagram' => 'Instagram', 'x' => 'X', 'facebook' => 'Facebook', 'pinterest' => 'Pinterest'];
+    /**
+     * The sites a pasted link is named as a post of ("Detected: Instagram
+     * post."), each with the hosts that mark a link as its. Any other public
+     * page works too; it is only not named.
+     */
+    private const PLATFORMS = [
+        'Instagram' => ['instagram.com'],
+        'X' => ['x.com', 'twitter.com'],
+        'YouTube' => ['youtube.com', 'youtu.be'],
+        'RedGifs' => ['redgifs.com'],
+        'Facebook' => ['facebook.com', 'fb.com', 'fb.watch'],
+        'Pinterest' => ['pinterest.com', 'pin.it'],
+    ];
 
     /**
      * The step on screen. Not part of the draft, and changed only through
@@ -147,14 +158,16 @@ trait EditsStudioPlan
      */
     public $photo = null;
 
-    /** Where a new photo comes from: the computer, a direct link to an image, or a social post. */
+    /** Where a new photo comes from: the computer, or a link. */
     public string $imageSource = 'upload';
 
-    /** A direct link to an image, imported once it is complete. */
+    /**
+     * A link, imported once it is complete: a direct link to an image is
+     * taken as it is; any other — a public post on a site, a page with a
+     * preview image — gives its picture. One field, as the site's own upload
+     * form has: which kind it is, the link itself says.
+     */
     public string $imageUrl = '';
-
-    /** A link to a public post, whose image is imported once the link is complete. */
-    public string $postUrl = '';
 
     /** The plan the photo is kept on: the one edited, or the Draft a new publication made for its first photo; 0 for none yet. */
     #[Locked]
@@ -295,7 +308,7 @@ trait EditsStudioPlan
     public function updatedPhoto(): void
     {
         $this->imageSource = 'upload';
-        $this->resetErrorBag(['photo', 'imageUrl', 'postUrl']);
+        $this->resetErrorBag(['photo', 'imageUrl']);
 
         try {
             $this->validateOnly('photo', $this->imageRules(), $this->imageMessages());
@@ -323,38 +336,42 @@ trait EditsStudioPlan
      */
     public function updatedImageSource(): void
     {
-        $this->imageSource = in_array($this->imageSource, ['link', 'post'], true) ? $this->imageSource : 'upload';
-        $this->resetErrorBag(['photo', 'imageUrl', 'postUrl']);
+        // A link of any kind is one source; "post", as an older page sends it, is that link too.
+        $this->imageSource = in_array($this->imageSource, ['link', 'post'], true) ? 'link' : 'upload';
+        $this->resetErrorBag(['photo', 'imageUrl']);
         $this->importedFrom = '';
     }
 
     /**
      * Imports the image a link points at — a direct link to an image, or the
-     * picture of a public post — once the browser finds the address complete,
-     * through the importers the site's own uploads use: the safe client for
-     * every request, no private address, the temporary file always removed.
-     * The same address is never fetched twice running.
+     * picture of a public post or page — once the browser finds the address
+     * complete, through the importers the site's own uploads use: the safe
+     * client for every request, no private address, the temporary file always
+     * removed. The same address is never fetched twice running.
      */
-    public function importImage(mixed $source): void
+    public function importImage(mixed $source = 'link'): void
     {
-        $source = $source === 'post' ? 'post' : 'link';
-        $field = $source === 'post' ? 'postUrl' : 'imageUrl';
-        $url = trim($source === 'post' ? $this->postUrl : $this->imageUrl);
+        $field = 'imageUrl';
+        $url = trim($this->imageUrl);
 
-        $this->imageSource = $source;
-        $source === 'post' ? $this->postUrl = $url : $this->imageUrl = $url;
-        $this->resetErrorBag(['photo', 'imageUrl', 'postUrl']);
+        $this->imageSource = 'link';
+        $this->imageUrl = $url;
+        $this->resetErrorBag(['photo', 'imageUrl']);
 
-        if ($url === '' || "{$source} {$url}" === $this->importedFrom) {
+        if ($url === '' || $url === $this->importedFrom) {
             return;
         }
 
         $this->validateOnly($field, $this->imageRules(), $this->imageMessages());
-        $this->importedFrom = "{$source} {$url}";
+        $this->importedFrom = $url;
         $kept = false;
+        // Which kind the link is, the link says: a file is taken as it is,
+        // anything else gives its picture.
+        $direct = app(ImportProviderDetector::class)->detect($url) === 'direct_image';
 
         try {
-            $imageUrl = $source === 'post' ? $this->postImageUrl($url) : $url;
+            $guessed = false;
+            $imageUrl = $direct ? $url : $this->postImageUrl($url, $guessed);
 
             if ($imageUrl === null) {
                 return;
@@ -370,9 +387,11 @@ trait EditsStudioPlan
                 return;
             } catch (Throwable $exception) {
                 report($exception);
-                $this->addError($field, $source === 'post'
-                    ? 'The post’s image couldn’t be downloaded. Try again, or upload the file.'
-                    : 'No image could be downloaded from this link. Use a direct link to a JPEG, PNG or WebP file.');
+                $this->addError($field, match (true) {
+                    $direct => 'No image could be downloaded from this link. Use a link to a JPEG, PNG or WebP file, or to a public post.',
+                    $guessed => 'No image was found in this post. It may be private, or the site may not share it.',
+                    default => 'The post’s image couldn’t be downloaded. Try again, or upload the file.',
+                });
 
                 return;
             }
@@ -388,7 +407,7 @@ trait EditsStudioPlan
             // address given again is fetched again, not answered with nothing.
             if (! $kept) {
                 $this->importedFrom = '';
-                $this->dispatch('rg-studio-import-failed', source: $source);
+                $this->dispatch('rg-studio-import-failed', source: 'link');
             }
         }
     }
@@ -401,7 +420,7 @@ trait EditsStudioPlan
         }
 
         $this->importedFrom = '';
-        $this->importImage($this->imageSource);
+        $this->importImage('link');
     }
 
     /**
@@ -719,32 +738,34 @@ trait EditsStudioPlan
 
     /**
      * The image of a public post: what the site's own import finds for the
-     * link. None — said by the field — when importing is switched off, the
-     * address is not one to fetch, or the post shows no image.
+     * link. Where it finds none, the link itself is tried as a picture's — an
+     * image CDN's address names no file ($guessed then says so, for the
+     * error). None — said by the field — when importing is switched off or
+     * the address is not one to fetch.
      */
-    private function postImageUrl(string $url): ?string
+    private function postImageUrl(string $url, bool &$guessed = false): ?string
     {
         try {
             $preview = app(ImportFromUrlAction::class)->handle($url);
         } catch (UrlImportDisabledException) {
-            $this->addError('postUrl', 'Importing from links is switched off in Project settings.');
+            $this->addError('imageUrl', 'Importing from links is switched off in Project settings.');
 
             return null;
         } catch (UnsafeImportUrlException) {
-            $this->addError('postUrl', 'This address can’t be imported. Use the link of a public post.');
+            $this->addError('imageUrl', 'This address can’t be imported. Use the link of a public post.');
 
             return null;
         } catch (Throwable $exception) {
             report($exception);
-            $this->addError('postUrl', 'This post couldn’t be read. Try again, or upload the file.');
+            $this->addError('imageUrl', 'This post couldn’t be read. Try again, or upload the file.');
 
             return null;
         }
 
         if (! $preview->isSupported() || $preview->imageUrl === null) {
-            $this->addError('postUrl', 'No image was found in this post. It may be private, or the site may not share it.');
+            $guessed = true;
 
-            return null;
+            return $url;
         }
 
         return $preview->imageUrl;
@@ -754,8 +775,7 @@ trait EditsStudioPlan
     {
         $this->photo = null;
         $this->imageUrl = '';
-        $this->postUrl = '';
-        $this->resetErrorBag(['photo', 'imageUrl', 'postUrl']);
+        $this->resetErrorBag(['photo', 'imageUrl']);
     }
 
     /**
@@ -899,7 +919,8 @@ trait EditsStudioPlan
         $category = $this->categoryId !== '' ? Category::query()->find((int) $this->categoryId) : null;
         $photo = $this->photoDetails($plan?->imageAsset);
         $mode = StudioPlanPublicationMode::tryFrom($this->publicationMode) ?? StudioPlanPublicationMode::Now;
-        $postProvider = trim($this->postUrl) !== '' ? app(ImportProviderDetector::class)->detect(trim($this->postUrl)) : null;
+        $linkHost = strtolower((string) parse_url(trim($this->imageUrl), PHP_URL_HOST));
+        $detectedPlatform = $linkHost === '' ? null : array_key_first(array_filter(self::PLATFORMS, fn (array $hosts): bool => collect($hosts)->contains(fn (string $host): bool => $linkHost === $host || str_ends_with($linkHost, '.'.$host))));
 
         return [
             'steps' => collect(self::STEPS)->map(fn (array $step, string $key): array => ['key' => $key, 'label' => $step[0], 'caption' => $step[1]])->values()->all(),
@@ -911,8 +932,7 @@ trait EditsStudioPlan
             'analysisImageId' => $plan?->image_asset_id,
             'replacedPhoto' => $this->replacedPhoto,
             'analysisConfigured' => app(StudioImageAnalyzer::class)->isConfigured(),
-            'platforms' => self::PLATFORMS,
-            'detectedPlatform' => self::PLATFORMS[$postProvider] ?? null,
+            'detectedPlatform' => $detectedPlatform,
             'maxImageSize' => Number::fileSize(self::maxImageKilobytes() * 1024),
             'author' => StudioPlanFormat::author($author),
             'authorChoices' => $this->authorChoices(),
@@ -1056,7 +1076,7 @@ trait EditsStudioPlan
     private static function stepOf(string $field): ?string
     {
         return match (true) {
-            in_array($field, ['photo', 'imageUrl', 'postUrl'], true) => 'image',
+            in_array($field, ['photo', 'imageUrl'], true) => 'image',
             in_array($field, ['publicationMode', 'publishAt'], true) => 'publication',
             $field === '' => null,
             default => 'post',
@@ -1088,7 +1108,6 @@ trait EditsStudioPlan
         return [
             'photo' => ['nullable', File::image()->types(['jpg', 'jpeg', 'png', 'webp'])->max(self::maxImageKilobytes())],
             'imageUrl' => ['nullable', 'url:http,https', 'max:'.PostContentRules::SOURCE_URL_LIMIT],
-            'postUrl' => ['nullable', 'url:http,https', 'max:'.PostContentRules::SOURCE_URL_LIMIT],
         ];
     }
 
@@ -1100,8 +1119,7 @@ trait EditsStudioPlan
             'photo.mimes' => 'Choose a JPEG, PNG or WebP image.',
             'photo.max' => 'Choose an image of '.Number::fileSize(self::maxImageKilobytes() * 1024).' or less.',
             'photo.file' => 'Choose a JPEG, PNG or WebP image.',
-            'imageUrl.*' => 'Enter a full web address to an image, starting with https://.',
-            'postUrl.*' => 'Paste the full link of a post, starting with https://.',
+            'imageUrl.*' => 'Paste the full link of an image or a post, starting with https://.',
         ];
     }
 

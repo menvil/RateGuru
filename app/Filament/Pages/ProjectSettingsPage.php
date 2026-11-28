@@ -98,6 +98,7 @@ final class ProjectSettingsPage extends Page
         'show_saved_posts' => 'People can save posts to a private list.',
         'allow_user_uploads' => 'Turn off to pause all new posts across the site. Existing posts stay visible.',
         'allow_url_imports' => 'A post can start from a link: the server fetches the page and its picture. Off, pictures are uploaded only.',
+        'autoplay_feed_videos' => 'A video in the feed starts by itself, muted, while most of it is on screen, one at a time, and pauses when scrolled away; its file is fetched as it comes near. Off, a video shows its poster with a play button, and starts, and is fetched, only when that is pressed.',
         'allow_guest_viewing' => 'Visitors can browse without an account. Off means every page asks to sign in.',
         'guest_actions_open_sign_up' => 'A guest who votes, rates or votes on a comment is offered sign-up instead of sign-in, if no account has used their browser before. Off, they are asked to sign in, as before.',
         'allow_games' => 'Live games can be played at /games/… Off, every game page answers that it does not exist; games are still edited, published and previewed here.',

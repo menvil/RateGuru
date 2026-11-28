@@ -22,9 +22,10 @@ return [
     'ytdlp' => [
         'binary' => 'yt-dlp',
         // The probe runs while the author waits, in a web worker: short, one
-        // per author, two on the host at once (ResolveMediaLinkAction).
+        // per author, four on the host at once — every page link is asked
+        // (ResolveMediaLinkAction).
         'probe_timeout_seconds' => 15,
-        'probe_slots' => 2,
+        'probe_slots' => 4,
         // The daily site check runs off any request, so it waits longer for
         // a slow site than a probe an author is waiting on may.
         'check_timeout_seconds' => 60,
@@ -36,12 +37,21 @@ return [
         'sites' => [
             'redgifs.com' => 'RedGifs',
             'instagram.com' => 'Instagram',
+            // Videos and Shorts, on www., m. and music. too. A youtu.be link
+            // goes through another extractor, and is not taken yet.
+            'youtube.com' => 'Youtube',
         ],
-        // The sites whose pages may hold a photo instead: when yt-dlp finds
-        // no video there, the page's photo is taken. On the others every page
-        // is a video, so finding none is a failure, said as one — never a
-        // poster frame posted in its place.
-        'photo_fallback' => ['Instagram'],
+        // Any other page goes to yt-dlp too, with every extractor it has but
+        // the generic one (which would take a file from any page at all) —
+        // only on a host where yt-dlp runs as its own account behind the
+        // firewall. One rule for every site: a video is taken, a page with
+        // none (or a site yt-dlp does not know) gives its picture, a site it
+        // knows but could not read is refused. X's posts stay with their own
+        // reader, which takes their video best.
+        'any_site' => true,
+        // Hosts never given to yt-dlp that way, the project's call: their
+        // links go on as any link. A site above is removed from there instead.
+        'blocked_domains' => [],
         // The account yt-dlp runs as where the host has it: the worker's own
         // name and this suffix — one per target — kept off every loopback,
         // private and link-local address by the host's firewall

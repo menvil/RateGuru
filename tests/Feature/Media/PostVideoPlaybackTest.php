@@ -7,7 +7,9 @@ use App\Enums\MediaVisibility;
 use App\Enums\PostImageContext;
 use App\Livewire\Posts\PostShow;
 use App\Models\Post;
+use App\Models\ProjectSettings;
 use App\Support\Media\PostImagePresenter;
+use App\Support\Settings\ProjectSettingsManager;
 use Illuminate\Support\Facades\Storage;
 use Livewire\Livewire;
 
@@ -139,4 +141,21 @@ it('keys each player by its post and file, so a drawer showing another post gets
     expect($html)->toContain('wire:key="post-video-feed-'.$first->id.'-')
         ->toContain('wire:key="post-video-feed-'.$second->id.'-')
         ->toContain('wire:key="post-video-fullscreen-'.$first->id.'-');
+});
+
+it('lets Project settings have a feed\'s videos start by themselves, never the browser\'s controls', function () {
+    $post = fullVideoPost();
+
+    // By default the feed's card waits for its play button too.
+    expect($this->get(route('feed'))->getContent())->toContain('controls: false, autoplay: false')
+        ->not->toContain('controls: false, autoplay: true');
+
+    ProjectSettings::factory()->create(['feature_flags' => ['autoplay_feed_videos' => true]]);
+    app(ProjectSettingsManager::class)->flush();
+
+    // The feed's card plays by itself; its fullscreen viewer, with the browser's controls, does not.
+    $html = $this->get(route('feed'))->getContent();
+    expect(substr_count($html, 'controls: false, autoplay: true'))->toBe(1)
+        ->and(substr_count($html, 'controls: true, autoplay: false'))->toBe(1)
+        ->and(Livewire::test(PostShow::class, ['post' => $post])->html())->toContain('controls: true, autoplay: false');
 });

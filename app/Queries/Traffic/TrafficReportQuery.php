@@ -247,10 +247,14 @@ final class TrafficReportQuery implements RawSqlPersistenceBoundary
             ->all();
     }
 
-    /** A network site's or zone's place as repeatAddresses() keys it: its source, site and zone — none for a site. */
+    /**
+     * A network site's or zone's place as repeatAddresses() keys it: its
+     * source, site and zone — none for a site — encoded whole, so an ID a
+     * network sends with a separator in it never shares a key with another.
+     */
     public static function placeKey(int $sourceId, ?string $siteRef, ?string $zoneRef): string
     {
-        return $sourceId.'|'.$siteRef.'|'.$zoneRef;
+        return json_encode([$sourceId, (string) $siteRef, (string) $zoneRef], JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE);
     }
 
     /**

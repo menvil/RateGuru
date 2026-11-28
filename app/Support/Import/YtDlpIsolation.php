@@ -190,6 +190,12 @@ final class YtDlpIsolation
         return $exitCode !== 0 && preg_match('/^sudo: (?:a password is required|a terminal is required|.* is not allowed to execute|unknown user|.*no new privileges)/m', $errorOutput) === 1;
     }
 
+    /** Whether yt-dlp runs as its own account here, behind the loaded firewall. */
+    public function isolated(): bool
+    {
+        return $this->user() !== null && $this->armed();
+    }
+
     private function armed(): bool
     {
         if ($this->armed !== null) {

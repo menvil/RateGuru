@@ -137,19 +137,7 @@ final class PinnedImportHttpTransport implements ImportHttpTransport
                     return false;
                 },
                 ...($sink !== null ? ['sink' => $sink] : []),
-                'curl' => [
-                    // Connects to the exact IP UrlImportValidator already
-                    // resolved and validated for this hop, instead of
-                    // letting curl perform its own uncontrolled DNS lookup
-                    // of $target->host — this is the DNS rebinding/TOCTOU
-                    // fix. The URL, Host header, and TLS SNI/certificate
-                    // verification all still use $target->host untouched.
-                    CURLOPT_RESOLVE => ["{$target->host}:{$target->port}:{$target->ip}"],
-                    // A download that trickles — under 32 KB a second for 20
-                    // seconds — is cut off rather than holding a worker for
-                    // its whole time.
-                    ...($sink !== null ? [CURLOPT_LOW_SPEED_LIMIT => 32 * 1024, CURLOPT_LOW_SPEED_TIME => 20] : []),
-                ],
+                'curl' => self::curlOptions($target, $sink !== null),
             ])
                 ->timeout($policy->timeoutSeconds)
                 ->connectTimeout($policy->connectTimeoutSeconds)
@@ -212,6 +200,31 @@ final class PinnedImportHttpTransport implements ImportHttpTransport
      * @param  array<string, list<string>>  $headers
      * @return array<string, string>
      */
+    /**
+     * The cURL options of one hop, keyed by the cURL constants themselves —
+     * joined with `+`, never spread: spreading renumbers integer keys, and
+     * turned the trickle limit into CURLOPT_TLSAUTH_USERNAME, which Guzzle
+     * refuses, failing every streamed download (a video link, an X video).
+     *
+     * @return array<int, mixed>
+     */
+    public static function curlOptions(ResolvedImportTarget $target, bool $streaming): array
+    {
+        return [
+            // Connects to the exact IP UrlImportValidator already resolved and
+            // validated for this hop, instead of letting curl perform its own
+            // uncontrolled DNS lookup of $target->host — this is the DNS
+            // rebinding/TOCTOU fix. The URL, Host header, and TLS
+            // SNI/certificate verification all still use $target->host untouched.
+            CURLOPT_RESOLVE => ["{$target->host}:{$target->port}:{$target->ip}"],
+        ] + ($streaming ? [
+            // A download that trickles — under 32 KB a second for 20 seconds —
+            // is cut off rather than holding a worker for its whole time.
+            CURLOPT_LOW_SPEED_LIMIT => 32 * 1024,
+            CURLOPT_LOW_SPEED_TIME => 20,
+        ] : []);
+    }
+
     private function flattenHeaders(array $headers): array
     {
         $flat = [];

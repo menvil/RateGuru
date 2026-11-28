@@ -56,6 +56,9 @@
         $videoPoster = $video->poster ?? $imageUrl;
         $eagerVideo = $loading === null;
         $withControls = in_array($context, ['standalone', 'fullscreen'], true);
+        // Project settings may have a feed's videos start by themselves (autoplay_feed_videos);
+        // the browser's own controls never do.
+        $autoplay = ! $withControls && app(\App\Support\Settings\ProjectSettingsManager::class)->featureEnabled('autoplay_feed_videos');
     @endphp
     {{-- Muted until asked: a feed must never start making noise on its own. Keyed by
          its post and file, so a drawer that shows another post gets a new player rather
@@ -63,7 +66,7 @@
     <div
         wire:key="post-video-{{ $context }}-{{ $post?->id }}-{{ substr(md5($video->src), 0, 12) }}"
         {{ $attributes->class([$containerClasses]) }}
-        x-data="rgPostVideo({ src: @js($video->src), poster: @js($videoPoster), controls: @js($withControls) })"
+        x-data="rgPostVideo({ src: @js($video->src), poster: @js($videoPoster), controls: @js($withControls), autoplay: @js($autoplay) })"
         x-on:rg-video-sound.window="if ($event.detail !== $root) quiet()"
         x-on:rg-video-playing.window="if ($event.detail !== $root) pause()"
         data-testid="post-video"
