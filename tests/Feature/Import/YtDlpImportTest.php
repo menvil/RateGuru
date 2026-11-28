@@ -624,3 +624,23 @@ it('lets the preview go when the upload form opens again, and posts nothing it r
 
     expect(Post::query()->where('title', 'Too late')->exists())->toBeFalse();
 });
+
+it('takes what a preview read once: a submit that fails after it reads the link again, counted, on the next try', function () {
+    $runner = ytDlpStandIn(ytDlpVideoJson());
+    $probes = fn (): int => collect($runner->calls)->filter(fn (array $call): bool => in_array('--dump-single-json', $call['arguments'], true))->count();
+
+    $form = Livewire::actingAs(User::factory()->create())
+        ->test(UploadPostForm::class)
+        ->call('previewLink', 'https://www.redgifs.com/watch/aloop')
+        ->set('importedImageUrl', 'https://www.redgifs.com/watch/aloop')
+        // No title: the submit fails after taking the preview's reading.
+        ->call('submit')
+        ->assertHasErrors('title')
+        ->assertSet('previewedLink', '');
+    expect($probes())->toBe(1);
+
+    $form->set('title', 'Second try')->call('submit')->assertSet('submitError', null);
+
+    expect($probes())->toBe(2)
+        ->and(Post::query()->where('title', 'Second try')->exists())->toBeTrue();
+});

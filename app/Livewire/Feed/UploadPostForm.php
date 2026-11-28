@@ -219,11 +219,16 @@ final class UploadPostForm extends Component
                     throw new UrlImportDisabledException;
                 }
 
-                // The link its preview read is taken as it came to: neither
-                // read twice nor counted twice against the import limit.
-                $resolved = trim((string) $this->importedImageUrl) === $this->previewedLink && $this->previewedResolution !== null
+                // The link its preview read is taken as it came to, once:
+                // neither read twice nor counted twice against the import
+                // limit. A submit that fails after it — a missing title —
+                // reads it again, counted, on the next try.
+                $cached = trim((string) $this->importedImageUrl) === $this->previewedLink && $this->previewedResolution !== null
                     ? ResolvedMediaLink::fromArray($this->previewedResolution)
-                    : app(ResolveMediaLinkAction::class)->handle(auth()->user(), $this->importedImageUrl);
+                    : null;
+                $this->previewedLink = '';
+                $this->previewedResolution = null;
+                $resolved = $cached ?? app(ResolveMediaLinkAction::class)->handle(auth()->user(), $this->importedImageUrl);
                 $videoUrl = $resolved->videoUrl;
                 $imageUrl = $resolved->imageUrl;
 
