@@ -63,6 +63,8 @@ final class ResolveMediaLinkAction
      */
     public function handle(User $author, string $url): ResolvedMediaLink
     {
+        $url = self::fullLink($url);
+
         app(ActionRateLimiter::class)->hitOrFail(
             key: RateLimitKey::userAction('link-import', $author),
             maxAttempts: (int) config('rate_limits.link_import.max_attempts'),
@@ -197,6 +199,25 @@ final class ResolveMediaLinkAction
         }
 
         return $store->lock($key, 30);
+    }
+
+    /**
+     * A short link as the page it stands for: youtu.be/ID — what YouTube's
+     * Share button gives — is the watch page of that video, which YouTube's
+     * own extractor reads; its query (a share token, a start time) goes. Any
+     * other link as it is.
+     */
+    private static function fullLink(string $url): string
+    {
+        $host = strtolower((string) parse_url($url, PHP_URL_HOST));
+        $scheme = strtolower((string) parse_url($url, PHP_URL_SCHEME));
+
+        if (in_array($scheme, ['http', 'https'], true) && in_array($host, ['youtu.be', 'www.youtu.be'], true)
+            && preg_match('#^/([A-Za-z0-9_-]{11})/?$#', (string) parse_url($url, PHP_URL_PATH), $match) === 1) {
+            return 'https://www.youtube.com/watch?v='.$match[1];
+        }
+
+        return $url;
     }
 
     /** Where it came from, without its query: it may carry a token or tracking, never meant to be public. */
