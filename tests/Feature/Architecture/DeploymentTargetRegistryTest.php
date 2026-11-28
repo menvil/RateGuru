@@ -1617,11 +1617,13 @@ it('changes no runtime configuration in this slice', function () {
     // legitimately graduated to --target/staging-main in the target-aware migration —
     // see TargetPerimeterTest.php for their own coverage — and are
     // deliberately absent here.
+    // The shared production vhost and pool that once sat beside these are no
+    // longer committed: a production target's service configuration is
+    // rendered from the registry, so there is no static production file left
+    // to keep free of it.
     $configs = [
         'config/nginx/rateguru-staging',
-        'config/nginx/rateguru-production',
         'config/php-fpm/rateguru-staging.conf',
-        'config/php-fpm/rateguru-production.conf',
         'config/supervisor/rateguru-staging-queue.conf',
         'config/cron/rateguru-staging-scheduler',
     ];
@@ -1634,6 +1636,10 @@ it('changes no runtime configuration in this slice', function () {
             ->not->toContain('--target')
             ->not->toContain('staging-main')
             ->not->toContain('tits-guru');
+    }
+
+    foreach (['config/nginx/rateguru-production', 'config/php-fpm/rateguru-production.conf'] as $path) {
+        expect(File::exists(base_path('infrastructure/'.$path)))->toBeFalse("{$path} must stay retired");
     }
 
     // GitHub Actions deployment is likewise untouched.

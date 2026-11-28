@@ -813,22 +813,13 @@ narrow_to_provisioning_scope() {
 #
 # The architectural gap this closes: a production target's service
 # configuration used to have to exist as a committed per-brand file. That does
-# not scale past one brand, and the file that did exist
-# (config/nginx/rateguru-production) describes the OLD shared production-root
-# model — a single /home/www/rateguru/production tree — which the target
-# registry replaced. It is never the service authority for a production target
-# here: sources are resolved by the target's own registry names, and a
-# production target's four service files are rendered rather than read.
-#
-# It is not deleted here because install-target-operations installs it as part
-# of the operational bundle and verifies it byte for byte, so removing the
-# source would fail that installer's own contract. That is the whole reason,
-# and it is worth stating precisely: install-target-prerequisites does NOT
-# read it. That installer resolves a target's vhost by the registry's own
-# nginx.site_name, plus the two committed mail vhosts, and no registered
-# target names rateguru-production — so nothing parses this file for any
-# target that exists. Its final public/TLS role is settled when a real public
-# vhost is defined.
+# not scale past one brand, and the committed vhost and PHP-FPM pool that once
+# stood in for production described the old shared production-root model — a
+# single /home/www/rateguru/production tree — which the target registry
+# replaced. Neither is committed any more: sources are resolved by the
+# target's own registry names, and a production target's four service files
+# are rendered rather than read, so there is no committed production service
+# file for anything to mistake for the real one.
 #
 # What is rendered, from deployment-targets.json and nothing else:
 #   Nginx internal vhost   loopback-only, server_name = nginx.internal_hostname

@@ -25,7 +25,6 @@ Exactly thirty-seven files:
 | `infrastructure/templates/deployment.conf.example` | `/home/www/rateguru/config/deployment.conf` |
 | `infrastructure/config/deployment-protocol.json` | `/home/www/rateguru/config/deployment-protocol.json` |
 | `infrastructure/config/nginx/rateguru-staging` | `/home/www/rateguru/config/nginx/rateguru-staging` |
-| `infrastructure/config/nginx/rateguru-production` | `/home/www/rateguru/config/nginx/rateguru-production` |
 | `infrastructure/config/nginx/mailpit-staging` | `/home/www/rateguru/config/nginx/mailpit-staging` |
 | `infrastructure/config/nginx/mailtrap-local-staging` | `/home/www/rateguru/config/nginx/mailtrap-local-staging` |
 | `infrastructure/templates/environment/staging.env.example` | `/home/www/rateguru/config/environment/staging.env.example` |
@@ -66,7 +65,7 @@ thirty-seven places with these exact permissions. Nothing else. It never sources
 evaluates `deployment.conf` as shell — it installs it as plain file content,
 identically to every other file it manages.
 
-The four committed Nginx vhost sources are installed as **data**
+The three committed Nginx vhost sources are installed as **data**
 (`root:root`, `0644`, under `/home/www/rateguru/config/nginx/`, a directory the
 installer creates root-owned `0755` when it is absent and removes again on
 rollback if it created it) beside the external-material installer,
@@ -292,7 +291,7 @@ sudo infrastructure/scripts/install-target-operations --apply
    `backup`, `restore-test`, `offsite-backup`, `offsite-retention`,
    `offsite-restore-test`, `backup-cycle`, `restore-common`, `fetch-backup`,
    `verify-backup`, `restore-database`, `restore-storage`, `restore-target`,
-   `recover-host`, the four Nginx vhost sources (into `config/nginx/`, which
+   `recover-host`, the three Nginx vhost sources (into `config/nginx/`, which
    is created root-owned `0755` first when absent), then
    `install-target-prerequisites` (which reads those sources), then
    `verify-required-clis`, then `deployment.conf` and the deployment protocol
@@ -375,7 +374,7 @@ line — `--verify` never claims success after a step it didn't actually pass.
 | `deployment-protocol.json` | `root:root` | `0644` | the protocol this engine supports — non-secret, and writable only by root, because a host that could be told it supports a protocol it does not would deploy a release its engine cannot honour |
 | `targets`, `health-check`, `status`, `cleanup`, `deploy`, `rollback`, `backup`, `restore-test`, `offsite-backup`, `offsite-retention`, `offsite-restore-test`, `backup-cycle`, `fetch-backup`, `verify-backup`, `restore-database`, `restore-storage`, `restore-target`, `recover-host`, `install-target-prerequisites`, `verify-required-clis` | `root:root` | `0755` | executable scripts |
 | `common`, `restore-common` | `root:root` | `0644` | sourced libraries, never CLIs — must never be executable |
-| `nginx/rateguru-staging`, `nginx/rateguru-production`, `nginx/mailpit-staging`, `nginx/mailtrap-local-staging` | `root:root` | `0644` | the committed vhost sources, installed as data under `/home/www/rateguru/config/nginx/` (itself `root:root` `0755`) — never applied to Nginx. The installed `install-target-prerequisites` reads the one named by a target's registry `nginx.site_name`, plus the two mail vhosts; `rateguru-production` is named by no registered target and is carried for this installer's own byte-verification alone |
+| `nginx/rateguru-staging`, `nginx/mailpit-staging`, `nginx/mailtrap-local-staging` | `root:root` | `0644` | the committed vhost sources, installed as data under `/home/www/rateguru/config/nginx/` (itself `root:root` `0755`) — never applied to Nginx. The installed `install-target-prerequisites` reads the one named by a target's registry `nginx.site_name`, plus the two mail vhosts. The shared production vhost an earlier install left at `config/nginx/rateguru-production` is removed by `--apply`, and `--verify` fails while it is there |
 
 None of the thirty-seven may be group- or world-writable, and none may be a
 symlink — enforced both when installing and when verifying. Existing

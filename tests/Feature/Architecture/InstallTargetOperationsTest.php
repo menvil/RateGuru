@@ -1060,7 +1060,6 @@ function installOpsBaseVars(
         // table the installed install-target-prerequisites derives its
         // destinations from.
         'SRC_NGINX_SOURCE_STAGING' => base_path('infrastructure/config/nginx/rateguru-staging'),
-        'SRC_NGINX_SOURCE_PRODUCTION' => base_path('infrastructure/config/nginx/rateguru-production'),
         'SRC_NGINX_SOURCE_MAILPIT' => base_path('infrastructure/config/nginx/mailpit-staging'),
         'SRC_NGINX_SOURCE_MAILTRAP' => base_path('infrastructure/config/nginx/mailtrap-local-staging'),
         'DST_CONFIG_ROOT' => $scratch.'/dst-config',
@@ -1099,7 +1098,9 @@ function installOpsBaseVars(
         'DST_DEPLOYMENT_PROTOCOL' => $scratch.'/dst-config/deployment-protocol.json',
         'DST_NGINX_SOURCES_ROOT' => $scratch.'/dst-config/nginx',
         'DST_NGINX_SOURCE_STAGING' => $scratch.'/dst-config/nginx/rateguru-staging',
-        'DST_NGINX_SOURCE_PRODUCTION' => $scratch.'/dst-config/nginx/rateguru-production',
+        // Not an install destination: the shared production vhost an earlier
+        // install left here, which --apply removes and --verify requires gone.
+        'RETIRED_NGINX_SOURCE_SHARED_PRODUCTION' => $scratch.'/dst-config/nginx/rateguru-production',
         'DST_NGINX_SOURCE_MAILPIT' => $scratch.'/dst-config/nginx/mailpit-staging',
         'DST_NGINX_SOURCE_MAILTRAP' => $scratch.'/dst-config/nginx/mailtrap-local-staging',
         'DST_ENV_TEMPLATES_ROOT' => $scratch.'/dst-config/environment',
@@ -1200,7 +1201,7 @@ it('keeps every destination a fixed, hardcoded constant — never env- or CLI-ov
     // fine — it's still built entirely from fixed constants. What must never
     // appear is a fallback to an environment variable (":-"/":+") or a read
     // of anything RATEGURU_*-shaped.
-    foreach (['DST_CONFIG_ROOT', 'DST_BIN_ROOT', 'DST_REGISTRY', 'DST_TARGETS', 'DST_COMMON', 'DST_HEALTH_CHECK', 'DST_STATUS', 'DST_CLEANUP', 'DST_DEPLOY', 'DST_ROLLBACK', 'DST_BACKUP', 'DST_RESTORE_TEST', 'DST_OFFSITE_BACKUP', 'DST_OFFSITE_RETENTION', 'DST_OFFSITE_RESTORE_TEST', 'DST_BACKUP_CYCLE', 'DST_RESTORE_COMMON', 'DST_RECOVERY_OUTBOUND_HOLD', 'DST_FETCH_BACKUP', 'DST_VERIFY_BACKUP', 'DST_RESTORE_DATABASE', 'DST_RESTORE_STORAGE', 'DST_RESTORE_TARGET', 'DST_RECOVER_HOST', 'DST_TARGET_PREREQUISITES', 'DST_VERIFY_REQUIRED_CLIS', 'DST_NGINX_SOURCES_ROOT', 'DST_NGINX_SOURCE_STAGING', 'DST_NGINX_SOURCE_PRODUCTION', 'DST_NGINX_SOURCE_MAILPIT', 'DST_NGINX_SOURCE_MAILTRAP'] as $name) {
+    foreach (['DST_CONFIG_ROOT', 'DST_BIN_ROOT', 'DST_REGISTRY', 'DST_TARGETS', 'DST_COMMON', 'DST_HEALTH_CHECK', 'DST_STATUS', 'DST_CLEANUP', 'DST_DEPLOY', 'DST_ROLLBACK', 'DST_BACKUP', 'DST_RESTORE_TEST', 'DST_OFFSITE_BACKUP', 'DST_OFFSITE_RETENTION', 'DST_OFFSITE_RESTORE_TEST', 'DST_BACKUP_CYCLE', 'DST_RESTORE_COMMON', 'DST_RECOVERY_OUTBOUND_HOLD', 'DST_FETCH_BACKUP', 'DST_VERIFY_BACKUP', 'DST_RESTORE_DATABASE', 'DST_RESTORE_STORAGE', 'DST_RESTORE_TARGET', 'DST_RECOVER_HOST', 'DST_TARGET_PREREQUISITES', 'DST_VERIFY_REQUIRED_CLIS', 'DST_NGINX_SOURCES_ROOT', 'DST_NGINX_SOURCE_STAGING', 'DST_NGINX_SOURCE_MAILPIT', 'DST_NGINX_SOURCE_MAILTRAP', 'RETIRED_NGINX_SOURCE_SHARED_PRODUCTION'] as $name) {
         // preg_match alone only proves "at least one match" — it stops at
         // the first hit, so a second, later (and possibly unsafe)
         // assignment to the same name — the one bash would actually use at
@@ -1251,8 +1252,6 @@ it('documents exactly the thirty-two files it owns, and what it does not touch, 
         ->toContain('/home/www/rateguru/bin/install-target-prerequisites')
         ->toContain('infrastructure/config/nginx/rateguru-staging')
         ->toContain('/home/www/rateguru/config/nginx/rateguru-staging')
-        ->toContain('infrastructure/config/nginx/rateguru-production')
-        ->toContain('/home/www/rateguru/config/nginx/rateguru-production')
         ->toContain('infrastructure/config/nginx/mailpit-staging')
         ->toContain('/home/www/rateguru/config/nginx/mailpit-staging')
         ->toContain('infrastructure/config/nginx/mailtrap-local-staging')
@@ -1370,7 +1369,7 @@ it('--check succeeds read-only against the real repository, with no root require
 
     expect($exit)->toBe(0, $output);
     expect($output)
-        ->toContain('all thirty-eight source files are present regular files')
+        ->toContain('all thirty-seven source files are present regular files')
         ->toContain('install-target-operations, targets, health-check, status, cleanup, deploy, rollback, backup, restore-test, offsite-backup, offsite-retention, offsite-restore-test, backup-cycle, fetch-backup, verify-backup, restore-database, restore-storage, restore-target, recover-host, install-target-prerequisites, mail-identity, mail-routing, verify-required-clis and verify-environment-contract are all executable; common, restore-common and recovery-outbound-hold are not')
         ->toContain('bash -n passed for all twenty-six source shell scripts')
         ->toContain('source registry is valid JSON')
@@ -1446,7 +1445,6 @@ function installOpsExecutableModeVars(string $scratch): array
         'SRC_ENV_TEMPLATE_STAGING' => base_path('infrastructure/templates/environment/staging.env.example'),
         'SRC_ENV_TEMPLATE_TITS_GURU' => base_path('infrastructure/templates/environment/tits-guru.env.example'),
         'SRC_NGINX_SOURCE_STAGING' => base_path('infrastructure/config/nginx/rateguru-staging'),
-        'SRC_NGINX_SOURCE_PRODUCTION' => base_path('infrastructure/config/nginx/rateguru-production'),
         'SRC_NGINX_SOURCE_MAILPIT' => base_path('infrastructure/config/nginx/mailpit-staging'),
         'SRC_NGINX_SOURCE_MAILTRAP' => base_path('infrastructure/config/nginx/mailtrap-local-staging'),
         'SRC_MAIL_IDENTITY_CONTRACT' => base_path('infrastructure/config/mail-identity.json'),
@@ -2657,7 +2655,7 @@ it('verify_backup_cycle_refusal fails when the rejection happens for the wrong r
 // the candidates, the real registry/targets/common otherwise.
 // =============================================================================
 
-it('a successful apply installs all thirty-eight files with correct ownership, mode and content, and creates a timestamped backup', function () {
+it('a successful apply installs all thirty-seven files with correct ownership, mode and content, and creates a timestamped backup', function () {
     $scratch = installOpsScratchDir();
 
     try {
@@ -2715,7 +2713,6 @@ it('a successful apply installs all thirty-eight files with correct ownership, m
             // The committed vhost sources: data the installed prerequisite
             // installer reads, never executed.
             ['DST_NGINX_SOURCE_STAGING', 'SRC_NGINX_SOURCE_STAGING', '0644'],
-            ['DST_NGINX_SOURCE_PRODUCTION', 'SRC_NGINX_SOURCE_PRODUCTION', '0644'],
             ['DST_NGINX_SOURCE_MAILPIT', 'SRC_NGINX_SOURCE_MAILPIT', '0644'],
             ['DST_NGINX_SOURCE_MAILTRAP', 'SRC_NGINX_SOURCE_MAILTRAP', '0644'],
             // The deployment protocol contract: non-secret configuration the
@@ -2738,6 +2735,7 @@ it('a successful apply installs all thirty-eight files with correct ownership, m
         expect(is_dir($vars['DST_NGINX_SOURCES_ROOT']))->toBeTrue();
         expect(is_link($vars['DST_NGINX_SOURCES_ROOT']))->toBeFalse();
         expect(substr(sprintf('%o', fileperms($vars['DST_NGINX_SOURCES_ROOT'])), -4))->toBe('0755');
+        expect(file_exists($vars['RETIRED_NGINX_SOURCE_SHARED_PRODUCTION']))->toBeFalse('the shared production vhost is no longer part of the bundle');
 
         $backups = glob($scratch.'/backups/*', GLOB_ONLYDIR);
         expect($backups)->not->toBeEmpty('apply must create a timestamped backup directory');
@@ -4099,6 +4097,176 @@ it('rolls verify-required-clis back to its exact prior state when a later apply 
         expect($exit)->not->toBe(0, $output);
         expect(file_exists($vars['DST_VERIFY_REQUIRED_CLIS']))
             ->toBeFalse('rollback must remove a helper this run created');
+    } finally {
+        installOpsCleanup($scratch);
+    }
+});
+
+// =============================================================================
+// The retired shared production vhost source
+// =============================================================================
+//
+// The bundle used to carry config/nginx/rateguru-production, a vhost for the
+// shared production-root model the target registry replaced. It is no longer
+// committed or installed; a host installed before that still has the copy, and
+// the installer is what takes it away.
+
+it('neither ships nor installs the shared production vhost source', function () {
+    expect(File::exists(base_path('infrastructure/config/nginx/rateguru-production')))->toBeFalse();
+
+    $code = executableSourceLines(installOpsSource());
+
+    // The path survives in exactly one place: the constant naming the copy to
+    // remove. Nothing stages, installs or verifies it as a bundle file.
+    expect($code)
+        ->not->toContain('infrastructure/config/nginx/rateguru-production')
+        ->not->toContain('NGINX_SOURCE_PRODUCTION')
+        ->not->toContain('nginx-rateguru-production')
+        ->toContain('RETIRED_NGINX_SOURCE_SHARED_PRODUCTION="${DST_CONFIG_ROOT}/nginx/rateguru-production"')
+        ->toContain('remove_regular_file_transactional "${RETIRED_NGINX_SOURCE_SHARED_PRODUCTION}"');
+});
+
+it('removes the shared production vhost an earlier install left behind, backing it up first', function () {
+    $scratch = installOpsScratchDir();
+
+    try {
+        $vars = installOpsBaseVars($scratch);
+        installOpsPlaceHealthyHealthCheck($vars);
+
+        $stale = $vars['RETIRED_NGINX_SOURCE_SHARED_PRODUCTION'];
+        mkdir($vars['DST_NGINX_SOURCES_ROOT'], 0o755, true);
+        file_put_contents($stale, "client_max_body_size 64m;\n");
+        chmod($stale, 0o644);
+
+        [$exit, $output] = installOpsRunHarness($scratch, $vars, 'perform_apply');
+
+        expect($exit)->toBe(0, $output);
+        expect($output)
+            ->toContain("removed {$stale}")
+            ->toContain('apply complete');
+
+        clearstatcache(true, $stale);
+        expect(file_exists($stale))->toBeFalse('the stale copy must be gone after apply');
+        expect(is_link($stale))->toBeFalse();
+
+        // The three vhost sources the bundle still ships are installed beside
+        // where it was, and nothing else is left in that directory.
+        $left = array_map('basename', glob($vars['DST_NGINX_SOURCES_ROOT'].'/*') ?: []);
+        sort($left);
+        expect($left)->toBe(['mailpit-staging', 'mailtrap-local-staging', 'rateguru-staging']);
+
+        $backups = glob($scratch.'/backups/*', GLOB_ONLYDIR) ?: [];
+        expect($backups)->toHaveCount(1);
+        expect(file_get_contents($backups[0].$stale))->toBe("client_max_body_size 64m;\n");
+    } finally {
+        installOpsCleanup($scratch);
+    }
+});
+
+it('puts the shared production vhost back when a later apply step fails', function () {
+    // deployment.conf is installed after the vhost sources, so a symlink
+    // planted there fails the apply after the stale copy has already been
+    // removed — the real transactional path, not a simulated one.
+    $scratch = installOpsScratchDir();
+
+    try {
+        $vars = installOpsBaseVars($scratch);
+        installOpsPlaceHealthyHealthCheck($vars);
+
+        $stale = $vars['RETIRED_NGINX_SOURCE_SHARED_PRODUCTION'];
+        mkdir($vars['DST_NGINX_SOURCES_ROOT'], 0o755, true);
+        file_put_contents($stale, "PREVIOUSLY INSTALLED VHOST\n");
+        chmod($stale, 0o644);
+
+        symlink($scratch.'/elsewhere.conf', $vars['DST_DEPLOYMENT_CONF']);
+
+        [$exit, $output] = installOpsRunHarness($scratch, $vars, 'perform_apply');
+
+        expect($exit)->not->toBe(0, $output);
+        expect($output)
+            ->toContain("removed {$stale}")
+            ->toContain('refusing to install over an existing symlink')
+            ->toContain('rollback complete');
+
+        clearstatcache(true, $stale);
+        expect(file_get_contents($stale))->toBe("PREVIOUSLY INSTALLED VHOST\n", 'rollback must restore the exact previous copy');
+        expect(substr(sprintf('%o', fileperms($stale)), -4))->toBe('0644');
+    } finally {
+        installOpsCleanup($scratch);
+    }
+});
+
+it('refuses to remove a shared production vhost path that is not a regular file, leaving it untouched', function () {
+    $scratch = installOpsScratchDir();
+
+    try {
+        // A symlink is never followed or unlinked: whatever it points at stays.
+        $protected = $scratch.'/protected';
+        file_put_contents($protected, "must survive\n");
+        $link = $scratch.'/link';
+        symlink($protected, $link);
+
+        [$exit, $output] = installOpsRunCoreHarness($scratch, <<<BASH
+            BACKUP_DIR="{$scratch}/backups/run1"
+            install -d -m 0700 "\${BACKUP_DIR}"
+            remove_regular_file_transactional {$link}
+            BASH);
+
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain("refusing to remove an existing symlink: {$link}");
+        expect(is_link($link))->toBeTrue('the symlink itself must be left in place');
+        expect(file_get_contents($protected))->toBe("must survive\n");
+        expect(file_exists("{$scratch}/backups/run1{$link}"))->toBeFalse('a refused path must never be backed up');
+
+        // Nor is a directory entered or emptied.
+        $directory = $scratch.'/dir';
+        mkdir($directory.'/inside', 0o755, true);
+        file_put_contents($directory.'/inside/marker', "must survive\n");
+
+        [$exit, $output] = installOpsRunCoreHarness($scratch, <<<BASH
+            BACKUP_DIR="{$scratch}/backups/run1"
+            install -d -m 0700 "\${BACKUP_DIR}"
+            remove_regular_file_transactional {$directory}
+            BASH);
+
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain("refusing to remove an existing non-regular-file path: {$directory}");
+        expect(file_get_contents($directory.'/inside/marker'))->toBe("must survive\n");
+        expect(file_exists("{$scratch}/backups/run1{$directory}"))->toBeFalse('a refused path must never be backed up');
+
+        // And an absent path is already the wanted state: nothing recorded,
+        // nothing for a rollback to recreate.
+        [$exit, $output] = installOpsRunCoreHarness($scratch, <<<BASH
+            BACKUP_DIR="{$scratch}/backups/run1"
+            install -d -m 0700 "\${BACKUP_DIR}"
+            remove_regular_file_transactional {$scratch}/absent
+            printf 'RECORDED:%d\\n' "\$(( \${#ROLLBACK_RESTORE[@]} + \${#ROLLBACK_REMOVE[@]} ))"
+            BASH);
+
+        expect($exit)->toBe(0, $output);
+        expect($output)->toContain('RECORDED:0');
+    } finally {
+        installOpsCleanup($scratch);
+    }
+});
+
+it('--verify fails while the shared production vhost is still installed, so the bootstrap does not skip the apply that removes it', function () {
+    $scratch = installOpsScratchDir();
+
+    try {
+        $vars = installOpsApplied($scratch);
+
+        [$exit, $output] = installOpsRunHarness($scratch, $vars, 'verify_installed_files');
+        expect($exit)->toBe(0, $output);
+
+        $stale = $vars['RETIRED_NGINX_SOURCE_SHARED_PRODUCTION'];
+        file_put_contents($stale, "client_max_body_size 64m;\n");
+        chmod($stale, 0o644);
+
+        [$exit, $output] = installOpsRunHarness($scratch, $vars, 'verify_installed_files');
+
+        expect($exit)->not->toBe(0, 'a host still carrying the stale copy must not verify');
+        expect($output)->toContain("the retired shared production vhost source is still installed: {$stale}");
     } finally {
         installOpsCleanup($scratch);
     }
