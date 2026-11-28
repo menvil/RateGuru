@@ -146,7 +146,9 @@ it('keys each player by its post and file, so a drawer showing another post gets
 it('lets Project settings have a feed\'s videos start by themselves, never the browser\'s controls', function () {
     $post = fullVideoPost();
 
-    expect($this->get(route('feed'))->getContent())->toContain('autoplay: false');
+    // By default the feed's card waits for its play button too.
+    expect($this->get(route('feed'))->getContent())->toContain('controls: false, autoplay: false')
+        ->not->toContain('controls: false, autoplay: true');
 
     ProjectSettings::factory()->create(['feature_flags' => ['autoplay_feed_videos' => true]]);
     app(ProjectSettingsManager::class)->flush();

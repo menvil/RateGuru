@@ -69,6 +69,10 @@ document.addEventListener('alpine:init', () => {
 
             this.player = new IntersectionObserver(([entry]) => {
                 if (starts && entry.isIntersecting && entry.intersectionRatio >= 0.6) {
+                    // A start of its own is a silent one: a video the visitor
+                    // gave sound, then scrolled away from, comes back muted. One
+                    // still playing with its sound keeps it.
+                    if (video.paused) video.muted = true;
                     this.load();
                     video.play().catch(() => {});
                 } else if (!entry.isIntersecting && !video.paused) {
@@ -91,7 +95,9 @@ document.addEventListener('alpine:init', () => {
             const video = this.$refs.video;
 
             if (poster && !video.getAttribute('poster')) video.poster = poster;
-            // Ready to play: the browser's controls start it, or it starts by itself.
+            // Ready to play: the browser's controls start it, or it starts by
+            // itself — and then it is buffered ahead, not merely named.
+            if (autoplay) video.preload = 'auto';
             if (controls || autoplay) this.load();
         },
 
