@@ -52,6 +52,7 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
  * @property string $country_group
  * @property int $worth_percent
  * @property int $bot_flags
+ * @property int|null $asn
  * @property bool $blocked_hit
  * @property CarbonImmutable $arrived_at
  * @property string $network_day
@@ -146,6 +147,7 @@ class TrafficVisit extends Model
             'price_set_id' => 'integer',
             'worth_percent' => 'integer',
             'bot_flags' => 'integer',
+            'asn' => 'integer',
             'blocked_hit' => 'boolean',
             'arrived_at' => 'immutable_datetime',
             'holds_until' => 'immutable_datetime',

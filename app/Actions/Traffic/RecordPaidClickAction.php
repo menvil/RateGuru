@@ -150,6 +150,7 @@ final class RecordPaidClickAction
             'country_group' => $group['key'],
             'worth_percent' => $group['percent'],
             'bot_flags' => $flags,
+            'asn' => $signals->network->asn,
             'arrived_at' => $now,
             'network_day' => $now->setTimezone($source->reporting_timezone)->format('Y-m-d'),
             'holds_until' => $now->addDays($source->attribution_days),
@@ -241,6 +242,7 @@ final class RecordPaidClickAction
             'country_group' => $attributes['country_group'],
             'worth_percent' => $attributes['worth_percent'],
             'bot_flags' => $attributes['bot_flags'],
+            'asn' => $attributes['asn'],
             'last_seen_at' => $now,
             // Priced again for the device that took it, as it came; a spend taken from a day's figures stays.
             ...($visit->spend_basis->isAllocated() ? [] : $this->clickSpend(

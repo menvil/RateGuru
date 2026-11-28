@@ -3,6 +3,7 @@
 namespace App\Services\Traffic;
 
 use App\Support\Geo\GeoLookup;
+use App\Support\Geo\NetworkLookup;
 use App\Support\Privacy\IpAddressHash;
 use App\Support\Traffic\Capture\BotSignals;
 use App\Support\Traffic\Capture\ChannelClassifier;
@@ -13,13 +14,14 @@ use Illuminate\Http\Request;
 /**
  * Reads VisitorSignals off the current request. Bound to the request, like
  * the visitor resolver: the pure classifiers it calls do the deciding. The
- * address is looked up in the local IP database once, and kept only as an
- * HMAC under the application key — the same keyed hash the site's other
+ * address is looked up in the local IP database once, and in the networks'
+ * database — a hosting, cloud or VPN network flags the visit — and kept only
+ * as an HMAC under the application key, the same keyed hash the site's other
  * abuse records use.
  */
 final readonly class RequestSignals
 {
-    public function __construct(private Request $request, private GeoLookup $geo) {}
+    public function __construct(private Request $request, private GeoLookup $geo, private NetworkLookup $networks) {}
 
     public function read(): VisitorSignals
     {
@@ -32,10 +34,11 @@ final readonly class RequestSignals
 
         $ip = $this->request->ip();
         $referrer = $this->request->headers->get('referer');
+        $network = $this->networks->lookup($ip);
 
         return new VisitorSignals(
             device: DeviceClassifier::classify($agent, $this->request->headers->get('sec-ch-ua-mobile'), $this->request->headers->get('sec-ch-ua-platform')),
-            botFlags: BotSignals::of($agent, $headers),
+            botFlags: BotSignals::of($agent, $headers) | ($network->isHosting() ? BotSignals::DATACENTER : 0),
             location: $this->geo->lookup($ip),
             ipHash: $ip === null ? null : IpAddressHash::of($ip, (string) config('app.key')),
             os: self::os($agent),
@@ -45,6 +48,7 @@ final readonly class RequestSignals
             // A host is at most 253 characters, but a bot can send anything: kept to what the column holds.
             referrerHost: is_string($referrer) && ($host = ChannelClassifier::host($referrer)) !== null ? mb_substr($host, 0, 190) : null,
             path: mb_substr('/'.ltrim($this->request->path(), '/'), 0, 255),
+            network: $network,
         );
     }
 

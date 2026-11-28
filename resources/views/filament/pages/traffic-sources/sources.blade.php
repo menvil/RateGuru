@@ -115,6 +115,15 @@
             {{ $geo['credit']['text'] }}
         @endif
     </p>
+    <p class="rg-admin-traffic__note" data-testid="traffic-tracking-networks">
+        {{ 'Networks: '.implode(' · ', array_filter([
+            isset($ipNetworks['installed']['version']) ? 'DB-IP ASN Lite, build '.$ipNetworks['installed']['version'] : 'DB-IP ASN Lite, none yet',
+            $ipNetworks['error'] !== null ? 'last error: '.$ipNetworks['error'] : null,
+            $ipNetworks['hosting'] === null ? 'no hosting list yet' : number_format($ipNetworks['hosting']).' hosting and VPN networks',
+            $ipNetworks['relay'] === null ? 'no Private Relay list yet' : number_format($ipNetworks['relay']).' Private Relay ranges',
+        ])).'. A visit from a hosting or VPN network is flagged, never refused.' }}
+        <a href="{{ $ipNetworks['credit']['url'] }}" target="_blank" rel="noopener">{{ $ipNetworks['credit']['text'] }}</a>
+    </p>
     <div class="rg-admin-traffic__row">
         <x-admin.ui.button size="sm" icon="refresh-cw" wire:click="refreshGeo">Update now</x-admin.ui.button>
         <x-admin.ui.button variant="primary" wire:click="saveSettings">Save tracking</x-admin.ui.button>

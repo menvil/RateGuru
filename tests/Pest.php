@@ -134,6 +134,8 @@ use App\Support\Games\Flow\GameFlowValidator;
 use App\Support\Games\Results\ResultProfileCoverage;
 use App\Support\Games\Traffic\TrafficScope;
 use App\Support\Geo\GeoDatabaseLocator;
+use App\Support\Geo\Networks\AddressRanges;
+use App\Support\Geo\Networks\HostingAsnList;
 use App\Support\Import\Dns\HostResolver;
 use App\Support\Import\ImportFetchPolicy;
 use App\Support\Import\ImportHttpTransport;
@@ -15541,6 +15543,26 @@ function installGeoDatabase(string $edition = 'geolite2_city', string $fixture =
     copy(base_path('tests/Fixtures/geo/'.$fixture), $path = $root.'/'.$edition.'/current.mmdb');
 
     return $path;
+}
+
+/**
+ * Puts the network lists in service beside the networks' database: the
+ * hosting and VPN networks by ASN, and iCloud Private Relay's addresses as
+ * CIDR ranges — written as the update writes them (HostingAsnList,
+ * AddressRanges). MaxMind's ASN test database, installed with
+ * installGeoDatabase('dbip_asn_lite', 'GeoLite2-ASN-Test.mmdb'), names among
+ * others 1.128.0.0/11 AS1221 (Telstra), 12.81.92.0/22 AS7018 (AT&T) and
+ * 2600:6000::/20 AS237.
+ *
+ * @param  list<int>  $hostingAsns
+ * @param  list<string>  $relayRanges
+ */
+function installNetworkLists(array $hostingAsns = [], array $relayRanges = []): void
+{
+    $root = test()->geoDirectory ?? geoDirectory();
+    File::ensureDirectoryExists($root.'/networks');
+    file_put_contents($root.'/networks/hosting.list', HostingAsnList::encode($hostingAsns));
+    file_put_contents($root.'/networks/relay.list', AddressRanges::encode(AddressRanges::parse(implode("\n", $relayRanges))));
 }
 
 /**

@@ -85,3 +85,25 @@ it('credits DB-IP with a link to it while its edition stands in', function () {
         ->assertSeeHtml('<a href="https://db-ip.com" target="_blank" rel="noopener">IP Geolocation by DB-IP</a>')
         ->assertDontSee('GeoLite Data created by MaxMind');
 });
+
+it('names the networks’ database and lists on Tracking with DB-IP’s credit, whichever city database serves', function () {
+    trafficSourcesTracking()
+        ->assertSee('Networks: DB-IP ASN Lite, none yet · no hosting list yet · no Private Relay list yet.')
+        ->assertSeeHtml('<a href="https://db-ip.com" target="_blank" rel="noopener">IP to ASN data by DB-IP</a>');
+
+    installGeoDatabase('geolite2_city');
+    installGeoDatabase('dbip_asn_lite', 'GeoLite2-ASN-Test.mmdb');
+    app(GeoStateStore::class)->write(GeoEdition::DbipAsnLite, ['installed' => ['source' => 'dbip', 'version' => '2026-11:asn-1'], 'last_error' => null]);
+    installNetworkLists([3223, 9009, 45090], ['172.224.226.0/27']);
+    foreach (['hosting' => 3, 'relay' => 1] as $list => $entries) {
+        file_put_contents($this->geoDirectory.'/networks/'.$list.'.json', json_encode(['installed' => ['entries' => $entries]]));
+    }
+
+    expect(app(GeoAttribution::class)->networks())->toMatchArray(['hosting' => 3, 'relay' => 1, 'error' => null])
+        ->and(app(GeoAttribution::class)->networks()['installed'])->toBe(['source' => 'dbip', 'version' => '2026-11:asn-1']);
+
+    trafficSourcesTracking()
+        ->assertSee('Networks: DB-IP ASN Lite, build 2026-11:asn-1 · 3 hosting and VPN networks · 1 Private Relay ranges.')
+        ->assertSee(GeoAttribution::MAXMIND_CREDIT)
+        ->assertSee('IP to ASN data by DB-IP');
+});

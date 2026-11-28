@@ -41,6 +41,7 @@ final readonly class ReportFigures
         public int $headless = 0,
         public int $noBrowserHeaders = 0,
         public int $bursts = 0,
+        public int $datacenters = 0,
         public int $addressed = 0,
         public int $repeatAddresses = 0,
     ) {}
@@ -72,6 +73,7 @@ final readonly class ReportFigures
             (int) ($row['headless'] ?? 0),
             (int) ($row['no_browser_headers'] ?? 0),
             (int) ($row['bursts'] ?? 0),
+            datacenters: (int) ($row['datacenters'] ?? 0),
         );
     }
 
@@ -101,6 +103,7 @@ final readonly class ReportFigures
             headless: $this->headless + $other->headless,
             noBrowserHeaders: $this->noBrowserHeaders + $other->noBrowserHeaders,
             bursts: $this->bursts + $other->bursts,
+            datacenters: $this->datacenters + $other->datacenters,
             addressed: $this->addressed + $other->addressed,
             repeatAddresses: $this->repeatAddresses + $other->repeatAddresses,
         );
@@ -148,6 +151,7 @@ final readonly class ReportFigures
             BotSignals::WORDS[BotSignals::HEADLESS] => $this->headless,
             BotSignals::WORDS[BotSignals::NO_BROWSER_HEADERS] => $this->noBrowserHeaders,
             BotSignals::WORDS[BotSignals::BURST] => $this->bursts,
+            BotSignals::WORDS[BotSignals::DATACENTER] => $this->datacenters,
         ]);
         arsort($counts);
 

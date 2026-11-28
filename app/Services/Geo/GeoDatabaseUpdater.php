@@ -314,8 +314,8 @@ final class GeoDatabaseUpdater
                 $spec,
                 is_int($installed['build_epoch'] ?? null) ? $installed['build_epoch'] : null,
                 $now,
-                array_map('strval', (array) config('geo.probes')),
-                (int) config('geo.probes_required'),
+                $spec->probes ?? array_map('strval', (array) config('geo.probes')),
+                $spec->probesRequired ?? (int) config('geo.probes_required'),
             );
         } catch (GeoUpdateException $exception) {
             throw GeoUpdateException::because($exception->failure, $release->source);

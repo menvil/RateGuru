@@ -5,8 +5,9 @@ namespace App\Support\Traffic\Capture;
 /**
  * Cheap signs that a hit is not a person, as bits of a visit's bot_flags:
  * a crawler or link-preview User-Agent, a prefetch or prerender, a headless
- * browser, a request without the headers every browser sends, and a burst
- * from one address (set by the click recorder). Flags mark a visit; only the
+ * browser, a request without the headers every browser sends, a burst
+ * from one address (set by the click recorder), and an address on a hosting,
+ * cloud or VPN provider's network (set from the networks' database). Flags mark a visit; only the
  * crawler bit keeps an unpaid visit from being recorded at all.
  */
 final class BotSignals
@@ -21,6 +22,9 @@ final class BotSignals
 
     public const int BURST = 16;
 
+    /** Set from the address's network, not the request: a hosting, cloud or VPN provider's (RequestSignals). */
+    public const int DATACENTER = 32;
+
     /** @var array<int, string> each flag as the admin names it, in the order it is listed */
     public const array WORDS = [
         self::CRAWLER => 'Crawler or link preview',
@@ -28,6 +32,7 @@ final class BotSignals
         self::HEADLESS => 'Headless browser',
         self::NO_BROWSER_HEADERS => 'No browser headers',
         self::BURST => 'Burst from one address',
+        self::DATACENTER => 'Datacenter or VPN network',
     ];
 
     // "bot" as a word or the end of a crawler's name (Googlebot, bingbot/2.0) — not inside a phone's brand such as CUBOT.

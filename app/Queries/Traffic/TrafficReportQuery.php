@@ -640,6 +640,7 @@ final class TrafficReportQuery implements RawSqlPersistenceBoundary
             'headless' => BotSignals::HEADLESS,
             'no_browser_headers' => BotSignals::NO_BROWSER_HEADERS,
             'bursts' => BotSignals::BURST,
+            'datacenters' => BotSignals::DATACENTER,
         ];
 
         return [implode(', ', [

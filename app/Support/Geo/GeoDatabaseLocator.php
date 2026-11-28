@@ -9,7 +9,9 @@ use App\Enums\GeoEdition;
  * database (current.mmdb), the one it replaced (previous.mmdb), the update
  * state (state.json), the update lock and any half-written download. The
  * edition directories are made once, by the first update; afterwards only the
- * files inside them change.
+ * files inside them change. storage/geoip/networks/ holds the network lists
+ * the same way: each list (<name>.list), its state (<name>.json), its lock and
+ * any half-written download.
  */
 final readonly class GeoDatabaseLocator
 {
@@ -48,6 +50,31 @@ final readonly class GeoDatabaseLocator
     public function part(GeoEdition $edition, string $name): string
     {
         return $this->editionDirectory($edition).'/'.$name.'.part';
+    }
+
+    public function networksDirectory(): string
+    {
+        return $this->root().'/networks';
+    }
+
+    public function networkList(string $name): string
+    {
+        return $this->networksDirectory().'/'.$name.'.list';
+    }
+
+    public function networkState(string $name): string
+    {
+        return $this->networksDirectory().'/'.$name.'.json';
+    }
+
+    public function networkLock(string $name): string
+    {
+        return $this->networksDirectory().'/'.$name.'.lock';
+    }
+
+    public function networkPart(string $name, string $part): string
+    {
+        return $this->networksDirectory().'/'.$name.'.'.$part.'.part';
     }
 
     /**

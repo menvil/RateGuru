@@ -11,6 +11,7 @@ outside lookup service, and a visitor's page never waits on one.
 | --- | --- | --- | --- |
 | `geolite2_city` (default) | MaxMind GeoLite2 City, [GeoLite2 EULA](https://www.maxmind.com/en/geolite2/eula) (data under CC BY-SA 4.0) | Tuesdays and Fridays, republished on npm by the WP Statistics team (`geolite2-city`) | npm registry, jsDelivr |
 | `dbip_city_lite` | DB-IP City Lite, CC BY 4.0 | the 1st of every month | download.db-ip.com, then the npm package `dbip-city-lite` |
+| `dbip_asn_lite` | DB-IP ASN Lite, CC BY 4.0 | the 1st of every month | download.db-ip.com only (no mirror keeps it current) |
 
 The administrator picks the edition on Traffic sources → Sources (Tracking).
 The other one stands in, by itself, while the chosen one has no database file
@@ -22,12 +23,55 @@ the edition's next check finds that it no longer matches the size and SHA-256
 recorded when it was installed, and installs it again. Once the chosen one
 serves again, the other one's files are deleted.
 
+`dbip_asn_lite` places no one: it names the network an address belongs to —
+its autonomous system number and the organisation holding it — in
+GeoLite2-ASN's layout (`DBIP-ASN-Lite (compat=GeoLite2-ASN)`). It serves
+beside whichever city database places the visitor, stands in for nothing and
+can't be chosen to place visitors (`GeoEdition::cities()`;
+`TrafficSetting::cityEdition()` reads any stored value naming it as the
+default). It is held to probes of its own — four well-known addresses and the
+ASNs they belong to (Google, Cloudflare, Quad9) — instead of countries.
+
+## Network lists
+
+Two lists sort the networks the ASN database names, kept under
+`storage/geoip/networks/` by `NetworkListUpdater` in the same run, each on
+its own schedule (`config('geo.network_lists')`):
+
+| List | What | Source | Checked |
+| --- | --- | --- | --- |
+| `hosting` | hosting, cloud and VPN networks by ASN: no person's own connection | X4BNet's curated `input/datacenter/ASN.txt` and `input/vpn/ASN.txt` (MIT), joined | daily |
+| `relay` | the addresses iCloud Private Relay sends people's traffic from | Apple's `egress-ip-ranges.csv` | weekly |
+
+A fetched list is read and must hold at least `min_entries` (500 networks,
+100 merged ranges) before it is written beside the one in service and
+renamed over it; a fetch that fails, a list too short or unreadable, or one
+past its size cap leaves the one in service as it was, waits as a database
+does (15 minutes, an hour, …) and is logged as an error from the third
+failure in a row. `hosting.list` is one ASN a line (`HostingAsnList`);
+`relay.list` holds the ranges merged and sorted, 32 bytes each — the first
+and last address, IPv4 mapped into IPv6 — so a lookup finds an address with
+a binary search of some twenty 32-byte reads (`AddressRanges`), never loading
+the 12 MB list Apple publishes.
+
+`NetworkLookup::lookup($ip)` (`MmdbNetworkLookup`, bound scoped) answers a
+`NetworkInfo`: the ASN and organisation, and its kind (`NetworkKind`) —
+`relay` when Private Relay's ranges hold the address, whatever network
+carries it (Akamai, Cloudflare and Fastly are on the hosting list); else
+`hosting` when the hosting list names its ASN; else `other`; `unknown` with no
+networks' database, for an address that is not public, or for a file that
+breaks — never an exception. The tracker keeps the ASN on the visit
+(`traffic_visits.asn`) and flags a hosting one (`BotSignals::DATACENTER`); it
+never refuses a visit for it, and keeps no address.
+
 Attribution, shown wherever the data is shown in the admin: “This product
 includes GeoLite Data created by MaxMind, available from
 https://www.maxmind.com.” for GeoLite2, and a link “IP Geolocation by DB-IP” to
 https://db-ip.com for DB-IP. `App\Services\Geo\GeoAttribution` gives every
 screen the edition serving, its last update and the credit of that edition,
-so the wording has one home.
+so the wording has one home. The networks' database asks for DB-IP's credit
+whichever city database serves: Tracking names it beside the networks line
+("IP to ASN data by DB-IP", `GeoAttribution::networks()`).
 
 ## Files
 
@@ -39,12 +83,16 @@ again.
 
 ```
 storage/geoip/
-  geolite2_city/     dbip_city_lite/        made once, by the first update
+  geolite2_city/  dbip_city_lite/  dbip_asn_lite/   made once, by the first update
     current.mmdb     the database that serves
     previous.mmdb    the one the last update replaced, kept 7 days for a rollback
     state.json       what is installed, when it was checked, the last error
     update.lock      keeps two runs apart
     *.part           a download or unpacking in progress
+  networks/          made once, by the first update
+    hosting.list     relay.list     the lists in service
+    hosting.json     relay.json     their state
+    *.lock  *.part   a run's lock, a download in progress
 ```
 
 The host's repair compares the owner and mode of everything up to two levels
@@ -124,4 +172,6 @@ Tests never see a developer's database (`tests/TestCase.php` points
 `geo.directory` at a path that does not exist) and never go to the network.
 `tests/Fixtures/geo/` holds two of MaxMind's own test databases from
 https://github.com/maxmind/MaxMind-DB/tree/main/test-data (Apache-2.0 or MIT):
-`GeoLite2-City-Test.mmdb`, and a deliberately broken one.
+`GeoLite2-City-Test.mmdb`, `GeoLite2-ASN-Test.mmdb` (for the networks'
+database), and a deliberately broken one. `installNetworkLists()` in
+`tests/Pest.php` writes the network lists as the update writes them.
