@@ -1,0 +1,27 @@
+tests/Feature/Import/OpenGraphImportAdapterTest.php
+  s_1f43f39fbe0537::t_fcd38dad61d370 179
+  s_1f43f39fbe0537::t_987ef99e1e9ac9 175-178,180-197
+app/Support/Import/Adapters/OpenGraphImportAdapter.php
+  s_1f43f39fbe0537::t_987ef99e1e9ac9 31,75,77-78,82,85-91
+app/Support/Import/YtDlp.php
+  s_1f43f39fbe0537::t_987ef99e1e9ac9 61-63
+tests/Feature/Import/YtDlpImportTest.php
+  s_1f43f39fbe0537::t_987ef99e1e9ac9 693-698,700,702,720-723
+  ai_agent 678,680,699
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "38ff7454e525eab9fb84eedf9b3e7af2036a5cdd",
+  "prompts": {},
+  "sessions": {
+    "s_1f43f39fbe0537": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "526787d0-f443-4ad7-9610-cf9811fec895",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
