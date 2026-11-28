@@ -129,7 +129,7 @@
     {{-- A try that failed may be made again with the same address. --}}
     x-on:rg-studio-import-failed.window="imported[$event.detail.source] = ''"
 >
-    <x-admin.ui.card flush title="Photo for the publication" description="Upload a file, paste an image link or import from a social post. The upload rules and checks every post's image goes through apply.">
+    <x-admin.ui.card flush title="Photo for the publication" description="Drop a file, or paste a link to an image or a post. The upload rules and checks every post's image goes through apply.">
         @if ($hasPhoto)
             <x-slot:aside>
                 <x-admin.ui.badge tone="success" :dot="true">{{ $replacedPhoto !== null ? 'Replaced' : 'Saved' }}</x-admin.ui.badge>
