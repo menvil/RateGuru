@@ -419,3 +419,12 @@ it('opens a setting or a static page from Translation Center on its tab', functi
         ->and(TranslationSourceEditor::url($units->firstWhere('id', 'project_settings:feed_title')))->toBe(ProjectSettingsPage::getUrl(['tab' => 'labels']))
         ->and(TranslationSourceEditor::url($units->firstWhere('id', 'static_pages:terms:title')))->toBe(ProjectSettingsPage::getUrl(['tab' => 'pages', 'page' => 'terms']));
 });
+
+it('names every flag it shows, never by its translation key', function () {
+    $this->actingAs(User::factory()->admin()->create());
+
+    $unnamed = array_values(array_filter(array_keys(ProjectSettingsPage::FLAGS), fn (string $flag): bool => __("admin.fields.{$flag}") === "admin.fields.{$flag}"));
+
+    expect($unnamed)->toBe([]);
+    Livewire::test(ProjectSettingsPage::class)->assertDontSeeHtml('admin.fields.');
+});
