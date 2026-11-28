@@ -5,8 +5,9 @@
     found by its ID, network or campaign, leaving out those under so many
     clicks but for Low reach; split into the block rule's segments with their counts; what the
     list says at a glance; the impressions its network billed for it and the
-    share that reached RateGuru, where the network reports it; sorted by any
-    column and paged; ticked across pages to block, unblock or copy the IDs
+    share that reached RateGuru, where the network reports it; how many of its
+    visits looked automated and how many came from an address it sent
+    another from; sorted by any column and paged; ticked across pages to block, unblock or copy the IDs
     of.
 --}}
 @php
@@ -23,6 +24,11 @@
         'impressions' => 'Paid impr.', 'reach' => 'Reached',
         'visits' => 'Visits', 'opened' => 'Opened', 'started' => 'Started', 'finished' => 'Finished', 'accounts' => 'Accounts', 'spend' => 'Spend',
         'value' => 'Value', 'profit' => 'Profit', 'roi' => 'ROI', 'cpv' => 'Cost / visit', 'vpv' => 'Value / visit', 'cpa' => 'Cost / account',
+        'flagged' => 'Flagged', 'repeat' => 'Repeat address',
+    ];
+    $sortTips = [
+        'flagged' => 'Visits with any sign of not being a person: a crawler or link preview, a prefetch, a headless browser, no browser headers, or a burst from one address. Point at a row\'s share for which.',
+        'repeat' => 'Visits from an address this place sent another visit from too, of those whose address is still on record (90 days). Mobile networks share addresses, so compare places of one source and device.',
     ];
     $pageTicked = $list['selectable'] !== [] && array_diff($list['selectable'], $selected) === [];
     // Looked up by key on every row: Select all may have ticked tens of thousands.
@@ -106,7 +112,7 @@
                 </span>
                 @foreach ($sorts as $key => $heading)
                     <span role="columnheader" aria-sort="{{ $sort === $key ? ($dir === 'asc' ? 'ascending' : 'descending') : 'none' }}">
-                        <button type="button" @class(['rg-admin-traffic__sort', 'rg-admin-traffic__sort--on' => $sort === $key]) wire:click="sortBy('{{ $key }}')">{{ $heading }}@if ($sort === $key) {{ $dir === 'asc' ? '↑' : '↓' }}@endif</button>
+                        <button type="button" @class(['rg-admin-traffic__sort', 'rg-admin-traffic__sort--on' => $sort === $key]) @isset($sortTips[$key]) title="{{ $sortTips[$key] }}" @endisset wire:click="sortBy('{{ $key }}')">{{ $heading }}@if ($sort === $key) {{ $dir === 'asc' ? '↑' : '↓' }}@endif</button>
                     </span>
                 @endforeach
             </div>
@@ -125,12 +131,14 @@
                     </span>
                     @include('filament.pages.traffic-sources.reach-cells', ['r' => $row['reach']])
                     @include('filament.pages.traffic-sources.figure-cells', ['f' => $row['figures']])
+                    @include('filament.pages.traffic-sources.quality-cells', ['f' => $row['figures']])
                 </div>
             @endforeach
             <div class="rg-admin-traffic__perf-row rg-admin-traffic__perf-row--total" role="row">
                 <span class="rg-admin-traffic__perf-name" role="gridcell"><span class="rg-admin-traffic__perf-label"><span class="rg-admin-traffic__perf-title">Total · {{ number_format(count($list['matching'])) }} {{ $noun }}</span><span class="rg-admin-traffic__note">{{ $segment === 'all' ? 'Every page' : 'Every page of '.strtolower($segments[$segment][0]) }}</span></span></span>
                 @include('filament.pages.traffic-sources.reach-cells', ['r' => $list['reach']])
                 @include('filament.pages.traffic-sources.figure-cells', ['f' => $list['total']])
+                @include('filament.pages.traffic-sources.quality-cells', ['f' => $list['total']])
             </div>
         </div>
     </div>

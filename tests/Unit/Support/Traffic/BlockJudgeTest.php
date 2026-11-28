@@ -12,8 +12,9 @@ use Carbon\CarbonImmutable;
  * rule's floor, whatever the average; losing only so many
  * days after the site's first click, and — where its campaign or its source
  * has a target price of an account — only once it has spent so many times
- * that target, else the rule's spend or clicks; a weak start before the
- * money is judged. Bots and a weak start wait for neither.
+ * that target, else the rule's spend or clicks; a weak start whenever the
+ * money doesn't judge — too little spent, or the worth not measured, however
+ * much it cost. Bots and a weak start wait for neither.
  */
 const JUDGED_AT = '2026-11-18 12:00:00';
 
@@ -39,7 +40,11 @@ it('judges a site at the edges of each rule, with no source average, target or f
     'not bots: 15 of 30 opened' => [['visits' => 30, 'opened' => 15], null, false, null, 'early'],
     'not bots yet: 29 clicks' => [['visits' => 29, 'opened' => 0], null, false, null, 'early'],
     'losing: −50 %' => [['visits' => 100, 'opened' => 90, 'spend' => '2', 'valueReal' => '1'], 0.5, true, TrafficBlockVerdict::Losing, 'losing'],
-    'not judged before accounts are measured' => [['visits' => 100, 'opened' => 90, 'spend' => '2', 'valueReal' => '0'], 0.5, false, null, 'early'],
+    'not judged before accounts are measured' => [['visits' => 100, 'opened' => 90, 'started' => 45, 'spend' => '2', 'valueReal' => '0'], 0.5, false, null, 'early'],
+    // Accounts are rare on pop traffic: the worth may stay unmeasured long after a site has cost far more than its gate.
+    'past the money’s gate, the worth not measured: a weak start' => [['visits' => 600, 'opened' => 300, 'started' => 3, 'spend' => '6'], 0.04, false, TrafficBlockVerdict::WeakStart, 'weak_start'],
+    'past the money’s gate, the worth not measured, a fair start: too early' => [['visits' => 600, 'opened' => 300, 'started' => 9, 'spend' => '6'], 0.04, false, null, 'early'],
+    'past the money’s gate, the worth measured: the money judges, not the start' => [['visits' => 600, 'opened' => 300, 'started' => 3, 'spend' => '6', 'valueReal' => '7'], 0.04, true, null, 'profit'],
     'watch: −20 %' => [['visits' => 100, 'opened' => 90, 'spend' => '2', 'valueReal' => '1.6'], 0.5, true, null, 'watch'],
     'profit' => [['visits' => 200, 'opened' => 190, 'spend' => '1', 'valueReal' => '1.2'], 0.5, true, null, 'profit'],
     'weak start' => [['visits' => 60, 'opened' => 50, 'started' => 14, 'spend' => '0.5'], 0.5, false, TrafficBlockVerdict::WeakStart, 'weak_start'],
@@ -145,8 +150,9 @@ it('waits for so many times the target price of an account where there is one, e
     'target $2, $4 spent at −60%: losing' => [['visits' => 400, 'opened' => 380, 'spend' => '4', 'valueReal' => '1.6'], '2', [], null, TrafficBlockVerdict::Losing, 'losing'],
     'no target, $2 spent at −50%: losing by the rule’s spend' => [['visits' => 100, 'opened' => 90, 'spend' => '2', 'valueReal' => '1'], null, [], null, TrafficBlockVerdict::Losing, 'losing'],
     'a target of nothing counts as none' => [['visits' => 100, 'opened' => 90, 'spend' => '2', 'valueReal' => '1'], '0', [], null, TrafficBlockVerdict::Losing, 'losing'],
-    // A weak start shows below the rule's spend and clicks, the target reached or not.
+    // A weak start shows while the money doesn't judge: below the rule's spend and clicks, or short of the target past them.
     'target not reached, a weak start' => [['visits' => 60, 'opened' => 50, 'started' => 14, 'spend' => '0.5'], '0.60', [], 0.5, TrafficBlockVerdict::WeakStart, 'weak_start'],
+    'target $2, past the rule’s spend but short of $4: a weak start' => [['visits' => 300, 'opened' => 280, 'started' => 20, 'spend' => '3', 'valueReal' => '0.5'], '2', [], 0.5, TrafficBlockVerdict::WeakStart, 'weak_start'],
 ]);
 
 it('takes a site’s target price of an account from its campaign, else its source', function () {

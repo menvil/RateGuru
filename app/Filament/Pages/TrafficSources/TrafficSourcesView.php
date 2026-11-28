@@ -826,7 +826,7 @@ final class TrafficSourcesView
             return ['verdict' => null, 'state' => 'low_reach', 'tip' => $explain ? $hint['tip'] : null, 'from' => $from];
         }
 
-        return [...$judged, 'tip' => $explain ? $this->verdictTip($judged['state'], $figures, $rule, $openRate, $target, $firstAt, $from) : null, 'from' => $from];
+        return [...$judged, 'tip' => $explain ? $this->verdictTip($judged['state'], $figures, $rule, $openRate, $judge['startRates'][$sourceId] ?? null, $target, $firstAt, $from) : null, 'from' => $from];
     }
 
     /**
@@ -836,12 +836,13 @@ final class TrafficSourcesView
      * site is bots always — and its source's average; its ROI against the
      * line, and what it had to spend first — so many times its campaign's or
      * its source's target, or the rule's spend or clicks; and, while it
-     * waits, until when.
+     * waits, until when; how often those who opened the page started the
+     * game, against the share of its source's that it fell under.
      *
      * @param  array<string, int|string>  $rule
      * @param  array{amount: string, from: 'campaign'|'source'}|null  $target
      */
-    private function verdictTip(string $state, ReportFigures $figures, array $rule, ?float $openRate, ?array $target, ?CarbonImmutable $firstAt, ?CarbonImmutable $from): ?string
+    private function verdictTip(string $state, ReportFigures $figures, array $rule, ?float $openRate, ?float $startRate, ?array $target, ?CarbonImmutable $firstAt, ?CarbonImmutable $from): ?string
     {
         $percent = fn (float $value): string => (abs($value - round($value)) < 0.05 ? number_format($value, 0) : number_format($value, 1)).'%';
         $signed = fn (float $value): string => ($value < 0 ? '−' : '').$percent(abs($value));
@@ -861,7 +862,8 @@ final class TrafficSourcesView
             'losing' => 'Meets the block rule: ROI '.$signed((float) $roi).', below '.$signed((float) (int) $rule['block_roi_below']).', with '.TrafficMoney::format($figures->spend).' spent — past '.$money,
             'waiting' => 'ROI '.$signed((float) $roi).' is below '.$signed((float) (int) $rule['block_roi_below']).', but the rule waits '.(int) $rule['block_grace_days'].' '.Str::plural('day', (int) $rule['block_grace_days']).' after its first click in the last 30 days'
                 .($firstAt !== null ? ', on '.$firstAt->format('j M') : '').', so its accounts can arrive: losing is judged from '.$from?->format('j M H:i').'.',
-            'weak_start' => 'Starts the game far less often than the source’s other places',
+            'weak_start' => 'Starts the game far less often than the source’s other places: '.$percent(($figures->startRate() ?? 0) * 100).' of the '.number_format($figures->opened)
+                .' who opened the page started it, under '.(int) $rule['block_start_percent'].'% of the source’s '.$percent(($startRate ?? 0) * 100),
             'profit' => 'Enough data, value above spend',
             default => null,
         };
@@ -1167,7 +1169,11 @@ final class TrafficSourcesView
         $places = [];
         $listed = [];
 
+        $addresses = $this->reports->repeatAddresses($filter, $byZone);
+
         foreach ($this->reports->zones($filter, $byZone) as $row) {
+            $address = $addresses[TrafficReportQuery::placeKey($row['source_id'], $row['site_ref'], $row['zone_ref'])] ?? null;
+            $row['figures'] = $row['figures']->withAddresses($address['addressed'] ?? 0, $address['repeated'] ?? 0);
             $zone = $byZone && $row['zone_ref'] !== null && $row['zone_ref'] !== '';
             $ref = (string) ($zone ? $row['zone_ref'] : $row['site_ref']);
 

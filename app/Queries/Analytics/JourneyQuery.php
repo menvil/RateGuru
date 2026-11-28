@@ -20,6 +20,7 @@ use App\Models\UserActivityDay;
 use App\Support\Analytics\AnalyticsFilter;
 use App\Support\Analytics\AnalyticsSource;
 use App\Support\Analytics\JourneyTimeline;
+use App\Support\Traffic\Capture\BotSignals;
 use Illuminate\Database\Eloquent\Builder;
 
 /**
@@ -61,7 +62,7 @@ final class JourneyQuery
     private const array VISIT_COLUMNS = [
         'id', 'entry_visit_id', 'visitor_hash', 'channel', 'source_id', 'source_key', 'campaign_key', 'creative_key', 'landing_key', 'origin',
         'utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term', 'device', 'country', 'city', 'game_id',
-        'arrived_at', 'last_seen_at', 'opened_at', 'login_at', 'votes', 'comments', 'posts_created', 'acted_at',
+        'arrived_at', 'last_seen_at', 'opened_at', 'login_at', 'votes', 'comments', 'posts_created', 'acted_at', 'bot_flags',
     ];
 
     /** @var list<string> the columns of an attempt a journey reads */
@@ -395,6 +396,7 @@ final class JourneyQuery
             'comments' => (int) $visit->comments,
             'posts' => (int) $visit->posts_created,
             'acted' => $visit->acted_at?->utc(),
+            'flags' => BotSignals::words((int) $visit->bot_flags),
         ];
     }
 

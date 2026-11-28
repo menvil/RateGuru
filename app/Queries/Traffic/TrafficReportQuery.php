@@ -13,6 +13,7 @@ use App\Models\TrafficVisit;
 use App\Queries\Analytics\AnalyticsRollupGate;
 use App\Queries\Users\UnconfirmedAccountsQuery;
 use App\Support\Analytics\ArrivalWindow;
+use App\Support\Traffic\Capture\BotSignals;
 use App\Support\Traffic\Reports\ReportFigures;
 use App\Support\Traffic\Reports\SignupFigures;
 use App\Support\Traffic\Reports\TrafficReportFilter;
@@ -185,6 +186,7 @@ final class TrafficReportQuery implements RawSqlPersistenceBoundary
     public function zones(TrafficReportFilter $filter, bool $byZone, int $minVisits = 1, ?array $campaignIds = null): array
     {
         [$metrics, $bindings] = self::metrics();
+        [$flags, $flagBindings] = self::flagMetrics();
         $columns = $byZone ? ['source_id', 'site_ref', 'zone_ref'] : ['source_id', 'site_ref'];
 
         return $this->visits($filter)
@@ -192,7 +194,7 @@ final class TrafficReportQuery implements RawSqlPersistenceBoundary
             ->when($campaignIds !== null, fn (Builder $query) => $query->whereIn('campaign_id', $campaignIds))
             ->groupBy(...$columns)
             ->select(...$columns)
-            ->selectRaw('MIN(campaign_id) AS campaign_id, COUNT(DISTINCT campaign_id) AS campaigns, MIN(arrived_at) AS first_at, '.$metrics, $bindings)
+            ->selectRaw('MIN(campaign_id) AS campaign_id, COUNT(DISTINCT campaign_id) AS campaigns, MIN(arrived_at) AS first_at, '.$metrics.', '.$flags, [...$bindings, ...$flagBindings])
             ->havingRaw('COUNT(*) >= ?', [$minVisits])
             ->tap(fn (Builder $query) => self::byEveryColumn($query, $columns))
             ->toBase()
@@ -207,6 +209,47 @@ final class TrafficReportQuery implements RawSqlPersistenceBoundary
                 'figures' => ReportFigures::fromRow($row),
             ])
             ->all();
+    }
+
+    /**
+     * Of each network site's — or zone's — visits with an address on record
+     * (a visit's details keep its address hash as long as they are kept), how
+     * many there were, and how many came from an address the same place sent
+     * another visit from: grouped by place and address, then by place.
+     *
+     * @return array<string, array{addressed: int, repeated: int}> by self::placeKey()
+     */
+    public function repeatAddresses(TrafficReportFilter $filter, bool $byZone): array
+    {
+        $columns = $byZone ? ['source_id', 'site_ref', 'zone_ref'] : ['source_id', 'site_ref'];
+        $placed = array_map(fn (string $column): string => 'placed.'.$column, $columns);
+        $perAddress = TrafficVisit::query()
+            ->fromSub($this->visits($filter)->where('channel', TrafficChannel::Network)->select('id', ...$columns)->toBase(), 'placed')
+            ->join('traffic_visit_details', 'traffic_visit_details.visit_id', '=', 'placed.id')
+            ->whereNotNull('traffic_visit_details.ip_hash')
+            ->groupBy([...$placed, 'traffic_visit_details.ip_hash'])
+            ->select($placed)
+            ->selectRaw('COUNT(*) AS visits', [])
+            ->toBase();
+
+        return TrafficVisit::query()
+            ->fromSub($perAddress, 'addresses')
+            ->groupBy(...$columns)
+            ->select($columns)
+            ->selectRaw('SUM(visits) AS addressed, SUM(CASE WHEN visits > ? THEN visits ELSE 0 END) AS repeated', [1])
+            ->toBase()
+            ->get()
+            ->mapWithKeys(fn (object $row): array => [self::placeKey((int) $row->source_id, $row->site_ref, $byZone ? $row->zone_ref : null) => [
+                'addressed' => (int) $row->addressed,
+                'repeated' => (int) $row->repeated,
+            ]])
+            ->all();
+    }
+
+    /** A network site's or zone's place as repeatAddresses() keys it: its source, site and zone — none for a site. */
+    public static function placeKey(int $sourceId, ?string $siteRef, ?string $zoneRef): string
+    {
+        return $sourceId.'|'.$siteRef.'|'.$zoneRef;
     }
 
     /**
@@ -579,6 +622,29 @@ final class TrafficReportQuery implements RawSqlPersistenceBoundary
             'SUM(CASE WHEN account_at IS NOT NULL AND NOT known THEN value_real ELSE 0 END) AS value_accounts',
             'SUM(value_expected) AS value_expected',
         ]), []];
+    }
+
+    /**
+     * How many of a row's visits carried any sign of not being a person, and
+     * each sign (BotSignals), as SQL — read from the visits only: Analytics'
+     * own rows of them keep no such flags, so a game's sums never ask.
+     *
+     * @return array{0: string, 1: list<int>}
+     */
+    private static function flagMetrics(): array
+    {
+        $flags = [
+            'crawlers' => BotSignals::CRAWLER,
+            'prefetches' => BotSignals::PREFETCH,
+            'headless' => BotSignals::HEADLESS,
+            'no_browser_headers' => BotSignals::NO_BROWSER_HEADERS,
+            'bursts' => BotSignals::BURST,
+        ];
+
+        return [implode(', ', [
+            'SUM(CASE WHEN bot_flags <> 0 THEN 1 ELSE 0 END) AS flagged',
+            ...array_map(fn (string $alias): string => 'SUM(CASE WHEN (bot_flags & ?) <> 0 THEN 1 ELSE 0 END) AS '.$alias, array_keys($flags)),
+        ]), array_values($flags)];
     }
 
     /**

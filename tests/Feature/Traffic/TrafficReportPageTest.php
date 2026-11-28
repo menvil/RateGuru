@@ -32,6 +32,7 @@ use App\Models\TrafficVisit;
 use App\Models\TrafficVisitDetail;
 use App\Models\User;
 use App\Support\Analytics\JourneyTimeline;
+use App\Support\Traffic\Capture\BotSignals;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
@@ -142,6 +143,42 @@ it('lists sites and zones in the block rule’s segments, searched, sorted and p
         ->call('sortBy', 'visits')
         ->assertSet('dir', 'asc')
         ->assertSeeInOrder(['site 50002', 'site 50001']);
+});
+
+it('shows in Sites & zones how many of each place’s visits carried a sign of a bot, and came from an address it sent another from, sortable by both', function () {
+    siteClicks($this->source, '70001', 4, 4, ['bot_flags' => BotSignals::NO_BROWSER_HEADERS]);
+    siteClicks($this->source, '70002', 4, 4);
+    TrafficVisit::query()->where('site_ref', '70002')->get()->each(fn (TrafficVisit $visit) => TrafficVisitDetail::query()->forceCreate(['visit_id' => $visit->id, 'landing_path' => '/', 'ip_hash' => hash('sha256', 'one address'), 'created_at' => now()]));
+
+    $page = Livewire::withQueryParams(['view' => 'sites', 'list' => 'site'])->test(TrafficSourcesPage::class)->call('load');
+    $rows = collect($page->viewData('list')['rows'])->keyBy('ref');
+
+    expect($rows['70001']['figures']->flaggedRate())->toBe(1.0)
+        ->and($rows['70001']['figures']->repeatAddressRate())->toBeNull()
+        ->and($rows['70002']['figures']->flaggedRate())->toBe(0.0)
+        ->and($rows['70002']['figures']->repeatAddressRate())->toBe(1.0);
+
+    $page->assertSee('Flagged')
+        ->assertSee('Repeat address')
+        ->assertSee('No browser headers 4')
+        ->assertSee('of 4')
+        ->call('sortBy', 'flagged')->assertSeeInOrder(['site 70001', 'site 70002'])
+        ->call('sortBy', 'repeat')->assertSeeInOrder(['site 70002', 'site 70001']);
+});
+
+it('calls a site that has cost past the money’s gate a weak start while the worth isn’t measured, saying how often its visitors started the game against the source', function () {
+    // 300 clicks at a cent: past the rule's 200 clicks, and no run of chances measures the worth.
+    siteClicks($this->source, '71001', 300, 200);
+    TrafficVisit::query()->where('site_ref', '71001')->limit(2)->update(['started_at' => now()]);
+    siteClicks($this->source, '71002', 300, 200);
+    TrafficVisit::query()->where('site_ref', '71002')->limit(40)->update(['started_at' => now()]);
+
+    $page = Livewire::withQueryParams(['view' => 'sites', 'list' => 'site'])->test(TrafficSourcesPage::class)->call('load');
+    $rows = collect($page->viewData('list')['rows'])->keyBy('ref');
+
+    expect($rows['71001']['state'])->toBe('weak_start')
+        ->and($rows['71002']['state'])->toBe('early')
+        ->and($rows['71001']['flag']['tip'])->toContain('1% of the 200 who opened the page started it, under 60% of the source’s 10.5%');
 });
 
 it('ticks sites across pages and blocks them by hand, then unblocks them from Blocked', function () {
@@ -1171,6 +1208,14 @@ it('lays out Logs: postbacks first, with the milestone, the click, the exact req
         ->assertSee('Resend')
         ->set('logFilter', 'failed')->assertSee('tag-81442')
         ->set('log', 'clicks')->assertSee('/games/x');
+});
+
+it('names in Logs → Clicks each sign of a bot a click carried', function () {
+    $visit = TrafficVisit::factory()->create(['source_id' => $this->source->id, 'arrived_at' => now()->subHour(), 'opened_at' => null, 'bot_flags' => BotSignals::HEADLESS | BotSignals::BURST]);
+    TrafficVisitDetail::query()->forceCreate(['visit_id' => $visit->id, 'landing_path' => '/games/x', 'created_at' => now()]);
+
+    Livewire::withQueryParams(['tab' => 'logs', 'log' => 'clicks'])->test(TrafficSourcesPage::class)->call('load')
+        ->assertSee('Not opened · headless browser · burst from one address');
 });
 
 it('shows a click’s spend under a cent in full, and says on hovering where it comes from', function () {

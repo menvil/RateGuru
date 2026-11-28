@@ -229,6 +229,13 @@ it('credits nothing to a paid click whose window had closed, and says so', funct
         ->and($view['touches'][3])->toBe(['label' => 'Registration credited to', 'value' => 'Nothing', 'note' => 'No game attempt or visit was recorded before signing up']);
 });
 
+it('says on a visit the signs of a bot it carried, after a page that never ran', function () {
+    $view = journeyOf(['visits' => [journeyVisitRecord(1, '2026-10-01 10:00:00', ['source' => 'paid:4', 'opened' => false, 'flags' => ['Headless browser', 'No browser headers']])]], [4 => 'PopAds main']);
+
+    expect($view['entries'][0]['title'])->toBe('Arrived from PopAds main')
+        ->and($view['entries'][0]['body'])->toEndWith(' The page never ran in a browser. Signs of a bot: headless browser, no browser headers.');
+});
+
 it('keeps an account’s steps to its own journey when a browser only signed in to it', function () {
     $view = journeyOf(['user' => 44, 'visits' => [journeyVisitRecord(1, '2026-10-01 10:00:00', ['login' => CarbonImmutable::parse('2026-10-01 10:05:00', 'UTC')])]]);
 

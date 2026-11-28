@@ -242,7 +242,9 @@ final class JourneyTimeline
         foreach ($this->visits as $visit) {
             $starts = $visit['entry'] === $visit['id'];
             [$icon, $title, $body] = $starts ? $this->arrival($visit) : $this->moveOn($visit);
-            $add($visit['at'], 'visit', $icon, $title, $body.($visit['opened'] ? '' : ' The page never ran in a browser.'), $this->visitMeta($visit, $starts));
+            $flags = is_array($visit['flags'] ?? null) ? $visit['flags'] : [];
+            $add($visit['at'], 'visit', $icon, $title, $body.($visit['opened'] ? '' : ' The page never ran in a browser.')
+                .($flags === [] ? '' : ' Signs of a bot: '.strtolower(implode(', ', $flags)).'.'), $this->visitMeta($visit, $starts));
 
             if ($visit['login'] !== null) {
                 $add($visit['login'], 'signin', 'user-check', 'Signed in', 'To an account the browser already had: a sign-in, not a new account.');

@@ -19,10 +19,12 @@ use App\Models\TrafficPostback;
 use App\Models\TrafficSource;
 use App\Models\TrafficSpendDay;
 use App\Models\TrafficVisit;
+use App\Models\TrafficVisitDetail;
 use App\Queries\Traffic\TrafficLogsQuery;
 use App\Queries\Traffic\TrafficReportQuery;
 use App\Queries\Traffic\TrafficSpendQuery;
 use App\Queries\Users\UnconfirmedAccountsQuery;
+use App\Support\Traffic\Capture\BotSignals;
 use App\Support\Traffic\Reports\SignupFigures;
 use App\Support\Traffic\Reports\TrafficReportFilter;
 use App\Support\Traffic\Reports\VisitFilter;
@@ -101,6 +103,46 @@ it('lists the networks’ sites with enough clicks, and the campaign they came t
         ->and($sites[0])->toMatchArray(['site_ref' => 's1', 'campaign_id' => $campaign->id, 'campaigns' => 1])
         ->and($sites[0]['figures']->visits)->toBe(2)
         ->and($zones)->toHaveCount(3);
+});
+
+it('counts each place’s visits with a sign of a bot, and each sign, from the visits alone', function () {
+    reportVisit($this->source, ['site_ref' => 's1', 'zone_ref' => 'z1', 'bot_flags' => BotSignals::HEADLESS | BotSignals::NO_BROWSER_HEADERS]);
+    reportVisit($this->source, ['site_ref' => 's1', 'zone_ref' => 'z1', 'bot_flags' => BotSignals::NO_BROWSER_HEADERS]);
+    reportVisit($this->source, ['site_ref' => 's1', 'zone_ref' => 'z2', 'bot_flags' => BotSignals::BURST | BotSignals::CRAWLER | BotSignals::PREFETCH]);
+    reportVisit($this->source, ['site_ref' => 's1', 'zone_ref' => 'z2']);
+
+    $site = app(TrafficReportQuery::class)->zones($this->filter, false)[0]['figures'];
+    $zone = collect(app(TrafficReportQuery::class)->zones($this->filter, true))->firstWhere('zone_ref', 'z1')['figures'];
+
+    expect([$site->visits, $site->flagged, $site->crawlers, $site->prefetches, $site->headless, $site->noBrowserHeaders, $site->bursts])->toBe([4, 3, 1, 1, 1, 2, 1])
+        ->and($site->flaggedRate())->toBe(0.75)
+        ->and($site->flags())->toBe(['No browser headers' => 2, 'Crawler or link preview' => 1, 'Prefetch' => 1, 'Headless browser' => 1, 'Burst from one address' => 1])
+        ->and([$zone->visits, $zone->flagged, $zone->noBrowserHeaders])->toBe([2, 2, 2]);
+});
+
+it('counts each place’s visits from an address it sent another visit from, of those with an address on record', function () {
+    $visit = fn (string $site, ?string $zone, ?string $address) => tap(reportVisit($this->source, ['site_ref' => $site, 'zone_ref' => $zone]), function (TrafficVisit $visit) use ($address) {
+        TrafficVisitDetail::query()->forceCreate(['visit_id' => $visit->id, 'landing_path' => '/', 'ip_hash' => $address === null ? null : hash('sha256', $address), 'created_at' => now()]);
+    });
+    $visit('s1', 'z1', 'a');
+    $visit('s1', 'z1', 'a');
+    $visit('s1', 'z1', 'a');
+    $visit('s1', 'z1', 'b');
+    $visit('s1', 'z2', 'b');
+    $visit('s1', 'z2', null);
+    reportVisit($this->source, ['site_ref' => 's1', 'zone_ref' => 'z2']);
+    // Another source's visit from the same address shares nothing with these places.
+    $otherSource = TrafficSource::factory()->create();
+    tap(reportVisit($otherSource, ['site_ref' => 's1', 'zone_ref' => 'z1']), fn (TrafficVisit $other) => TrafficVisitDetail::query()->forceCreate(['visit_id' => $other->id, 'landing_path' => '/', 'ip_hash' => hash('sha256', 'a'), 'created_at' => now()]));
+    $reports = app(TrafficReportQuery::class);
+
+    expect($reports->repeatAddresses($this->filter, true))->toBe([
+        TrafficReportQuery::placeKey($this->source->id, 's1', 'z1') => ['addressed' => 4, 'repeated' => 3],
+        TrafficReportQuery::placeKey($this->source->id, 's1', 'z2') => ['addressed' => 1, 'repeated' => 0],
+        TrafficReportQuery::placeKey($otherSource->id, 's1', 'z1') => ['addressed' => 1, 'repeated' => 0],
+    ])
+        // By site, the zones' visits from b are two of one place.
+        ->and($reports->repeatAddresses($this->filter, false)[TrafficReportQuery::placeKey($this->source->id, 's1', null)])->toBe(['addressed' => 5, 'repeated' => 5]);
 });
 
 it('gives each network site and zone its first click, keyed as its block, a site’s the first of all its zones’', function () {

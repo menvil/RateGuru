@@ -29,8 +29,11 @@ use Carbon\CarbonInterface;
  *   else so much spent or so many clicks. A site clicked on the window's
  *   first day isn't new — it was there before the window opened — so it
  *   waits for no days, however many the rule asks;
- * - a weak start when, before it has spent or been clicked that much, too
- *   few who opened the page started the game compared with the source.
+ * - a weak start when, while the money can't judge it yet — it hasn't cost
+ *   enough, or the worth isn't measured — too few who opened the page
+ *   started the game compared with the source. Accounts are rare on pop
+ *   traffic, so the worth may take months to stand on enough of them; a site
+ *   that has cost plenty in that time is still held to its start.
  *
  * Otherwise its state: early, profit or watch. Bots and a weak start wait for
  * neither the days nor the target.
@@ -52,7 +55,6 @@ final class BlockJudge
         }
 
         $spend = TrafficMoney::of($figures->spend);
-        // The money's first gate as it always stood: a weak start shows only below it.
         $minimums = $spend->isGreaterThanOrEqualTo(TrafficMoney::of($rule['block_min_spend'])) || $figures->visits >= (int) $rule['block_min_clicks'];
         $needed = self::spendNeeded($rule, $target);
 
@@ -70,7 +72,8 @@ final class BlockJudge
             return ['verdict' => null, 'state' => $figures->value()->isGreaterThanOrEqualTo($spend) ? 'profit' : 'watch'];
         }
 
-        if (! $minimums && $sourceStartRate !== null && $figures->visits >= (int) $rule['block_start_clicks'] && $figures->opened > 0
+        // The money didn't judge it: too little spent for its gate, or the worth not measured yet. Its start still can.
+        if ($sourceStartRate !== null && $figures->visits >= (int) $rule['block_start_clicks'] && $figures->opened > 0
             && $figures->started / $figures->opened < $sourceStartRate * (int) $rule['block_start_percent'] / 100) {
             return ['verdict' => TrafficBlockVerdict::WeakStart, 'state' => 'weak_start'];
         }

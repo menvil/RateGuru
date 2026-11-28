@@ -433,11 +433,16 @@ figures over the same window and the thresholds that apply:
   click from the rule's own 30 days (`TrafficReportQuery::firstClicks()`,
   one grouped read a render), so a short period never shows a long-running
   site as new.
-- **Weak start**: below `block_min_spend` and `block_min_clicks`, at least
-  `block_start_clicks` clicks and the game started below
-  `block_start_percent` % as often as on the source. Bots and a weak start
-  wait for neither the days nor the target; once a target is reached and the
-  worth is known, the money's verdict takes the place of a weak start.
+- **Weak start**: whenever the money doesn't judge the site — below its
+  spend to judge (`block_min_spend` or `block_min_clicks`, or its target
+  multiple) or while the worth isn't measured — at least
+  `block_start_clicks` clicks and, of those who opened the page, the game
+  started below `block_start_percent` % as often as on the source. Bots and
+  a weak start wait for neither the days nor the target; once a target is
+  reached and the worth is known, the money's verdict takes the place of a
+  weak start. Pop traffic brings few accounts, so the worth can stay
+  unmeasured for months while a site costs far more than its gate: it is
+  held to its start all that time rather than left too early to judge.
 
 `BlockRule` holds the thresholds: the general ones on `traffic_settings`, and
 a network source's own — the same column names on `traffic_sources`, null
@@ -726,6 +731,17 @@ is added. A zone is added only to the list by zone, and a site only where no
 visit carried it, as a site or under one of its zones.
 `SiteZoneList::clears()` keeps an unblocked `low_reach` row past the clicks
 threshold, since impressions, not clicks, judge it.
+
+Each row of `zones()` also counts its visits with any bot flag and with each
+(`BotSignals`; `bot_flags <> 0` and `(bot_flags & ?) <> 0`), read from the
+visits only — Analytics' rows of them keep no flags, so the game sums that
+share `metrics()` never ask. `repeatAddresses()` adds, in one more grouped
+read joined to the visits' details, how many of a place's visits have an
+address hash and how many share theirs with another visit of the same place
+(`ReportFigures::withAddresses()`); details are kept 90 days, so the share is
+of the visits that still have one. Sites & zones shows both as **Flagged** and
+**Repeat address**, sortable (`SiteZoneList::SORTS`), and `BotSignals::words()`
+names the flags in Logs → Clicks and in a journey's visit step.
 
 ## Retention
 

@@ -37,7 +37,7 @@ final class SiteZoneList
     public const array WORTH_BLOCKING = ['bots', 'losing', 'weak_start', 'low_reach'];
 
     /** @var list<string> */
-    public const array SORTS = ['impressions', 'reach', 'visits', 'opened', 'started', 'finished', 'accounts', 'spend', 'value', 'profit', 'roi', 'cpv', 'vpv', 'cpa'];
+    public const array SORTS = ['impressions', 'reach', 'visits', 'opened', 'started', 'finished', 'accounts', 'spend', 'value', 'profit', 'roi', 'cpv', 'vpv', 'cpa', 'flagged', 'repeat'];
 
     /**
      * @template TRow of array{key: string, ref: string, source: string, campaign: string|null, state: string, blocked: bool, figures: ReportFigures, reach?: ReachFigures|null}
@@ -147,6 +147,8 @@ final class SiteZoneList
             'cpv' => $figures->visits === 0 ? -1.0 : $spend / $figures->visits,
             'vpv' => $figures->visits === 0 ? -1.0 : $value / $figures->visits,
             'cpa' => $figures->costPerAccount() === null ? -1e8 : (float) $figures->costPerAccount(),
+            'flagged' => $figures->flaggedRate() ?? -1.0,
+            'repeat' => $figures->repeatAddressRate() ?? -1.0,
             default => $spend,
         };
     }
