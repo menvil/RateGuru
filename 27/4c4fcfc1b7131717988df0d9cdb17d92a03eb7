@@ -1,0 +1,25 @@
+tests/Feature/Traffic/TrafficReportPageTest.php
+  s_4b9dc6ab6b25d3::t_af3f9ae8538f3e 189-192,195,198
+app/Queries/Traffic/TrafficReportQuery.php
+  s_4b9dc6ab6b25d3::t_af3f9ae8538f3e 250-254,257
+database/migrations/2026_11_28_100000_raise_block_start_clicks_default.php
+  s_4b9dc6ab6b25d3::t_af3f9ae8538f3e 26-27
+tests/Feature/Database/TrafficBlockRuleThresholdColumnsTest.php
+  s_4b9dc6ab6b25d3::t_af3f9ae8538f3e 84,102,104-106
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "274c4fcfc1b7131717988df0d9cdb17d92a03eb7",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
