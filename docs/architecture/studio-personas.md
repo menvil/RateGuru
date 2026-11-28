@@ -212,21 +212,27 @@ The same file, the same command, run from a terminal (`ssh -t`): production
 asks “Create n personas in production?” before it writes, and with no terminal
 to answer it stops unless `--force` says not to ask.
 
+Each production target runs as its own user from its own application root,
+both named in `infrastructure/config/deployment-targets.json`
+(`runtime_user`, `application_root`). The commands below are tits.guru's
+(`rateguru-tits-guru`, `/home/www/rateguru/production/tits-guru`); for another
+production target, put in its user and root.
+
 When the release replaces a set production already has, retire that set first,
 before the release is deployed, exactly as on staging (“Replacing a set”) —
 the same selection, the same account deletion, as production's own user and
 from its current release:
 
 ```bash
-sudo -u rateguru-production bash -c 'cd /home/www/rateguru/production/current && php8.5 artisan tinker --execute="echo App\Models\User::query()->where(\"role\", \"persona\")->whereIn(\"username\", collect(json_decode(file_get_contents(\"resources/studio/personas/tits-guru.json\"), true))->pluck(\"username\"))->count().PHP_EOL;"'
-sudo -u rateguru-production bash -c 'cd /home/www/rateguru/production/current && php8.5 artisan tinker --execute="\$left = fn () => App\Models\User::query()->where(\"role\", \"persona\")->whereIn(\"username\", collect(json_decode(file_get_contents(\"resources/studio/personas/tits-guru.json\"), true))->pluck(\"username\")); \$left()->get()->each(fn (\$u) => app(App\Actions\Profile\AnonymizeUserAccountAction::class)->execute(\$u)); echo \$left()->count().PHP_EOL;"'
+sudo -u rateguru-tits-guru bash -c 'cd /home/www/rateguru/production/tits-guru/current && php8.5 artisan tinker --execute="echo App\Models\User::query()->where(\"role\", \"persona\")->whereIn(\"username\", collect(json_decode(file_get_contents(\"resources/studio/personas/tits-guru.json\"), true))->pluck(\"username\"))->count().PHP_EOL;"'
+sudo -u rateguru-tits-guru bash -c 'cd /home/www/rateguru/production/tits-guru/current && php8.5 artisan tinker --execute="\$left = fn () => App\Models\User::query()->where(\"role\", \"persona\")->whereIn(\"username\", collect(json_decode(file_get_contents(\"resources/studio/personas/tits-guru.json\"), true))->pluck(\"username\")); \$left()->get()->each(fn (\$u) => app(App\Actions\Profile\AnonymizeUserAccountAction::class)->execute(\$u)); echo \$left()->count().PHP_EOL;"'
 ```
 
 Then deploy the release, and import the new set, checked first:
 
 ```bash
-sudo -u rateguru-production bash -c 'cd /home/www/rateguru/production/current && php8.5 artisan studio:personas:import resources/studio/personas/tits-guru.json --admin=<id> --dry-run'
-sudo -u rateguru-production bash -c 'cd /home/www/rateguru/production/current && php8.5 artisan studio:personas:import resources/studio/personas/tits-guru.json --admin=<id>'
+sudo -u rateguru-tits-guru bash -c 'cd /home/www/rateguru/production/tits-guru/current && php8.5 artisan studio:personas:import resources/studio/personas/tits-guru.json --admin=<id> --dry-run'
+sudo -u rateguru-tits-guru bash -c 'cd /home/www/rateguru/production/tits-guru/current && php8.5 artisan studio:personas:import resources/studio/personas/tits-guru.json --admin=<id>'
 ```
 
 The administrator's id is production's own, found as on staging. Production
