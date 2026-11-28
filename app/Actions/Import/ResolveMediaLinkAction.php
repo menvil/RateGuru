@@ -29,13 +29,18 @@ use RuntimeException;
  * (docs/architecture/media.md, "Posting from a link"):
  *
  *   a picture's link          the picture, fetched as it always was
- *   a page on yt-dlp's sites  its video, its length read now; on a site of
- *                             photos too (import.ytdlp.photo_fallback), a page
- *                             with no video goes on as any link
  *   a video file's link       the video, downloaded once the post exists
- *   a post on X               its video or GIF, otherwise its photo
- *   any other page            its picture (Open Graph), or the link itself
- *                             tried as a picture's
+ *   a post on X               its video or GIF, otherwise its photo (its own
+ *                             reader, which takes X's video best)
+ *   any other page            asked of yt-dlp first (YtDlpSites), one rule
+ *                             for every site, by what yt-dlp says:
+ *                               a video        the video, its length read now
+ *                               no video, or a site it does not know
+ *                                              its picture (Open Graph), or
+ *                                              the link tried as a picture's
+ *                               a site it knows but could not read
+ *                                              refused, to try again — never
+ *                                              its poster posted for its video
  *
  * Counted against the author's link imports before anything is fetched.
  * The form keeps the validation of the field and what the author is told.
@@ -91,14 +96,17 @@ final class ResolveMediaLinkAction
             return new ResolvedMediaLink(null, $url, self::withoutQuery($url), previewImageUrl: $pageVideo->thumbnail, durationSeconds: $pageVideo->durationSeconds);
         }
 
-        // A site where every page is a video: none found is a failure, never
-        // the page's poster frame posted in its place.
-        if ($extractor !== null && ! in_array($extractor, (array) config('import.ytdlp.photo_fallback', []), true)) {
-            throw MediaLinkRefusedException::noVideoOnPage();
-        }
-
+        // No video on the page, or a site yt-dlp does not know: the link
+        // goes on as any link.
         $preview = app(ImportFromUrlAction::class)->handle($url);
         $videoUrl = $preview->videoUrl;
+
+        // A page that did not show its own picture — an error page, the
+        // site's home page in its place — is said so, not tried as one.
+        if ($provider === 'open_graph' && $videoUrl === null && ! $preview->isSupported()) {
+            throw MediaLinkRefusedException::nothingToTake();
+        }
+
         // A link that names no file and is no known site's post may still be
         // a picture's (an image CDN's, "copy image address"): with nothing
         // else to take, it is tried as one, as it always was.
@@ -124,7 +132,7 @@ final class ResolveMediaLinkAction
      * given it.
      *
      * @throws RateLimitExceededException when the author's or the host's probes are all in use
-     * @throws MediaLinkRefusedException when yt-dlp could not answer
+     * @throws MediaLinkRefusedException when yt-dlp knows the site but could not read the page, or found a carousel with a video
      */
     private function pageVideo(User $author, string $url): ?YtDlpProbeResult
     {
@@ -150,7 +158,8 @@ final class ResolveMediaLinkAction
             return app(YtDlp::class)->probe($url);
         } catch (YtDlpProbeException $exception) {
             // Not "no video": a carousel with one among its photos, or a
-            // page yt-dlp could not read — never posted as its picture.
+            // page of a site yt-dlp knows that it could not read — never
+            // posted as its picture.
             throw $exception->carouselWithVideo ? MediaLinkRefusedException::carouselWithVideo() : MediaLinkRefusedException::couldNotRead();
         } catch (MediaToolTimedOutException|MediaToolUnavailableException|MediaToolInterruptedException $exception) {
             // yt-dlp could not answer — never the same as "this page has no
