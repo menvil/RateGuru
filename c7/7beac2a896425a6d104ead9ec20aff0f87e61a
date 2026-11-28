@@ -1,0 +1,101 @@
+app/Support/Geo/Networks/AddressRanges.php
+  s_4b9dc6ab6b25d3::t_00efe6db03659b 1-182
+app/Services/Traffic/RequestSignals.php
+  s_4b9dc6ab6b25d3::t_00efe6db03659b 6,17-19,24,37,41,51
+app/Support/Geo/NetworkRecordMapper.php
+  s_4b9dc6ab6b25d3::t_00efe6db03659b 1-27
+tests/Feature/Support/Geo/MmdbNetworkLookupTest.php
+  s_4b9dc6ab6b25d3::t_00efe6db03659b 1-75
+app/Enums/GeoEdition.php
+  s_4b9dc6ab6b25d3::t_00efe6db03659b 6-10,17,24,32,36-42,48,51-59
+app/Services/Geo/GeoDatabaseUpdater.php
+  s_4b9dc6ab6b25d3::t_00efe6db03659b 317-318
+app/Support/Geo/Update/GeoDatabaseValidator.php
+  s_4b9dc6ab6b25d3::t_00efe6db03659b 8,18-19,24,74,81-85
+app/Support/Traffic/Capture/BotSignals.php
+  s_4b9dc6ab6b25d3::t_00efe6db03659b 8-10,25-27,35
+app/Queries/Traffic/TrafficReportQuery.php
+  s_4b9dc6ab6b25d3::t_00efe6db03659b 643
+app/Services/Geo/NetworkListUpdater.php
+  s_4b9dc6ab6b25d3::t_00efe6db03659b 1-227
+config/geo.php
+  s_4b9dc6ab6b25d3::t_00efe6db03659b 78-132
+tests/Pest.php
+  s_4b9dc6ab6b25d3::t_00efe6db03659b 137-138,15548-15565
+app/Models/TrafficVisit.php
+  s_4b9dc6ab6b25d3::t_00efe6db03659b 55,150
+tests/Feature/Analytics/GeoAttributionTest.php
+  s_4b9dc6ab6b25d3::t_00efe6db03659b 88-109
+app/Support/Geo/NetworkLookup.php
+  s_4b9dc6ab6b25d3::t_00efe6db03659b 1-14
+app/Support/Geo/Networks/HostingAsnList.php
+  s_4b9dc6ab6b25d3::t_00efe6db03659b 1-55
+app/Models/TrafficSetting.php
+  s_4b9dc6ab6b25d3::t_00efe6db03659b 80-91
+app/Support/Traffic/Reports/ReportFigures.php
+  s_4b9dc6ab6b25d3::t_00efe6db03659b 44,76,106,154
+tests/Feature/Traffic/VisitNetworkTest.php
+  s_4b9dc6ab6b25d3::t_00efe6db03659b 1-59
+tests/Feature/Console/GeoUpdateCommandTest.php
+  s_4b9dc6ab6b25d3::t_00efe6db03659b 118-119,121,124,129-130,314,317-400
+app/Enums/GeoUpdateFailure.php
+  s_4b9dc6ab6b25d3::t_00efe6db03659b 5,24,43,46
+app/Console/Commands/GeoUpdateCommand.php
+  s_4b9dc6ab6b25d3::t_00efe6db03659b 10,27-31,41,82-96,110
+app/Support/Geo/GeoDatabaseLocator.php
+  s_4b9dc6ab6b25d3::t_00efe6db03659b 12-14,55-77
+app/Services/Geo/GeoAttribution.php
+  s_4b9dc6ab6b25d3::t_00efe6db03659b 27-28,50-78
+docs/architecture/traffic.md
+  s_4b9dc6ab6b25d3::t_00efe6db03659b 746-753
+app/Actions/Traffic/SaveTrafficSettingsAction.php
+  s_4b9dc6ab6b25d3::t_00efe6db03659b 42
+app/Support/Geo/Update/GeoEditionSpec.php
+  s_4b9dc6ab6b25d3::t_00efe6db03659b 7-11,17,30-31,48-49
+app/Providers/AppServiceProvider.php
+  s_4b9dc6ab6b25d3::t_00efe6db03659b 47-48,139-145
+app/Support/Geo/NetworkInfo.php
+  s_4b9dc6ab6b25d3::t_00efe6db03659b 1-30
+resources/views/filament/pages/traffic-sources/sources.blade.php
+  s_4b9dc6ab6b25d3::t_00efe6db03659b 118-126
+database/migrations/2026_11_28_100100_add_asn_to_traffic_visits_table.php
+  s_4b9dc6ab6b25d3::t_00efe6db03659b 1-30
+app/Services/Geo/Sources/DbipMonthlySource.php
+  s_4b9dc6ab6b25d3::t_00efe6db03659b 13-15,33
+app/Actions/Traffic/RecordPaidClickAction.php
+  s_4b9dc6ab6b25d3::t_00efe6db03659b 153,245
+tests/Unit/Support/Geo/NetworkListsTest.php
+  s_4b9dc6ab6b25d3::t_00efe6db03659b 1-90
+docs/admin/traffic-sources.md
+  s_4b9dc6ab6b25d3::t_00efe6db03659b 358-360,391-403
+docs/architecture/geo.md
+  s_4b9dc6ab6b25d3::t_00efe6db03659b 14,26-66,72-74,86,92-95,175-177
+app/Enums/NetworkKind.php
+  s_4b9dc6ab6b25d3::t_00efe6db03659b 1-17
+app/Support/Traffic/Capture/VisitorSignals.php
+  s_4b9dc6ab6b25d3::t_00efe6db03659b 7,12-13,28
+app/Filament/Pages/TrafficSources/TrafficSourcesView.php
+  s_4b9dc6ab6b25d3::t_00efe6db03659b 213-214
+app/Support/Geo/MmdbNetworkLookup.php
+  s_4b9dc6ab6b25d3::t_00efe6db03659b 1-120
+app/Actions/Traffic/OpenTrafficVisitAction.php
+  s_4b9dc6ab6b25d3::t_00efe6db03659b 257
+tests/Fixtures/geo/README.md
+  s_4b9dc6ab6b25d3::t_00efe6db03659b 3,12-16
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "c77beac2a896425a6d104ead9ec20aff0f87e61a",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
