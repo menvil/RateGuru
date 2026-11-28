@@ -38,7 +38,7 @@ return [
             'redgifs.com' => 'RedGifs',
             'instagram.com' => 'Instagram',
             // Videos and Shorts, on www., m. and music. too. A youtu.be link
-            // goes through another extractor, and is not taken yet.
+            // is read as the watch page it stands for (ResolveMediaLinkAction).
             'youtube.com' => 'Youtube',
         ],
         // Any other page goes to yt-dlp too, with every extractor it has but

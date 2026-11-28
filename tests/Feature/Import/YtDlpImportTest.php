@@ -109,7 +109,8 @@ it('gives yt-dlp only links to its sites, over https, and only their own extract
 
     expect($sites->extractorFor('https://www.redgifs.com/watch/aloop'))->toBe('RedGifs')
         ->and($sites->extractorFor('https://www.instagram.com/reel/ABC123/'))->toBe('Instagram')
-        // YouTube's videos and Shorts, on its subdomains too; a youtu.be link not yet.
+        // YouTube's videos and Shorts, on its subdomains too; a youtu.be link
+        // only once the upload reads it as its watch page.
         ->and($sites->extractorFor('https://www.youtube.com/shorts/JcsN3h05J7k'))->toBe('Youtube')
         ->and($sites->extractorFor('https://m.youtube.com/watch?v=JcsN3h05J7k'))->toBe('Youtube')
         ->and($sites->extractorFor('https://youtu.be/JcsN3h05J7k'))->toBeNull()
@@ -602,6 +603,26 @@ it('keeps a YouTube watch link\'s video in the post\'s source, and nothing else 
 
     expect(Post::query()->where('title', 'From YouTube')->sole()->source_url)->toBe('https://www.youtube.com/watch?v=jNQXAC9IVRw');
 });
+
+it('takes a youtu.be link, as YouTube\'s Share button gives it, as the watch page of its video', function (string $link) {
+    bindFakeHostResolver(['www.youtube.com' => ['142.250.0.1']]);
+    $runner = ytDlpStandIn(ytDlpVideoJson(['extractor_key' => 'Youtube']));
+
+    Livewire::actingAs(User::factory()->create())
+        ->test(UploadPostForm::class)
+        ->set('title', 'Shared from YouTube')
+        ->set('importedImageUrl', $link)
+        ->call('submit')
+        ->assertSet('submitError', null);
+
+    expect(Post::query()->where('title', 'Shared from YouTube')->sole()->source_url)->toBe('https://www.youtube.com/watch?v=jNQXAC9IVRw')
+        ->and(collect($runner->calls)->flatten()->filter(fn (mixed $part): bool => is_string($part) && str_contains($part, 'youtu'))->unique()->values()->all())
+        ->toContain('https://www.youtube.com/watch?v=jNQXAC9IVRw');
+})->with([
+    'as shared' => ['https://youtu.be/jNQXAC9IVRw?si=AbCdEf123'],
+    'with a start time' => ['https://youtu.be/jNQXAC9IVRw?t=42'],
+    'bare' => ['https://youtu.be/jNQXAC9IVRw'],
+]);
 
 it('lets the preview go when the upload form opens again, and posts nothing it read once imports are switched off', function () {
     ytDlpStandIn(ytDlpVideoJson());
