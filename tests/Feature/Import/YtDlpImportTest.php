@@ -6,12 +6,14 @@ use App\Actions\Posts\FinalizePostMediaAction;
 use App\Data\Posts\CreatePostData;
 use App\Enums\MediaStatus;
 use App\Enums\MediaTool;
+use App\Enums\PostStatus;
 use App\Exceptions\Import\ImportFetchException;
 use App\Jobs\ImportVideoAssetJob;
 use App\Jobs\ProcessVideoAssetJob;
 use App\Livewire\Feed\UploadPostForm;
 use App\Models\MediaAsset;
 use App\Models\Post;
+use App\Models\ProjectSettings;
 use App\Models\User;
 use App\Services\Media\Exceptions\MediaToolTimedOutException;
 use App\Services\Media\Exceptions\MediaToolUnavailableException;
@@ -23,10 +25,12 @@ use App\Support\Import\YtDlpIsolation;
 use App\Support\Import\YtDlpProbeException;
 use App\Support\Import\YtDlpSites;
 use App\Support\Media\VideoUploadStorer;
+use App\Support\Settings\ProjectSettingsManager;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use Livewire\Livewire;
@@ -105,6 +109,10 @@ it('gives yt-dlp only links to its sites, over https, and only their own extract
 
     expect($sites->extractorFor('https://www.redgifs.com/watch/aloop'))->toBe('RedGifs')
         ->and($sites->extractorFor('https://www.instagram.com/reel/ABC123/'))->toBe('Instagram')
+        // YouTube's videos and Shorts, on its subdomains too; a youtu.be link not yet.
+        ->and($sites->extractorFor('https://www.youtube.com/shorts/JcsN3h05J7k'))->toBe('Youtube')
+        ->and($sites->extractorFor('https://m.youtube.com/watch?v=JcsN3h05J7k'))->toBe('Youtube')
+        ->and($sites->extractorFor('https://youtu.be/JcsN3h05J7k'))->toBeNull()
         // Not on the list, whatever yt-dlp could do there.
         ->and($sites->extractorFor('https://coub.com/view/1'))->toBeNull()
         ->and($sites->extractorFor('https://www.youporn.com/watch/1/'))->toBeNull()
@@ -178,7 +186,7 @@ it('downloads a page\'s video through yt-dlp within the upload limits, then hand
     $download = collect($runner->calls)->first(fn (array $call): bool => $call['tool'] === MediaTool::YtDlp)['arguments'];
     $asset = MediaAsset::query()->findOrFail($post->image_asset_id);
 
-    expect($download)->toContain('--use-extractors', 'RedGifs', '--max-filesize', '100M', '--match-filters', 'duration<=90', '--merge-output-format', 'mp4', '--no-playlist')
+    expect($download)->toContain('--use-extractors', 'RedGifs', '--max-filesize', '100M', '--match-filters', 'duration<=?90', '--merge-output-format', 'mp4', '--no-playlist')
         ->and(array_slice($download, -2))->toBe(['--', 'https://www.redgifs.com/watch/aloop'])
         ->and($asset->metadata['import'])->toHaveKey('downloaded_at');
     Storage::disk('local')->assertExists($asset->path);
@@ -216,7 +224,8 @@ it('holds the host to one probe per author and a few at once, while the author w
     expect(Post::query()->count())->toBe(0);
 });
 
-it('refuses a page\'s video whose length the site does not say, and leaves a video file\'s link to the plain download', function () {
+it('takes a page\'s video whose length the site does not say, holding it to the limit once downloaded, and leaves a video file\'s link to the plain download', function () {
+    // As an Instagram reel read from its page: no length given.
     $runner = ytDlpStandIn(ytDlpVideoJson(['duration' => null]));
 
     Livewire::actingAs(User::factory()->create())
@@ -224,7 +233,15 @@ it('refuses a page\'s video whose length the site does not say, and leaves a vid
         ->set('title', 'No length')
         ->set('importedImageUrl', 'https://www.redgifs.com/watch/unknown')
         ->call('submit')
-        ->assertSet('submitError', __('ui.upload.error_invalid_video'));
+        ->assertHasNoErrors()
+        ->assertSet('submitError', null);
+
+    $post = Post::query()->where('title', 'No length')->sole();
+    app()->call([new ImportVideoAssetJob((int) $post->image_asset_id), 'handle']);
+    $download = collect($runner->calls)->first(fn (array $call): bool => $call['tool'] === MediaTool::YtDlp && in_array('-o', $call['arguments'], true))['arguments'];
+
+    // The download passes a length it does not know; processing holds the file to the limit.
+    expect($download)->toContain('--match-filters', 'duration<=?'.config('uploads.videos.max_duration_seconds'));
 
     $runner->calls = [];
 
@@ -236,7 +253,7 @@ it('refuses a page\'s video whose length the site does not say, and leaves a vid
         ->assertHasNoErrors();
 
     expect($runner->calls)->toBe([])
-        ->and(MediaAsset::query()->sole()->metadata['import']['url'])->toBe('https://media.redgifs.com/AFile.mp4');
+        ->and(MediaAsset::query()->latest('id')->firstOrFail()->metadata['import']['url'])->toBe('https://media.redgifs.com/AFile.mp4');
 });
 
 it('takes a page\'s video whose codec yt-dlp was not told — null, or none at all — and refuses only an explicit none', function () {
@@ -247,8 +264,8 @@ it('takes a page\'s video whose codec yt-dlp was not told — null, or none at a
     expect(app(YtDlp::class)->probe('https://www.redgifs.com/watch/aloop'))->toBeNull();
 });
 
-it('says a video-only site\'s page gave nothing, rather than posting its poster, and takes an Instagram photo post\'s photo', function () {
-    ytDlpStandIn(null);
+it('refuses a page of a site yt-dlp knows but could not read, rather than posting its poster, and takes a photo post\'s photo', function () {
+    ytDlpStandIn(null, probeError: 'ERROR: [RedGifs] aloop: Unable to download JSON metadata: HTTP Error 403');
 
     Livewire::actingAs(User::factory()->create())
         ->test(UploadPostForm::class)
@@ -259,7 +276,8 @@ it('says a video-only site\'s page gave nothing, rather than posting its poster,
 
     expect(Post::query()->count())->toBe(0);
 
-    // Instagram: no video on a photo post, so its photo is taken instead.
+    // A photo post: yt-dlp says there is no video in it, so its photo is taken instead.
+    ytDlpStandIn(null);
     Http::fake(['www.instagram.com/*' => Http::response('<html><img class="EmbeddedMediaImage" src="https://www.instagram.com/photo.jpg" srcset="https://www.instagram.com/photo.jpg 1080w"></html>', 200, ['Content-Type' => 'text/html'])]);
     $this->mock(StoreImportedImageAction::class, function ($mock): void {
         $mock->shouldReceive('download')->once()->andReturn(UploadedFile::fake()->image('photo.jpg', 800, 600));
@@ -508,3 +526,215 @@ it('takes an answer that names no media for no answer at all, never for a page w
     'a carousel with one photo and an empty entry' => ['{"_type":"playlist","entries":[{"formats":[{"vcodec":"none","url":"https://x/1.jpg"}]},{}]}'],
     'a carousel with an entry that is no object' => ['{"_type":"playlist","entries":["x"]}'],
 ]);
+
+it('logs why a page could not be read: yt-dlp\'s last error line, or what was wrong with its answer', function () {
+    Log::spy();
+    ytDlpStandIn(null, probeError: "WARNING: something\nERROR: [Instagram] ABC123: Requested content is not available, rate-limit reached or login required\n");
+
+    expect(fn () => app(YtDlp::class)->probe('https://www.instagram.com/reel/ABC123/'))->toThrow(YtDlpProbeException::class);
+
+    Log::shouldHaveReceived('warning')->with('YtDlp: a page could not be read.', ['extractor' => 'Instagram', 'why' => 'ERROR: [Instagram] ABC123: Requested content is not available, rate-limit reached or login required']);
+});
+
+it('shows a pasted page\'s video before posting — its still and length — and posts it without reading the link again', function () {
+    $runner = ytDlpStandIn(ytDlpVideoJson(['thumbnail' => 'https://media.redgifs.com/a-poster.jpg']));
+    $probes = fn (): int => collect($runner->calls)->filter(fn (array $call): bool => in_array('--dump-single-json', $call['arguments'], true))->count();
+
+    $form = Livewire::actingAs(User::factory()->create())
+        ->test(UploadPostForm::class)
+        ->call('previewLink', ' https://www.redgifs.com/watch/aloop ')
+        ->assertHasNoErrors()
+        ->assertSet('linkPreview', ['video' => true, 'image' => 'https://media.redgifs.com/a-poster.jpg', 'duration' => '0:13'])
+        ->assertSeeText(__('ui.upload.link_preview_video').' · 0:13')
+        ->assertSeeHtml('src="https://media.redgifs.com/a-poster.jpg"');
+    expect($probes())->toBe(1);
+
+    // Read once: the same link again shows the same, and posting it reads nothing more.
+    $form->call('previewLink', 'https://www.redgifs.com/watch/aloop')
+        ->set('title', 'Previewed')
+        ->set('importedImageUrl', 'https://www.redgifs.com/watch/aloop')
+        ->call('submit')
+        ->assertSet('submitError', null);
+
+    expect($probes())->toBe(1)
+        ->and(Post::query()->where('title', 'Previewed')->sole()->imageAsset->metadata['import']['url'])->toBe('https://www.redgifs.com/watch/aloop');
+});
+
+it('says at once, by the link, why a pasted link cannot be posted, and shows a picture\'s link as the picture', function () {
+    ytDlpStandIn(ytDlpVideoJson(['duration' => 9999]));
+
+    Livewire::actingAs(User::factory()->create())
+        ->test(UploadPostForm::class)
+        ->call('previewLink', 'https://www.redgifs.com/watch/long')
+        ->assertHasErrors(['importedImageUrl' => __('ui.upload.error_video_too_long', ['seconds' => (int) config('uploads.videos.max_duration_seconds')])])
+        ->assertSet('linkPreview', null)
+        // A picture's own link needs no reading: it is shown as itself.
+        ->call('previewLink', 'https://cdn.example.com/photo.jpg')
+        ->assertHasNoErrors()
+        ->assertSet('linkPreview', ['video' => false, 'image' => 'https://cdn.example.com/photo.jpg', 'duration' => null])
+        // Emptied: nothing shown.
+        ->call('previewLink', '')
+        ->assertSet('linkPreview', null)
+        ->assertSet('previewedLink', '');
+});
+
+it('reads nothing for a guest, nor for an account that may not post', function () {
+    $runner = ytDlpStandIn(ytDlpVideoJson());
+
+    Livewire::actingAs(User::factory()->unverified()->create())
+        ->test(UploadPostForm::class)
+        ->call('previewLink', 'https://www.redgifs.com/watch/aloop')
+        ->assertSet('linkPreview', null);
+
+    expect($runner->calls)->toBe([]);
+});
+
+it('keeps a YouTube watch link\'s video in the post\'s source, and nothing else of its query', function () {
+    bindFakeHostResolver(['www.youtube.com' => ['142.250.0.1']]);
+    ytDlpStandIn(ytDlpVideoJson(['extractor_key' => 'Youtube']));
+
+    Livewire::actingAs(User::factory()->create())
+        ->test(UploadPostForm::class)
+        ->set('title', 'From YouTube')
+        ->set('importedImageUrl', 'https://www.youtube.com/watch?v=jNQXAC9IVRw&t=10s&si=tracking')
+        ->call('submit')
+        ->assertSet('submitError', null);
+
+    expect(Post::query()->where('title', 'From YouTube')->sole()->source_url)->toBe('https://www.youtube.com/watch?v=jNQXAC9IVRw');
+});
+
+it('lets the preview go when the upload form opens again, and posts nothing it read once imports are switched off', function () {
+    ytDlpStandIn(ytDlpVideoJson());
+
+    $form = Livewire::actingAs(User::factory()->create())
+        ->test(UploadPostForm::class)
+        ->call('previewLink', 'https://www.redgifs.com/watch/aloop')
+        ->assertSet('previewedLink', 'https://www.redgifs.com/watch/aloop')
+        ->call('resetUploadForm')
+        ->assertSet('linkPreview', null)
+        ->assertSet('previewedLink', '')
+        ->assertSet('previewedResolution', null)
+        ->call('previewLink', 'https://www.redgifs.com/watch/aloop');
+
+    ProjectSettings::factory()->create(['feature_flags' => ['allow_url_imports' => false]]);
+    app(ProjectSettingsManager::class)->flush();
+
+    $form->set('title', 'Too late')
+        ->set('importedImageUrl', 'https://www.redgifs.com/watch/aloop')
+        ->call('submit')
+        ->assertSet('submitError', __('import.errors.feature_disabled'));
+
+    expect(Post::query()->where('title', 'Too late')->exists())->toBeFalse();
+});
+
+it('takes what a preview read once: a submit that fails after it reads the link again, counted, on the next try', function () {
+    $runner = ytDlpStandIn(ytDlpVideoJson());
+    $probes = fn (): int => collect($runner->calls)->filter(fn (array $call): bool => in_array('--dump-single-json', $call['arguments'], true))->count();
+
+    $form = Livewire::actingAs(User::factory()->create())
+        ->test(UploadPostForm::class)
+        ->call('previewLink', 'https://www.redgifs.com/watch/aloop')
+        ->set('importedImageUrl', 'https://www.redgifs.com/watch/aloop')
+        // No title: the submit fails after taking the preview's reading.
+        ->call('submit')
+        ->assertHasErrors('title')
+        ->assertSet('previewedLink', '');
+    expect($probes())->toBe(1);
+
+    $form->set('title', 'Second try')->call('submit')->assertSet('submitError', null);
+
+    expect($probes())->toBe(2)
+        ->and(Post::query()->where('title', 'Second try')->exists())->toBeTrue();
+});
+
+it('gives yt-dlp any other page, with every extractor but the generic one, only where it runs isolated — never a file, a post on X or a blocked host', function () {
+    $isolated = fn (bool $armed) => app()->instance(YtDlpIsolation::class, new YtDlpIsolation(fn (): bool => true, fn (): bool => true, fn (): bool => $armed));
+    $sites = fn (): YtDlpSites => app(YtDlpSites::class);
+    config(['import.ytdlp.blocked_domains' => ['blocked.example']]);
+
+    $isolated(true);
+    expect($sites()->extractorFor('https://vimeo.com/123456'))->toBe(YtDlpSites::ANY)
+        ->and(YtDlpSites::ANY)->toBe('default,-generic')
+        ->and($sites()->extractorFor('https://www.facebook.com/watch/?v=1'))->toBe(YtDlpSites::ANY)
+        // A named site keeps its own extractor.
+        ->and($sites()->extractorFor('https://www.youtube.com/shorts/JcsN3h05J7k'))->toBe('Youtube')
+        // X's own reader takes its video; files go to the plain download.
+        ->and($sites()->extractorFor('https://x.com/someone/status/1'))->toBeNull()
+        ->and($sites()->extractorFor('https://cdn.example.com/clip.mp4'))->toBeNull()
+        ->and($sites()->extractorFor('https://cdn.example.com/photo.jpg'))->toBeNull()
+        ->and($sites()->extractorFor('https://www.blocked.example/video/1'))->toBeNull()
+        ->and($sites()->extractorFor('http://vimeo.com/123456'))->toBeNull();
+
+    // Not isolated — the firewall not loaded, or no account: the named sites only.
+    $isolated(false);
+    expect($sites()->extractorFor('https://vimeo.com/123456'))->toBeNull()
+        ->and($sites()->extractorFor('https://www.youtube.com/shorts/JcsN3h05J7k'))->toBe('Youtube');
+
+    $isolated(true);
+    config(['import.ytdlp.any_site' => false]);
+    expect($sites()->extractorFor('https://vimeo.com/123456'))->toBeNull();
+});
+
+it('posts any other page\'s video yt-dlp finds', function () {
+    app()->instance(YtDlpIsolation::class, new YtDlpIsolation(fn (): bool => true, fn (): bool => true, fn (): bool => true));
+    bindFakeHostResolver(['vimeo.com' => ['151.101.0.217']]);
+
+    $runner = ytDlpStandIn(ytDlpVideoJson(['extractor_key' => 'Vimeo']));
+    Livewire::actingAs(User::factory()->create())
+        ->test(UploadPostForm::class)
+        ->set('title', 'From Vimeo')
+        ->set('importedImageUrl', 'https://vimeo.com/123456')
+        ->call('submit')
+        ->assertSet('submitError', null);
+
+    expect(Post::query()->where('title', 'From Vimeo')->sole()->status)->toBe(PostStatus::Draft)
+        ->and($runner->calls[0]['arguments'])->toContain('--use-extractors', 'default,-generic');
+
+});
+
+// A page no extractor knows is not refused, not logged — its picture is
+// taken — whichever way yt-dlp says so: without the generic extractor, that
+// none matched; from one that matched, that it does not support the page.
+it('takes the picture of a page no yt-dlp extractor knows, as any link', function (string $diagnostic) {
+    app()->instance(YtDlpIsolation::class, new YtDlpIsolation(fn (): bool => true, fn (): bool => true, fn (): bool => true));
+    bindFakeHostResolver(['news.example.org' => ['93.184.216.40'], 'cdn.example.org' => ['93.184.216.41']]);
+    Log::spy();
+    ytDlpStandIn(null, probeError: $diagnostic);
+    Http::fake([
+        'news.example.org/*' => Http::response('<head><meta property="og:image" content="https://cdn.example.org/story.jpg"></head>', 200, ['Content-Type' => 'text/html']),
+    ]);
+    $this->mock(StoreImportedImageAction::class, function ($mock): void {
+        $mock->shouldReceive('download')->once()->with('https://cdn.example.org/story.jpg')->andReturn(UploadedFile::fake()->image('story.jpg', 800, 600));
+        $mock->shouldReceive('cleanup')->once();
+    });
+
+    Livewire::actingAs(User::factory()->create())
+        ->test(UploadPostForm::class)
+        ->set('title', 'A story')
+        ->set('importedImageUrl', 'https://news.example.org/story')
+        ->call('submit')
+        ->assertSet('submitError', null);
+
+    expect(Post::query()->where('title', 'A story')->exists())->toBeTrue();
+    Log::shouldNotHaveReceived('warning');
+})->with([
+    'no extractor matched' => 'ERROR: No suitable extractor found for URL https://news.example.org/story',
+    'the generic extractor\'s answer' => 'ERROR: Unsupported URL: https://news.example.org/story',
+]);
+
+it('says a page that did not show its own picture cannot be imported, rather than posting the site\'s logo', function () {
+    bindFakeHostResolver(['nsfw.example' => ['93.184.216.50']]);
+    Http::fake([
+        'nsfw.example/*' => Http::response('<head><meta property="og:url" content="https://nsfw.example/"><meta property="og:image" content="https://nsfw.example/assets/og-image.png"></head>', 200, ['Content-Type' => 'text/html']),
+    ]);
+    $this->mock(StoreImportedImageAction::class, fn ($mock) => $mock->shouldNotReceive('download'));
+
+    Livewire::actingAs(User::factory()->create())
+        ->test(UploadPostForm::class)
+        ->set('title', 'A logo')
+        ->set('importedImageUrl', 'https://nsfw.example/post/aRLwNBB')
+        ->call('submit')
+        ->assertSet('submitError', __('import.errors.unsupported'));
+
+    expect(Post::query()->count())->toBe(0);
+});

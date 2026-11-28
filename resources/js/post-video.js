@@ -3,7 +3,10 @@
 //
 // - Nothing plays until asked — its play button, a tap or a key, or the
 //   browser's own controls — so a feed never starts many videos, nor fetches
-//   them, by itself.
+//   them, by itself. Unless Project settings say a feed's videos start by
+//   themselves (autoplay_feed_videos): then one plays muted while most of it
+//   is on screen — with reduced motion it still waits to be asked — and its
+//   file is fetched as it comes near.
 // - Like a lazily loaded picture, a video not yet near the screen loads
 //   nothing: its poster is set once it comes close (an eager one — the first
 //   in a feed, the post page's — has it from the start), its file only when it
@@ -15,7 +18,7 @@
 // - Its sound comes on only when asked — by its button or the browser's own
 //   controls — and then every other one's goes off.
 document.addEventListener('alpine:init', () => {
-    window.Alpine.data('rgPostVideo', ({ src, poster, controls = false }) => ({
+    window.Alpine.data('rgPostVideo', ({ src, poster, controls = false, autoplay = false }) => ({
         muted: true,
         playing: false,
         loader: null,
@@ -61,10 +64,22 @@ document.addEventListener('alpine:init', () => {
             }, { rootMargin: '600px 0px' });
             this.loader.observe(video);
 
-            // Never playing, nor sounding, out of sight.
+            const reduceMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+            const starts = autoplay && !reduceMotion;
+
             this.player = new IntersectionObserver(([entry]) => {
-                if (!entry.isIntersecting && !video.paused) video.pause();
-            }, { threshold: [0] });
+                if (starts && entry.isIntersecting && entry.intersectionRatio >= 0.6) {
+                    // A start of its own is a silent one: a video the visitor
+                    // gave sound, then scrolled away from, comes back muted. One
+                    // still playing with its sound keeps it.
+                    if (video.paused) video.muted = true;
+                    this.load();
+                    video.play().catch(() => {});
+                } else if (!entry.isIntersecting && !video.paused) {
+                    // Never playing, nor sounding, out of sight.
+                    video.pause();
+                }
+            }, { threshold: [0, 0.6] });
             this.player.observe(video);
         },
 
@@ -80,7 +95,10 @@ document.addEventListener('alpine:init', () => {
             const video = this.$refs.video;
 
             if (poster && !video.getAttribute('poster')) video.poster = poster;
-            if (controls) this.load();
+            // Ready to play: the browser's controls start it, or it starts by
+            // itself — and then it is buffered ahead, not merely named.
+            if (autoplay) video.preload = 'auto';
+            if (controls || autoplay) this.load();
         },
 
         // Sets the file, and the poster, the first time only: when it is played.

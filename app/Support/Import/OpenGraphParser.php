@@ -48,11 +48,14 @@ class OpenGraphParser
             ],
         ))), 0, self::MOST_IMAGE_CANDIDATES);
 
+        $canonical = $this->extractMeta($xpath, 'og:url', 'property');
+
         return new OpenGraphMetadata(
             title: $title,
             description: $description,
             imageUrl: $imageCandidates[0] ?? null,
             imageCandidates: $imageCandidates,
+            canonicalUrl: $canonical === null ? null : $this->resolveUrl($canonical, $pageUrl),
         );
     }
 

@@ -3,6 +3,7 @@
 namespace App\Livewire\Feed;
 
 use App\Actions\Analytics\RecordUserActivityAction;
+use App\Actions\Import\ResolvedMediaLink;
 use App\Actions\Import\ResolveMediaLinkAction;
 use App\Actions\Import\StoreImportedImageAction;
 use App\Actions\Posts\CreatePostAction;
@@ -33,6 +34,7 @@ use Illuminate\Contracts\View\View;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Validation\Rule;
+use Livewire\Attributes\Locked;
 use Livewire\Attributes\On;
 use Livewire\Component;
 use Livewire\Features\SupportFileUploads\TemporaryUploadedFile;
@@ -74,6 +76,22 @@ final class UploadPostForm extends Component
 
     public ?string $importedImageUrl = null;
 
+    /**
+     * What the link field shows before posting, once the link is read: its
+     * still, and whether it is a video and how long. Shown, never trusted.
+     *
+     * @var array{video: bool, image: ?string, duration: ?string}|null
+     */
+    public ?array $linkPreview = null;
+
+    /** The link last read for its preview: posting that same link takes what it came to, never reading it twice. */
+    #[Locked]
+    public string $previewedLink = '';
+
+    /** @var array<string, mixed>|null what $previewedLink came to (ResolvedMediaLink::toArray) */
+    #[Locked]
+    public ?array $previewedResolution = null;
+
     public string $activeTab = 'upload';
 
     public ?string $submitError = null;
@@ -93,10 +111,60 @@ final class UploadPostForm extends Component
     #[On('upload-modal-opened')]
     public function resetUploadForm(): void
     {
-        $this->reset(['title', 'description', 'sourceUrl', 'image', 'video', 'importedImageUrl', 'tagIds', 'tagSearch', 'submitError', 'categoryId', 'knowsCorrectAnswer', 'authorAnswers']);
+        $this->reset(['title', 'description', 'sourceUrl', 'image', 'video', 'importedImageUrl', 'tagIds', 'tagSearch', 'submitError', 'categoryId', 'knowsCorrectAnswer', 'authorAnswers', 'linkPreview', 'previewedLink', 'previewedResolution']);
         $this->loadTags();
         $this->activeTab = 'upload';
         $this->resetValidation();
+    }
+
+    /**
+     * Reads a link as it is pasted — through the same Action posting uses,
+     * its rate limit and its rules — and shows what it would post: its
+     * picture, or its video's still and length; or why not, at once rather
+     * than after Publish. Nothing is fetched for an account that may not post.
+     */
+    public function previewLink(mixed $url = null): void
+    {
+        abort_unless(auth()->check(), 403);
+
+        $url = is_string($url) ? trim($url) : '';
+        $this->importedImageUrl = $url !== '' ? $url : null;
+        $this->resetErrorBag('importedImageUrl');
+        $this->linkPreview = null;
+
+        if ($url === '') {
+            $this->previewedLink = '';
+            $this->previewedResolution = null;
+
+            return;
+        }
+
+        if ($url === $this->previewedLink && $this->previewedResolution !== null) {
+            $this->linkPreview = self::previewOf(ResolvedMediaLink::fromArray($this->previewedResolution));
+
+            return;
+        }
+
+        $author = auth()->user();
+
+        if (! $author instanceof User || ! $author->can('create', Post::class) || $author->needsAddressConfirmation()
+            || ! app(ProjectSettingsManager::class)->featureEnabled('allow_user_uploads')) {
+            return;
+        }
+
+        $this->validateOnly('importedImageUrl');
+
+        try {
+            $resolved = app(ResolveMediaLinkAction::class)->handle($author, $url);
+        } catch (\Throwable $exception) {
+            $this->addError('importedImageUrl', self::linkError($exception));
+
+            return;
+        }
+
+        $this->previewedLink = $url;
+        $this->previewedResolution = $resolved->toArray();
+        $this->linkPreview = self::previewOf($resolved);
     }
 
     public function submit(): void
@@ -146,7 +214,21 @@ final class UploadPostForm extends Component
             try {
                 // What the link brings — a picture now, or a video once the
                 // post exists — and where it came from, decided by the Action.
-                $resolved = app(ResolveMediaLinkAction::class)->handle(auth()->user(), $this->importedImageUrl);
+                // Imports switched off since the preview are off for it too.
+                if (! app(ProjectSettingsManager::class)->featureEnabled('allow_url_imports')) {
+                    throw new UrlImportDisabledException;
+                }
+
+                // The link its preview read is taken as it came to, once:
+                // neither read twice nor counted twice against the import
+                // limit. A submit that fails after it — a missing title —
+                // reads it again, counted, on the next try.
+                $cached = trim((string) $this->importedImageUrl) === $this->previewedLink && $this->previewedResolution !== null
+                    ? ResolvedMediaLink::fromArray($this->previewedResolution)
+                    : null;
+                $this->previewedLink = '';
+                $this->previewedResolution = null;
+                $resolved = $cached ?? app(ResolveMediaLinkAction::class)->handle(auth()->user(), $this->importedImageUrl);
                 $videoUrl = $resolved->videoUrl;
                 $imageUrl = $resolved->imageUrl;
 
@@ -161,25 +243,8 @@ final class UploadPostForm extends Component
                     $importedTempFile = $this->image;
                     $imageSource = ImageInputSource::UrlImport;
                 }
-            } catch (MediaLinkRefusedException $e) {
-                $this->submitError = $e->getMessage();
-
-                return;
-            } catch (UrlImportDisabledException) {
-                $this->submitError = __('import.errors.feature_disabled');
-
-                return;
-            } catch (RateLimitExceededException $e) {
-                $this->submitError = $e->getMessage();
-
-                return;
-            } catch (UnsafeImportUrlException) {
-                $this->submitError = __('import.errors.unsafe_url');
-
-                return;
             } catch (\Throwable $e) {
-                report($e);
-                $this->submitError = __('import.errors.fetch_failed');
+                $this->submitError = self::linkError($e);
 
                 return;
             }
@@ -224,7 +289,7 @@ final class UploadPostForm extends Component
                     $this->video->delete();
                 }
 
-                $this->reset(['title', 'description', 'sourceUrl', 'image', 'video', 'tagIds', 'categoryId', 'knowsCorrectAnswer', 'authorAnswers']);
+                $this->reset(['title', 'description', 'sourceUrl', 'image', 'video', 'tagIds', 'categoryId', 'knowsCorrectAnswer', 'authorAnswers', 'linkPreview', 'previewedLink', 'previewedResolution']);
                 $this->importedImageUrl = null;
                 $this->activeTab = 'upload';
                 $this->tagSearch = '';
@@ -278,6 +343,33 @@ final class UploadPostForm extends Component
      * only the button that opens this form. Content Studio publishes through
      * CreatePostAction on its own and is not paused by it.
      */
+    /** What a link that could not be taken says to its author; what is no fault of theirs is reported too. */
+    private static function linkError(\Throwable $exception): string
+    {
+        return match (true) {
+            $exception instanceof MediaLinkRefusedException, $exception instanceof RateLimitExceededException => $exception->getMessage(),
+            $exception instanceof UrlImportDisabledException => __('import.errors.feature_disabled'),
+            $exception instanceof UnsafeImportUrlException => __('import.errors.unsafe_url'),
+            default => (function () use ($exception): string {
+                report($exception);
+
+                return __('import.errors.fetch_failed');
+            })(),
+        };
+    }
+
+    /** @return array{video: bool, image: ?string, duration: ?string} */
+    private static function previewOf(ResolvedMediaLink $resolved): array
+    {
+        $seconds = $resolved->durationSeconds;
+
+        return [
+            'video' => $resolved->isVideo(),
+            'image' => $resolved->previewImageUrl,
+            'duration' => $seconds === null ? null : intdiv($seconds, 60).':'.str_pad((string) ($seconds % 60), 2, '0', STR_PAD_LEFT),
+        ];
+    }
+
     private function refuseWhileUploadsArePaused(): void
     {
         abort_unless(app(ProjectSettingsManager::class)->featureEnabled('allow_user_uploads'), 403);

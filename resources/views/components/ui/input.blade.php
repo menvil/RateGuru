@@ -5,10 +5,13 @@
     'placeholder' => null,
     'disabled' => false,
     'error' => false,
+    // Set inside a block already on the second surface, where a field of the
+    // same grey would read as one that cannot be typed in.
+    'raised' => false,
 ])
 
 @php
-    $baseClass = 'block h-10 w-full rounded-rgControl border bg-rg-card2 px-3 text-[13.5px] text-rg-text placeholder:text-rg-muted shadow-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent/25 disabled:cursor-not-allowed disabled:bg-rg-surface disabled:text-rg-muted disabled:opacity-45';
+    $baseClass = 'block h-10 w-full rounded-rgControl border '.($raised ? 'bg-rg-card' : 'bg-rg-card2').' px-3 text-[13.5px] text-rg-text placeholder:text-rg-muted shadow-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent/25 disabled:cursor-not-allowed disabled:bg-rg-surface disabled:text-rg-muted disabled:opacity-45';
     $stateClass = $error
         ? 'border-[rgba(239,68,68,0.65)] focus-visible:border-[rgba(239,68,68,0.85)]'
         : 'border-rg-border2 focus-visible:border-rg-accent';

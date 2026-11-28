@@ -23,6 +23,21 @@ class OpenGraphImportAdapter
 
         $metadata = $this->parser->parse($response->body, $response->finalUrl);
 
+        // Its own page's picture only. A page whose tags say they describe the
+        // site's home page while the link is to a page within it — an app
+        // that loads its post in the browser, a post shown to a signed-in
+        // visitor alone — gives the site's own picture, a logo, never the
+        // post's. (A page that answers an error is refused by the client.)
+        if (self::describesHomeInstead($metadata->canonicalUrl, $url, $response->finalUrl)) {
+            return new ImportPreview(
+                provider: ImportProvider::OpenGraph,
+                sourceUrl: $url,
+                title: $metadata->title,
+                description: $metadata->description,
+                unsupportedReason: 'The page did not show its own picture: it may be gone, or shown only to a signed-in visitor.',
+            );
+        }
+
         $imageUrl = null;
 
         // The first the import may fetch; an unsafe one is passed over
@@ -54,5 +69,25 @@ class OpenGraphImportAdapter
             description: $metadata->description,
             imageUrl: $imageUrl,
         );
+    }
+
+    /** Whether og:url names the site's home page while the page fetched is one within it. */
+    private static function describesHomeInstead(?string $canonical, string $requested, string $page): bool
+    {
+        // A root that names a post by its query (/?p=123) is that post, not the home page.
+        if ($canonical === null || (string) parse_url($canonical, PHP_URL_QUERY) !== '') {
+            return false;
+        }
+
+        $host = fn (string $url): string => strtolower((string) parse_url($url, PHP_URL_HOST));
+        $path = fn (string $url): string => rtrim((string) parse_url($url, PHP_URL_PATH), '/');
+
+        if ($path($canonical) !== '') {
+            return false;
+        }
+
+        // The link asked for a page within the site — whether it was shown
+        // that page, or sent on to the root — and was given the site itself.
+        return collect([$requested, $page])->contains(fn (string $url): bool => $host($url) === $host($canonical) && $path($url) !== '');
     }
 }

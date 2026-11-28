@@ -299,6 +299,9 @@ final class YtDlpSiteCheck
         foreach ($imports as $asset) {
             $url = $asset->metadata['import']['url'] ?? null;
             $extractor = is_string($url) ? $this->sites->extractorFor($url) : null;
+            // The named sites alone are checked: any other page's site is
+            // not one this knows to ask about.
+            $extractor = $this->sites->isNamed($extractor) ? $extractor : null;
 
             if ($extractor !== null && $detector->detect($url) !== 'direct_video' && count($found[$extractor] ?? []) < self::SAMPLES && ! in_array($url, $found[$extractor] ?? [], true)) {
                 $found[$extractor][] = $url;

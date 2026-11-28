@@ -579,20 +579,36 @@ the list, and its author hears of it in their notifications.
 
 #### From a site's page, with yt-dlp
 
-A link to a page on one of the sites in `import.ytdlp.sites` (RedGifs and
-Instagram to begin with; which sites, the project's call) is
-asked of yt-dlp first (`App\Support\Import\YtDlp`): its video's length and
-size are read before anything is downloaded, so a clip that is too long is
-refused while posting. A page with no video it may take — an Instagram photo
-post — goes on as any link. `ImportVideoAssetJob` then downloads the video
-with yt-dlp instead of the plain client: an MP4 of at most 1080 lines,
-`--max-filesize` and `--match-filters duration<=…` at the upload limits,
-joined with the pinned ffmpeg.
+Any link to a page — not a file's, and not a post on X, whose own reader
+takes its video best — is asked of yt-dlp first (`App\Support\Import\YtDlp`,
+`YtDlpSites`):
+- **Which extractors:** the sites in `import.ytdlp.sites` (RedGifs,
+  Instagram, YouTube with its Shorts) with their own one. Any other page,
+  with every extractor yt-dlp has but the generic one (`default,-generic`,
+  `import.ytdlp.any_site`), only where yt-dlp runs as its own account behind
+  the firewall. A host in `import.ytdlp.blocked_domains` is never asked.
+- **One rule for every site, by what yt-dlp says:**
+  - a video: taken. Its length and size are read before anything is
+    downloaded, so a clip the site says is too long is refused while
+    posting. A length the site does not say (an Instagram reel read from its
+    page) is held to the limit once the file is there: processing refuses a
+    longer one and tells the author;
+  - no video on the page (a photo post), or a site yt-dlp does not know:
+    the link goes on as any link, its picture;
+  - a site yt-dlp knows but could not read: refused, to be tried again,
+    never its poster posted for its video.
 
-yt-dlp opens addresses itself, outside the pinned client, so it is never
-given a link to any other site, and only ever runs with that site's own
-extractor (`--use-extractors`): its generic extractor, which would open any
-address — an internal one included — is never among them. The link must be
+`ImportVideoAssetJob` then downloads the video with yt-dlp instead of the
+plain client: an MP4 of at most 1080 lines, `--max-filesize` and
+`--match-filters duration<=?…` at the upload limits (a length it does not
+know passes, for processing to check), joined with the pinned ffmpeg.
+
+yt-dlp opens addresses itself, outside the pinned client, so it only ever
+runs with the extractors named for it (`--use-extractors`): its generic
+extractor, which would take a file from any address — an internal one
+included — is never among them. Every extractor but that one is used only
+where the firewall below holds yt-dlp's account; elsewhere only the named
+sites are asked. The link must be
 https and a public address first (`UrlImportValidator`). Every run ignores
 user and system configuration, plugins and the cache, takes one video (no
 playlist), and gets the link after `--`.
@@ -625,6 +641,8 @@ never reaches another's downloads.
 - **A refused run:** sudo refusing it (the rule missing) is reported as
   yt-dlp being unavailable, never taken for a page without a video. A
   warning sudo prints before running the command is not a refusal.
+- **Why a page could not be read** is logged (`YtDlp: a page could not be
+  read.`): yt-dlp's last error line, or what was wrong with its answer.
 - **When yt-dlp cannot answer while posting:** the link is refused, to be
   tried later, never posted as the page's picture. An Instagram reel would
   otherwise go out as its poster.

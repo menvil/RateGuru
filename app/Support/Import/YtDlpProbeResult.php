@@ -10,5 +10,7 @@ final readonly class YtDlpProbeResult
         public ?string $title,
         public ?int $durationSeconds,
         public ?int $approximateBytes,
+        // The site's still of it, for the upload form's preview.
+        public ?string $thumbnail = null,
     ) {}
 }

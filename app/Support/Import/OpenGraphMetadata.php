@@ -12,5 +12,7 @@ class OpenGraphMetadata
         public readonly ?string $description = null,
         public readonly ?string $imageUrl = null,
         public readonly array $imageCandidates = [],
+        // The page the tags say they describe (og:url), resolved against the page.
+        public readonly ?string $canonicalUrl = null,
     ) {}
 }
