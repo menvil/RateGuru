@@ -586,7 +586,7 @@ final class ListPosts extends Page
         $host = (string) parse_url((string) $url, PHP_URL_HOST);
 
         return $url !== null && in_array($scheme, ['http', 'https'], true) && $host !== ''
-            ? ['url' => $url, 'host' => Str::after(strtolower($host), 'www.')]
+            ? ['url' => $url, 'host' => preg_replace('/^www\./', '', strtolower($host))]
             : null;
     }
 

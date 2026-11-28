@@ -297,7 +297,8 @@ it('shows each classifier\'s latest answer, however often another answered since
 it('tells a moderator where a post\'s file came from — the link to open, or an upload — and the source its author named', function () {
     Storage::fake('public');
     $this->actingAs(User::factory()->moderator()->create());
-    $linked = Post::factory()->published()->withImage(path: 'posts/linked.jpg')->create(['source_url' => 'https://credits.example.org/artist']);
+    // Only a leading "www." is dropped from the name shown; one further in stays.
+    $linked = Post::factory()->published()->withImage(path: 'posts/linked.jpg')->create(['source_url' => 'https://news.www.example.org/artist']);
     $linked->imageAsset->forceFill(['metadata' => ['origin' => ['link' => 'https://www.instagram.com/p/abc/']]])->save();
     $uploaded = Post::factory()->published()->withImage(path: 'posts/uploaded.jpg')->create(['source_url' => 'javascript:alert(1)']);
     // A video downloaded before the link was recorded still names the address it came from.
@@ -311,7 +312,8 @@ it('tells a moderator where a post\'s file came from — the link to open, or an
         ->assertSeeHtml('href="https://www.instagram.com/p/abc/"')
         ->assertSeeHtml('>instagram.com</a>')
         ->assertSeeHtml('Source given:')
-        ->assertSeeHtml('href="https://credits.example.org/artist"');
+        ->assertSeeHtml('href="https://news.www.example.org/artist"')
+        ->assertSeeHtml('>news.www.example.org</a>');
 
     $page->call('view', $uploaded->id)
         ->assertSeeHtml('Uploaded as a file')
