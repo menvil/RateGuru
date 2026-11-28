@@ -135,9 +135,9 @@ final class SiteZoneList
 
     /**
      * Whether a row's share in a column is above or below the percent: the
-     * share the column shows under its figure, rounded to a tenth of a percent
-     * as it shows, so a row reading 2.0% is on neither side of 2. A row with
-     * nothing to take a share of there is on neither side.
+     * share the column shows under its figure, rounded to a hundredth of a
+     * percent as it shows, so a row reading 2.00% is on neither side of 2. A
+     * row with nothing to take a share of there is on neither side.
      *
      * @param  array{figures: ReportFigures, reach?: ReachFigures|null}  $row
      * @param  array{column: string, side: 'above'|'below', percent: float}  $share
@@ -150,7 +150,7 @@ final class SiteZoneList
             return false;
         }
 
-        $percent = round($rate * 100, 1);
+        $percent = round($rate * 100, 2);
 
         return $share['side'] === 'above' ? $percent > $share['percent'] : $percent < $share['percent'];
     }

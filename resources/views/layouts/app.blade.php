@@ -7,6 +7,10 @@
         @if ($trafficArrival = app(\App\Support\Traffic\Capture\TrafficArrival::class)->pending())
             <meta name="rg-arrival" content="{{ $trafficArrival }}">
         @endif
+        {{-- An arriving page measures what its visitor sees and does while that is switched on (traffic.js). --}}
+        @if (app(\App\Support\Traffic\Capture\TrafficArrival::class)->arrived() && \App\Models\TrafficSetting::captureFlags()['presence'])
+            <meta name="rg-presence" content="1">
+        @endif
 
         {{-- A section given its text inline, and the fallback, come back escaped; they are unescaped first, so the tab reads "Tom & Jerry", not "Tom &amp; Jerry". --}}
         <title>{{ html_entity_decode(strip_tags($__env->yieldContent('title', $projectSettings->siteName())), ENT_QUOTES | ENT_HTML5) }}</title>

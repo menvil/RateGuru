@@ -105,3 +105,268 @@ if (document.prerendering) {
 // Livewire fires it once a page is in, the first one included: a page a
 // move brought in has replaced the head, and with it the token.
 document.addEventListener('livewire:navigated', rgTrafficPageIn);
+
+// What an arriving page's visitor sees and does, while Traffic sources records
+// it (the server prints <meta name="rg-presence"> on such a page): whether the
+// page was on screen when it began and how long until it was — a popunder
+// loads behind the window — how long it stayed on screen, the first touch,
+// click, key or wheel the browser itself made (isTrusted) and how long after
+// the page was first on screen, inputs a script made instead, and input while
+// hidden; and, once, a few facts of the browser a server compares with what it
+// says it is: its time zone, languages and system, its screen and window, its
+// touch points, cores and memory, whether WebDriver or another automation
+// tool drives it (BotD, loaded only here and told not to call home), whether
+// the page is inside another site's frame, and whether its graphics are drawn
+// by software — a class, never the renderer's name. No address, no canvas or
+// audio print, nothing stored in the browser. It reports 3 seconds after the
+// page is first on screen, half a second after the first input, after 15
+// seconds whatever happened, and when the page is hidden or left — only when
+// something changed, and past four reports only for something seen first
+// (the page on screen, the first input, BotD's verdict), eight at most.
+var rgPresence = null;
+
+function rgPresenceGraphics() {
+    try {
+        var canvas = document.createElement('canvas');
+        var gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+
+        if (!gl) {
+            return 'none';
+        }
+
+        var info = gl.getExtension('WEBGL_debug_renderer_info');
+        var renderer = String(info ? gl.getParameter(info.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER));
+        var lose = gl.getExtension('WEBGL_lose_context');
+
+        if (lose) {
+            lose.loseContext();
+        }
+
+        return /swiftshader|llvmpipe|softpipe|software|basic render/i.test(renderer) ? 'software' : 'hw';
+    } catch (e) {
+        return 'none';
+    }
+}
+
+function rgPresenceAutomation() {
+    var marks = 0;
+
+    try {
+        marks |= window._phantom || window.callPhantom ? 1 : 0;
+        marks |= window.__nightmare ? 2 : 0;
+        marks |= window.domAutomation || window.domAutomationController ? 4 : 0;
+        marks |= window.Cypress ? 8 : 0;
+        marks |= Object.keys(window).some(function (key) { return /^(__playwright|__pw|\$?cdc_)/.test(key); }) ? 16 : 0;
+        marks |= document.documentElement.getAttribute('webdriver') !== null ? 32 : 0;
+    } catch (e) {}
+
+    return marks;
+}
+
+function rgPresenceBrowser() {
+    var framed = false;
+
+    try {
+        framed = window.top !== window.self;
+    } catch (e) {
+        framed = true;
+    }
+
+    var zone = '';
+
+    try {
+        zone = Intl.DateTimeFormat().resolvedOptions().timeZone || '';
+    } catch (e) {}
+
+    return {
+        wd: navigator.webdriver ? 1 : 0,
+        auto: rgPresenceAutomation(),
+        frm: framed ? 1 : 0,
+        gl: rgPresenceGraphics(),
+        tz: zone,
+        tzo: new Date().getTimezoneOffset(),
+        langs: (navigator.languages || [navigator.language || '']).slice(0, 2).join(','),
+        plat: navigator.platform || '',
+        sw: screen.width,
+        sh: screen.height,
+        ww: window.innerWidth,
+        wh: window.innerHeight,
+        ow: window.outerWidth,
+        oh: window.outerHeight,
+        dpr: window.devicePixelRatio || 1,
+        mtp: navigator.maxTouchPoints || 0,
+        hc: navigator.hardwareConcurrency || '',
+        dm: navigator.deviceMemory || '',
+        plg: navigator.plugins ? navigator.plugins.length : '',
+    };
+}
+
+function rgPresenceFields(state) {
+    var now = performance.now();
+    var visible = state.visibleMs + (state.visibleSince === null ? 0 : now - state.visibleSince);
+    var fields = Object.assign({}, state.browser, {
+        vis0: state.vis0 ? 1 : 0,
+        tvis: state.firstVisible === null ? '' : Math.round(state.firstVisible),
+        visms: Math.round(visible),
+        tin: state.firstInput === null || state.firstVisible === null ? '' : Math.max(0, Math.round(state.firstInput - state.firstVisible)),
+        inkind: state.inputKind || '',
+        ins: state.inputs,
+        unt: state.untrusted,
+        hin: state.hiddenInput ? 1 : 0,
+        botd: state.botd || '',
+    });
+
+    Object.keys(fields).forEach(function (name) {
+        if (fields[name] === '' || fields[name] === null || fields[name] === undefined) {
+            delete fields[name];
+        }
+    });
+
+    return fields;
+}
+
+function rgPresenceReport(state, leaving) {
+    state.browser = state.browser || rgPresenceBrowser();
+    var fields = rgPresenceFields(state);
+    // Visible time alone moves on by itself: a report only for something new, rounded so a page left on screen isn't one.
+    var key = JSON.stringify(Object.assign({}, fields, { visms: Math.floor((fields.visms || 0) / 10000) }));
+    // What a report must carry whatever went before: the page first on screen, the first input, BotD's verdict.
+    var firsts = [fields.tvis !== undefined, fields.tin !== undefined || fields.ins > 0, fields.botd !== undefined].join();
+
+    if (key === state.lastKey || (state.reports >= 4 && firsts === state.lastFirsts) || state.reports >= 8) {
+        return;
+    }
+
+    state.lastKey = key;
+    state.lastFirsts = firsts;
+    state.reports++;
+
+    if (leaving && navigator.sendBeacon) {
+        var csrf = document.querySelector('meta[name="csrf-token"]');
+        var body = new URLSearchParams(Object.assign({ signal: 'presence', _token: csrf ? csrf.content : '' }, state.arrival ? { arrival: state.arrival } : {}, fields));
+
+        try {
+            navigator.sendBeacon('/visit/signal', body);
+
+            return;
+        } catch (e) {}
+    }
+
+    rgTrafficSignals = rgTrafficSignals
+        .then(function () {
+            return rgTrafficOpening;
+        })
+        .then(function () {
+            return rgTrafficSend('presence', state.arrival, fields);
+        })
+        .catch(function () {});
+}
+
+function rgPresenceLater(state, delay) {
+    window.setTimeout(function () {
+        rgPresenceReport(state, false);
+    }, delay);
+}
+
+function rgPresenceStart() {
+    if (rgPresence || !document.querySelector('meta[name="rg-presence"]')) {
+        return;
+    }
+
+    var arrival = document.querySelector('meta[name="rg-arrival"]');
+    var visible = document.visibilityState === 'visible';
+    var state = rgPresence = {
+        arrival: arrival ? arrival.content : null,
+        vis0: visible,
+        firstVisible: visible ? performance.now() : null,
+        visibleSince: visible ? performance.now() : null,
+        visibleMs: 0,
+        firstInput: null,
+        inputKind: null,
+        inputs: 0,
+        untrusted: 0,
+        hiddenInput: false,
+        botd: null,
+        browser: null,
+        reports: 0,
+        lastKey: '',
+        lastFirsts: '',
+    };
+
+    document.addEventListener('visibilitychange', function () {
+        var now = performance.now();
+
+        if (document.visibilityState === 'visible') {
+            if (state.firstVisible === null) {
+                state.firstVisible = now;
+                rgPresenceLater(state, 3000);
+            }
+
+            state.visibleSince = now;
+        } else {
+            if (state.visibleSince !== null) {
+                state.visibleMs += now - state.visibleSince;
+                state.visibleSince = null;
+            }
+
+            rgPresenceReport(state, true);
+        }
+    });
+
+    var kinds = { pointerdown: 'pointer', touchstart: 'touch', keydown: 'key', wheel: 'wheel' };
+
+    Object.keys(kinds).forEach(function (type) {
+        window.addEventListener(type, function (event) {
+            if (!event.isTrusted) {
+                // A password manager types into fields with keys a script makes: only clicks, touches and wheels count.
+                if (type === 'keydown') {
+                    return;
+                }
+
+                state.untrusted = Math.min(state.untrusted + 1, 1000);
+
+                return;
+            }
+
+            state.inputs = Math.min(state.inputs + 1, 1000);
+            state.hiddenInput = state.hiddenInput || document.visibilityState !== 'visible';
+
+            if (state.firstInput === null) {
+                state.firstInput = performance.now();
+                state.inputKind = kinds[type];
+                rgPresenceLater(state, 500);
+            }
+        }, { capture: true, passive: true });
+    });
+
+    window.addEventListener('pagehide', function () {
+        rgPresenceReport(state, true);
+    });
+
+    if (visible) {
+        rgPresenceLater(state, 3000);
+    }
+
+    rgPresenceLater(state, 15000);
+
+    // BotD in a chunk of its own, after the page is in; its verdict rides along with the next report.
+    window.setTimeout(function () {
+        import('@fingerprintjs/botd')
+            .then(function (botd) {
+                return botd.load({ monitoring: false });
+            })
+            .then(function (detector) {
+                var result = detector.detect();
+                state.botd = result.bot ? String(result.botKind || 'unknown') : 'none';
+            })
+            .catch(function () {});
+    }, 0);
+}
+
+if (document.prerendering) {
+    document.addEventListener('prerenderingchange', rgPresenceStart, { once: true });
+} else if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', rgPresenceStart, { once: true });
+} else {
+    rgPresenceStart();
+}

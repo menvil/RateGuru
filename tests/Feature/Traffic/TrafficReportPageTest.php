@@ -186,9 +186,9 @@ it('keeps only the sites whose share in a column is above or below a percent, pa
 });
 
 it('compares a share as the column shows it, says when the filters left every row out, and clears the share to find one row', function () {
-    // 1 of 49 opened started (2.04%) and 1 of 51 (1.96%): both read 2.0% on screen, so neither is on either side of 2.
-    siteClicks($this->source, '73001', 49, 49);
-    siteClicks($this->source, '73002', 51, 51);
+    // 1 of 50 opened started at each: 2.00% on screen, on neither side of 2.
+    siteClicks($this->source, '73001', 50, 50);
+    siteClicks($this->source, '73002', 50, 50);
     TrafficVisit::query()->whereIn('site_ref', ['73001', '73002'])->get()->groupBy('site_ref')->each(fn ($visits) => $visits->first()->forceFill(['started_at' => now()])->save());
 
     $page = Livewire::withQueryParams(['view' => 'sites', 'list' => 'site', 'share' => 'started', 'than' => 'below', 'pct' => '2'])->test(TrafficSourcesPage::class)->call('load')
@@ -199,7 +199,8 @@ it('compares a share as the column shows it, says when the filters left every ro
         ->call('listSites', $this->source->id, 'site', '73001')
         ->assertSet('shareColumn', '')
         ->assertSet('sharePercent', '')
-        ->assertSee('site 73001');
+        ->assertSee('site 73001')
+        ->assertSee('2.00%');
 });
 
 it('calls a site that has cost past the money’s gate a weak start while the worth isn’t measured, saying how often its visitors started the game against the source', function () {
@@ -806,7 +807,7 @@ it('shows in Sites & zones each site’s paid impressions and the share that rea
 
     $page->assertSeeInOrder(['Paid impr.', 'Reached', 'Visits'])
         ->assertSee('Low reach')
-        ->assertSee('67.1%')
+        ->assertSee('67.14%')
         ->assertDontSeeHtml('data-testid="traffic-sites-reach-note"')
         ->call('toggleBlockRule')
         ->assertSeeText('Low reach: at least 50 paid impressions on days the network has closed, and fewer of them reached RateGuru than 70% of the source’s share — for networks that bill by the impression. Shown, never blocked by itself.')

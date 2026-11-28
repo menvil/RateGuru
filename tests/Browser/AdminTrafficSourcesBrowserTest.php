@@ -531,7 +531,7 @@ it('shows on the way here under the tiles and each site’s paid impressions in 
     JS))->toBe([
         'overflow' => false, 'scrolled' => true,
         'head' => ['Paid impr.', 'Reached', 'Visits'],
-        'cells' => ['20', '75.0% 15 visits', '15'],
+        'cells' => ['20', '75.00% 15 visits', '15'],
         'aligned' => true,
     ]);
 

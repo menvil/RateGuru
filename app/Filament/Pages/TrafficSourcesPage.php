@@ -306,6 +306,7 @@ final class TrafficSourcesPage extends Page
         // Record site visits counts only with Record visits: switching that off switches it off on the card at once.
         if ($property === 'settings.capture_enabled' && ! (bool) ($this->settings['capture_enabled'] ?? false)) {
             $this->settings['site_capture_enabled'] = false;
+            $this->settings['presence_enabled'] = false;
         }
 
         $this->normalize();
@@ -1327,6 +1328,7 @@ final class TrafficSourcesPage extends Page
         $this->settings = [
             'capture_enabled' => (bool) $settings->capture_enabled,
             'site_capture_enabled' => (bool) $settings->capture_enabled && (bool) $settings->site_capture_enabled,
+            'presence_enabled' => (bool) $settings->capture_enabled && (bool) $settings->presence_enabled,
             'postbacks_enabled' => (bool) $settings->postbacks_enabled,
             'geo_edition' => ($settings->geo_edition ?? GeoEdition::GeoLite2City)->value,
             // The block rule's general thresholds, an amount as its column keeps it ("2.00", "2.0").

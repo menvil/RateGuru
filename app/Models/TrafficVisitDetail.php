@@ -21,6 +21,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property string|null $os
  * @property string|null $browser
  * @property string|null $language
+ * @property array<string, mixed>|null $presence
  * @property CarbonImmutable $created_at
  */
 class TrafficVisitDetail extends Model
@@ -38,6 +39,7 @@ class TrafficVisitDetail extends Model
         return [
             'visit_id' => 'integer',
             'extra_params' => 'array',
+            'presence' => 'array',
             'created_at' => 'immutable_datetime',
         ];
     }

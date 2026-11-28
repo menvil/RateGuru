@@ -6,10 +6,13 @@ use App\Enums\GameOnwardKind;
 use App\Models\GameAttempt;
 use App\Models\GameEvent;
 use App\Models\Post;
+use App\Models\TrafficSetting;
+use App\Models\TrafficSource;
 use App\Models\TrafficVisit;
 use App\Models\TrafficVisitPost;
 use App\Models\User;
 use App\Support\Traffic\Capture\ArrivalToken;
+use App\Support\Traffic\Capture\PresenceChecks;
 use Illuminate\Foundation\Http\Events\RequestHandled;
 
 /**
@@ -126,4 +129,23 @@ it('names the post the sign-in dialog opens on, crediting the game that sent the
     $page->click("[data-testid=\"post-upvote-button-{$post->id}\"]");
 
     eventually(fn () => expect(GameEvent::query()->where('type', GameEventType::PostSignInForm)->pluck('attempt_id')->all())->toBe([$sent->id]));
+});
+
+it('measures an arriving page in the browser: on screen, used, and what the headless browser it runs in gives away', function () {
+    recordTraffic()->forceFill(['presence_enabled' => true])->save();
+    TrafficSetting::forgetCaptureFlags();
+    TrafficSource::factory()->create(['link_key' => 'exo']);
+
+    $page = visit('/?rg_src=exo&cid=tag-presence')->withUserAgent(DESKTOP_CHROME_USER_AGENT);
+    waitForScript($page, "document.querySelector('meta[name=\"rg-presence\"]') !== null");
+    // A key the browser itself presses, which does nothing on the page. A bare 'body' would be read as text to find, and waited for.
+    $page->keys('html > body', 'Shift');
+
+    eventually(fn () => expect(TrafficVisit::query()->sole())->seen_at->not->toBeNull()->engaged_at->not->toBeNull());
+    $visit = TrafficVisit::query()->sole();
+
+    expect($visit->detail->presence)->toHaveKeys(['visible_at_start', 'to_input_ms', 'input_kind', 'graphics', 'platform', 'screen_width', 'window_width', 'time_zone'])
+        ->and($visit->detail->presence['input_kind'])->toBe('key')
+        // Playwright's Chromium says it is driven: WebDriver, or BotD naming it.
+        ->and($visit->quality_flags & (PresenceChecks::WEBDRIVER | PresenceChecks::AUTOMATION))->not->toBe(0);
 });

@@ -38,6 +38,7 @@ final class SaveTrafficSettingsAction
         Validator::make($changes, [
             'capture_enabled' => ['sometimes', 'boolean'],
             'site_capture_enabled' => ['sometimes', 'boolean'],
+            'presence_enabled' => ['sometimes', 'boolean'],
             'postbacks_enabled' => ['sometimes', 'boolean'],
             'geo_edition' => ['sometimes', 'required', 'in:'.implode(',', array_map(fn (GeoEdition $edition): string => $edition->value, GeoEdition::cities()))],
             // The general block rule: every threshold a value, as a source's own may be empty.
@@ -53,7 +54,7 @@ final class SaveTrafficSettingsAction
             }
 
             $settings->forceFill([
-                ...array_intersect_key($changes, array_flip(['capture_enabled', 'site_capture_enabled', 'postbacks_enabled', 'geo_edition', ...BlockRule::KEYS])),
+                ...array_intersect_key($changes, array_flip(['capture_enabled', 'site_capture_enabled', 'presence_enabled', 'postbacks_enabled', 'geo_edition', ...BlockRule::KEYS])),
                 'id' => 1,
                 'updated_by_user_id' => $locked->id,
                 'lock_version' => $settings->exists ? $settings->lock_version + 1 : 2,
@@ -61,6 +62,7 @@ final class SaveTrafficSettingsAction
 
             if (! $settings->capture_enabled) {
                 $settings->site_capture_enabled = false;
+                $settings->presence_enabled = false;
             }
 
             $settings->save();

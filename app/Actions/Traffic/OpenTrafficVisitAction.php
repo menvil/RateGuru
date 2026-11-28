@@ -113,7 +113,7 @@ final class OpenTrafficVisitAction
      * as the arrival asks.
      *
      * @param  array{visit?: int, channel?: string, origin?: string|null, slug?: string|null, result?: bool, route?: string|null, path?: string, host?: string|null, post?: int, tags?: array<string, string>}  $arrival
-     * @param  array{capture: bool, site: bool}  $flags
+     * @param  array{capture: bool, site: bool, presence: bool}  $flags
      */
     private function credit(array $arrival, array $flags, string $browserHash, ?int $userId, ?int $gameId, ?int $versionId, VisitorSignals $signals, CarbonImmutable $now): ?int
     {

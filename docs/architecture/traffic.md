@@ -751,10 +751,49 @@ Private Relay — is not flagged. The visit keeps the network's ASN
 second browser takes over takes its ASN too. `flagMetrics()` counts the flag
 as `datacenters`.
 
+### Presence
+
+While `traffic_settings.presence_enabled` is on (with `capture_enabled`;
+`TrafficSetting::captureFlags()['presence']`), a page drawn for an arrival —
+the layout's or the game player's token (`TrafficArrival::arrived()`) —
+prints `<meta name="rg-presence" content="1">`, and `resources/js/traffic.js`
+measures its visitor: visible at start, milliseconds to first visible and
+visible in all, the first trusted (`isTrusted`) pointer, touch, key or wheel
+input and its time after first visible, untrusted and hidden-time inputs, and
+once a few browser facts (time zone and offset, languages, platform, screen
+and window — inner and outer — pixel ratio, touch points, cores, memory, plugins, webdriver,
+automation marks, a frame, the WebGL class `hw`/`software`/`none` — never the
+renderer string — and BotD's verdict; BotD 2.0.0 is bundled as a lazy chunk
+and loaded with `monitoring: false`, so it calls no one). It reports as
+`signal=presence` on `/visit/signal` 3 s after first visible, 0.5 s after the
+first input, at 15 s, and on hide or `pagehide` (by `sendBeacon` with
+`_token`), only when something changed, and past four reports only for
+something first seen (on screen, first input, BotD's verdict), eight at most;
+no timer drives it in a hidden tab beyond the 15 s fallback. Untrusted keys
+aren't counted (password managers type that way). `captureFlags()` reads
+the switches whole again when the value cached before a switch was added
+lacks one, since it is cached forever.
+
+`VisitSignalRequest` takes the fields as short strings (`PRESENCE_FIELDS`);
+`PresenceFacts` caps and words them again; `RecordVisitPresenceAction` puts
+them on the visit the token names (a paid click, the same browser's), else
+the browser's visit seen last within 30 minutes (`VisitorVisitQuery::lastSeen()`
+— a game page's, whose player took the token, or a site page's; never an
+older paid click that only still holds the browser):
+`seen_at` and `engaged_at` once, at the first report saying so; `quality_flags
+|=` `PresenceChecks::flags()` (webdriver, automation, frame, time zone vs the
+address's country — `DateTimeZone::listIdentifiers(PER_COUNTRY)`, an equal
+offset accepted — touch, screen by outer window size so page zoom never
+counts, software graphics, platform vs User-Agent, hidden input, and scripted
+input only where no trusted input came); and the facts on `traffic_visit_details.presence`,
+a later report merged over the first (`PresenceFacts::over()`). A crawler's
+report is no one's. These columns are not events (`TrafficEvent`) and send no
+postback; the report columns and a block reason built on them come later.
+
 The list keeps, past its clicks threshold and search, only the rows whose share
 in one column (`SiteZoneList::SHARES`, the share each column shows under its
 figure) is above or below a percent (`SiteZoneList::sharePasses()`, rounded
-to a tenth of a percent as the columns show it, strictly); a row with nothing
+to a hundredth of a percent as the columns show it, strictly); a row with nothing
 to take the share of is on neither side. "Find in Sites & zones" clears the
 share filter with the clicks threshold, so the row it looks up shows, and
 only the list reads `repeatAddresses()` — `places()` skips it for the rule's

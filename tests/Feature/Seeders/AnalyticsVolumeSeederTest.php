@@ -46,7 +46,7 @@ it('writes a week of visits and the week before as capture records them, once', 
         // The site grew: the week before brought fewer.
         ->and($before->count())->toBeGreaterThan(1500)->toBeLessThan($latest->count())
         ->and($visits->max('arrived_at')->lessThanOrEqualTo(now()))->toBeTrue()
-        ->and(TrafficSetting::captureFlags())->toBe(['capture' => true, 'site' => true])
+        ->and(TrafficSetting::captureFlags())->toBe(['capture' => true, 'site' => true, 'presence' => false])
         // Every paid click begins its own session, keyed by its source and campaign, and cost something.
         ->and($paid->filter(fn (TrafficVisit $visit): bool => $visit->entry_visit_id !== $visit->id))->toBeEmpty()
         ->and($paid->filter(fn (TrafficVisit $visit): bool => $visit->source_key !== 'paid:'.$visit->source_id || $visit->campaign_key !== CampaignKey::paid($visit->campaign_id)))->toBeEmpty()

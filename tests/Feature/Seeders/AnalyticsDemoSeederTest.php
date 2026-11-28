@@ -60,7 +60,7 @@ it('records two months of the site’s visitors as capture records them, once', 
     $site = $visits->whereIn('landing_key', ['feed', 'posts.show']);
     $published = Post::query()->get(['id', 'published_at'])->keyBy('id');
 
-    expect(TrafficSetting::captureFlags())->toBe(['capture' => true, 'site' => true])
+    expect(TrafficSetting::captureFlags())->toBe(['capture' => true, 'site' => true, 'presence' => false])
         ->and($site->where('landing_key', 'feed'))->not->toBeEmpty()
         ->and($site->where('landing_key', 'posts.show'))->not->toBeEmpty()
         // Every source of the mix, a tagged and an untagged visit from Reddit under one key.
