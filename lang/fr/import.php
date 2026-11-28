@@ -14,6 +14,7 @@ return [
     'errors' => [
         'invalid_url' => 'Veuillez saisir une URL valide.',
         'unsafe_url' => 'Le contenu de cette URL ne peut pas être récupéré en toute sécurité.',
+        'domain_blocked' => 'Les liens de ce site ne sont pas pris en charge. Téléchargez le fichier et importez-le depuis votre appareil.',
         'timeout' => 'La requête a expiré. Veuillez réessayer.',
         'too_large' => 'Cette image est trop volumineuse pour être importée.',
         'unsupported' => 'Cette URL ne peut pas être importée automatiquement.',

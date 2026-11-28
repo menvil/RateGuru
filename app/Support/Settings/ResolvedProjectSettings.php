@@ -146,6 +146,18 @@ class ResolvedProjectSettings
     }
 
     /**
+     * The sites a link may not be imported from, as BlockedImportDomains keeps them.
+     *
+     * @return list<string>
+     */
+    public function blockedImportDomains(): array
+    {
+        $domains = $this->data['blocked_import_domains'] ?? [];
+
+        return is_array($domains) ? array_values(array_filter($domains, is_string(...))) : [];
+    }
+
+    /**
      * Whether the admin has left sign-in with this provider on. Every
      * provider is on until it is explicitly switched off. Whether it can
      * actually be used also depends on its keys — see

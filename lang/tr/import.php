@@ -14,6 +14,7 @@ return [
     'errors' => [
         'invalid_url' => 'Lütfen geçerli bir URL girin.',
         'unsafe_url' => 'Bu URL\'ye erişmek güvenli değil.',
+        'domain_blocked' => 'Bu siteden gelen bağlantılar desteklenmiyor. Dosyayı indirip cihazınızdan yükleyin.',
         'timeout' => 'İstek zaman aşımına uğradı. Lütfen tekrar deneyin.',
         'too_large' => 'Bu görsel içe aktarmak için çok büyük.',
         'unsupported' => 'Bu URL otomatik olarak içe aktarılamıyor.',

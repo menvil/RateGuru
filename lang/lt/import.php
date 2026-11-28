@@ -14,6 +14,7 @@ return [
     'errors' => [
         'invalid_url' => 'Įveskite galiojantį URL.',
         'unsafe_url' => 'Šio URL turinio gauti nesaugu.',
+        'domain_blocked' => 'Nuorodos iš šios svetainės nepalaikomos. Atsisiųskite failą ir įkelkite jį iš savo įrenginio.',
         'timeout' => 'Baigėsi užklausos laikas. Bandykite dar kartą.',
         'too_large' => 'Šis paveikslėlis per didelis, kad jį būtų galima importuoti.',
         'unsupported' => 'Šio URL negalima importuoti automatiškai.',

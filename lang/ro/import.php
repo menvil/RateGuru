@@ -14,6 +14,7 @@ return [
     'errors' => [
         'invalid_url' => 'Introdu un URL valid.',
         'unsafe_url' => 'Acest URL nu poate fi accesat în siguranță.',
+        'domain_blocked' => 'Linkurile de pe acest site nu sunt acceptate. Descarcă fișierul și încarcă-l de pe dispozitivul tău.',
         'timeout' => 'Cererea a expirat. Încearcă din nou.',
         'too_large' => 'Această imagine este prea mare pentru a fi importată.',
         'unsupported' => 'Acest URL nu poate fi importat automat.',

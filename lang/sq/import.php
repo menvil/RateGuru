@@ -14,6 +14,7 @@ return [
     'errors' => [
         'invalid_url' => 'Fut një URL të vlefshëm.',
         'unsafe_url' => 'Ky URL nuk është i sigurt për t’u hapur.',
+        'domain_blocked' => 'Lidhjet nga ky sajt nuk mbështeten. Shkarkoni skedarin dhe ngarkojeni nga pajisja juaj.',
         'timeout' => 'Kërkesa skadoi. Provo sërish.',
         'too_large' => 'Ky imazh është shumë i madh për t’u importuar.',
         'unsupported' => 'Ky URL nuk mund të importohet automatikisht.',

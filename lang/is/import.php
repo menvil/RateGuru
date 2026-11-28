@@ -14,6 +14,7 @@ return [
     'errors' => [
         'invalid_url' => 'Sláðu inn gilda vefslóð.',
         'unsafe_url' => 'Það er ekki öruggt að sækja þessa vefslóð.',
+        'domain_blocked' => 'Tenglar frá þessari síðu eru ekki studdir. Sæktu skrána og hladdu henni upp úr tækinu þínu.',
         'timeout' => 'Tími beiðninnar rann út. Reyndu aftur.',
         'too_large' => 'Þessi mynd er of stór til að flytja inn.',
         'unsupported' => 'Ekki er hægt að flytja inn þessa vefslóð sjálfkrafa.',

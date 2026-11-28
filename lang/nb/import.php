@@ -14,6 +14,7 @@ return [
     'errors' => [
         'invalid_url' => 'Skriv inn en gyldig URL.',
         'unsafe_url' => 'Det er ikke trygt å hente denne URL-en.',
+        'domain_blocked' => 'Lenker fra dette nettstedet støttes ikke. Last ned filen og last den opp fra enheten din i stedet.',
         'timeout' => 'Forespørselen fikk tidsavbrudd. Prøv igjen.',
         'too_large' => 'Bildet er for stort til å importeres.',
         'unsupported' => 'Denne URL-en kan ikke importeres automatisk.',

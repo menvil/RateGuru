@@ -12,6 +12,7 @@ use App\Services\Media\Exceptions\MediaToolTimedOutException;
 use App\Services\Media\Exceptions\MediaToolUnavailableException;
 use App\Support\AbuseGuards\ActionRateLimiter;
 use App\Support\AbuseGuards\RateLimitKey;
+use App\Support\Import\BlockedImportDomains;
 use App\Support\Import\ImportProviderDetector;
 use App\Support\Import\UrlImportValidator;
 use App\Support\Import\YtDlp;
@@ -63,6 +64,10 @@ final class ResolveMediaLinkAction
      */
     public function handle(User $author, string $url): ResolvedMediaLink
     {
+        // A site the administrators blocked is said so as the link is pasted,
+        // a picture's link too — which is otherwise fetched only on submit.
+        app(BlockedImportDomains::class)->assertAllowed($url);
+
         app(ActionRateLimiter::class)->hitOrFail(
             key: RateLimitKey::userAction('link-import', $author),
             maxAttempts: (int) config('rate_limits.link_import.max_attempts'),

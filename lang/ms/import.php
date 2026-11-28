@@ -14,6 +14,7 @@ return [
     'errors' => [
         'invalid_url' => 'Sila masukkan URL yang sah.',
         'unsafe_url' => 'URL ini tidak selamat untuk diambil.',
+        'domain_blocked' => 'Pautan dari laman ini tidak disokong. Muat turun fail itu dan muat naik dari peranti anda.',
         'timeout' => 'Permintaan telah tamat masa. Sila cuba lagi.',
         'too_large' => 'Imej ini terlalu besar untuk diimport.',
         'unsupported' => 'URL ini tidak boleh diimport secara automatik.',

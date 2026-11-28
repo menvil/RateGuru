@@ -14,6 +14,7 @@ return [
     'errors' => [
         'invalid_url' => 'Vui lòng nhập URL hợp lệ.',
         'unsafe_url' => 'URL này không an toàn để tải về.',
+        'domain_blocked' => 'Không hỗ trợ liên kết từ trang này. Hãy tải tệp xuống rồi tải lên từ thiết bị của bạn.',
         'timeout' => 'Yêu cầu đã hết thời gian chờ. Vui lòng thử lại.',
         'too_large' => 'Hình ảnh này quá lớn để nhập.',
         'unsupported' => 'Không thể tự động nhập URL này.',

@@ -14,6 +14,7 @@ return [
     'errors' => [
         'invalid_url' => 'Lūdzu, ievadiet derīgu URL.',
         'unsafe_url' => 'Šo URL nav droši ielādēt.',
+        'domain_blocked' => 'Saites no šīs vietnes netiek atbalstītas. Lejupielādējiet failu un augšupielādējiet to no savas ierīces.',
         'timeout' => 'Pieprasījuma laiks beidzās. Lūdzu, mēģiniet vēlreiz.',
         'too_large' => 'Šis attēls ir pārāk liels, lai to importētu.',
         'unsupported' => 'Šo URL nevar importēt automātiski.',

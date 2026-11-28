@@ -22,6 +22,7 @@
         in_array(\Illuminate\Support\Str::after($key, 'data.'), array_keys(ProjectSettingsPage::TEXT_FIELDS['identity']), true) => 'identity',
         in_array(\Illuminate\Support\Str::after($key, 'data.'), array_keys(ProjectSettingsPage::TEXT_FIELDS['labels']), true) => 'labels',
         str_starts_with($key, 'data.feature_flags.') => 'features',
+        $key === 'data.blocked_import_domains' => 'features',
         str_starts_with($key, 'data.sign_in_providers.') => 'providers',
         str_starts_with($key, 'data.language_ranking.') => 'languages',
         default => 'defaults',

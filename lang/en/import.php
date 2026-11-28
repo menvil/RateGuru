@@ -14,6 +14,7 @@ return [
     'errors' => [
         'invalid_url' => 'Please enter a valid URL.',
         'unsafe_url' => 'This URL is not safe to fetch.',
+        'domain_blocked' => 'Links from this site are not supported. Download the file and upload it from your device instead.',
         'timeout' => 'The request timed out. Please try again.',
         'too_large' => 'This image is too large to import.',
         'unsupported' => 'This URL cannot be imported automatically.',

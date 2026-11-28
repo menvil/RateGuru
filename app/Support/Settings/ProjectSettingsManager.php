@@ -70,6 +70,8 @@ class ProjectSettingsManager
         // How the feed and the threads put the viewer's language first: LanguageRankingSettings::DEFAULTS, read
         // under what the row holds as the flags are, so a key added later reaches every installation.
         'language_ranking' => LanguageRankingSettings::DEFAULTS,
+        // The sites a link may not be imported from (BlockedImportDomains): none until an administrator names one.
+        'blocked_import_domains' => [],
     ];
 
     private ?ResolvedProjectSettings $resolved = null;
@@ -97,6 +99,7 @@ class ProjectSettingsManager
                 // The row's pages only: a page or a language the row does not
                 // have is not borrowed from config.
                 'static_pages' => is_array($row->static_pages) ? $row->static_pages : [],
+                'blocked_import_domains' => is_array($row->blocked_import_domains) ? $row->blocked_import_domains : [],
             ])
             : $defaults;
 

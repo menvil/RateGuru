@@ -12,6 +12,7 @@ use App\Enums\ImageInputSource;
 use App\Enums\PostStatus;
 use App\Enums\UserActivity;
 use App\Exceptions\Abuse\RateLimitExceededException;
+use App\Exceptions\Import\ImportDomainBlockedException;
 use App\Exceptions\Import\MediaLinkRefusedException;
 use App\Exceptions\Import\UnsafeImportUrlException;
 use App\Exceptions\Import\UrlImportDisabledException;
@@ -349,6 +350,8 @@ final class UploadPostForm extends Component
         return match (true) {
             $exception instanceof MediaLinkRefusedException, $exception instanceof RateLimitExceededException => $exception->getMessage(),
             $exception instanceof UrlImportDisabledException => __('import.errors.feature_disabled'),
+            // A site the administrators blocked in Project settings: not supported here, as any other site we cannot take.
+            $exception instanceof ImportDomainBlockedException => __('import.errors.domain_blocked'),
             $exception instanceof UnsafeImportUrlException => __('import.errors.unsafe_url'),
             default => (function () use ($exception): string {
                 report($exception);

@@ -14,6 +14,7 @@ return [
     'errors' => [
         'invalid_url' => 'Voer een geldige URL in.',
         'unsafe_url' => 'Deze URL is niet veilig om op te halen.',
+        'domain_blocked' => 'Links van deze site worden niet ondersteund. Download het bestand en upload het vanaf je apparaat.',
         'timeout' => 'Het verzoek duurde te lang. Probeer het opnieuw.',
         'too_large' => 'Deze afbeelding is te groot om te importeren.',
         'unsupported' => 'Deze URL kan niet automatisch worden geïmporteerd.',

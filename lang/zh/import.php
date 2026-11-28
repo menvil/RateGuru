@@ -14,6 +14,7 @@ return [
     'errors' => [
         'invalid_url' => '请输入有效的 URL。',
         'unsafe_url' => '此 URL 无法安全获取。',
+        'domain_blocked' => '不支持来自此网站的链接。请下载文件，然后从你的设备上传。',
         'timeout' => '请求超时，请重试。',
         'too_large' => '图片过大，无法导入。',
         'unsupported' => '此 URL 无法自动导入。',

@@ -14,6 +14,7 @@ return [
     'errors' => [
         'invalid_url' => 'Zadaj platnú URL.',
         'unsafe_url' => 'Túto URL nie je bezpečné načítať.',
+        'domain_blocked' => 'Odkazy z tejto stránky nie sú podporované. Stiahnite si súbor a nahrajte ho zo svojho zariadenia.',
         'timeout' => 'Čas požiadavky vypršal. Skús to znova.',
         'too_large' => 'Tento obrázok je na import príliš veľký.',
         'unsupported' => 'Túto URL nemožno importovať automaticky.',
