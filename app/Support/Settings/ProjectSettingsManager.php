@@ -63,6 +63,9 @@ class ProjectSettingsManager
             // country, the city and the hash always kept (RecordMemberPlaceAction): off until an administrator, the
             // privacy page saying so first, switches it on.
             'keep_ip_addresses' => false,
+            // A feed's videos start by themselves, muted, while most of one is on screen: off until an
+            // administrator switches it on — a video starts only from its play button, and nothing is fetched before.
+            'autoplay_feed_videos' => false,
         ],
         // How the feed and the threads put the viewer's language first: LanguageRankingSettings::DEFAULTS, read
         // under what the row holds as the flags are, so a key added later reaches every installation.

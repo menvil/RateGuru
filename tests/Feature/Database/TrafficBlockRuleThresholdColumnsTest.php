@@ -81,7 +81,7 @@ it('keeps a source’s own thresholds as set, amounts to their columns’ decima
         ->toBe(['block_open_below_average' => 50, 'block_open_floor' => 5, 'block_grace_days' => 3, 'block_target_multiple' => '2.0']);
 });
 
-it('judges a weak start from 1,000 clicks: a new row, and one still on the old 60, take it; a chosen value stays; down() goes back to 60', function () {
+it('judges a weak start from 1,000 clicks: a new row, and one still on the old 60, take it; a chosen value stays; down() puts back only the default', function () {
     $migration = require database_path('migrations/2026_11_28_100000_raise_block_start_clicks_default.php');
     DB::table('traffic_settings')->insert(['id' => 1, 'created_at' => now(), 'updated_at' => now()]);
 
@@ -99,8 +99,10 @@ it('judges a weak start from 1,000 clicks: a new row, and one still on the old 6
     DB::table('traffic_settings')->where('id', 1)->update(['block_start_clicks' => 1000]);
     $migration->down();
     DB::table('traffic_settings')->insert(['id' => 2, 'created_at' => now(), 'updated_at' => now()]);
-    expect(DB::table('traffic_settings')->orderBy('id')->pluck('block_start_clicks')->map(fn ($clicks) => (int) $clicks)->all())->toBe([60, 60]);
+    expect(DB::table('traffic_settings')->orderBy('id')->pluck('block_start_clicks')->map(fn ($clicks) => (int) $clicks)->all())->toBe([1000, 60]);
 
-    // Schema changes outlive the test's transaction on MariaDB: put the default back for the tests after this one.
+    // Schema changes outlive the test's transaction on MariaDB, and commit the rows written before them: remove
+    // this test's rows and put the default back for the tests after this one.
+    DB::table('traffic_settings')->delete();
     $migration->up();
 });

@@ -390,7 +390,7 @@ it('imports nothing from a link that is no web address', function () {
         ->set('imageUrl', 'ftp://example.com/a.jpg')
         ->call('importImage', 'link')
         ->assertHasErrors('imageUrl')
-        ->assertSee('Enter a full web address to an image, starting with https://.');
+        ->assertSee('Paste the full link of an image or a post, starting with https://.');
 
     expect($plan->fresh()->image_asset_id)->toBeNull();
 });
@@ -442,7 +442,7 @@ it('says by the link when nothing can be downloaded from it, and tries the same 
     $page = Livewire::test(EditStudioPlan::class, ['record' => $plan->id])
         ->set('imageUrl', 'https://nowhere.invalid/photo.jpg')
         ->call('importImage', 'link')
-        ->assertHasErrors(['imageUrl' => 'No image could be downloaded from this link. Use a direct link to a JPEG, PNG or WebP file.'])
+        ->assertHasErrors(['imageUrl' => 'No image could be downloaded from this link. Use a link to a JPEG, PNG or WebP file, or to a public post.'])
         ->assertSet('imageSource', 'link')
         ->assertSet('step', 'image');
 
@@ -451,13 +451,13 @@ it('says by the link when nothing can be downloaded from it, and tries the same 
     // Sent again unchanged after it failed, it is tried again, and says so again
     // rather than clearing the error for nothing; Try again fetches it too.
     $page->call('importImage', 'link')
-        ->assertHasErrors(['imageUrl' => 'No image could be downloaded from this link. Use a direct link to a JPEG, PNG or WebP file.']);
+        ->assertHasErrors(['imageUrl' => 'No image could be downloaded from this link. Use a link to a JPEG, PNG or WebP file, or to a public post.']);
     $page->set('imageUrl', 'https://example.com/photo.jpg')->call('retryImport')->assertHasNoErrors();
 
     expect($plan->fresh()->imageAsset)->width->toBe(120);
 });
 
-it('imports the image of a public post without Save, and analyses it', function () {
+it('imports the image of a public post without Save, from the one link field, and analyses it', function () {
     configureStudioImageAnalysis();
     bindFakeHostResolver();
     $transport = new ScriptedImportHttpTransport([
@@ -468,13 +468,16 @@ it('imports the image of a public post without Save, and analyses it', function 
     $plan = StudioPlan::factory()->create();
 
     Livewire::test(EditStudioPlan::class, ['record' => $plan->id])
-        ->set('imageSource', 'post')
-        ->assertSee('From social post')
+        // One block, as the site's own form has: the drop zone and one link field, no source to switch to.
+        ->assertSee('Drop a photo here')
+        ->assertSee('or paste a link')
+        ->assertDontSee('Image source')
+        ->assertDontSee('From social post')
         ->assertSee('Instagram')
-        ->set('postUrl', 'https://example.com/story')
-        ->call('importImage', 'post')
+        ->set('imageUrl', 'https://example.com/story')
+        ->call('importImage', 'link')
         ->assertHasNoErrors()
-        ->assertSet('postUrl', '')
+        ->assertSet('imageUrl', '')
         ->assertSet('lockVersion', 2);
 
     expect($plan->fresh()->imageAsset)->width->toBe(400)->height->toBe(300)
@@ -482,25 +485,26 @@ it('imports the image of a public post without Save, and analyses it', function 
     Queue::assertPushed(AnalyzeStudioPlanImageJob::class, 1);
 });
 
-it('says which site a post link is for', function () {
+it('says which site a link is for, and takes "post" from an older page as the one link source', function () {
     Livewire::test(EditStudioPlan::class, ['record' => StudioPlan::factory()->create()->id])
         ->set('imageSource', 'post')
-        ->set('postUrl', 'https://www.instagram.com/p/C0ffee/')
+        ->assertSet('imageSource', 'link')
+        ->set('imageUrl', 'https://www.instagram.com/p/C0ffee/')
         ->assertViewHas('detectedPlatform', 'Instagram')
         ->assertSee('Detected: Instagram post.')
-        ->set('postUrl', 'https://example.com/story')
+        ->set('imageUrl', 'https://example.com/story')
         ->assertViewHas('detectedPlatform', null);
 });
 
-it('says so by the post link when the post shows no image, or importing from links is switched off', function (Closure $arrange, string $message) {
+it('says so by the link when a post shows no image, or importing from links is switched off', function (Closure $arrange, string $message) {
     bindFakeHostResolver();
     $arrange();
     $plan = StudioPlan::factory()->create();
 
     Livewire::test(EditStudioPlan::class, ['record' => $plan->id])
-        ->set('postUrl', 'https://example.com/story')
-        ->call('importImage', 'post')
-        ->assertHasErrors(['postUrl' => $message]);
+        ->set('imageUrl', 'https://example.com/story')
+        ->call('importImage', 'link')
+        ->assertHasErrors(['imageUrl' => $message]);
 
     expect($plan->fresh()->image_asset_id)->toBeNull();
     Queue::assertNothingPushed();
@@ -608,4 +612,24 @@ it('fetches an address that failed again when it is given again, keeping its err
         ->assertHasErrors('imageUrl');
 
     expect($transport->calls)->toHaveCount(2);
+});
+
+it('imports an image whose link names no file, an image CDN\'s, from the one link field', function () {
+    configureStudioImageAnalysis();
+    bindFakeHostResolver();
+    // The link is no post: the page read finds no picture, so the link itself is taken as one.
+    $transport = new ScriptedImportHttpTransport([
+        new ImportTransportResponse(200, ['content-type' => 'image/jpeg'], jpegMarkerBytes(400, 300)),
+        new ImportTransportResponse(200, ['content-type' => 'image/jpeg'], jpegMarkerBytes(400, 300)),
+    ]);
+    app()->instance(ImportHttpTransport::class, $transport);
+    $plan = StudioPlan::factory()->create();
+
+    Livewire::test(EditStudioPlan::class, ['record' => $plan->id])
+        ->set('imageUrl', 'https://cdn.example.com/image?id=42')
+        ->call('importImage', 'link')
+        ->assertHasNoErrors();
+
+    expect($plan->fresh()->imageAsset)->width->toBe(400)->height->toBe(300)
+        ->and(collect($transport->calls)->map(fn ($target) => $target->url)->last())->toBe('https://cdn.example.com/image?id=42');
 });

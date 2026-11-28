@@ -10,18 +10,6 @@ use RuntimeException;
  */
 final class MediaLinkRefusedException extends RuntimeException
 {
-    /** A page on a site where every page is a video gave none. */
-    public static function noVideoOnPage(): self
-    {
-        return new self(__('import.errors.fetch_failed'));
-    }
-
-    /** A page's video whose length the site does not say: the download could not hold it to the limit. */
-    public static function unknownLength(): self
-    {
-        return new self(__('ui.upload.error_invalid_video'));
-    }
-
     public static function tooLong(int $maxSeconds): self
     {
         return new self(__('ui.upload.error_video_too_long', ['seconds' => $maxSeconds]));
