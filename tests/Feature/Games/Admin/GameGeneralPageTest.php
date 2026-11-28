@@ -1,5 +1,6 @@
 <?php
 
+use App\Enums\GameMechanic;
 use App\Enums\GameStatus;
 use App\Filament\Resources\Games\GameResource;
 use App\Filament\Resources\Games\Pages\EditGameGeneral;
@@ -61,6 +62,24 @@ it('locks the slug on screen once a version has been published', function () {
     $this->get(GameResource::getUrl('edit', ['record' => $game]))
         ->assertOk()
         ->assertSee('Locked after the first publish');
+});
+
+it('saves a published game’s title with the game’s own mechanic, which General never edits', function () {
+    $game = Game::factory()->published()->create(['title' => 'Before']);
+
+    Livewire::test(EditGameGeneral::class, ['record' => $game->id])
+        ->set('gameTitle', 'After')
+        ->call('save')
+        ->assertDispatched('rg-admin-toast', message: 'Changes saved', tone: 'success');
+
+    expect($game->fresh())->title->toBe('After')
+        ->mechanic->toBe($game->mechanic);
+});
+
+it('draws an example round for every mechanic there is, never failing on one without its own', function () {
+    foreach (GameMechanic::cases() as $mechanic) {
+        expect(view('filament.pages.games.example-round', ['mechanic' => $mechanic, 'title' => 'A game'])->render())->toContain('Example round');
+    }
 });
 
 it('stores a cover the moment it is chosen, and releases it when removed', function () {

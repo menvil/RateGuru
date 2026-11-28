@@ -104,7 +104,7 @@ final class EditGameGeneral extends Page
         }
 
         try {
-            app(SaveGameGeneralAction::class)->handle($this->admin(), $game, $this->generalData(), $this->lockVersion);
+            app(SaveGameGeneralAction::class)->handle($this->admin(), $game, $this->generalData($game), $this->lockVersion);
         } catch (ValidationException $exception) {
             $this->setErrorBag($exception->validator->errors());
 
@@ -196,13 +196,19 @@ final class EditGameGeneral extends Page
         $this->gone = false;
     }
 
-    private function generalData(): GameGeneralData
+    /**
+     * The form's fields, and the game's own mechanic: General never edits the
+     * mechanic, and leaving it out would save the data's default — Versus —
+     * over any other, or be refused as a change once a version is published.
+     */
+    private function generalData(Game $game): GameGeneralData
     {
         return new GameGeneralData(
             title: $this->gameTitle,
             internalName: $this->internalName,
             slug: $this->gameSlug,
             description: $this->gameDescription,
+            mechanic: $game->mechanic->value,
         );
     }
 

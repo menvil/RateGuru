@@ -14,6 +14,15 @@
             ],
             'note' => 'Players tap one photo, then see how the crowd voted on the site.',
         ],
+        // A mechanic with no example of its own yet: two placeholders and a pointer to Preview, never an error on General.
+        default => [
+            'question' => 'A round of this game',
+            'options' => [
+                ['caption' => 'First answer', 'label' => 'First'],
+                ['caption' => 'Second answer', 'label' => 'Second'],
+            ],
+            'note' => 'Preview plays a round as players see it.',
+        ],
     };
 @endphp
 
