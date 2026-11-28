@@ -1,0 +1,27 @@
+app/Exceptions/Import/ImportSiteRefusingException.php
+  s_1f43f39fbe0537::t_fba8030791adbe 10,14,16
+tests/Feature/Import/ImportRefusalMonitorTest.php
+  s_1f43f39fbe0537::t_51d01c0dfd0ed1 16,20,23,27,31-45
+tests/Feature/Import/YtDlpImportTest.php
+  s_1f43f39fbe0537::t_16c2075021f265 757
+app/Support/Import/ImportRefusalMonitor.php
+  s_1f43f39fbe0537::t_fba8030791adbe 11-19,31,35,48,58-71
+config/import.php
+  s_1f43f39fbe0537::t_51d01c0dfd0ed1 24-26
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "2215afdfdcb937f321fa0bb77c4ad2650bf80a2b",
+  "prompts": {},
+  "sessions": {
+    "s_1f43f39fbe0537": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "526787d0-f443-4ad7-9610-cf9811fec895",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
