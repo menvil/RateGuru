@@ -1,0 +1,116 @@
+lang/ka/ui.php
+  s_1f43f39fbe0537::t_df80d87a3a125d 271
+lang/da/ui.php
+  s_1f43f39fbe0537::t_df80d87a3a125d 271
+lang/nb/ui.php
+  s_1f43f39fbe0537::t_df80d87a3a125d 271
+app/Filament/Resources/StudioPlans/Concerns/EditsStudioPlan.php
+  s_1f43f39fbe0537::t_f6b93ebbd29a3d 97-99
+  s_1f43f39fbe0537::t_b69f7ccfce82f3 96,100-108,922-923,935
+lang/sk/ui.php
+  s_1f43f39fbe0537::t_df80d87a3a125d 271
+lang/bn/ui.php
+  s_1f43f39fbe0537::t_df80d87a3a125d 271
+lang/sl/ui.php
+  s_1f43f39fbe0537::t_df80d87a3a125d 271
+lang/nl/ui.php
+  s_1f43f39fbe0537::t_df80d87a3a125d 271
+lang/tr/ui.php
+  s_1f43f39fbe0537::t_df80d87a3a125d 271
+lang/fil/ui.php
+  s_1f43f39fbe0537::t_df80d87a3a125d 271
+resources/views/filament/pages/studio-plan/image.blade.php
+  s_1f43f39fbe0537::t_f6b93ebbd29a3d 270
+  s_1f43f39fbe0537::t_b69f7ccfce82f3 280-282
+lang/ja/ui.php
+  s_1f43f39fbe0537::t_df80d87a3a125d 271
+lang/bg/ui.php
+  s_1f43f39fbe0537::t_df80d87a3a125d 271
+lang/el/ui.php
+  s_1f43f39fbe0537::t_df80d87a3a125d 271
+lang/et/ui.php
+  s_1f43f39fbe0537::t_df80d87a3a125d 271
+lang/hr/ui.php
+  s_1f43f39fbe0537::t_df80d87a3a125d 271
+lang/fr/ui.php
+  s_1f43f39fbe0537::t_df80d87a3a125d 271
+lang/lv/ui.php
+  s_1f43f39fbe0537::t_df80d87a3a125d 274
+lang/es/ui.php
+  s_1f43f39fbe0537::t_df80d87a3a125d 271
+lang/ru/ui.php
+  s_1f43f39fbe0537::t_df80d87a3a125d 275
+lang/cs/ui.php
+  s_1f43f39fbe0537::t_df80d87a3a125d 271
+lang/lt/ui.php
+  s_1f43f39fbe0537::t_df80d87a3a125d 273
+lang/sr/ui.php
+  s_1f43f39fbe0537::t_df80d87a3a125d 271
+lang/ms/ui.php
+  s_1f43f39fbe0537::t_df80d87a3a125d 271
+lang/th/ui.php
+  s_1f43f39fbe0537::t_df80d87a3a125d 271
+lang/pt/ui.php
+  s_1f43f39fbe0537::t_df80d87a3a125d 271
+lang/sq/ui.php
+  s_1f43f39fbe0537::t_df80d87a3a125d 271
+lang/vi/ui.php
+  s_1f43f39fbe0537::t_df80d87a3a125d 271
+lang/cnr/ui.php
+  s_1f43f39fbe0537::t_df80d87a3a125d 271
+lang/is/ui.php
+  s_1f43f39fbe0537::t_df80d87a3a125d 271
+lang/sv/ui.php
+  s_1f43f39fbe0537::t_df80d87a3a125d 271
+lang/ar/ui.php
+  s_1f43f39fbe0537::t_df80d87a3a125d 281
+lang/pl/ui.php
+  s_1f43f39fbe0537::t_df80d87a3a125d 271
+lang/fi/ui.php
+  s_1f43f39fbe0537::t_df80d87a3a125d 271
+lang/ur/ui.php
+  s_1f43f39fbe0537::t_df80d87a3a125d 279
+lang/uk/ui.php
+  s_1f43f39fbe0537::t_df80d87a3a125d 271
+resources/translations/confirmed-english.json
+  s_1f43f39fbe0537::t_a95f51474f8b19 233-234,396-398,422-425,485-488,496-498,500,502,509,516
+  s_1f43f39fbe0537::t_df80d87a3a125d 499
+lang/hu/ui.php
+  s_1f43f39fbe0537::t_df80d87a3a125d 271
+lang/it/ui.php
+  s_1f43f39fbe0537::t_df80d87a3a125d 271
+lang/bs/ui.php
+  s_1f43f39fbe0537::t_df80d87a3a125d 271
+lang/he/ui.php
+  s_1f43f39fbe0537::t_df80d87a3a125d 278
+lang/id/ui.php
+  s_1f43f39fbe0537::t_df80d87a3a125d 271
+lang/zh/ui.php
+  s_1f43f39fbe0537::t_df80d87a3a125d 271
+lang/de/ui.php
+  s_1f43f39fbe0537::t_df80d87a3a125d 271
+lang/hi/ui.php
+  s_1f43f39fbe0537::t_df80d87a3a125d 271
+lang/ro/ui.php
+  s_1f43f39fbe0537::t_df80d87a3a125d 271
+lang/en/ui.php
+  s_1f43f39fbe0537::t_df80d87a3a125d 271
+lang/mk/ui.php
+  s_1f43f39fbe0537::t_df80d87a3a125d 271
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "cc5d0e4495e7c2cae587c2d35f6f8be2931df413",
+  "prompts": {},
+  "sessions": {
+    "s_1f43f39fbe0537": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "526787d0-f443-4ad7-9610-cf9811fec895",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
