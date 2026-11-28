@@ -59,6 +59,7 @@
             "@php -r \"file_exists('.env') || copy('.env.example', '.env');\"",
             "@php artisan key:generate",
             "@php artisan migrate --force",
+            "@php -r \"is_link('public/storage') && unlink('public/storage'); file_exists('public/storage') || symlink('../storage/app/public', 'public/storage');\"",
             "npm install --ignore-scripts",
             "npm run build"
         ],
