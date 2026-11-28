@@ -1,0 +1,24 @@
+app/Services/Geo/NetworkListUpdater.php
+  s_4b9dc6ab6b25d3::t_23859c99db2264 90-92,140,142,147-152,158-164,167
+app/Support/Geo/Networks/AddressRanges.php
+  s_4b9dc6ab6b25d3::t_657570441e19e6 123,125,130-131,133-148
+  s_4b9dc6ab6b25d3::t_23859c99db2264 5-6,30-41,43-53,55-56,59-66,112-117,120,122,124,126-128,132,149-151,153,155-157,159-161,167-168
+docs/architecture/geo.md
+  ai_agent 55-60
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "6ef380b05994f1c5e960aaded0595058338764a7",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
