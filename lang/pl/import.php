@@ -14,6 +14,7 @@ return [
     'errors' => [
         'invalid_url' => 'Wpisz prawidłowy adres URL.',
         'unsafe_url' => 'Pobieranie z tego adresu URL nie jest bezpieczne.',
+        'domain_blocked' => 'Linki z tej witryny nie są obsługiwane. Pobierz plik i prześlij go ze swojego urządzenia.',
         'timeout' => 'Upłynął limit czasu żądania. Spróbuj ponownie.',
         'too_large' => 'Ten obraz jest za duży, aby go zaimportować.',
         'unsupported' => 'Tego adresu URL nie można zaimportować automatycznie.',

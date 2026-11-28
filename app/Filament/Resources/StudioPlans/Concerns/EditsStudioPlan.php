@@ -12,6 +12,7 @@ use App\Enums\ContentRatingSource;
 use App\Enums\ImageInputSource;
 use App\Enums\StudioPlanApprovalProblem;
 use App\Enums\StudioPlanPublicationMode;
+use App\Exceptions\Import\ImportDomainBlockedException;
 use App\Exceptions\Import\UnsafeImportUrlException;
 use App\Exceptions\Import\UrlImportDisabledException;
 use App\Exceptions\Studio\CannotManageStudioPlanException;
@@ -106,6 +107,9 @@ trait EditsStudioPlan
         'Facebook' => ['facebook.com', 'fb.com', 'fb.watch'],
         'Pinterest' => ['pinterest.com', 'pin.it'],
     ];
+
+    /** What a link to a site blocked in Project settings says (BlockedImportDomains). */
+    private const BLOCKED_SITE = 'Links from this site are blocked in Project settings. Download the image and upload it instead.';
 
     /**
      * The step on screen. Not part of the draft, and changed only through
@@ -383,6 +387,10 @@ trait EditsStudioPlan
                 $file = $importer->download($imageUrl);
             } catch (UrlImportDisabledException) {
                 $this->addError($field, 'Importing from links is switched off in Project settings.');
+
+                return;
+            } catch (ImportDomainBlockedException) {
+                $this->addError($field, self::BLOCKED_SITE);
 
                 return;
             } catch (Throwable $exception) {
@@ -749,6 +757,10 @@ trait EditsStudioPlan
             $preview = app(ImportFromUrlAction::class)->handle($url);
         } catch (UrlImportDisabledException) {
             $this->addError('imageUrl', 'Importing from links is switched off in Project settings.');
+
+            return null;
+        } catch (ImportDomainBlockedException) {
+            $this->addError('imageUrl', self::BLOCKED_SITE);
 
             return null;
         } catch (UnsafeImportUrlException) {

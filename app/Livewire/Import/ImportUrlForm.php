@@ -3,6 +3,7 @@
 namespace App\Livewire\Import;
 
 use App\Actions\Import\ImportFromUrlAction;
+use App\Exceptions\Import\ImportDomainBlockedException;
 use App\Exceptions\Import\ImportFetchException;
 use App\Exceptions\Import\UnsafeImportUrlException;
 use App\Exceptions\Import\UrlImportDisabledException;
@@ -50,6 +51,8 @@ class ImportUrlForm extends Component
                 $this->previewSourceUrl = $preview->sourceUrl;
                 $this->previewProvider = $preview->provider->value;
             }
+        } catch (ImportDomainBlockedException) {
+            $this->error = __('import.errors.domain_blocked');
         } catch (UnsafeImportUrlException) {
             $this->error = __('import.errors.unsafe_url');
         } catch (UrlImportDisabledException) {

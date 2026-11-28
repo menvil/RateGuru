@@ -14,6 +14,7 @@ return [
     'errors' => [
         'invalid_url' => 'Ange en giltig webbadress.',
         'unsafe_url' => 'Den här länken är inte säker att hämta.',
+        'domain_blocked' => 'Länkar från den här webbplatsen stöds inte. Ladda ner filen och ladda upp den från din enhet i stället.',
         'timeout' => 'Begäran tog för lång tid. Försök igen.',
         'too_large' => 'Bilden är för stor för att importeras.',
         'unsupported' => 'Den här länken kan inte importeras automatiskt.',

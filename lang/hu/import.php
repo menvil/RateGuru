@@ -14,6 +14,7 @@ return [
     'errors' => [
         'invalid_url' => 'Adj meg egy érvényes URL-t.',
         'unsafe_url' => 'Ennek az URL-nek a lekérése nem biztonságos.',
+        'domain_blocked' => 'Az erről az oldalról származó linkek nem támogatottak. Töltsd le a fájlt, és töltsd fel az eszközödről.',
         'timeout' => 'A kérés túllépte az időkorlátot. Próbáld újra.',
         'too_large' => 'Ez a kép túl nagy az importáláshoz.',
         'unsupported' => 'Ez az URL nem importálható automatikusan.',

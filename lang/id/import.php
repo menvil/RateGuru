@@ -14,6 +14,7 @@ return [
     'errors' => [
         'invalid_url' => 'Masukkan URL yang valid.',
         'unsafe_url' => 'URL ini tidak aman untuk diambil.',
+        'domain_blocked' => 'Tautan dari situs ini tidak didukung. Unduh filenya dan unggah dari perangkat Anda.',
         'timeout' => 'Waktu permintaan habis. Silakan coba lagi.',
         'too_large' => 'Gambar ini terlalu besar untuk diimpor.',
         'unsupported' => 'URL ini tidak bisa diimpor secara otomatis.',

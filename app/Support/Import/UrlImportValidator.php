@@ -2,6 +2,7 @@
 
 namespace App\Support\Import;
 
+use App\Exceptions\Import\ImportDomainBlockedException;
 use App\Exceptions\Import\UnsafeImportUrlException;
 use App\Support\Import\Dns\HostResolver;
 use App\Support\Import\Net\PublicIpClassifier;
@@ -24,6 +25,21 @@ class UrlImportValidator
 
     public function validate(string $url, int $redirectHop = 0): ResolvedImportTarget
     {
+        // A site the administrators blocked — the link itself or a redirect
+        // onto that site — before its name is even looked up. The project's
+        // choice, not an attack: logged as an import refused, not as a
+        // security event.
+        try {
+            app(BlockedImportDomains::class)->assertAllowed($url);
+        } catch (ImportDomainBlockedException $exception) {
+            app(DomainLogger::class)->info('url_import.blocked_domain', array_filter([
+                'source_host' => parse_url($url, PHP_URL_HOST) ?: 'unknown',
+                'redirect_hop' => $redirectHop > 0 ? $redirectHop : null,
+            ], fn ($value) => $value !== null));
+
+            throw $exception;
+        }
+
         return $this->validateFor($url, OutboundUrlPolicy::import(), $redirectHop);
     }
 

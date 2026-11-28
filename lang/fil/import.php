@@ -14,6 +14,7 @@ return [
     'errors' => [
         'invalid_url' => 'Maglagay ng wastong URL.',
         'unsafe_url' => 'Hindi ligtas kunin ang URL na ito.',
+        'domain_blocked' => 'Hindi suportado ang mga link mula sa site na ito. I-download ang file at i-upload ito mula sa iyong device.',
         'timeout' => 'Nag-time out ang request. Pakisubukang muli.',
         'too_large' => 'Masyadong malaki ang larawang ito para i-import.',
         'unsupported' => 'Hindi maaaring awtomatikong i-import ang URL na ito.',

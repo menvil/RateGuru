@@ -33,12 +33,14 @@ class ProjectSettings extends Model
         'feature_flags',
         'sign_in_providers',
         'language_ranking',
+        'blocked_import_domains',
     ];
 
     protected $casts = [
         'feature_flags' => 'array',
         'sign_in_providers' => 'array',
         'language_ranking' => 'array',
+        'blocked_import_domains' => 'array',
         'site_name_translations' => 'array',
         'site_tagline_translations' => 'array',
         'site_description_translations' => 'array',

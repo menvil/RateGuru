@@ -395,6 +395,27 @@ it('imports nothing from a link that is no web address', function () {
     expect($plan->fresh()->image_asset_id)->toBeNull();
 });
 
+it('says by the link when its site is blocked in Project settings, fetching nothing from it', function (string $url) {
+    bindFakeHostResolver();
+    ProjectSettings::factory()->create(['blocked_import_domains' => ['example.com']]);
+    app(ProjectSettingsManager::class)->flush();
+    $transport = new ScriptedImportHttpTransport([]);
+    app()->instance(ImportHttpTransport::class, $transport);
+    $plan = StudioPlan::factory()->create();
+
+    Livewire::test(EditStudioPlan::class, ['record' => $plan->id])
+        ->set('imageUrl', $url)
+        ->call('importImage', 'link')
+        ->assertHasErrors('imageUrl')
+        ->assertSee('Links from this site are blocked in Project settings. Download the image and upload it instead.');
+
+    expect($transport->calls)->toBe([])
+        ->and($plan->fresh()->image_asset_id)->toBeNull();
+})->with([
+    'a picture\'s link' => ['https://cdn.example.com/photo.jpg'],
+    'a post\'s link' => ['https://example.com/post/1'],
+]);
+
 it('cleans the imported file up even when the image is refused, says so by the link, and asks for no analysis', function () {
     configureStudioImageAnalysis();
     $file = UploadedFile::fake()->createWithContent('photo.jpg', 'not an image');

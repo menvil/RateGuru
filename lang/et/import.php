@@ -14,6 +14,7 @@ return [
     'errors' => [
         'invalid_url' => 'Sisesta kehtiv URL.',
         'unsafe_url' => 'Selle URL-i laadimine pole turvaline.',
+        'domain_blocked' => 'Selle saidi linke ei toetata. Laadi fail alla ja laadi see üles oma seadmest.',
         'timeout' => 'Päring aegus. Proovi uuesti.',
         'too_large' => 'See pilt on importimiseks liiga suur.',
         'unsupported' => 'Seda URL-i ei saa automaatselt importida.',

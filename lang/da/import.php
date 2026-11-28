@@ -14,6 +14,7 @@ return [
     'errors' => [
         'invalid_url' => 'Angiv en gyldig URL.',
         'unsafe_url' => 'Denne URL er ikke sikker at hente.',
+        'domain_blocked' => 'Links fra dette websted understøttes ikke. Download filen, og upload den fra din enhed i stedet.',
         'timeout' => 'Anmodningen fik timeout. Prøv igen.',
         'too_large' => 'Billedet er for stort til at blive importeret.',
         'unsupported' => 'Denne URL kan ikke importeres automatisk.',

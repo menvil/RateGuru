@@ -127,6 +127,7 @@
     "games.result.over": "fc967f9a2df32a26",
     "games.result.play": "e3090fefca01e440",
     "import.cancel": "19766ed6ccb2f4a3",
+    "import.errors.domain_blocked": "ed59d0d275aa64f3",
     "import.errors.feature_disabled": "dbb3e1703d63bcd8",
     "import.errors.fetch_failed": "68214488c50af37c",
     "import.errors.invalid_url": "d713f592677736dc",

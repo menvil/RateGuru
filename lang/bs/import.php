@@ -14,6 +14,7 @@ return [
     'errors' => [
         'invalid_url' => 'Unesi ispravan URL.',
         'unsafe_url' => 'Preuzimanje s ovog URL-a nije sigurno.',
+        'domain_blocked' => 'Linkovi s ove stranice nisu podržani. Preuzmite datoteku i otpremite je sa svog uređaja.',
         'timeout' => 'Vrijeme za zahtjev je isteklo. Pokušaj ponovo.',
         'too_large' => 'Ova slika je prevelika za uvoz.',
         'unsupported' => 'Ovaj URL se ne može automatski uvesti.',

@@ -12,6 +12,7 @@ use App\Queries\Languages\LanguageStatusQuery;
 use App\Queries\SocialProvidersInUseQuery;
 use App\Services\Settings\ProjectPresetStatusService;
 use App\Support\Auth\SocialProviderAvailability;
+use App\Support\Import\BlockedImportDomains;
 use App\Support\Languages\LanguageRankingSettings;
 use App\Support\Settings\ProjectSettingsManager;
 use App\Support\Translations\ProjectContentSection;
@@ -199,6 +200,9 @@ final class ProjectSettingsPage extends Page
             $data['sign_in_providers'][$provider] = (bool) ($stored['sign_in_providers'][$provider] ?? true);
         }
 
+        // One domain a line, as the field shows them; saved as the list BlockedImportDomains reads.
+        $data['blocked_import_domains'] = implode("\n", array_filter(is_array($stored['blocked_import_domains'] ?? null) ? $stored['blocked_import_domains'] : [], is_string(...)));
+
         $data['language_ranking'] = LanguageRankingSettings::fromArray(is_array($stored['language_ranking'] ?? null) ? $stored['language_ranking'] : [])->toArray();
 
         foreach (self::pageKeys() as $key) {
@@ -310,6 +314,16 @@ final class ProjectSettingsPage extends Page
             $messages["data.language_ranking.{$number}.between"] = "Enter a whole number from {$least} to ".number_format($most).'.';
         }
 
+        $rules['data.blocked_import_domains'] = ['nullable', 'string', 'max:50000', function (string $attribute, mixed $value, \Closure $fail): void {
+            ['domains' => $domains, 'invalid' => $invalid] = BlockedImportDomains::parse((string) $value);
+
+            if ($invalid !== []) {
+                $fail('Not a domain: '.self::listed(array_map(fn (string $entry): string => '“'.Str::limit($entry, 60).'”', $invalid)).'. Enter one a line, as example.com.');
+            } elseif (count($domains) > BlockedImportDomains::MAX) {
+                $fail('Keep it to '.BlockedImportDomains::MAX.' domains or fewer.');
+            }
+        }];
+
         foreach (self::pageKeys() as $key) {
             foreach (['title', 'content'] as $field) {
                 [$limit] = $fields['static_pages'][$field];
@@ -335,10 +349,20 @@ final class ProjectSettingsPage extends Page
             $validated[$field] = is_string($validated[$field] ?? null) ? trim($validated[$field]) : null;
         }
 
+        // Kept as typed until it is compared with what was read, so a list
+        // that was not touched is not written back.
+        $validated['blocked_import_domains'] = implode("\n", BlockedImportDomains::parse((string) ($validated['blocked_import_domains'] ?? ''))['domains']);
+
         // Only what this draft changed is written. Another administrator may
         // have saved since the page was read, and a setting left as it was
         // read here — a sign-in provider, a flag, a page — keeps their value.
-        app(SaveProjectSettingsAction::class)->handle(self::changedFrom($this->saved, $validated));
+        $changed = self::changedFrom($this->saved, $validated);
+
+        if (array_key_exists('blocked_import_domains', $changed)) {
+            $changed['blocked_import_domains'] = BlockedImportDomains::parse($changed['blocked_import_domains'])['domains'];
+        }
+
+        app(SaveProjectSettingsAction::class)->handle($changed);
 
         // The draft becomes the row as it is stored now — this save, and what
         // anyone else saved since the page was read — so the page shows what

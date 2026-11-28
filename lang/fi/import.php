@@ -14,6 +14,7 @@ return [
     'errors' => [
         'invalid_url' => 'Anna kelvollinen URL-osoite.',
         'unsafe_url' => 'Tämän URL-osoitteen hakeminen ei ole turvallista.',
+        'domain_blocked' => 'Tämän sivuston linkkejä ei tueta. Lataa tiedosto ja lähetä se laitteeltasi.',
         'timeout' => 'Pyyntö aikakatkaistiin. Yritä uudelleen.',
         'too_large' => 'Kuva on liian suuri tuotavaksi.',
         'unsupported' => 'Tätä URL-osoitetta ei voi tuoda automaattisesti.',
