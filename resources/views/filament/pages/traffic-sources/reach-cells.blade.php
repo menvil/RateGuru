@@ -8,5 +8,5 @@
     <span class="rg-admin-traffic__fig" role="gridcell">—</span>
 @else
     <span class="rg-admin-traffic__fig" role="gridcell"><strong>{{ number_format($r->impressions) }}</strong></span>
-    <span class="rg-admin-traffic__fig" role="gridcell"><strong>{{ $r->reachRate() === null ? '—' : number_format($r->reachRate() * 100, 1).'%' }}</strong><small>{{ number_format($r->reached) }} {{ $r->reached === 1 ? 'visit' : 'visits' }}</small></span>
+    <span class="rg-admin-traffic__fig" role="gridcell"><strong>{{ $r->reachRate() === null ? '—' : number_format($r->reachRate() * 100, 2).'%' }}</strong><small>{{ number_format($r->reached) }} {{ $r->reached === 1 ? 'visit' : 'visits' }}</small></span>
 @endif

@@ -793,7 +793,7 @@ postback; the report columns and a block reason built on them come later.
 The list keeps, past its clicks threshold and search, only the rows whose share
 in one column (`SiteZoneList::SHARES`, the share each column shows under its
 figure) is above or below a percent (`SiteZoneList::sharePasses()`, rounded
-to a tenth of a percent as the columns show it, strictly); a row with nothing
+to a hundredth of a percent as the columns show it, strictly); a row with nothing
 to take the share of is on neither side. "Find in Sites & zones" clears the
 share filter with the clicks threshold, so the row it looks up shows, and
 only the list reads `repeatAddresses()` — `places()` skips it for the rule's

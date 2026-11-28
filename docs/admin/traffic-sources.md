@@ -380,8 +380,8 @@ rows on that side of it stay, in the counts of the segments too. With **Hide
 under 1,000 clicks** and *Started (of opened) below 2 %*, say, the list is the
 big places where almost nobody starts. A row with nothing to take that share
 of — no visit opened the page, for Started — is on neither side, and a share
-that reads exactly the percent (2.0% against 2) is on neither side either:
-shares are compared as the columns show them, to a tenth. Accounts shows its
+that reads exactly the percent (2.00% against 2) is on neither side either:
+shares show, and are compared, to a hundredth of a percent. Accounts shows its
 share of finished only until a post is published there; the filter uses that
 share all the same. **Find in Sites & zones** clears the share filter, so the
 row it opens always shows. The filter is kept in the page's address, like the

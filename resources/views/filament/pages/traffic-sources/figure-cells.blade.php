@@ -7,7 +7,7 @@
     account.
 --}}
 @php
-    $share = fn (int $part, int $whole): string => $whole === 0 ? '—' : number_format($part * 100 / $whole, 1).'%';
+    $share = fn (int $part, int $whole): string => $whole === 0 ? '—' : number_format($part * 100 / $whole, 2).'%';
     $spendNow = \App\Support\Traffic\Money\TrafficMoney::of($f->spend);
     // Profit to the cent: a fraction of a cent either way reads as none, not as −$0.00.
     $profit = $f->value()->minus($spendNow)->toScale(2, \Brick\Math\RoundingMode::HalfUp);
