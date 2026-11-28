@@ -120,8 +120,9 @@ document.addEventListener('livewire:navigated', rgTrafficPageIn);
 // by software — a class, never the renderer's name. No address, no canvas or
 // audio print, nothing stored in the browser. It reports 3 seconds after the
 // page is first on screen, half a second after the first input, after 15
-// seconds whatever happened, and when the page is hidden or left — at most
-// four times, and only when something changed.
+// seconds whatever happened, and when the page is hidden or left — only when
+// something changed, and past four reports only for something seen first
+// (the page on screen, the first input, BotD's verdict), eight at most.
 var rgPresence = null;
 
 function rgPresenceGraphics() {
@@ -190,6 +191,8 @@ function rgPresenceBrowser() {
         sh: screen.height,
         ww: window.innerWidth,
         wh: window.innerHeight,
+        ow: window.outerWidth,
+        oh: window.outerHeight,
         dpr: window.devicePixelRatio || 1,
         mtp: navigator.maxTouchPoints || 0,
         hc: navigator.hardwareConcurrency || '',
@@ -223,20 +226,19 @@ function rgPresenceFields(state) {
 }
 
 function rgPresenceReport(state, leaving) {
-    if (state.reports >= 4) {
-        return;
-    }
-
     state.browser = state.browser || rgPresenceBrowser();
     var fields = rgPresenceFields(state);
     // Visible time alone moves on by itself: a report only for something new, rounded so a page left on screen isn't one.
     var key = JSON.stringify(Object.assign({}, fields, { visms: Math.floor((fields.visms || 0) / 10000) }));
+    // What a report must carry whatever went before: the page first on screen, the first input, BotD's verdict.
+    var firsts = [fields.tvis !== undefined, fields.tin !== undefined || fields.ins > 0, fields.botd !== undefined].join();
 
-    if (key === state.lastKey) {
+    if (key === state.lastKey || (state.reports >= 4 && firsts === state.lastFirsts) || state.reports >= 8) {
         return;
     }
 
     state.lastKey = key;
+    state.lastFirsts = firsts;
     state.reports++;
 
     if (leaving && navigator.sendBeacon) {
@@ -288,6 +290,7 @@ function rgPresenceStart() {
         browser: null,
         reports: 0,
         lastKey: '',
+        lastFirsts: '',
     };
 
     document.addEventListener('visibilitychange', function () {
@@ -315,6 +318,11 @@ function rgPresenceStart() {
     Object.keys(kinds).forEach(function (type) {
         window.addEventListener(type, function (event) {
             if (!event.isTrusted) {
+                // A password manager types into fields with keys a script makes: only clicks, touches and wheels count.
+                if (type === 'keydown') {
+                    return;
+                }
+
                 state.untrusted = Math.min(state.untrusted + 1, 1000);
 
                 return;

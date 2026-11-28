@@ -419,11 +419,13 @@ about the browser contradicts what it says it is:
   country's (UTC says nothing);
 - **Touch not of its device**, **Impossible screen**, **System not of its
   browser** — a phone with no touch, an iPhone without its five touch points,
-  no screen, a window larger than the screen, the 800 × 600 window automation
-  opens, Windows in the User-Agent on a Linux machine;
+  no screen, a browser window larger than the screen (zooming the page out
+  doesn't count), the 800 × 600 page automation opens, Windows in the
+  User-Agent on a Linux machine;
 - **Software graphics** — drawn without a graphics card, as on servers;
 - **Input while hidden**, **Scripted input** — a touch while the page was
-  hidden, or input a script made instead of a person.
+  hidden, or clicks, touches or scrolls a script made where nobody made any
+  (typed keys don't count: password managers fill fields that way).
 
 None of them alone proves a bot — a VPN moves an address, a privacy browser
 hides its zone — so they are counted, not acted on. Logs → Clicks and
@@ -483,11 +485,18 @@ and memory, whether automation drives it, whether its graphics are drawn by
 software — which the server compares with what the browser says it is. Under
 the EU's ePrivacy rules reading a device that way likely needs the privacy
 page to say so, and for EU visitors it is worth a lawyer's look before
-switching it on. A sentence for the privacy page, added first: "On the page
-you arrive on, our own script checks that a person, not a program, is
-visiting: whether the page was shown and touched, and a few settings of your
-browser such as its time zone, language and screen size. We use this only to
-tell real visits from automated ones and to stop paying for fake traffic; it
-is kept with the visit, is never shared, and no fingerprint of your device is
-made." Nothing goes to another company: the check runs in the site's own
-script and reports to the site.
+switching it on. A sentence for the privacy page, added first: "On the first
+page of each visit, our own script checks that a person, not a program, is
+visiting. It records whether the page was shown, how long, and whether and
+when it was touched, clicked, typed in or scrolled; and it reads these
+settings of your browser: its time zone, languages, operating system, screen,
+window and pixel size, number of touch points, processor cores and memory,
+how many plugins it lists, whether its graphics are drawn by a graphics card,
+whether it is inside another site's page, and whether automation software
+controls it. We keep this with the visit — the details for 90 days — and use
+it only to tell real visits from automated ones and to stop paying for fake
+traffic. It is never shared or sold, and never used to recognise you on other
+sites." Nothing goes to another company: the check runs in the site's own
+script and reports to the site. Those settings together could help tell one
+browser from another, which is why the sentence names them all rather than
+promising there is no fingerprint.

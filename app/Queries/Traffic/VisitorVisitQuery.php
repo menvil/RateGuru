@@ -114,6 +114,21 @@ final class VisitorVisitQuery
             ->first();
     }
 
+    /**
+     * The browser's visit seen last since the given moment, of any kind — a
+     * paid click as much as an unpaid visit: the one a page it shows now
+     * belongs to, never a paid click that only still holds the browser.
+     */
+    public function lastSeen(string $browserHash, CarbonImmutable $since): ?TrafficVisit
+    {
+        return TrafficVisit::query()
+            ->where('visitor_hash', $browserHash)
+            ->where('last_seen_at', '>=', $since)
+            ->orderByDesc('last_seen_at')
+            ->orderByDesc('id')
+            ->first();
+    }
+
     /** The browser's latest visit of any kind since the given moment. */
     public function latest(string $browserHash, CarbonImmutable $since): ?TrafficVisit
     {

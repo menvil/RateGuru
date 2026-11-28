@@ -18,7 +18,7 @@ final class VisitSignalRequest extends FormRequest
     /** @var list<string> the fields of a `presence` signal, as traffic.js names them */
     public const array PRESENCE_FIELDS = [
         'vis0', 'tvis', 'visms', 'tin', 'inkind', 'ins', 'unt', 'hin', 'wd', 'auto', 'botd', 'frm', 'gl',
-        'tz', 'tzo', 'langs', 'plat', 'sw', 'sh', 'ww', 'wh', 'dpr', 'mtp', 'hc', 'dm', 'plg',
+        'tz', 'tzo', 'langs', 'plat', 'sw', 'sh', 'ww', 'wh', 'ow', 'oh', 'dpr', 'mtp', 'hc', 'dm', 'plg',
     ];
 
     public function authorize(): bool

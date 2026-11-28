@@ -17,7 +17,9 @@ use Illuminate\Support\Facades\DB;
 /**
  * What a landing page's script measured of its visitor (PresenceFacts), put on
  * the visit the page arrived on: the paid click its token names, else the
- * visit the browser is on now (VisitorVisitQuery::current()). When the page
+ * browser's visit seen last within half an hour (VisitorVisitQuery::lastSeen())
+ * — a game page's, whose player took the token, or a site page's — never an
+ * older paid click that only still holds the browser. When the page
  * was first on screen and first touched, clicked, typed or scrolled are marked
  * once, at the first report that says so; what contradicts what the browser
  * says it is (PresenceChecks) is added to the visit's quality flags; and the
@@ -41,7 +43,7 @@ final readonly class RecordVisitPresenceAction
         $arrival = ArrivalToken::read($token, $browserHash, $now->getTimestamp());
         $visit = isset($arrival['visit'])
             ? TrafficVisit::query()->whereKey((int) $arrival['visit'])->where('visitor_hash', $browserHash)->first()
-            : $this->visits->current($browserHash, $now, $now->subMinutes(self::CURRENT_MINUTES));
+            : $this->visits->lastSeen($browserHash, $now->subMinutes(self::CURRENT_MINUTES));
 
         if ($visit === null) {
             return;

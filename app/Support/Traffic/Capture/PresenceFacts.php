@@ -63,6 +63,8 @@ final readonly class PresenceFacts
             'screen_height' => $int('sh', self::MOST_PIXELS),
             'window_width' => $int('ww', self::MOST_PIXELS),
             'window_height' => $int('wh', self::MOST_PIXELS),
+            'outer_width' => $int('ow', self::MOST_PIXELS),
+            'outer_height' => $int('oh', self::MOST_PIXELS),
             'pixel_ratio' => isset($input['dpr']) && is_numeric($input['dpr']) ? round(max(0.0, min(10.0, (float) $input['dpr'])), 2) : null,
             'touch_points' => $int('mtp', 64),
             'cores' => $int('hc', 1024),

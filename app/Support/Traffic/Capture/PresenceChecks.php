@@ -22,12 +22,14 @@ use Throwable;
  * - time zone: the browser's zone is none of its address's country's, nor at
  *   the same offset as one of them (UTC and Etc zones say nothing);
  * - touch: a phone without touch, or an iPhone without its five touch points;
- * - screen: no screen, a window larger than the screen, or exactly the 800 ×
- *   600 window automation opens by default on a desktop;
+ * - screen: no screen, a browser window larger than the screen (its outer
+ *   size, which page zoom leaves alone), or exactly the 800 × 600 page
+ *   automation opens by default on a desktop;
  * - graphics: drawn by software, as on servers and virtual machines;
  * - platform: navigator.platform naming another system than the User-Agent;
  * - hidden input, scripted input: a touch or click while the page was hidden,
- *   or input a script made rather than the browser.
+ *   or clicks, touches or wheels a script made where the browser made none
+ *   (keys aren't counted: password managers type into fields that way).
  */
 final class PresenceChecks
 {
@@ -81,7 +83,8 @@ final class PresenceChecks
         $flags |= ($facts['graphics'] ?? null) === 'software' ? self::GRAPHICS : 0;
         $flags |= self::platformOff($facts['platform'] ?? null, $agent) ? self::PLATFORM : 0;
         $flags |= ($facts['hidden_input'] ?? false) === true ? self::HIDDEN_INPUT : 0;
-        $flags |= (int) ($facts['untrusted'] ?? 0) > 0 ? self::SCRIPTED_INPUT : 0;
+        // Only a page a script touched and nobody did: a person's extension may add events beside their own.
+        $flags |= (int) ($facts['untrusted'] ?? 0) > 0 && (int) ($facts['inputs'] ?? 0) === 0 ? self::SCRIPTED_INPUT : 0;
 
         return $flags;
     }
@@ -143,7 +146,8 @@ final class PresenceChecks
     private static function screenOff(array $facts, TrafficDevice $device): bool
     {
         $screen = [$facts['screen_width'] ?? null, $facts['screen_height'] ?? null];
-        $window = [$facts['window_width'] ?? null, $facts['window_height'] ?? null];
+        $outer = [$facts['outer_width'] ?? null, $facts['outer_height'] ?? null];
+        $viewport = [$facts['window_width'] ?? null, $facts['window_height'] ?? null];
 
         if (in_array(null, $screen, true)) {
             return false;
@@ -153,13 +157,10 @@ final class PresenceChecks
             return true;
         }
 
-        if (in_array(null, $window, true)) {
-            return false;
-        }
-
-        // A window wider and taller than the screen, past what a pinch zoom or a rounding explains.
-        return ($window[0] > $screen[0] + 16 && $window[1] > $screen[1] + 16)
-            || ($device === TrafficDevice::Desktop && $window === [800, 600]);
+        // The browser window — outer sizes, which page zoom leaves alone — wider and taller than the screen, past a
+        // maximised window's borders; and the 800 × 600 page automation opens by default on a desktop.
+        return (! in_array(null, $outer, true) && $outer[0] > $screen[0] + 16 && $outer[1] > $screen[1] + 16)
+            || ($device === TrafficDevice::Desktop && $viewport === [800, 600]);
     }
 
     private static function platformOff(mixed $platform, string $agent): bool

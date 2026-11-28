@@ -128,7 +128,7 @@ class TrafficSetting extends Model
      */
     public static function captureFlags(): array
     {
-        return Cache::rememberForever(self::CAPTURE_FLAGS_KEY, function (): array {
+        $read = function (): array {
             $settings = self::current();
 
             return [
@@ -136,7 +136,15 @@ class TrafficSetting extends Model
                 'site' => (bool) $settings->capture_enabled && (bool) $settings->site_capture_enabled,
                 'presence' => (bool) $settings->capture_enabled && (bool) $settings->presence_enabled,
             ];
-        });
+        };
+        $cached = Cache::get(self::CAPTURE_FLAGS_KEY);
+
+        // Kept forever, so it outlives a release that adds a switch: a value cached before one is read again whole.
+        if (! is_array($cached) || array_diff(['capture', 'site', 'presence'], array_keys($cached)) !== []) {
+            Cache::forever(self::CAPTURE_FLAGS_KEY, $cached = $read());
+        }
+
+        return ['capture' => (bool) $cached['capture'], 'site' => (bool) $cached['site'], 'presence' => (bool) $cached['presence']];
     }
 
     /** Lets the next page read the switches from the row again. */

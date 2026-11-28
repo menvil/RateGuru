@@ -11,7 +11,7 @@ use App\Support\Traffic\Capture\PresenceFacts;
  * earlier one.
  */
 const IPHONE_AGENT = 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1 Mobile/15E148 Safari/604.1';
-const WINDOWS_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0 Safari/537.36';
+const IPAD_DESKTOP_AGENT = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1 Safari/605.1.15';
 const ANDROID_AGENT = 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0 Mobile Safari/537.36';
 
 /** A real-looking desktop Chrome in Germany: nothing to find. */
@@ -20,7 +20,7 @@ function presenceFacts(array $changes = []): PresenceFacts
     return PresenceFacts::from([
         'vis0' => '1', 'tvis' => '420', 'visms' => '9000', 'tin' => '1800', 'inkind' => 'pointer', 'ins' => '3', 'unt' => '0', 'hin' => '0',
         'wd' => '0', 'auto' => '0', 'botd' => 'none', 'frm' => '0', 'gl' => 'hw', 'tz' => 'Europe/Berlin', 'tzo' => '-60', 'langs' => 'de-DE,de',
-        'plat' => 'Win32', 'sw' => '1920', 'sh' => '1080', 'ww' => '1536', 'wh' => '754', 'dpr' => '1.25', 'mtp' => '0', 'hc' => '8', 'dm' => '8', 'plg' => '5',
+        'plat' => 'Win32', 'sw' => '1920', 'sh' => '1080', 'ww' => '1536', 'wh' => '754', 'ow' => '1536', 'oh' => '864', 'dpr' => '1.25', 'mtp' => '0', 'hc' => '8', 'dm' => '8', 'plg' => '5',
         ...$changes,
     ]);
 }
@@ -28,7 +28,7 @@ function presenceFacts(array $changes = []): PresenceFacts
 it('finds nothing in a real browser where it says it is, and says it was seen and used', function () {
     $facts = presenceFacts();
 
-    expect(PresenceChecks::flags($facts, 'DE', TrafficDevice::Desktop, WINDOWS_AGENT))->toBe(0)
+    expect(PresenceChecks::flags($facts, 'DE', TrafficDevice::Desktop, DESKTOP_CHROME_USER_AGENT))->toBe(0)
         ->and($facts->seen())->toBeTrue()
         ->and($facts->engaged())->toBeTrue();
 });
@@ -36,20 +36,20 @@ it('finds nothing in a real browser where it says it is, and says it was seen an
 it('finds each contradiction on its own', function (array $changes, string $country, TrafficDevice $device, string $agent, int $flag) {
     expect(PresenceChecks::flags(presenceFacts($changes), $country, $device, $agent))->toBe($flag);
 })->with([
-    'webdriver' => [['wd' => '1'], 'DE', TrafficDevice::Desktop, WINDOWS_AGENT, PresenceChecks::WEBDRIVER],
-    'an automation tool’s marks' => [['auto' => '16'], 'DE', TrafficDevice::Desktop, WINDOWS_AGENT, PresenceChecks::AUTOMATION],
-    'BotD calls it a bot' => [['botd' => 'headless_chrome'], 'DE', TrafficDevice::Desktop, WINDOWS_AGENT, PresenceChecks::AUTOMATION],
-    'inside another site’s frame' => [['frm' => '1'], 'DE', TrafficDevice::Desktop, WINDOWS_AGENT, PresenceChecks::FRAMED],
-    'a Chinese zone on a German address' => [['tz' => 'Asia/Shanghai'], 'DE', TrafficDevice::Desktop, WINDOWS_AGENT, PresenceChecks::TIME_ZONE],
+    'webdriver' => [['wd' => '1'], 'DE', TrafficDevice::Desktop, DESKTOP_CHROME_USER_AGENT, PresenceChecks::WEBDRIVER],
+    'an automation tool’s marks' => [['auto' => '16'], 'DE', TrafficDevice::Desktop, DESKTOP_CHROME_USER_AGENT, PresenceChecks::AUTOMATION],
+    'BotD calls it a bot' => [['botd' => 'headless_chrome'], 'DE', TrafficDevice::Desktop, DESKTOP_CHROME_USER_AGENT, PresenceChecks::AUTOMATION],
+    'inside another site’s frame' => [['frm' => '1'], 'DE', TrafficDevice::Desktop, DESKTOP_CHROME_USER_AGENT, PresenceChecks::FRAMED],
+    'a Chinese zone on a German address' => [['tz' => 'Asia/Shanghai'], 'DE', TrafficDevice::Desktop, DESKTOP_CHROME_USER_AGENT, PresenceChecks::TIME_ZONE],
     'a phone with no touch' => [['mtp' => '0', 'plat' => 'Linux armv8l', 'sw' => '412', 'sh' => '915', 'ww' => '412', 'wh' => '780'], 'DE', TrafficDevice::Mobile, ANDROID_AGENT, PresenceChecks::TOUCH],
     'an iPhone without five touch points' => [['mtp' => '1', 'plat' => 'iPhone', 'sw' => '393', 'sh' => '852', 'ww' => '393', 'wh' => '660'], 'DE', TrafficDevice::Mobile, IPHONE_AGENT, PresenceChecks::TOUCH],
-    'no screen' => [['sw' => '0', 'sh' => '0'], 'DE', TrafficDevice::Desktop, WINDOWS_AGENT, PresenceChecks::SCREEN],
-    'a window larger than the screen' => [['sw' => '800', 'sh' => '600', 'ww' => '1280', 'wh' => '720'], 'DE', TrafficDevice::Desktop, WINDOWS_AGENT, PresenceChecks::SCREEN],
-    'the 800 × 600 window automation opens' => [['ww' => '800', 'wh' => '600'], 'DE', TrafficDevice::Desktop, WINDOWS_AGENT, PresenceChecks::SCREEN],
-    'software graphics' => [['gl' => 'software'], 'DE', TrafficDevice::Desktop, WINDOWS_AGENT, PresenceChecks::GRAPHICS],
-    'a Linux machine calling itself Windows' => [['plat' => 'Linux x86_64'], 'DE', TrafficDevice::Desktop, WINDOWS_AGENT, PresenceChecks::PLATFORM],
-    'input while hidden' => [['hin' => '1'], 'DE', TrafficDevice::Desktop, WINDOWS_AGENT, PresenceChecks::HIDDEN_INPUT],
-    'input a script made' => [['unt' => '4'], 'DE', TrafficDevice::Desktop, WINDOWS_AGENT, PresenceChecks::SCRIPTED_INPUT],
+    'no screen' => [['sw' => '0', 'sh' => '0'], 'DE', TrafficDevice::Desktop, DESKTOP_CHROME_USER_AGENT, PresenceChecks::SCREEN],
+    'a browser window larger than the screen' => [['sw' => '800', 'sh' => '600', 'ow' => '1280', 'oh' => '720'], 'DE', TrafficDevice::Desktop, DESKTOP_CHROME_USER_AGENT, PresenceChecks::SCREEN],
+    'the 800 × 600 window automation opens' => [['ww' => '800', 'wh' => '600'], 'DE', TrafficDevice::Desktop, DESKTOP_CHROME_USER_AGENT, PresenceChecks::SCREEN],
+    'software graphics' => [['gl' => 'software'], 'DE', TrafficDevice::Desktop, DESKTOP_CHROME_USER_AGENT, PresenceChecks::GRAPHICS],
+    'a Linux machine calling itself Windows' => [['plat' => 'Linux x86_64'], 'DE', TrafficDevice::Desktop, DESKTOP_CHROME_USER_AGENT, PresenceChecks::PLATFORM],
+    'input while hidden' => [['hin' => '1'], 'DE', TrafficDevice::Desktop, DESKTOP_CHROME_USER_AGENT, PresenceChecks::HIDDEN_INPUT],
+    'input a script made where nobody made any' => [['unt' => '4', 'ins' => '0', 'tin' => ''], 'DE', TrafficDevice::Desktop, DESKTOP_CHROME_USER_AGENT, PresenceChecks::SCRIPTED_INPUT],
 ]);
 
 it('says nothing of what it can’t know: UTC and Etc zones, an unknown country, a zone of the same offset, missing facts', function () {
@@ -62,8 +62,12 @@ it('says nothing of what it can’t know: UTC and Etc zones, an unknown country,
         ->and(PresenceChecks::zoneElsewhere('Europe/Paris', 'DE'))->toBeFalse()
         ->and(PresenceChecks::zoneElsewhere('America/New_York', 'DE'))->toBeTrue()
         ->and(PresenceChecks::flags(PresenceFacts::from([]), 'DE', TrafficDevice::Mobile, IPHONE_AGENT))->toBe(0)
-        // An iPad asking for the desktop site says it is a Mac, and its platform MacIntel.
-        ->and(PresenceChecks::flags(presenceFacts(['plat' => 'MacIntel', 'mtp' => '5']), 'DE', TrafficDevice::Mobile, IPHONE_AGENT))->toBe(0);
+        // An iPad asking for the desktop site says it is a Mac, its platform MacIntel, with five touch points.
+        ->and(PresenceChecks::flags(presenceFacts(['plat' => 'MacIntel', 'mtp' => '5', 'sw' => '1024', 'sh' => '1366', 'ww' => '1024', 'wh' => '1292', 'ow' => '1024', 'oh' => '1366']), 'DE', TrafficDevice::Desktop, IPAD_DESKTOP_AGENT))->toBe(0)
+        // A page zoomed out to 80%: a viewport wider and taller than the screen, the window itself not.
+        ->and(PresenceChecks::flags(presenceFacts(['ww' => '2400', 'wh' => '1194']), 'DE', TrafficDevice::Desktop, DESKTOP_CHROME_USER_AGENT))->toBe(0)
+        // A password manager's or extension's events beside the person's own.
+        ->and(PresenceChecks::flags(presenceFacts(['unt' => '6']), 'DE', TrafficDevice::Desktop, DESKTOP_CHROME_USER_AGENT))->toBe(0);
 });
 
 it('caps and words what a report carries, so a forged one stores no more than a real one', function () {

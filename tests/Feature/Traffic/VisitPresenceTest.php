@@ -5,6 +5,7 @@ use App\Models\TrafficSource;
 use App\Models\TrafficVisit;
 use App\Support\Traffic\Capture\PresenceChecks;
 use Carbon\CarbonImmutable;
+use Illuminate\Support\Facades\Cache;
 
 /**
  * What a landing page measured of its visitor, while Traffic sources records
@@ -65,8 +66,28 @@ it('asks an arriving page to measure its visitor, and marks its click on screen,
 
     expect($visit->seen_at?->toDateTimeString())->toBe('2026-11-17 12:00:00')
         ->and($visit->engaged_at?->toDateTimeString())->toBe('2026-11-17 12:00:05')
-        ->and($visit->quality_flags)->toBe(PresenceChecks::PLATFORM | PresenceChecks::SCRIPTED_INPUT)
+        // Scripted events beside the visitor's own say nothing.
+        ->and($visit->quality_flags)->toBe(PresenceChecks::PLATFORM)
         ->and($visit->detail->presence)->toMatchArray(['to_input_ms' => 2200, 'inputs' => 2, 'visible_ms' => 8000, 'platform' => 'Linux x86_64']);
+});
+
+it('puts a report without a token on the browser’s visit seen last, never on an older paid click that only still holds it', function () {
+    landing('tag-old');
+    $click = TrafficVisit::query()->sole();
+    CarbonImmutable::setTestNow('2026-11-19 09:00:00');
+    $now = TrafficVisit::factory()->create(['visitor_hash' => browserHashOf(PRESENCE_BROWSER), 'source_id' => null, 'arrived_at' => now(), 'last_seen_at' => now(), 'network_day' => '2026-11-19']);
+
+    reportPresence(null, ['vis0' => '1', 'tvis' => '300', 'tin' => '900', 'ins' => '1']);
+
+    expect($click->fresh())->seen_at->toBeNull()->engaged_at->toBeNull()
+        ->and($now->fresh())->seen_at->not->toBeNull()->engaged_at->not->toBeNull();
+});
+
+it('reads the switches whole again when the value cached before measuring came lacks it', function () {
+    Cache::forever('traffic-capture-flags', ['capture' => true, 'site' => false]);
+
+    expect(TrafficSetting::captureFlags())->toBe(['capture' => true, 'site' => false, 'presence' => true])
+        ->and(landing('tag-cache')[1])->toBeTrue();
 });
 
 it('puts a report without a token on the visit the browser is on now', function () {
