@@ -1600,7 +1600,10 @@ Campaigns, Value, Spend, Sources and Logs, each read once the page is in a brows
 Add source. Editors — a source, a campaign — are OVL-02 drawers with a draft saved by their footer. Sources →
 Tracking holds Record visits, then Record site visits as a row under it, off on a new installation and on only
 while Record visits is — what Growth → Analytics reads the whole site's visitors from, changing nothing on this
-page — and Send postbacks.
+page — then Record what visitors see and do as a row under it the same way (landing pages measure whether they
+were on screen and used, and what contradicts the browser; off until the privacy page says so), and Send
+postbacks. Below the IP database a networks line names the networks' database build, the hosting and VPN
+networks and Private Relay ranges it holds, any last error, and DB-IP's credit.
 
 Deviations from the fifth delivery, each for the reason given:
 

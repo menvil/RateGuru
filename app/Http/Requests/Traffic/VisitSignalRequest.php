@@ -15,6 +15,12 @@ use Illuminate\Foundation\Http\FormRequest;
  */
 final class VisitSignalRequest extends FormRequest
 {
+    /** @var list<string> the fields of a `presence` signal, as traffic.js names them */
+    public const array PRESENCE_FIELDS = [
+        'vis0', 'tvis', 'visms', 'tin', 'inkind', 'ins', 'unt', 'hin', 'wd', 'auto', 'botd', 'frm', 'gl',
+        'tz', 'tzo', 'langs', 'plat', 'sw', 'sh', 'ww', 'wh', 'dpr', 'mtp', 'hc', 'dm', 'plg',
+    ];
+
     public function authorize(): bool
     {
         return true;
@@ -24,7 +30,7 @@ final class VisitSignalRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'signal' => ['required', 'string', 'in:opened,signup_form,post_shared'],
+            'signal' => ['required', 'string', 'in:opened,signup_form,post_shared,presence'],
             'arrival' => ['nullable', 'string', 'max:'.ArrivalToken::MAX_LENGTH],
             'post' => [
                 // Read only with the signals that name a post: a share always does, a form on a post's page.
@@ -45,6 +51,9 @@ final class VisitSignalRequest extends FormRequest
             // no step of the dialog is recorded.
             'mode' => ['exclude_unless:signal,signup_form', 'nullable', 'string', 'in:login,register'],
             'trigger' => ['exclude_unless:signal,signup_form', 'nullable', 'string', 'max:32'],
+            // What a landing page measured of its visitor (PresenceFacts, which caps and words each one again): read only
+            // with that signal, each a short scalar, so a report is a few hundred bytes whatever a script sends.
+            ...array_fill_keys(self::PRESENCE_FIELDS, ['exclude_unless:signal,presence', 'nullable', 'string', 'max:64']),
         ];
     }
 }

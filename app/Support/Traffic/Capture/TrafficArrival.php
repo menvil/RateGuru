@@ -32,4 +32,10 @@ final class TrafficArrival
     {
         return $this->taken ? null : $this->token;
     }
+
+    /** Whether the page being drawn is an arrival — the layout's or the player's token — the page whose visitor is measured. */
+    public function arrived(): bool
+    {
+        return $this->token !== null;
+    }
 }

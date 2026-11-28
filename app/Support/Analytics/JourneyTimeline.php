@@ -244,6 +244,11 @@ final class JourneyTimeline
             [$icon, $title, $body] = $starts ? $this->arrival($visit) : $this->moveOn($visit);
             $flags = is_array($visit['flags'] ?? null) ? $visit['flags'] : [];
             $add($visit['at'], 'visit', $icon, $title, $body.($visit['opened'] ? '' : ' The page never ran in a browser.')
+                .match (true) {
+                    ($visit['engagedAt'] ?? null) !== null => ' On screen, and touched or clicked.',
+                    ($visit['onScreen'] ?? null) !== null => ' On screen, never touched or clicked.',
+                    default => '',
+                }
                 .($flags === [] ? '' : ' Signs of a bot: '.strtolower(implode(', ', $flags)).'.'), $this->visitMeta($visit, $starts));
 
             if ($visit['login'] !== null) {

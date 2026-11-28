@@ -32,6 +32,7 @@ use Illuminate\Support\Facades\DB;
  * @property CarbonImmutable|null $geo_refresh_requested_at
  * @property bool $capture_enabled
  * @property bool $site_capture_enabled
+ * @property bool $presence_enabled
  * @property bool $postbacks_enabled
  * @property int|null $updated_by_user_id
  * @property int $lock_version
@@ -68,6 +69,7 @@ class TrafficSetting extends Model
             'geo_refresh_requested_at' => 'immutable_datetime',
             'capture_enabled' => 'boolean',
             'site_capture_enabled' => 'boolean',
+            'presence_enabled' => 'boolean',
             'postbacks_enabled' => 'boolean',
             'updated_by_user_id' => 'integer',
             'lock_version' => 'integer',
@@ -108,6 +110,7 @@ class TrafficSetting extends Model
             'geo_refresh_requested_at' => null,
             'capture_enabled' => false,
             'site_capture_enabled' => false,
+            'presence_enabled' => false,
             'postbacks_enabled' => false,
             'updated_by_user_id' => null,
             'lock_version' => 1,
@@ -115,19 +118,24 @@ class TrafficSetting extends Model
     }
 
     /**
-     * The two recording switches, as every page reads them: whether visits
-     * are recorded, and whether the site's own pages record one too — only
-     * ever with the first. One read of the cache, which keeps them until the
+     * The recording switches, as every page reads them: whether visits are
+     * recorded, whether the site's own pages record one too, and whether a
+     * landing page measures what its visitor sees and does — each of the
+     * last two only ever with the first. One read of the cache, which keeps them until the
      * row is saved again; a page that asks costs no query.
      *
-     * @return array{capture: bool, site: bool}
+     * @return array{capture: bool, site: bool, presence: bool}
      */
     public static function captureFlags(): array
     {
         return Cache::rememberForever(self::CAPTURE_FLAGS_KEY, function (): array {
             $settings = self::current();
 
-            return ['capture' => (bool) $settings->capture_enabled, 'site' => (bool) $settings->capture_enabled && (bool) $settings->site_capture_enabled];
+            return [
+                'capture' => (bool) $settings->capture_enabled,
+                'site' => (bool) $settings->capture_enabled && (bool) $settings->site_capture_enabled,
+                'presence' => (bool) $settings->capture_enabled && (bool) $settings->presence_enabled,
+            ];
         });
     }
 

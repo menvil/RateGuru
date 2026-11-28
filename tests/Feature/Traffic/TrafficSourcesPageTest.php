@@ -170,7 +170,7 @@ it('switches site visits on right under Record visits, keeps them off and out of
     $page->set('settings.site_capture_enabled', true)->call('saveSettings')->assertHasNoErrors()->assertDispatched('rg-admin-toast', message: 'Tracking saved');
 
     expect(TrafficSetting::current())->capture_enabled->toBeTrue()->site_capture_enabled->toBeTrue()
-        ->and(TrafficSetting::captureFlags())->toBe(['capture' => true, 'site' => true])
+        ->and(TrafficSetting::captureFlags())->toBe(['capture' => true, 'site' => true, 'presence' => false])
         ->and($switch($page)->getAttribute('aria-checked'))->toBe('true');
 
     // Record visits off takes site visits with it, on the card at once and once saved.
@@ -179,7 +179,7 @@ it('switches site visits on right under Record visits, keeps them off and out of
     $page->call('saveSettings')->assertHasNoErrors();
 
     expect(TrafficSetting::current())->capture_enabled->toBeFalse()->site_capture_enabled->toBeFalse()
-        ->and(TrafficSetting::captureFlags())->toBe(['capture' => false, 'site' => false]);
+        ->and(TrafficSetting::captureFlags())->toBe(['capture' => false, 'site' => false, 'presence' => false]);
 
     // Saved by someone else meanwhile: nothing changes, and the card says to reload.
     app(SaveTrafficSettingsAction::class)->handle(User::factory()->admin()->create(), ['postbacks_enabled' => true], TrafficSetting::current()->lock_version);
@@ -189,11 +189,30 @@ it('switches site visits on right under Record visits, keeps them off and out of
     expect(TrafficSetting::current())->capture_enabled->toBeFalse()->site_capture_enabled->toBeFalse();
 });
 
-it('never keeps site visits on with Record visits off, whatever it is sent', function () {
-    $settings = app(SaveTrafficSettingsAction::class)->handle($this->admin, ['capture_enabled' => false, 'site_capture_enabled' => true], 1);
+it('never keeps site visits or measuring visitors on with Record visits off, whatever it is sent', function () {
+    $settings = app(SaveTrafficSettingsAction::class)->handle($this->admin, ['capture_enabled' => false, 'site_capture_enabled' => true, 'presence_enabled' => true], 1);
 
-    expect($settings->fresh()->site_capture_enabled)->toBeFalse()
-        ->and(TrafficSetting::captureFlags())->toBe(['capture' => false, 'site' => false]);
+    expect($settings->fresh())->site_capture_enabled->toBeFalse()->presence_enabled->toBeFalse()
+        ->and(TrafficSetting::captureFlags())->toBe(['capture' => false, 'site' => false, 'presence' => false]);
+});
+
+it('switches measuring what visitors see and do on and off with Record visits, off at first', function () {
+    $switch = fn ($page): DOMElement => livewireDom($page)->query('//button[@id="rg-admin-traffic-presence"]')->item(0);
+    $page = Livewire::withQueryParams(['tab' => 'sources'])->test(TrafficSourcesPage::class)->call('load')
+        ->assertSee('Record what visitors see and do');
+
+    expect($switch($page)->hasAttribute('disabled'))->toBeTrue()
+        ->and($switch($page)->getAttribute('aria-checked'))->toBe('false');
+
+    $page->set('settings.capture_enabled', true)->set('settings.presence_enabled', true)->call('saveSettings')->assertHasNoErrors();
+
+    expect(TrafficSetting::current())->presence_enabled->toBeTrue()
+        ->and(TrafficSetting::captureFlags())->toBe(['capture' => true, 'site' => false, 'presence' => true])
+        ->and($switch($page)->getAttribute('aria-checked'))->toBe('true');
+
+    $page->set('settings.capture_enabled', false)->assertSet('settings.presence_enabled', false)->call('saveSettings');
+
+    expect(TrafficSetting::current()->presence_enabled)->toBeFalse();
 });
 
 it('refuses a blank IP database edition, keeping the one saved', function () {

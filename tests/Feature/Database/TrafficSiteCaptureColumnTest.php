@@ -17,7 +17,7 @@ it('adds Record site visits off, for a row saved without it as well, and takes i
     DB::table('traffic_settings')->insert(['id' => 1, 'capture_enabled' => true, 'created_at' => now(), 'updated_at' => now()]);
 
     expect(TrafficSetting::current())->capture_enabled->toBeTrue()->site_capture_enabled->toBeFalse()
-        ->and(TrafficSetting::captureFlags())->toBe(['capture' => true, 'site' => false]);
+        ->and(TrafficSetting::captureFlags())->toBe(['capture' => true, 'site' => false, 'presence' => false]);
 
     siteCaptureMigration()->down();
     expect(DB::getSchemaBuilder()->hasColumn('traffic_settings', 'site_capture_enabled'))->toBeFalse();
@@ -29,13 +29,13 @@ it('adds Record site visits off, for a row saved without it as well, and takes i
 });
 
 it('reads the switches once into the cache, and afresh once the row is saved', function () {
-    expect(TrafficSetting::captureFlags())->toBe(['capture' => false, 'site' => false]);
+    expect(TrafficSetting::captureFlags())->toBe(['capture' => false, 'site' => false, 'presence' => false]);
 
     // Kept by the cache: the row changed under it is not read again …
     DB::table('traffic_settings')->insert(['id' => 1, 'capture_enabled' => true, 'site_capture_enabled' => true, 'created_at' => now(), 'updated_at' => now()]);
-    expect(TrafficSetting::captureFlags())->toBe(['capture' => false, 'site' => false]);
+    expect(TrafficSetting::captureFlags())->toBe(['capture' => false, 'site' => false, 'presence' => false]);
 
     // … until the row is saved as a model.
     TrafficSetting::query()->find(1)->forceFill(['postbacks_enabled' => true])->save();
-    expect(TrafficSetting::captureFlags())->toBe(['capture' => true, 'site' => true]);
+    expect(TrafficSetting::captureFlags())->toBe(['capture' => true, 'site' => true, 'presence' => false]);
 });

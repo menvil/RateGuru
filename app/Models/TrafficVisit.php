@@ -53,6 +53,9 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
  * @property int $worth_percent
  * @property int $bot_flags
  * @property int|null $asn
+ * @property CarbonImmutable|null $seen_at
+ * @property CarbonImmutable|null $engaged_at
+ * @property int $quality_flags
  * @property bool $blocked_hit
  * @property CarbonImmutable $arrived_at
  * @property string $network_day
@@ -148,6 +151,9 @@ class TrafficVisit extends Model
             'worth_percent' => 'integer',
             'bot_flags' => 'integer',
             'asn' => 'integer',
+            'quality_flags' => 'integer',
+            'seen_at' => 'immutable_datetime',
+            'engaged_at' => 'immutable_datetime',
             'blocked_hit' => 'boolean',
             'arrived_at' => 'immutable_datetime',
             'holds_until' => 'immutable_datetime',
