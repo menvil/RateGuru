@@ -1,0 +1,31 @@
+resources/views/components/media/post-image.blade.php
+  s_1f43f39fbe0537::t_4faca71270652c 59-61,69
+app/Filament/Pages/ProjectSettingsPage.php
+  s_1f43f39fbe0537::t_4faca71270652c 101
+app/Support/Settings/ProjectSettingsManager.php
+  s_1f43f39fbe0537::t_4faca71270652c 66-68
+resources/js/post-video.js
+  s_1f43f39fbe0537::t_4faca71270652c 6-9,21,67-69,71-78,94-95
+lang/en/admin.php
+  s_1f43f39fbe0537::t_4faca71270652c 47
+tests/Browser/PostVideoBrowserTest.php
+  s_1f43f39fbe0537::t_3a548eab161a8d 4,95-105
+tests/Feature/Media/PostVideoPlaybackTest.php
+  s_1f43f39fbe0537::t_3a548eab161a8d 10,12,145-158
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "98be80e2cae1db1215218fb7a4f3020b89227f0b",
+  "prompts": {},
+  "sessions": {
+    "s_1f43f39fbe0537": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "526787d0-f443-4ad7-9610-cf9811fec895",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
