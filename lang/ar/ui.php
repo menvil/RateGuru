@@ -219,7 +219,7 @@ return [
             'video_post_published' => 'الفيديو جاهز وتم نشر منشورك',
             'video_post_pending' => 'الفيديو جاهز ومنشورك بانتظار المراجعة',
             'video_post_failed' => 'تعذّرت معالجة الفيديو. يُرجى رفع ملف آخر.',
-            'import_site_refusing' => 'يبدو أن :site يحظر التنزيل: رفض :count روابط مختلفة مؤخرًا. يُطلب من المؤلفين رفع الملف بأنفسهم.',
+            'import_site_refusing' => 'رفض :site إعطاء هذا الخادم ملفًا — ربما يحظر التنزيلات. يُطلب من المؤلفين رفع الملف بأنفسهم.',
             'post_commented' => "علّق \u{200E}@:username على منشورك",
             'followed_author_posted' => "نشر \u{200E}@:username :title",
         ],

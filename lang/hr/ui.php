@@ -209,7 +209,7 @@ return [
             'video_post_published' => 'Tvoj je video spreman i objava je objavljena',
             'video_post_pending' => 'Tvoj je video spreman i objava čeka moderiranje',
             'video_post_failed' => 'Tvoj video nije moguće obraditi. Prenesi drugu datoteku.',
-            'import_site_refusing' => ':site izgleda blokira preuzimanje: nedavno je odbio :count različitih poveznica. Autori se mole da sami prenesu datoteku.',
+            'import_site_refusing' => ':site je odbio dati datoteku ovom poslužitelju — možda blokira preuzimanja. Autori se mole da sami prenesu datoteku.',
             'post_commented' => 'Novi komentar na tvojoj objavi od @:username',
             'followed_author_posted' => 'Nova objava od @:username: :title',
         ],

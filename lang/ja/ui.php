@@ -209,7 +209,7 @@ return [
             'video_post_published' => '動画の準備ができ、投稿が公開されました',
             'video_post_pending' => '動画の準備ができ、投稿は審査待ちです',
             'video_post_failed' => '動画を処理できませんでした。別のファイルをアップロードしてください。',
-            'import_site_refusing' => ':site がダウンロードをブロックしているようです：最近 :count 件の異なるリンクを拒否しました。投稿者にはファイルを自分でアップロードするよう案内しています。',
+            'import_site_refusing' => ':site がこのサーバーへのファイル提供を拒否しました。ダウンロードをブロックしている可能性があります。投稿者には自分でファイルをアップロードするよう案内しています。',
             'post_commented' => '@:username さんがあなたの投稿にコメントしました',
             'followed_author_posted' => '@:username さんが「:title」を投稿しました',
         ],

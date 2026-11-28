@@ -8,6 +8,7 @@ use App\Enums\MediaStatus;
 use App\Enums\MediaTool;
 use App\Enums\PostStatus;
 use App\Exceptions\Import\ImportFetchException;
+use App\Exceptions\Import\ImportSiteRefusingException;
 use App\Jobs\ImportVideoAssetJob;
 use App\Jobs\ProcessVideoAssetJob;
 use App\Livewire\Feed\UploadPostForm;
@@ -739,7 +740,7 @@ it('says a page that did not show its own picture cannot be imported, rather tha
     expect(Post::query()->count())->toBe(0);
 });
 
-it('tells the author a site refusing this server is to be uploaded from instead, and counts the refusal, unreported', function (string $diagnostic) {
+it('tells the author a site refusing this server is to be uploaded from instead, and reports it as the site refusing, nothing else', function (string $diagnostic) {
     Exceptions::fake();
     Log::spy();
     ytDlpStandIn(null, probeError: $diagnostic);
@@ -753,7 +754,8 @@ it('tells the author a site refusing this server is to be uploaded from instead,
 
     expect(Post::query()->count())->toBe(0);
     Log::shouldHaveReceived('warning')->with('Import: a site refused a link.', Mockery::on(fn (array $context): bool => $context['site'] === 'redgifs.com'));
-    Exceptions::assertNothingReported();
+    Exceptions::assertReported(fn (ImportSiteRefusingException $exception): bool => str_starts_with($exception->getMessage(), 'redgifs.com refused a link'));
+    Exceptions::assertReportedCount(1);
 })->with([
     'too many requests' => 'ERROR: [RedGifs] aloop: Unable to download JSON metadata: HTTP Error 429: Too Many Requests',
     'forbidden' => 'ERROR: [RedGifs] aloop: Unable to download JSON metadata: HTTP Error 403: Forbidden',

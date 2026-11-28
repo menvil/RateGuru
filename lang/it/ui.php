@@ -209,7 +209,7 @@ return [
             'video_post_published' => 'Il tuo video è pronto e il post è stato pubblicato',
             'video_post_pending' => 'Il tuo video è pronto e il post è in attesa di moderazione',
             'video_post_failed' => 'Impossibile elaborare il tuo video. Carica un altro file.',
-            'import_site_refusing' => ':site sembra bloccare i download: ha rifiutato :count link diversi di recente. Agli autori viene chiesto di caricare il file da sé.',
+            'import_site_refusing' => ':site ha rifiutato un file a questo server: forse blocca i download. Agli autori viene chiesto di caricare il file da soli.',
             'post_commented' => '@:username ha commentato il tuo post',
             'followed_author_posted' => '@:username ha pubblicato :title',
         ],

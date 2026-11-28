@@ -209,7 +209,7 @@ return [
             'video_post_published' => 'Je video is klaar en je bericht is gepubliceerd',
             'video_post_pending' => 'Je video is klaar en je bericht wacht op moderatie',
             'video_post_failed' => 'Je video kon niet worden verwerkt. Upload een ander bestand.',
-            'import_site_refusing' => ':site lijkt downloads te blokkeren: weigerde onlangs :count verschillende links. Auteurs wordt gevraagd het bestand zelf te uploaden.',
+            'import_site_refusing' => ':site weigerde deze server een bestand — de site blokkeert misschien downloads. Auteurs wordt gevraagd het bestand zelf te uploaden.',
             'post_commented' => '@:username heeft op je bericht gereageerd',
             'followed_author_posted' => '@:username heeft :title geplaatst',
         ],

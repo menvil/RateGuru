@@ -209,7 +209,7 @@ return [
             'video_post_published' => 'Videoen din er klar, og innlegget ditt er publisert',
             'video_post_pending' => 'Videoen din er klar, og innlegget ditt venter på moderering',
             'video_post_failed' => 'Videoen din kunne ikke behandles. Last opp en annen fil.',
-            'import_site_refusing' => ':site ser ut til å blokkere nedlasting: avviste :count ulike lenker nylig. Forfattere bes laste opp filen selv.',
+            'import_site_refusing' => ':site nektet å gi denne serveren en fil — nettstedet blokkerer kanskje nedlastinger. Forfattere blir bedt om å laste opp filen selv.',
             'post_commented' => '@:username kommenterte innlegget ditt',
             'followed_author_posted' => '@:username publiserte :title',
         ],

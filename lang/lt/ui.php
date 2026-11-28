@@ -211,7 +211,7 @@ return [
             'video_post_published' => 'Jūsų vaizdo įrašas paruoštas, o įrašas paskelbtas',
             'video_post_pending' => 'Jūsų vaizdo įrašas paruoštas, o įrašas laukia moderavimo',
             'video_post_failed' => 'Jūsų vaizdo įrašo nepavyko apdoroti. Įkelkite kitą failą.',
-            'import_site_refusing' => ':site, regis, blokuoja atsisiuntimą: neseniai atmetė :count skirtingas nuorodas. Autorių prašoma failą įkelti patiems.',
+            'import_site_refusing' => ':site atsisakė duoti failą šiam serveriui — galbūt blokuoja atsisiuntimus. Autorių prašoma failą įkelti patiems.',
             'post_commented' => '@:username pakomentavo jūsų įrašą',
             'followed_author_posted' => '@:username paskelbė įrašą „:title“',
         ],

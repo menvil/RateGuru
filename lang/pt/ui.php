@@ -209,7 +209,7 @@ return [
             'video_post_published' => 'Seu vídeo está pronto e sua publicação foi publicada',
             'video_post_pending' => 'Seu vídeo está pronto e sua publicação aguarda moderação',
             'video_post_failed' => 'Não foi possível processar seu vídeo. Envie outro arquivo.',
-            'import_site_refusing' => ':site parece estar bloqueando downloads: recusou :count links diferentes recentemente. Os autores são orientados a enviar o arquivo eles mesmos.',
+            'import_site_refusing' => ':site recusou um arquivo a este servidor — talvez esteja bloqueando downloads. Os autores estão sendo orientados a enviar o arquivo por conta própria.',
             'post_commented' => '@:username comentou na sua publicação',
             'followed_author_posted' => '@:username publicou :title',
         ],

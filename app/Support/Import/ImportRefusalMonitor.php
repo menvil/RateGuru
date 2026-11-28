@@ -11,13 +11,13 @@ use Illuminate\Support\Facades\Log;
 
 /**
  * Tells a site that has started refusing this server — answering "too many
- * requests" or "forbidden", or asking yt-dlp to prove it is no robot — from
- * a link that simply cannot be taken. One refusal says nothing: an author's
- * private post is refused too. Refusals of as many different links of one
- * site as import.refusal_alert.distinct_links, within one window, look like
- * the site blocking the server: that is reported once per window — an error
- * of its own, for the error tracker to alert on — and every administrator is
- * told in their notifications.
+ * requests" or "forbidden", or asking yt-dlp to prove it is no robot — at
+ * once, from the first link: with few authors, waiting for many would leave
+ * a block unseen for long. Each different link refused is reported — an
+ * error of its own, which the error tracker gathers into one issue — and
+ * every administrator is told in their notifications, once per site within
+ * a window. import.refusal_alert.distinct_links raises how many different
+ * links of one site it takes, should one refusal turn out too noisy.
  */
 final class ImportRefusalMonitor
 {
@@ -42,16 +42,20 @@ final class ImportRefusalMonitor
         Cache::add($prefix.':count', 0, $window * 2);
         $count = (int) Cache::increment($prefix.':count');
 
-        if ($count < max(1, (int) config('import.refusal_alert.distinct_links')) || ! Cache::add($prefix.':alerted', true, $window * 2)) {
+        if ($count < max(1, (int) config('import.refusal_alert.distinct_links'))) {
             return;
         }
 
-        report(ImportSiteRefusingException::make($site, $count, $reason));
+        report(ImportSiteRefusingException::make($site, $reason));
+
+        if (! Cache::add($prefix.':alerted', true, $window * 2)) {
+            return;
+        }
 
         // Each through its own notify(), which keeps the rules every
         // notification of the site's follows.
         User::query()->where('role', UserRole::Admin)->each(
-            fn (User $admin) => $admin->notify(new ImportSiteRefusingNotification($site, $count)),
+            fn (User $admin) => $admin->notify(new ImportSiteRefusingNotification($site)),
         );
     }
 

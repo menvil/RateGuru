@@ -5,14 +5,14 @@ namespace App\Exceptions\Import;
 use RuntimeException;
 
 /**
- * A site that refused this server for many different links in a short
- * while (ImportRefusalMonitor): reported, never thrown, so the error tracker
- * shows it as an issue of its own, one per site, and can alert on it.
+ * A site that refused this server a link (ImportRefusalMonitor): reported,
+ * never thrown, so the error tracker gathers every refusal as one issue of
+ * its own and can alert on it.
  */
 final class ImportSiteRefusingException extends RuntimeException
 {
-    public static function make(string $site, int $links, string $lastReason): self
+    public static function make(string $site, string $reason): self
     {
-        return new self("{$site} refused {$links} different links in a short while (last: {$lastReason}); it may be blocking this server.");
+        return new self("{$site} refused a link ({$reason}); it may be blocking this server.");
     }
 }

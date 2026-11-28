@@ -209,7 +209,7 @@ return [
             'video_post_published' => 'Videoclipul tău e gata, iar postarea a fost publicată',
             'video_post_pending' => 'Videoclipul tău e gata, iar postarea așteaptă moderarea',
             'video_post_failed' => 'Videoclipul tău nu a putut fi procesat. Încarcă alt fișier.',
-            'import_site_refusing' => ':site pare să blocheze descărcările: a refuzat recent :count linkuri diferite. Autorii sunt rugați să încarce singuri fișierul.',
+            'import_site_refusing' => ':site a refuzat să dea un fișier acestui server — poate blochează descărcările. Autorilor li se cere să încarce singuri fișierul.',
             'post_commented' => '@:username a comentat la postarea ta',
             'followed_author_posted' => '@:username a publicat :title',
         ],
