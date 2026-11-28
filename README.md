@@ -68,11 +68,17 @@ createdb --owner=rateguru rateguru
 createdb --owner=rateguru rateguru_test
 ```
 
-Then run migrations:
+Then run migrations, and link the public storage — relatively, so a copy of the
+checkout in another folder still serves its own uploads rather than the
+original folder's:
 
 ```bash
 php artisan migrate
+ln -sfn ../storage/app/public public/storage
 ```
+
+The hosts make their own link at every deploy, to the target's shared storage;
+this one is for a local checkout only.
 
 On a new project, choose and apply its one-time installation preset before
 creating or importing posts:
