@@ -297,6 +297,8 @@ return [
         'uploading_progress' => 'Envoi… :percent %',
         'selected_image_alt' => 'Aperçu de l\'image sélectionnée',
         'url_image_alt' => 'Aperçu de l\'image',
+        'link_reading' => 'Lecture du lien…',
+        'link_preview_video' => 'Vidéo',
     ],
     'a11y' => [
         'switch_language' => 'Changer de langue',

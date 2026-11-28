@@ -5,6 +5,7 @@ namespace App\Support\Import;
 use App\Enums\MediaTool;
 use App\Exceptions\Import\ImportFetchException;
 use App\Services\Media\MediaToolRunner;
+use Illuminate\Support\Facades\Log;
 use Symfony\Component\Process\ExecutableFinder;
 use Throwable;
 
@@ -55,13 +56,13 @@ final class YtDlp
                 return null;
             }
 
-            throw YtDlpProbeException::failed($extractor);
+            throw self::unread($extractor, self::lastLine($result->errorOutput));
         }
 
         $info = json_decode($result->output, true);
 
         if (! is_array($info)) {
-            throw YtDlpProbeException::failed($extractor);
+            throw self::unread($extractor, 'an answer that is not JSON');
         }
 
         $type = $info['_type'] ?? 'video';
@@ -74,14 +75,14 @@ final class YtDlp
             $entries = is_array($info['entries'] ?? null) ? array_values($info['entries']) : [];
 
             if ($entries === []) {
-                throw YtDlpProbeException::failed($extractor);
+                throw self::unread($extractor, 'a carousel listing nothing');
             }
 
             $video = false;
 
             foreach ($entries as $entry) {
                 if (! is_array($entry) || ! self::listsMedia($entry)) {
-                    throw YtDlpProbeException::failed($extractor);
+                    throw self::unread($extractor, 'a carousel entry naming no media');
                 }
 
                 $video = $video || self::hasVideo($entry);
@@ -94,7 +95,7 @@ final class YtDlp
         // video among it: an answer of another kind, or one naming no media
         // at all, is no answer.
         if ($type !== 'video' || ! self::listsMedia($info)) {
-            throw YtDlpProbeException::failed($extractor);
+            throw self::unread($extractor, 'an answer naming no media');
         }
 
         if (! self::hasVideo($info)) {
@@ -106,6 +107,7 @@ final class YtDlp
             title: is_string($info['title'] ?? null) ? $info['title'] : null,
             durationSeconds: is_numeric($info['duration'] ?? null) ? (int) ceil((float) $info['duration']) : null,
             approximateBytes: is_numeric($info['filesize'] ?? $info['filesize_approx'] ?? null) ? (int) ($info['filesize'] ?? $info['filesize_approx']) : null,
+            thumbnail: is_string($info['thumbnail'] ?? null) && str_starts_with($info['thumbnail'], 'https://') ? $info['thumbnail'] : null,
         );
     }
 
@@ -139,7 +141,9 @@ final class YtDlp
                 '--no-progress',
                 '--retries', '2',
                 '--max-filesize', "{$maxMegabytes}M",
-                '--match-filters', "duration<={$maxSeconds}",
+                // A length the site says is held to the limit here; one it does
+                // not say passes (`?`), and processing holds the file to it.
+                '--match-filters', "duration<=?{$maxSeconds}",
                 // A silent video has no audio to join: its video alone, last.
                 '-f', 'bv*[height<=1080][ext=mp4]+ba[ext=m4a]/b[height<=1080][ext=mp4]/bv*[height<=1080]+ba/b[height<=1080]/bv*[height<=1080]/b',
                 '--merge-output-format', 'mp4',
@@ -206,6 +210,26 @@ final class YtDlp
             : (new ExecutableFinder)->find($configured, null, (array) config('media.video.search_directories', []));
 
         return $found === null ? [] : ['--ffmpeg-location', $found];
+    }
+
+    /**
+     * A page yt-dlp could not read, logged with why — its last error line,
+     * or what was wrong with its answer — so the next one can be told apart
+     * (a site asking for a sign-in, an extractor broken by a change).
+     */
+    private static function unread(string $extractor, string $why): YtDlpProbeException
+    {
+        Log::warning('YtDlp: a page could not be read.', ['extractor' => $extractor, 'why' => $why]);
+
+        return YtDlpProbeException::failed($extractor);
+    }
+
+    /** The last line yt-dlp wrote to its error output, bounded. */
+    private static function lastLine(string $errorOutput): string
+    {
+        $lines = array_values(array_filter(array_map('trim', preg_split('/\R/', $errorOutput) ?: []), fn (string $line): bool => $line !== ''));
+
+        return mb_substr($lines === [] ? 'no error output' : $lines[array_key_last($lines)], 0, 300);
     }
 
     /** Whether yt-dlp's error says the page holds no video at all, rather than that it failed. */

@@ -297,6 +297,8 @@ return [
         'uploading_progress' => 'আপলোড হচ্ছে… :percent%',
         'selected_image_alt' => 'বেছে নেওয়া ছবির প্রিভিউ',
         'url_image_alt' => 'ছবির প্রিভিউ',
+        'link_reading' => 'লিঙ্কটি পড়া হচ্ছে…',
+        'link_preview_video' => 'ভিডিও',
     ],
     'a11y' => [
         'switch_language' => 'ভাষা পরিবর্তন করুন',

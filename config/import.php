@@ -36,6 +36,9 @@ return [
         'sites' => [
             'redgifs.com' => 'RedGifs',
             'instagram.com' => 'Instagram',
+            // Videos and Shorts, on www., m. and music. too. A youtu.be link
+            // goes through another extractor, and is not taken yet.
+            'youtube.com' => 'Youtube',
         ],
         // The sites whose pages may hold a photo instead: when yt-dlp finds
         // no video there, the page's photo is taken. On the others every page

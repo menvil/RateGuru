@@ -297,6 +297,8 @@ return [
         'uploading_progress' => 'Otpremanje… :percent%',
         'selected_image_alt' => 'Pregled odabrane slike',
         'url_image_alt' => 'Pregled slike',
+        'link_reading' => 'Čitamo link…',
+        'link_preview_video' => 'Video',
     ],
     'a11y' => [
         'switch_language' => 'Promijeni jezik',

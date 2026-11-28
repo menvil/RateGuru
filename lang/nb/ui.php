@@ -297,6 +297,8 @@ return [
         'uploading_progress' => 'Laster opp… :percent %',
         'selected_image_alt' => 'Forhåndsvisning av valgt bilde',
         'url_image_alt' => 'Forhåndsvisning av bilde',
+        'link_reading' => 'Leser lenken…',
+        'link_preview_video' => 'Video',
     ],
     'a11y' => [
         'switch_language' => 'Bytt språk',

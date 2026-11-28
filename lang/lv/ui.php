@@ -300,6 +300,8 @@ return [
         'uploading_progress' => 'Augšupielādē… :percent%',
         'selected_image_alt' => 'Izvēlētā attēla priekšskatījums',
         'url_image_alt' => 'Attēla priekšskatījums',
+        'link_reading' => 'Lasām saiti…',
+        'link_preview_video' => 'Video',
     ],
     'a11y' => [
         'switch_language' => 'Mainīt valodu',

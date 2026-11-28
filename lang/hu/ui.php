@@ -297,6 +297,8 @@ return [
         'uploading_progress' => 'Feltöltés… :percent%',
         'selected_image_alt' => 'A kiválasztott kép előnézete',
         'url_image_alt' => 'Kép előnézete',
+        'link_reading' => 'A link beolvasása…',
+        'link_preview_video' => 'Videó',
     ],
     'a11y' => [
         'switch_language' => 'Nyelv váltása',

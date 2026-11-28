@@ -297,6 +297,8 @@ return [
         'uploading_progress' => 'Đang tải lên… :percent%',
         'selected_image_alt' => 'Xem trước hình ảnh đã chọn',
         'url_image_alt' => 'Xem trước hình ảnh',
+        'link_reading' => 'Đang đọc liên kết…',
+        'link_preview_video' => 'Video',
     ],
     'a11y' => [
         'switch_language' => 'Chuyển ngôn ngữ',

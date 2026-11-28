@@ -297,6 +297,8 @@ return [
         'uploading_progress' => 'Se încarcă… :percent%',
         'selected_image_alt' => 'Previzualizarea imaginii selectate',
         'url_image_alt' => 'Previzualizare imagine',
+        'link_reading' => 'Citim linkul…',
+        'link_preview_video' => 'Videoclip',
     ],
     'a11y' => [
         'switch_language' => 'Schimbă limba',

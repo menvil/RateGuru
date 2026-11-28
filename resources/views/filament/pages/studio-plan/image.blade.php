@@ -37,8 +37,8 @@
         saved: false,
         dragging: false,
         replacing: false,
-        imported: { link: '', post: '' },
-        incomplete: { link: false, post: false },
+        imported: { link: '' },
+        incomplete: { link: false },
         // Undoes the watch x-init puts on the start of an upload.
         stopWatchingStart: null,
         destroy() {
@@ -220,8 +220,8 @@
                 <x-admin.ui.segmented
                     label="Image source"
                     class="rg-admin-studio__segmented"
-                    :options="['upload' => 'Upload', 'link' => 'From link', 'post' => 'From social post']"
-                    :icons="['upload' => 'upload', 'link' => 'link', 'post' => 'share-2']"
+                    :options="['upload' => 'Upload', 'link' => 'From link']"
+                    :icons="['upload' => 'upload', 'link' => 'link']"
                     :value="$imageSource"
                     wire:model.live="imageSource"
                 />
@@ -263,16 +263,17 @@
                         </x-slot:actions>
                     </x-admin.ui.inline-notice>
                 @enderror
-            @elseif ($imageSource === 'link')
+            @else
+                {{-- One field for any link, as the site's own upload form has: a file is taken as it is, a post or a page gives its picture. --}}
                 <div class="rg-admin-studio__stack" wire:key="studio-plan-image-link">
                     <x-admin.ui.text-field
-                        label="Image link"
+                        label="Link"
                         id="rg-admin-studio-image-url"
                         type="url"
                         icon="link"
                         :value="$imageUrl"
-                        placeholder="https://example.com/photo.jpg"
-                        hint="A direct link to a JPEG, PNG or WebP file, copied into the site's storage as soon as it is pasted. The post's source address is set on the Post step."
+                        placeholder="https://www.instagram.com/p/… or https://example.com/photo.jpg"
+                        hint="A link to a JPEG, PNG or WebP file, or to a public post. Its image is copied into the site's storage as soon as it is pasted. The post's source address is set on the Post step."
                         :error="$errors->first('imageUrl') ?: null"
                         autocomplete="off"
                         spellcheck="false"
@@ -282,36 +283,13 @@
                         x-on:keydown.enter.prevent="importFrom('link', $event.target.value)"
                     />
                     <p class="rg-admin-hint" x-show="incomplete.link" x-cloak>Paste the full link, starting with https://</p>
-                    @error('imageUrl')
-                        <div><x-admin.ui.button size="sm" icon="rotate-ccw" x-bind:disabled="busy" x-on:click="retry()">Try again</x-admin.ui.button></div>
-                    @enderror
-                </div>
-            @else
-                <div class="rg-admin-studio__stack" wire:key="studio-plan-image-post">
-                    <x-admin.ui.text-field
-                        label="Post link"
-                        id="rg-admin-studio-post-url"
-                        type="url"
-                        icon="share-2"
-                        :value="$postUrl"
-                        placeholder="https://www.instagram.com/p/…"
-                        hint="A public post. Its image is copied into the site's storage as soon as the link is pasted."
-                        :error="$errors->first('postUrl') ?: null"
-                        autocomplete="off"
-                        spellcheck="false"
-                        wire:model="postUrl"
-                        x-bind:readonly="busy"
-                        x-on:input.debounce.800ms="importFrom('post', $event.target.value)"
-                        x-on:keydown.enter.prevent="importFrom('post', $event.target.value)"
-                    />
-                    <p class="rg-admin-hint" x-show="incomplete.post" x-cloak>Paste the full link, starting with https://</p>
                     <ul class="rg-admin-studio__platforms" aria-label="Sites whose posts are read directly">
                         @foreach ($platforms as $platform)
                             <li @class(['rg-admin-studio__platform', 'rg-admin-studio__platform--detected' => $platform === $detectedPlatform])>{{ $platform }}</li>
                         @endforeach
                     </ul>
                     <p class="rg-admin-hint">{{ $detectedPlatform !== null ? "Detected: {$detectedPlatform} post." : 'Any other public page with a preview image works too.' }}</p>
-                    @error('postUrl')
+                    @error('imageUrl')
                         <div><x-admin.ui.button size="sm" icon="rotate-ccw" x-bind:disabled="busy" x-on:click="retry()">Try again</x-admin.ui.button></div>
                     @enderror
                 </div>

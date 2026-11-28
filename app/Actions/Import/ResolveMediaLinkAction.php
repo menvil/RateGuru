@@ -68,7 +68,7 @@ final class ResolveMediaLinkAction
         $provider = $this->detector->detect($url);
 
         if ($provider === 'direct_image') {
-            return new ResolvedMediaLink($url, null, null);
+            return new ResolvedMediaLink($url, null, null, previewImageUrl: $url);
         }
 
         // A link to a video file goes to the plain download, whatever site
@@ -80,17 +80,15 @@ final class ResolveMediaLinkAction
         if ($pageVideo !== null) {
             $maxSeconds = (int) config('uploads.videos.max_duration_seconds');
 
-            // A length the site does not say would only fail later: the
-            // download takes no clip it cannot hold to the limit.
-            if ($pageVideo->durationSeconds === null) {
-                throw MediaLinkRefusedException::unknownLength();
-            }
-
-            if ($pageVideo->durationSeconds > $maxSeconds) {
+            // Refused here when the site says it is too long. A length it does
+            // not say (an Instagram reel read from its page) is held to the
+            // limit once the file is there: processing refuses a longer one
+            // and tells the author, and the download is capped in size.
+            if ($pageVideo->durationSeconds !== null && $pageVideo->durationSeconds > $maxSeconds) {
                 throw MediaLinkRefusedException::tooLong($maxSeconds);
             }
 
-            return new ResolvedMediaLink(null, $url, self::withoutQuery($url));
+            return new ResolvedMediaLink(null, $url, self::withoutQuery($url), previewImageUrl: $pageVideo->thumbnail, durationSeconds: $pageVideo->durationSeconds);
         }
 
         // A site where every page is a video: none found is a failure, never
@@ -110,7 +108,13 @@ final class ResolveMediaLinkAction
             throw MediaLinkRefusedException::nothingToTake();
         }
 
-        return new ResolvedMediaLink($imageUrl, $videoUrl, in_array($provider, self::SOURCE_PROVIDERS, true) ? self::withoutQuery($url) : null);
+        return new ResolvedMediaLink(
+            $imageUrl,
+            $videoUrl,
+            in_array($provider, self::SOURCE_PROVIDERS, true) ? self::withoutQuery($url) : null,
+            // A picture shows as itself; a video by its post's still, where it has one.
+            previewImageUrl: $imageUrl ?? $preview->imageUrl,
+        );
     }
 
     /**
@@ -189,6 +193,18 @@ final class ResolveMediaLinkAction
     /** Where it came from, without its query: it may carry a token or tracking, never meant to be public. */
     private static function withoutQuery(string $url): ?string
     {
-        return strtok($url, '?#') ?: null;
+        $bare = strtok($url, '?#') ?: null;
+
+        // A YouTube watch page is the video only with its v; nothing else of
+        // the query is kept.
+        $host = strtolower((string) parse_url($url, PHP_URL_HOST));
+        parse_str((string) parse_url($url, PHP_URL_QUERY), $query);
+
+        if ($bare !== null && ($host === 'youtube.com' || str_ends_with($host, '.youtube.com')) && parse_url($bare, PHP_URL_PATH) === '/watch'
+            && is_string($query['v'] ?? null) && preg_match('/^[A-Za-z0-9_-]{6,20}$/', $query['v']) === 1) {
+            return $bare.'?v='.$query['v'];
+        }
+
+        return $bare;
     }
 }

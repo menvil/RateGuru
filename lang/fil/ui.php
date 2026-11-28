@@ -297,6 +297,8 @@ return [
         'uploading_progress' => 'Ina-upload… :percent%',
         'selected_image_alt' => 'Preview ng napiling larawan',
         'url_image_alt' => 'Preview ng larawan',
+        'link_reading' => 'Binabasa ang link…',
+        'link_preview_video' => 'Video',
     ],
     'a11y' => [
         'switch_language' => 'Palitan ang wika',

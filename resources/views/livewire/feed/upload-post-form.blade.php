@@ -18,7 +18,7 @@
         class="space-y-4"
         x-data="{
             imageTab: @if($importedImageUrl) 'url' @else 'file' @endif,
-            previewUrl: @js($importedImageUrl ?? null),
+            previewUrl: null,
             previewIsVideo: false,
             fileName: null,
             mediaError: null,
@@ -171,6 +171,7 @@
                         imageTab = 'file';
                         previewUrl = null;
                         $wire.importedImageUrl = null;
+                        $wire.set('linkPreview', null, false);
                     "
                     data-testid="image-tab-file"
                     :class="imageTab === 'file'
@@ -269,17 +270,29 @@
                     wire:model.defer="importedImageUrl"
                     :placeholder="__('ui.upload.image_url_placeholder')"
                     data-testid="upload-image-url-input"
-                    x-on:input="previewUrl = $event.target.value || null"
+                    x-on:input.debounce.800ms="if (imageTab === 'url') $wire.previewLink($event.target.value)"
                 />
                 <p class="text-xs text-rg-muted" data-testid="upload-link-hint">{{ __('ui.upload.media_url_hint') }}</p>
                 <div data-testid="field-error-image-url">
                     <x-input-error :messages="$errors->get('importedImageUrl')" />
                 </div>
-                {{-- A link to a picture shows it here; a post's or a video's link has nothing to show
-                     until it is read, so a picture that does not load is simply not shown. --}}
-                <template x-if="previewUrl && imageTab === 'url'">
-                    <img :src="previewUrl" alt="{{ __('ui.upload.url_image_alt') }}" decoding="async" x-on:error="previewUrl = null" class="max-h-48 w-full rounded-rgMedia object-contain" />
-                </template>
+                {{-- What the link would post, read as it is pasted: its picture, or its video's still
+                     and length. A still the site does not let another page show is simply left out,
+                     and the video is still said to be one. --}}
+                <p wire:loading wire:target="previewLink" class="text-xs text-rg-muted" data-testid="upload-link-reading">{{ __('ui.upload.link_reading') }}</p>
+                @if($linkPreview)
+                    <div wire:loading.remove wire:target="previewLink" data-testid="upload-link-preview" class="overflow-hidden rounded-rgMedia border border-rg-border bg-rg-card2">
+                        @if($linkPreview['image'])
+                            <img src="{{ $linkPreview['image'] }}" alt="{{ __('ui.upload.url_image_alt') }}" decoding="async" referrerpolicy="no-referrer" x-on:error="$el.remove()" class="max-h-48 w-full object-contain" />
+                        @endif
+                        @if($linkPreview['video'])
+                            <p class="flex items-center gap-2 px-3 py-2 text-sm text-rg-text" data-testid="upload-link-preview-video">
+                                <x-ui.icon name="play" class="size-4" />
+                                <span>{{ __('ui.upload.link_preview_video') }}@if($linkPreview['duration']) · {{ $linkPreview['duration'] }}@endif</span>
+                            </p>
+                        @endif
+                    </div>
+                @endif
             </div>
             @endif
 

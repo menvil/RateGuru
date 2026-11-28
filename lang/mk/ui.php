@@ -297,6 +297,8 @@ return [
         'uploading_progress' => 'Се прикачува… :percent%',
         'selected_image_alt' => 'Преглед на избраната слика',
         'url_image_alt' => 'Преглед на сликата',
+        'link_reading' => 'Ја читаме врската…',
+        'link_preview_video' => 'Видео',
     ],
     'a11y' => [
         'switch_language' => 'Промени јазик',

@@ -297,6 +297,8 @@ return [
         'uploading_progress' => 'Nahráva sa… :percent %',
         'selected_image_alt' => 'Náhľad vybraného obrázka',
         'url_image_alt' => 'Náhľad obrázka',
+        'link_reading' => 'Načítavame odkaz…',
+        'link_preview_video' => 'Video',
     ],
     'a11y' => [
         'switch_language' => 'Zmeniť jazyk',

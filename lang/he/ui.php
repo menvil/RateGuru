@@ -304,6 +304,8 @@ return [
         'uploading_progress' => 'מעלה… :percent%',
         'selected_image_alt' => 'תצוגה מקדימה של התמונה שנבחרה',
         'url_image_alt' => 'תצוגה מקדימה של התמונה',
+        'link_reading' => 'קוראים את הקישור…',
+        'link_preview_video' => 'וידאו',
     ],
     'a11y' => [
         'switch_language' => 'החלפת שפה',

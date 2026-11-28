@@ -297,6 +297,8 @@ return [
         'uploading_progress' => 'Memuat naik… :percent%',
         'selected_image_alt' => 'Pratonton imej yang dipilih',
         'url_image_alt' => 'Pratonton imej',
+        'link_reading' => 'Membaca pautan…',
+        'link_preview_video' => 'Video',
     ],
     'a11y' => [
         'switch_language' => 'Tukar bahasa',

@@ -297,6 +297,8 @@ return [
         'uploading_progress' => 'กำลังอัปโหลด… :percent%',
         'selected_image_alt' => 'ตัวอย่างรูปภาพที่เลือก',
         'url_image_alt' => 'ตัวอย่างรูปภาพ',
+        'link_reading' => 'กำลังอ่านลิงก์…',
+        'link_preview_video' => 'วิดีโอ',
     ],
     'a11y' => [
         'switch_language' => 'เปลี่ยนภาษา',

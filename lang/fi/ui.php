@@ -297,6 +297,8 @@ return [
         'uploading_progress' => 'Ladataan… :percent %',
         'selected_image_alt' => 'Valitun kuvan esikatselu',
         'url_image_alt' => 'Kuvan esikatselu',
+        'link_reading' => 'Luetaan linkkiä…',
+        'link_preview_video' => 'Video',
     ],
     'a11y' => [
         'switch_language' => 'Vaihda kieli',

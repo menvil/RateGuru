@@ -297,6 +297,8 @@ return [
         'uploading_progress' => 'იტვირთება… :percent%',
         'selected_image_alt' => 'არჩეული სურათის გადახედვა',
         'url_image_alt' => 'სურათის გადახედვა',
+        'link_reading' => 'ბმულს ვკითხულობთ…',
+        'link_preview_video' => 'ვიდეო',
     ],
     'a11y' => [
         'switch_language' => 'ენის შეცვლა',
