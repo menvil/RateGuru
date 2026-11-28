@@ -186,15 +186,16 @@ it('keeps only the sites whose share in a column is above or below a percent, pa
 });
 
 it('compares a share as the column shows it, says when the filters left every row out, and clears the share to find one row', function () {
-    // 98 of 4,900 opened started: 2.0% on screen, on neither side of 2.
-    siteClicks($this->source, '73001', 4900, 4900);
-    TrafficVisit::query()->where('site_ref', '73001')->limit(98)->update(['started_at' => now()]);
+    // 1 of 49 opened started (2.04%) and 1 of 51 (1.96%): both read 2.0% on screen, so neither is on either side of 2.
+    siteClicks($this->source, '73001', 49, 49);
+    siteClicks($this->source, '73002', 51, 51);
+    TrafficVisit::query()->whereIn('site_ref', ['73001', '73002'])->get()->groupBy('site_ref')->each(fn ($visits) => $visits->first()->forceFill(['started_at' => now()])->save());
 
     $page = Livewire::withQueryParams(['view' => 'sites', 'list' => 'site', 'share' => 'started', 'than' => 'below', 'pct' => '2'])->test(TrafficSourcesPage::class)->call('load')
-        ->assertSee('None clear the clicks threshold, the search and the share above it: 1 is left out.')
+        ->assertSee('None clear the clicks threshold, the search and the share above it: 2 are left out.')
         ->assertDontSee('No ad network sent a click');
 
-    $page->set('shareSide', 'above')->assertDontSee('site 73001')
+    $page->set('shareSide', 'above')->assertDontSee('site 73001')->assertDontSee('site 73002')
         ->call('listSites', $this->source->id, 'site', '73001')
         ->assertSet('shareColumn', '')
         ->assertSet('sharePercent', '')

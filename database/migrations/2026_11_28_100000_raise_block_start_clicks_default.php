@@ -23,8 +23,8 @@ return new class extends Migration
 
     public function down(): void
     {
-        DB::table('traffic_settings')->where('block_start_clicks', 1000)->update(['block_start_clicks' => 60]);
-
+        // Only the default goes back: a row at 1,000 may be one an administrator chose, and 1,000 is a value the
+        // rule took before this change as well.
         Schema::table('traffic_settings', function (Blueprint $table) {
             $table->unsignedInteger('block_start_clicks')->default(60)->change();
         });
