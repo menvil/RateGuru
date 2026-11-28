@@ -250,6 +250,7 @@
                 <x-ui.input
                     name="importedImageUrl"
                     type="url"
+                    :raised="true"
                     wire:model.defer="importedImageUrl"
                     :placeholder="__('ui.upload.image_url_placeholder')"
                     :aria-label="__('ui.upload.or_paste_link')"
