@@ -1,0 +1,88 @@
+docs/design/admin/design-contract.md
+  s_4b9dc6ab6b25d3::t_c33d217c644cd1 1603-1606
+database/migrations/2026_11_28_100200_add_presence_to_traffic_visits_and_settings.php
+  s_4b9dc6ab6b25d3::t_8aaec1dd2d7ce4 1-50
+app/Support/Traffic/Capture/PresenceFacts.php
+  s_4b9dc6ab6b25d3::t_477d5602239bbc 1-114
+app/Queries/Analytics/JourneyQuery.php
+  s_4b9dc6ab6b25d3::t_90693d6bdb12e8 24,66,400
+  s_4b9dc6ab6b25d3::t_468c2460ceff56 401-402
+tests/Feature/Traffic/VisitPresenceTest.php
+  s_4b9dc6ab6b25d3::t_e000ce6f4e63cd 110-112
+  s_4b9dc6ab6b25d3::t_85baddd758c776 1-109,113-115
+tests/Browser/TrafficBeaconBrowserTest.php
+  s_4b9dc6ab6b25d3::t_eae141fbb434eb 141-142,148
+  s_4b9dc6ab6b25d3::t_dc26afa3a43946 9-10,15,133-139,143-147,149-151
+app/Models/TrafficVisitDetail.php
+  s_4b9dc6ab6b25d3::t_c0dd61447c24bd 24,42
+docs/architecture/traffic.md
+  s_4b9dc6ab6b25d3::t_fffcacfe2e7e86 754-785
+app/Http/Controllers/Traffic/VisitSignalController.php
+  s_4b9dc6ab6b25d3::t_0fbac890cd014b 5,11,24,29-38
+  s_4b9dc6ab6b25d3::t_c8f16d1ed658d2 18-20
+resources/views/filament/pages/traffic-sources/logs.blade.php
+  s_4b9dc6ab6b25d3::t_90693d6bdb12e8 132
+tests/Feature/Database/TrafficSiteCaptureColumnTest.php
+  s_4b9dc6ab6b25d3::t_510518b3185bbf 20,32,36,40
+resources/views/filament/pages/traffic-sources/sources.blade.php
+  s_4b9dc6ab6b25d3::t_00c18fa120ba4c 105-106
+tests/Feature/Seeders/AnalyticsVolumeSeederTest.php
+  s_4b9dc6ab6b25d3::t_510518b3185bbf 49
+package-lock.json
+  ai_agent 2,8,22-26
+app/Actions/Traffic/OpenTrafficVisitAction.php
+  s_4b9dc6ab6b25d3::t_3445b8dac1b7c1 116
+tests/Unit/Support/Traffic/PresenceChecksTest.php
+  s_4b9dc6ab6b25d3::t_ec81880b446431 1-93
+resources/views/layouts/app.blade.php
+  s_4b9dc6ab6b25d3::t_00c18fa120ba4c 10-13
+tests/Feature/Traffic/TrafficSourcesPageTest.php
+  s_4b9dc6ab6b25d3::t_1567557da1e4a2 173,182,192-193,195-215
+resources/js/traffic.js
+  s_4b9dc6ab6b25d3::t_b2873eb4b93e4e 108-364
+docs/admin/traffic-sources.md
+  s_4b9dc6ab6b25d3::t_fffcacfe2e7e86 405-433,477-493
+app/Models/TrafficSetting.php
+  s_4b9dc6ab6b25d3::t_3445b8dac1b7c1 127
+  s_4b9dc6ab6b25d3::t_8aaec1dd2d7ce4 35,72,113,134-138
+  s_4b9dc6ab6b25d3::t_00c18fa120ba4c 121-124
+tests/Feature/Seeders/AnalyticsDemoSeederTest.php
+  s_4b9dc6ab6b25d3::t_510518b3185bbf 63
+app/Support/Analytics/JourneyTimeline.php
+  s_4b9dc6ab6b25d3::t_468c2460ceff56 247-251
+app/Http/Requests/Traffic/VisitSignalRequest.php
+  s_4b9dc6ab6b25d3::t_0fbac890cd014b 18-23,33,54-56
+app/Actions/Traffic/SaveTrafficSettingsAction.php
+  s_4b9dc6ab6b25d3::t_8aaec1dd2d7ce4 41,57,65
+resources/views/layouts/guest.blade.php
+  s_4b9dc6ab6b25d3::t_00c18fa120ba4c 10-13
+app/Models/TrafficVisit.php
+  s_4b9dc6ab6b25d3::t_c0dd61447c24bd 56-58,154-156
+app/Actions/Traffic/RecordVisitPresenceAction.php
+  s_4b9dc6ab6b25d3::t_0fbac890cd014b 10,37
+  s_4b9dc6ab6b25d3::t_c0dd61447c24bd 1-9,11-36,38-71
+app/Support/Traffic/Capture/PresenceChecks.php
+  s_4b9dc6ab6b25d3::t_be63949a42e154 1-193
+package.json
+  s_4b9dc6ab6b25d3::t_0e49dfd5476671 20
+app/Support/Traffic/Capture/TrafficArrival.php
+  s_4b9dc6ab6b25d3::t_00c18fa120ba4c 35-40
+app/Filament/Pages/TrafficSourcesPage.php
+  s_4b9dc6ab6b25d3::t_00c18fa120ba4c 309,1331
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "d7e3e7ffb5bb74ce4c6e0793dc365f62a4aeefd6",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
