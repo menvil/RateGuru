@@ -209,7 +209,6 @@ return [
             'video_post_published' => 'Tvoje video je pripravené a príspevok je zverejnený',
             'video_post_pending' => 'Tvoje video je pripravené a príspevok čaká na schválenie moderátorom',
             'video_post_failed' => 'Tvoje video sa nepodarilo spracovať. Nahraj iný súbor.',
-            'import_site_refusing' => ':site odmietol tomuto serveru vydať súbor — možno blokuje sťahovanie. Autori sú požiadaní, aby súbor nahrali sami.',
             'post_commented' => 'Nový komentár k tvojmu príspevku od @:username',
             'followed_author_posted' => 'Nový príspevok od @:username: :title',
         ],

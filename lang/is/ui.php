@@ -209,7 +209,6 @@ return [
             'video_post_published' => 'Myndbandið þitt er tilbúið og færslan hefur verið birt',
             'video_post_pending' => 'Myndbandið þitt er tilbúið og færslan bíður yfirferðar',
             'video_post_failed' => 'Ekki tókst að vinna úr myndbandinu þínu. Hladdu upp annarri skrá.',
-            'import_site_refusing' => ':site neitaði þessum netþjóni um skrá — síðan gæti verið að loka á niðurhal. Höfundar eru beðnir um að hlaða skránni upp sjálfir.',
             'post_commented' => '@:username skrifaði athugasemd við færsluna þína',
             'followed_author_posted' => '@:username birti „:title“',
         ],

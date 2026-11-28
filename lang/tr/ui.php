@@ -209,7 +209,6 @@ return [
             'video_post_published' => 'Videonuz hazır ve gönderiniz yayınlandı',
             'video_post_pending' => 'Videonuz hazır ve gönderiniz moderasyonu bekliyor',
             'video_post_failed' => 'Videonuz işlenemedi. Lütfen başka bir dosya yükleyin.',
-            'import_site_refusing' => ':site bu sunucuya bir dosyayı vermeyi reddetti — indirmeleri engelliyor olabilir. Yazarlardan dosyayı kendilerinin yüklemesi isteniyor.',
             'post_commented' => '@:username gönderinize yorum yaptı',
             'followed_author_posted' => '@:username yeni bir gönderi paylaştı: :title',
         ],

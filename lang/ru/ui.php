@@ -213,7 +213,6 @@ return [
             'video_post_published' => 'Видео готово, пост опубликован',
             'video_post_pending' => 'Видео готово, пост ждёт модерации',
             'video_post_failed' => 'Не удалось обработать видео. Загрузите другой файл.',
-            'import_site_refusing' => ':site отказал этому серверу в файле — возможно, он блокирует скачивание. Авторов просят загрузить файл самим.',
             'post_commented' => '@:username прокомментировал ваш пост',
             'followed_author_posted' => '@:username опубликовал :title',
         ],

@@ -209,7 +209,6 @@ return [
             'video_post_published' => 'Sinu video on valmis ja postitus on avaldatud',
             'video_post_pending' => 'Sinu video on valmis ja postitus ootab modereerimist',
             'video_post_failed' => 'Sinu videot ei õnnestunud töödelda. Laadi üles mõni muu fail.',
-            'import_site_refusing' => ':site keeldus sellele serverile faili andmast — võib-olla blokeerib see allalaadimisi. Autoritel palutakse fail ise üles laadida.',
             'post_commented' => '@:username kommenteeris sinu postitust',
             'followed_author_posted' => '@:username avaldas postituse „:title“',
         ],

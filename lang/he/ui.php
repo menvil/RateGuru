@@ -216,7 +216,6 @@ return [
             'video_post_published' => 'הווידאו שלך מוכן והפוסט פורסם',
             'video_post_pending' => 'הווידאו שלך מוכן והפוסט ממתין לאישור',
             'video_post_failed' => 'לא ניתן היה לעבד את הווידאו שלך. העלה קובץ אחר.',
-            'import_site_refusing' => ':site סירב לתת לשרת הזה קובץ — ייתכן שהוא חוסם הורדות. היוצרים מתבקשים להעלות את הקובץ בעצמם.',
             'post_commented' => "תגובה חדשה לפוסט שלך מאת \u{200E}@:username",
             'followed_author_posted' => "פוסט חדש מאת \u{200E}@:username: :title",
         ],

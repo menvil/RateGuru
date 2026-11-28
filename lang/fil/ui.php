@@ -209,7 +209,6 @@ return [
             'video_post_published' => 'Handa na ang iyong video at na-publish na ang iyong post',
             'video_post_pending' => 'Handa na ang iyong video at naghihintay ng moderation ang iyong post',
             'video_post_failed' => 'Hindi ma-proseso ang iyong video. Mag-upload ng ibang file.',
-            'import_site_refusing' => 'Tumanggi ang :site na magbigay ng file sa server na ito — maaaring hinaharangan nito ang mga download. Hinihiling sa mga author na sila mismo ang mag-upload ng file.',
             'post_commented' => 'Nagkomento si @:username sa iyong post',
             'followed_author_posted' => 'Nag-post si @:username ng :title',
         ],

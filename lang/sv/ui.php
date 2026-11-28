@@ -209,7 +209,6 @@ return [
             'video_post_published' => 'Din video är klar och ditt inlägg är publicerat',
             'video_post_pending' => 'Din video är klar och ditt inlägg väntar på granskning',
             'video_post_failed' => 'Din video kunde inte bearbetas. Ladda upp en annan fil.',
-            'import_site_refusing' => ':site vägrade ge den här servern en fil — webbplatsen kanske blockerar nedladdningar. Författare ombeds ladda upp filen själva.',
             'post_commented' => '@:username kommenterade ditt inlägg',
             'followed_author_posted' => '@:username publicerade :title',
         ],

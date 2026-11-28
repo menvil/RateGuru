@@ -209,7 +209,6 @@ return [
             'video_post_published' => 'Twoje wideo jest gotowe, a post został opublikowany',
             'video_post_pending' => 'Twoje wideo jest gotowe, a post czeka na moderację',
             'video_post_failed' => 'Nie udało się przetworzyć Twojego wideo. Prześlij inny plik.',
-            'import_site_refusing' => ':site odmówił temu serwerowi pliku — możliwe, że blokuje pobieranie. Autorzy są proszeni o samodzielne przesłanie pliku.',
             'post_commented' => 'Nowy komentarz od @:username pod Twoim postem',
             'followed_author_posted' => 'Nowy post od @:username: :title',
         ],

@@ -209,7 +209,6 @@ return [
             'video_post_published' => 'Videomu sudah siap dan postinganmu telah diterbitkan',
             'video_post_pending' => 'Videomu sudah siap dan postinganmu menunggu moderasi',
             'video_post_failed' => 'Videomu tidak dapat diproses. Unggah file lain.',
-            'import_site_refusing' => ':site menolak memberikan file ke server ini — mungkin situs itu memblokir unduhan. Penulis diminta mengunggah file sendiri.',
             'post_commented' => '@:username mengomentari postinganmu',
             'followed_author_posted' => '@:username memposting :title',
         ],

@@ -21,9 +21,9 @@ return [
     // it. Adding a site is a line here; which sites, the project's call.
     // A site that refused this server — too many requests, forbidden, a
     // check that it is no robot — from this many different links within one
-    // window on: each refusal reported, and every administrator told once
-    // per window (ImportRefusalMonitor). From the first, to see a block soon;
-    // raise it should single refusals turn out too noisy.
+    // window on: each refusal reported to the error tracker, with its link
+    // (ImportRefusalMonitor). From the first, to see a block soon; raise it
+    // should single refusals turn out too noisy.
     'refusal_alert' => [
         'distinct_links' => 1,
         'window_seconds' => 3600,

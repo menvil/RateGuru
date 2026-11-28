@@ -209,7 +209,6 @@ return [
             'video_post_published' => 'A videód elkészült, a bejegyzésed megjelent',
             'video_post_pending' => 'A videód elkészült, a bejegyzésed moderálásra vár',
             'video_post_failed' => 'A videódat nem sikerült feldolgozni. Tölts fel egy másik fájlt.',
-            'import_site_refusing' => 'A(z) :site megtagadta egy fájl kiadását ennek a szervernek — lehet, hogy blokkolja a letöltéseket. A szerzőket arra kérjük, hogy maguk töltsék fel a fájlt.',
             'post_commented' => '@:username hozzászólt a bejegyzésedhez',
             'followed_author_posted' => '@:username új bejegyzést tett közzé: :title',
         ],

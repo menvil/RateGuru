@@ -209,7 +209,6 @@ return [
             'video_post_published' => '您的视频已就绪，帖子已发布',
             'video_post_pending' => '您的视频已就绪，帖子正在等待审核',
             'video_post_failed' => '无法处理您的视频，请上传其他文件。',
-            'import_site_refusing' => ':site 拒绝向本服务器提供文件——可能正在阻止下载。已请作者自行上传文件。',
             'post_commented' => '@:username 评论了您的帖子',
             'followed_author_posted' => '@:username 发布了“:title”',
         ],

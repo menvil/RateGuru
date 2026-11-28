@@ -754,7 +754,7 @@ it('tells the author a site refusing this server is to be uploaded from instead,
 
     expect(Post::query()->count())->toBe(0);
     Log::shouldHaveReceived('warning')->with('Import: a site refused a link.', Mockery::on(fn (array $context): bool => $context['site'] === 'redgifs.com'));
-    Exceptions::assertReported(fn (ImportSiteRefusingException $exception): bool => str_starts_with($exception->getMessage(), 'redgifs.com refused a link'));
+    Exceptions::assertReported(fn (ImportSiteRefusingException $exception): bool => str_starts_with($exception->getMessage(), 'redgifs.com refused https://www.redgifs.com/watch/aloop ('));
     Exceptions::assertReportedCount(1);
 })->with([
     'too many requests' => 'ERROR: [RedGifs] aloop: Unable to download JSON metadata: HTTP Error 429: Too Many Requests',

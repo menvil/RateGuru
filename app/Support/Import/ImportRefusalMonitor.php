@@ -2,22 +2,21 @@
 
 namespace App\Support\Import;
 
-use App\Enums\UserRole;
 use App\Exceptions\Import\ImportSiteRefusingException;
-use App\Models\User;
-use App\Notifications\ImportSiteRefusingNotification;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 
 /**
  * Tells a site that has started refusing this server — answering "too many
- * requests" or "forbidden", or asking yt-dlp to prove it is no robot — at
- * once, from the first link: with few authors, waiting for many would leave
- * a block unseen for long. Each different link refused is reported — an
- * error of its own, which the error tracker gathers into one issue — and
- * every administrator is told in their notifications, once per site within
- * a window. import.refusal_alert.distinct_links raises how many different
- * links of one site it takes, should one refusal turn out too noisy.
+ * requests" or "forbidden", or asking yt-dlp to prove it is no robot — to the
+ * error tracker, at once, from the first link: with few authors, waiting for
+ * many would leave a block unseen for long. Each different link refused is
+ * reported, with the link itself, so the story can be followed: the error
+ * tracker gathers them into one issue. A link refused again within the window
+ * — a retry, a second author — is reported once. One refusal may still be an
+ * author's private post; that is for whoever reads the issue to tell.
+ * import.refusal_alert.distinct_links raises how many different links of one
+ * site it takes, should single refusals turn out too noisy.
  */
 final class ImportRefusalMonitor
 {
@@ -29,12 +28,12 @@ final class ImportRefusalMonitor
             return;
         }
 
+        $link = self::shown($url);
         $window = max(60, (int) config('import.refusal_alert.window_seconds'));
         $prefix = 'import-refusal:'.$site.':'.intdiv(time(), $window);
 
-        Log::warning('Import: a site refused a link.', ['site' => $site, 'reason' => $reason]);
+        Log::warning('Import: a site refused a link.', ['site' => $site, 'link' => $link, 'reason' => $reason]);
 
-        // The same link refused again — a retry, a second author — counts once.
         if (! Cache::add($prefix.':link:'.sha1($url), true, $window * 2)) {
             return;
         }
@@ -46,17 +45,7 @@ final class ImportRefusalMonitor
             return;
         }
 
-        report(ImportSiteRefusingException::make($site, $reason));
-
-        if (! Cache::add($prefix.':alerted', true, $window * 2)) {
-            return;
-        }
-
-        // Each through its own notify(), which keeps the rules every
-        // notification of the site's follows.
-        User::query()->where('role', UserRole::Admin)->each(
-            fn (User $admin) => $admin->notify(new ImportSiteRefusingNotification($site)),
-        );
+        report(ImportSiteRefusingException::make($site, $link, $reason));
     }
 
     /** The site a link is of — its host, without "www." — or null for no host. */
@@ -65,5 +54,20 @@ final class ImportRefusalMonitor
         $host = strtolower((string) parse_url($url, PHP_URL_HOST));
 
         return $host === '' ? null : (str_starts_with($host, 'www.') ? substr($host, 4) : $host);
+    }
+
+    /**
+     * The link as it is reported: its scheme, host, port and path. Never its
+     * query, fragment or credentials — a signed link or a token pasted with it
+     * is not for the error tracker — and never longer than a page address.
+     */
+    private static function shown(string $url): string
+    {
+        $parts = parse_url($url);
+        $scheme = strtolower((string) ($parts['scheme'] ?? 'https'));
+        $host = strtolower((string) ($parts['host'] ?? ''));
+        $port = isset($parts['port']) ? ':'.$parts['port'] : '';
+
+        return mb_strimwidth("{$scheme}://{$host}{$port}".($parts['path'] ?? ''), 0, 500, '…');
     }
 }

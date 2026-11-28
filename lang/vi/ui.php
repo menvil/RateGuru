@@ -209,7 +209,6 @@ return [
             'video_post_published' => 'Video của bạn đã sẵn sàng và bài đăng đã được xuất bản',
             'video_post_pending' => 'Video của bạn đã sẵn sàng và bài đăng đang chờ kiểm duyệt',
             'video_post_failed' => 'Không thể xử lý video của bạn. Vui lòng tải lên tệp khác.',
-            'import_site_refusing' => ':site đã từ chối cung cấp tệp cho máy chủ này — có thể trang đang chặn tải xuống. Tác giả được đề nghị tự tải tệp lên.',
             'post_commented' => '@:username đã bình luận về bài đăng của bạn',
             'followed_author_posted' => '@:username đã đăng “:title”',
         ],
