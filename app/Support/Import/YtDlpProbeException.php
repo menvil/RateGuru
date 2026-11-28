@@ -12,7 +12,7 @@ use RuntimeException;
  */
 final class YtDlpProbeException extends RuntimeException
 {
-    private function __construct(string $message, public readonly bool $carouselWithVideo)
+    private function __construct(string $message, public readonly bool $carouselWithVideo, public readonly bool $refused = false)
     {
         parent::__construct($message);
     }
@@ -20,6 +20,12 @@ final class YtDlpProbeException extends RuntimeException
     public static function failed(string $extractor): self
     {
         return new self("yt-dlp could not read a {$extractor} page.", false);
+    }
+
+    /** The site refused this server — not the page being private or gone (ImportRefusalMonitor counts it). */
+    public static function refused(string $extractor): self
+    {
+        return new self("The site refused yt-dlp a {$extractor} page.", false, true);
     }
 
     public static function carouselWithVideo(string $extractor): self

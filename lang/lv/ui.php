@@ -212,6 +212,7 @@ return [
             'video_post_published' => 'Jūsu video ir gatavs, un ieraksts ir publicēts',
             'video_post_pending' => 'Jūsu video ir gatavs, un ieraksts gaida moderēšanu',
             'video_post_failed' => 'Jūsu video neizdevās apstrādāt. Augšupielādējiet citu failu.',
+            'import_site_refusing' => ':site, šķiet, bloķē lejupielādi: nesen noraidīja :count dažādas saites. Autori tiek lūgti failu augšupielādēt paši.',
             'post_commented' => '@:username komentēja jūsu ierakstu',
             'followed_author_posted' => '@:username publicēja ierakstu „:title”',
         ],

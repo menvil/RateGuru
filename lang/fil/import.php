@@ -20,6 +20,7 @@ return [
         'provider_blocked' => 'Hinarang ng provider na ito ang request.',
         'feature_disabled' => 'Kasalukuyang naka-disable ang pag-import mula sa URL.',
         'fetch_failed' => 'Hindi makuha ang URL na ito. Pakisubukang muli.',
+        'site_refusing' => 'Hindi ibinibigay ng site ang file na ito ngayon. I-download ito at i-upload mula sa iyong device.',
     ],
 
     'manual_upload_hint' => 'I-download ang larawan at i-upload ito nang mano-mano.',

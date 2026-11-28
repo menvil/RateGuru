@@ -12,6 +12,7 @@ use App\Enums\ImageInputSource;
 use App\Enums\PostStatus;
 use App\Enums\UserActivity;
 use App\Exceptions\Abuse\RateLimitExceededException;
+use App\Exceptions\Import\ImportFetchException;
 use App\Exceptions\Import\MediaLinkRefusedException;
 use App\Exceptions\Import\UnsafeImportUrlException;
 use App\Exceptions\Import\UrlImportDisabledException;
@@ -350,6 +351,11 @@ final class UploadPostForm extends Component
             $exception instanceof MediaLinkRefusedException, $exception instanceof RateLimitExceededException => $exception->getMessage(),
             $exception instanceof UrlImportDisabledException => __('import.errors.feature_disabled'),
             $exception instanceof UnsafeImportUrlException => __('import.errors.unsafe_url'),
+            // The site refused this server (ImportRefusalMonitor counts it,
+            // and reports a site that keeps refusing), or answered that the
+            // link leads nowhere: the author's to act on, not an error of ours.
+            $exception instanceof ImportFetchException && $exception->refusedByTheSite() => __('import.errors.site_refusing'),
+            $exception instanceof ImportFetchException && $exception->answeredNoSuchPage() => __('import.errors.fetch_failed'),
             default => (function () use ($exception): string {
                 report($exception);
 

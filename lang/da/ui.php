@@ -209,6 +209,7 @@ return [
             'video_post_published' => 'Din video er klar, og dit opslag er offentliggjort',
             'video_post_pending' => 'Din video er klar, og dit opslag venter på moderering',
             'video_post_failed' => 'Din video kunne ikke behandles. Upload en anden fil.',
+            'import_site_refusing' => ':site ser ud til at blokere download: afviste :count forskellige links for nylig. Forfattere bedes uploade filen selv.',
             'post_commented' => '@:username har kommenteret dit opslag',
             'followed_author_posted' => '@:username har udgivet :title',
         ],

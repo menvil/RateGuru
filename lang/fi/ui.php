@@ -209,6 +209,7 @@ return [
             'video_post_published' => 'Videosi on valmis ja julkaisusi on julkaistu',
             'video_post_pending' => 'Videosi on valmis ja julkaisusi odottaa moderointia',
             'video_post_failed' => 'Videotasi ei voitu käsitellä. Lataa toinen tiedosto.',
+            'import_site_refusing' => ':site näyttää estävän lataukset: se hylkäsi äskettäin :count eri linkkiä. Tekijöitä pyydetään lähettämään tiedosto itse.',
             'post_commented' => '@:username kommentoi julkaisuasi',
             'followed_author_posted' => '@:username julkaisi: :title',
         ],

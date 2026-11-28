@@ -209,6 +209,7 @@ return [
             'video_post_published' => 'Tvoj video je pripravljen in objava je objavljena',
             'video_post_pending' => 'Tvoj video je pripravljen in objava čaka na moderiranje',
             'video_post_failed' => 'Tvojega videa ni bilo mogoče obdelati. Naloži drugo datoteko.',
+            'import_site_refusing' => ':site očitno blokira prenašanje: nedavno je zavrnil :count različnih povezav. Avtorje prosimo, naj datoteko naložijo sami.',
             'post_commented' => 'Nov komentar uporabnika @:username na tvoji objavi',
             'followed_author_posted' => 'Nova objava uporabnika @:username: „:title“',
         ],

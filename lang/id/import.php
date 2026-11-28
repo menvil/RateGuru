@@ -20,6 +20,7 @@ return [
         'provider_blocked' => 'Penyedia ini memblokir permintaan.',
         'feature_disabled' => 'Impor URL sedang dinonaktifkan.',
         'fetch_failed' => 'Tidak dapat mengambil URL ini. Silakan coba lagi.',
+        'site_refusing' => 'Situs sedang tidak memberikan file ini. Unduh lalu unggah dari perangkat Anda.',
     ],
 
     'manual_upload_hint' => 'Unduh gambarnya, lalu unggah secara manual.',

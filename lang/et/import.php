@@ -20,6 +20,7 @@ return [
         'provider_blocked' => 'See teenusepakkuja blokeeris päringu.',
         'feature_disabled' => 'URL-ilt importimine on praegu välja lülitatud.',
         'fetch_failed' => 'Selle URL-i laadimine ebaõnnestus. Proovi uuesti.',
+        'site_refusing' => 'Sait ei anna seda faili praegu välja. Laadi see alla ja laadi üles oma seadmest.',
     ],
 
     'manual_upload_hint' => 'Laadi pilt alla ja laadi see käsitsi üles.',

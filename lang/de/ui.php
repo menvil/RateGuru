@@ -209,6 +209,7 @@ return [
             'video_post_published' => 'Dein Video ist fertig und dein Beitrag ist veröffentlicht',
             'video_post_pending' => 'Dein Video ist fertig und dein Beitrag wartet auf die Moderation',
             'video_post_failed' => 'Dein Video konnte nicht verarbeitet werden. Bitte lade eine andere Datei hoch.',
+            'import_site_refusing' => ':site scheint Downloads zu blockieren: zuletzt :count verschiedene Links abgelehnt. Autoren werden gebeten, die Datei selbst hochzuladen.',
             'post_commented' => '@:username hat deinen Beitrag kommentiert',
             'followed_author_posted' => '@:username hat :title veröffentlicht',
         ],

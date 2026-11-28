@@ -20,6 +20,7 @@ return [
         'provider_blocked' => 'Þjónustuveitan hafnaði beiðninni.',
         'feature_disabled' => 'Slökkt er á innflutningi af vefslóð eins og er.',
         'fetch_failed' => 'Ekki tókst að sækja þessa vefslóð. Reyndu aftur.',
+        'site_refusing' => 'Vefurinn afhendir ekki þessa skrá eins og er. Sæktu hana og hladdu henni upp úr tækinu þínu.',
     ],
 
     'manual_upload_hint' => 'Sæktu myndina og hladdu henni upp handvirkt.',

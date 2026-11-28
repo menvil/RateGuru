@@ -209,6 +209,7 @@ return [
             'video_post_published' => 'Your video is ready and your post is published',
             'video_post_pending' => 'Your video is ready and your post is waiting for moderation',
             'video_post_failed' => 'Your video could not be processed. Please upload a different file.',
+            'import_site_refusing' => ':site seems to be blocking downloads: it refused :count different links lately. Authors are asked to upload the file themselves.',
             'post_commented' => '@:username commented on your post',
             'followed_author_posted' => '@:username posted :title',
         ],

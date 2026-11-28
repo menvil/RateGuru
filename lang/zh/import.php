@@ -20,6 +20,7 @@ return [
         'provider_blocked' => '该服务商拦截了此请求。',
         'feature_disabled' => 'URL 导入功能目前已停用。',
         'fetch_failed' => '无法获取此 URL，请重试。',
+        'site_refusing' => '该网站目前不提供此文件。请下载后从你的设备上传。',
     ],
 
     'manual_upload_hint' => '请下载图片后手动上传。',

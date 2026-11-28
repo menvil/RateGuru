@@ -20,6 +20,7 @@ return [
         'provider_blocked' => 'Este provedor bloqueou a solicitação.',
         'feature_disabled' => 'A importação por URL está desativada no momento.',
         'fetch_failed' => 'Não foi possível acessar esta URL. Tente novamente.',
+        'site_refusing' => 'O site não está liberando este arquivo agora. Baixe-o e envie-o do seu dispositivo.',
     ],
 
     'manual_upload_hint' => 'Baixe a imagem e envie-a manualmente.',

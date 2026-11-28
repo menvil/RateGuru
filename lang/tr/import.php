@@ -20,6 +20,7 @@ return [
         'provider_blocked' => 'Bu sağlayıcı isteği engelledi.',
         'feature_disabled' => 'URL\'den içe aktarma şu anda devre dışı.',
         'fetch_failed' => 'Bu URL\'den içerik alınamadı. Lütfen tekrar deneyin.',
+        'site_refusing' => 'Site bu dosyayı şu anda vermiyor. Dosyayı indirip cihazınızdan yükleyin.',
     ],
 
     'manual_upload_hint' => 'Görseli indirip elle yükleyin.',

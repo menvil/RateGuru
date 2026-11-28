@@ -20,6 +20,7 @@ return [
         'provider_blocked' => 'Ovaj je davatelj usluge blokirao zahtjev.',
         'feature_disabled' => 'Uvoz s URL-a trenutačno je isključen.',
         'fetch_failed' => 'Nije moguće dohvatiti ovaj URL. Pokušaj ponovno.',
+        'site_refusing' => 'Stranica trenutačno ne daje ovu datoteku. Preuzmite je i prenesite sa svog uređaja.',
     ],
 
     'manual_upload_hint' => 'Preuzmi sliku i prenesi je ručno.',

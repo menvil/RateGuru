@@ -20,6 +20,7 @@ return [
         'provider_blocked' => 'Deze aanbieder heeft het verzoek geblokkeerd.',
         'feature_disabled' => 'Importeren via URL is momenteel uitgeschakeld.',
         'fetch_failed' => 'Deze URL kon niet worden opgehaald. Probeer het opnieuw.',
+        'site_refusing' => 'De site geeft dit bestand nu niet vrij. Download het en upload het vanaf je apparaat.',
     ],
 
     'manual_upload_hint' => 'Download de afbeelding en upload deze handmatig.',

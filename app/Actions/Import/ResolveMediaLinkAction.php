@@ -101,6 +101,11 @@ final class ResolveMediaLinkAction
         $preview = app(ImportFromUrlAction::class)->handle($url);
         $videoUrl = $preview->videoUrl;
 
+        // The site refused this server the page: its file is to be uploaded instead.
+        if ($preview->refusedByTheSite) {
+            throw MediaLinkRefusedException::siteRefusing();
+        }
+
         // A page that did not show its own picture — an error page, the
         // site's home page in its place — is said so, not tried as one.
         if ($provider === 'open_graph' && $videoUrl === null && ! $preview->isSupported()) {
@@ -160,7 +165,11 @@ final class ResolveMediaLinkAction
             // Not "no video": a carousel with one among its photos, or a
             // page of a site yt-dlp knows that it could not read — never
             // posted as its picture.
-            throw $exception->carouselWithVideo ? MediaLinkRefusedException::carouselWithVideo() : MediaLinkRefusedException::couldNotRead();
+            throw match (true) {
+                $exception->carouselWithVideo => MediaLinkRefusedException::carouselWithVideo(),
+                $exception->refused => MediaLinkRefusedException::siteRefusing(),
+                default => MediaLinkRefusedException::couldNotRead(),
+            };
         } catch (MediaToolTimedOutException|MediaToolUnavailableException|MediaToolInterruptedException $exception) {
             // yt-dlp could not answer — never the same as "this page has no
             // video": an Instagram reel would otherwise go on as its poster.

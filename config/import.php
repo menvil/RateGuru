@@ -19,6 +19,15 @@ return [
     // here, each through its own extractor alone (--use-extractors): never
     // yt-dlp's generic extractor, which would open any address a link gave
     // it. Adding a site is a line here; which sites, the project's call.
+    // A site that refused this server — too many requests, forbidden, a
+    // check that it is no robot — for this many different links within one
+    // window looks like it is blocking it: reported, and every administrator
+    // told (ImportRefusalMonitor). A single refusal is an author's private post.
+    'refusal_alert' => [
+        'distinct_links' => 5,
+        'window_seconds' => 3600,
+    ],
+
     'ytdlp' => [
         'binary' => 'yt-dlp',
         // The probe runs while the author waits, in a web worker: short, one

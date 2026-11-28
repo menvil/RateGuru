@@ -20,6 +20,7 @@ return [
         'provider_blocked' => 'Der Anbieter hat die Anfrage blockiert.',
         'feature_disabled' => 'Der Import per URL ist derzeit deaktiviert.',
         'fetch_failed' => 'Diese URL konnte nicht abgerufen werden. Bitte versuche es erneut.',
+        'site_refusing' => 'Die Seite gibt diese Datei gerade nicht heraus. Lade sie herunter und lade sie von deinem Gerät hoch.',
     ],
 
     'manual_upload_hint' => 'Lade das Bild herunter und lade es manuell hoch.',

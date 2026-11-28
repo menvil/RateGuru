@@ -209,6 +209,7 @@ return [
             'video_post_published' => 'Video anda sudah sedia dan siaran anda telah diterbitkan',
             'video_post_pending' => 'Video anda sudah sedia dan siaran anda menunggu penyederhanaan',
             'video_post_failed' => 'Video anda tidak dapat diproses. Sila muat naik fail lain.',
+            'import_site_refusing' => ':site nampaknya menyekat muat turun: menolak :count pautan berbeza baru-baru ini. Pengarang diminta memuat naik fail sendiri.',
             'post_commented' => '@:username mengulas siaran anda',
             'followed_author_posted' => '@:username menyiarkan :title',
         ],

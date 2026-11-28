@@ -209,6 +209,7 @@ return [
             'video_post_published' => 'Handa na ang iyong video at na-publish na ang iyong post',
             'video_post_pending' => 'Handa na ang iyong video at naghihintay ng moderation ang iyong post',
             'video_post_failed' => 'Hindi ma-proseso ang iyong video. Mag-upload ng ibang file.',
+            'import_site_refusing' => 'Mukhang hinaharangan ng :site ang pag-download: tinanggihan nito ang :count magkakaibang link kamakailan. Hinihiling sa mga may-akda na i-upload mismo ang file.',
             'post_commented' => 'Nagkomento si @:username sa iyong post',
             'followed_author_posted' => 'Nag-post si @:username ng :title',
         ],

@@ -20,6 +20,7 @@ return [
         'provider_blocked' => 'Ši svetainė užblokavo užklausą.',
         'feature_disabled' => 'Importavimas iš URL šiuo metu išjungtas.',
         'fetch_failed' => 'Nepavyko gauti šio URL turinio. Bandykite dar kartą.',
+        'site_refusing' => 'Svetainė šiuo metu neatiduoda šio failo. Atsisiųskite jį ir įkelkite iš savo įrenginio.',
     ],
 
     'manual_upload_hint' => 'Atsisiųskite paveikslėlį ir įkelkite jį rankiniu būdu.',

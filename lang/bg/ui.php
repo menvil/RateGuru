@@ -209,6 +209,7 @@ return [
             'video_post_published' => 'Видеото е готово и постът ви е публикуван',
             'video_post_pending' => 'Видеото е готово и постът ви чака модерация',
             'video_post_failed' => 'Видеото не можа да бъде обработено. Качете друг файл.',
+            'import_site_refusing' => ':site изглежда блокира изтеглянето: отказа :count различни връзки напоследък. Авторите са помолени да качат файла сами.',
             'post_commented' => '@:username коментира вашия пост',
             'followed_author_posted' => '@:username публикува :title',
         ],

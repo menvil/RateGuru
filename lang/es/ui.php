@@ -209,6 +209,7 @@ return [
             'video_post_published' => 'Tu vídeo está listo y tu publicación se ha publicado',
             'video_post_pending' => 'Tu vídeo está listo y tu publicación espera la moderación',
             'video_post_failed' => 'No se pudo procesar tu vídeo. Sube otro archivo.',
+            'import_site_refusing' => ':site parece estar bloqueando las descargas: rechazó :count enlaces distintos últimamente. Se pide a los autores que suban el archivo ellos mismos.',
             'post_commented' => '@:username comentó tu publicación',
             'followed_author_posted' => '@:username publicó :title',
         ],

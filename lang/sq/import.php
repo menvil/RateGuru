@@ -20,6 +20,7 @@ return [
         'provider_blocked' => 'Ky shërbim e bllokoi kërkesën.',
         'feature_disabled' => 'Importimi nga URL është çaktivizuar për momentin.',
         'fetch_failed' => 'Ky URL nuk u hap dot. Provo sërish.',
+        'site_refusing' => 'Faqja nuk e jep këtë skedar tani. Shkarkojeni dhe ngarkojeni nga pajisja juaj.',
     ],
 
     'manual_upload_hint' => 'Shkarko imazhin dhe ngarkoje manualisht.',

@@ -209,6 +209,7 @@ return [
             'video_post_published' => 'Videoja jote është gati dhe postimi u publikua',
             'video_post_pending' => 'Videoja jote është gati dhe postimi pret moderimin',
             'video_post_failed' => 'Videoja jote nuk mund të përpunohej. Ngarko një skedar tjetër.',
+            'import_site_refusing' => ':site duket se po bllokon shkarkimet: refuzoi së fundi :count lidhje të ndryshme. Autorëve u kërkohet ta ngarkojnë vetë skedarin.',
             'post_commented' => '@:username komentoi postimin tënd',
             'followed_author_posted' => '@:username publikoi :title',
         ],

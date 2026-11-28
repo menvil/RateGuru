@@ -17,6 +17,9 @@ class ImportPreview
         // A video or animated GIF to import instead of the picture: a direct
         // link to one, or the one a post on X carries.
         public readonly ?string $videoUrl = null,
+        // The site refused this server the page — too many requests, or
+        // forbidden — rather than the page having nothing to take.
+        public readonly bool $refusedByTheSite = false,
     ) {}
 
     public function hasImage(): bool

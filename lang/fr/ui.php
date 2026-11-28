@@ -209,6 +209,7 @@ return [
             'video_post_published' => 'Votre vidéo est prête et votre publication est en ligne',
             'video_post_pending' => 'Votre vidéo est prête et votre publication attend la modération',
             'video_post_failed' => 'Votre vidéo n’a pas pu être traitée. Veuillez envoyer un autre fichier.',
+            'import_site_refusing' => ':site semble bloquer les téléchargements : il a refusé :count liens différents récemment. Les auteurs sont invités à importer le fichier eux-mêmes.',
             'post_commented' => '@:username a commenté votre publication',
             'followed_author_posted' => '@:username a publié :title',
         ],
