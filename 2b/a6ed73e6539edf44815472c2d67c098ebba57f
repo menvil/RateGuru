@@ -1,0 +1,148 @@
+lang/hi/import.php
+  s_1f43f39fbe0537::t_17aeba331ce37d 17
+lang/cs/import.php
+  s_1f43f39fbe0537::t_17aeba331ce37d 17
+resources/views/filament/pages/project-settings.blade.php
+  s_1f43f39fbe0537::t_076d327b4235e4 25
+lang/bn/import.php
+  s_1f43f39fbe0537::t_17aeba331ce37d 17
+lang/el/import.php
+  s_1f43f39fbe0537::t_17aeba331ce37d 17
+app/Support/Import/UrlImportValidator.php
+  s_1f43f39fbe0537::t_43e44d87bf4a3b 5
+  s_1f43f39fbe0537::t_2fbddb0a5a015f 32,34,39-42
+  s_1f43f39fbe0537::t_91287e56eeaa87 29-31,35-38
+  s_1f43f39fbe0537::t_6c1796301e5679 28,33
+lang/bs/import.php
+  s_1f43f39fbe0537::t_17aeba331ce37d 17
+app/Support/Settings/ResolvedProjectSettings.php
+  s_1f43f39fbe0537::t_06bbf227570365 149-159
+lang/fi/import.php
+  s_1f43f39fbe0537::t_17aeba331ce37d 17
+lang/ro/import.php
+  s_1f43f39fbe0537::t_17aeba331ce37d 17
+lang/sk/import.php
+  s_1f43f39fbe0537::t_17aeba331ce37d 17
+lang/is/import.php
+  s_1f43f39fbe0537::t_17aeba331ce37d 17
+database/migrations/2026_11_28_110000_add_blocked_import_domains_to_project_settings_table.php
+  s_1f43f39fbe0537::t_4becf271749473 1-25
+lang/ms/import.php
+  s_1f43f39fbe0537::t_17aeba331ce37d 17
+app/Filament/Resources/StudioPlans/Concerns/EditsStudioPlan.php
+  s_1f43f39fbe0537::t_602b21ec16a341 15,392-394,761-763
+  s_1f43f39fbe0537::t_05ef2dce9ecde6 111-113
+lang/nb/import.php
+  s_1f43f39fbe0537::t_17aeba331ce37d 17
+app/Support/Import/BlockedImportDomains.php
+  s_1f43f39fbe0537::t_fc1dfcd94e86c8 1-102
+lang/fil/import.php
+  s_1f43f39fbe0537::t_17aeba331ce37d 17
+tests/Feature/Import/BlockedImportDomainsTest.php
+  s_1f43f39fbe0537::t_41fe377f11a73a 1-25,27-97,99-114,118-156
+  s_1f43f39fbe0537::t_11911fe5cd13f3 26
+  s_1f43f39fbe0537::t_1dd9ee4cbc5607 98,115-117
+lang/hu/import.php
+  s_1f43f39fbe0537::t_17aeba331ce37d 17
+lang/cnr/import.php
+  s_1f43f39fbe0537::t_17aeba331ce37d 17
+lang/vi/import.php
+  s_1f43f39fbe0537::t_17aeba331ce37d 17
+lang/it/import.php
+  s_1f43f39fbe0537::t_17aeba331ce37d 17
+lang/lt/import.php
+  s_1f43f39fbe0537::t_17aeba331ce37d 17
+lang/nl/import.php
+  s_1f43f39fbe0537::t_17aeba331ce37d 17
+lang/sv/import.php
+  s_1f43f39fbe0537::t_17aeba331ce37d 17
+lang/et/import.php
+  s_1f43f39fbe0537::t_17aeba331ce37d 17
+lang/ar/import.php
+  s_1f43f39fbe0537::t_17aeba331ce37d 17
+lang/ja/import.php
+  s_1f43f39fbe0537::t_17aeba331ce37d 17
+lang/tr/import.php
+  s_1f43f39fbe0537::t_17aeba331ce37d 17
+lang/pt/import.php
+  s_1f43f39fbe0537::t_17aeba331ce37d 17
+app/Livewire/Import/ImportUrlForm.php
+  s_1f43f39fbe0537::t_7bc83042edd9fc 6,54-55
+lang/fr/import.php
+  s_1f43f39fbe0537::t_17aeba331ce37d 17
+lang/de/import.php
+  s_1f43f39fbe0537::t_17aeba331ce37d 17
+lang/pl/import.php
+  s_1f43f39fbe0537::t_17aeba331ce37d 17
+app/Livewire/Feed/UploadPostForm.php
+  s_1f43f39fbe0537::t_7bc83042edd9fc 15,353-354
+resources/translations/confirmed-english.json
+  s_1f43f39fbe0537::t_70ee96fd6f403e 130
+lang/es/import.php
+  s_1f43f39fbe0537::t_17aeba331ce37d 17
+lang/lv/import.php
+  s_1f43f39fbe0537::t_17aeba331ce37d 17
+lang/sl/import.php
+  s_1f43f39fbe0537::t_17aeba331ce37d 17
+lang/zh/import.php
+  s_1f43f39fbe0537::t_17aeba331ce37d 17
+app/Exceptions/Import/ImportDomainBlockedException.php
+  s_1f43f39fbe0537::t_ad2aa4043bca90 1-17
+app/Filament/Pages/ProjectSettingsPage.php
+  s_1f43f39fbe0537::t_63ef6c8945d2ef 15,203-205,317-326,352-355,359-365
+app/Models/ProjectSettings.php
+  s_1f43f39fbe0537::t_e2710ec4df4865 36,43
+resources/views/filament/pages/project-settings/features.blade.php
+  s_1f43f39fbe0537::t_076d327b4235e4 4-5,24-39
+lang/ru/import.php
+  s_1f43f39fbe0537::t_17aeba331ce37d 17
+lang/bg/import.php
+  s_1f43f39fbe0537::t_17aeba331ce37d 17
+lang/da/import.php
+  s_1f43f39fbe0537::t_17aeba331ce37d 17
+lang/en/import.php
+  s_1f43f39fbe0537::t_17aeba331ce37d 17
+app/Support/Settings/ProjectSettingsManager.php
+  s_1f43f39fbe0537::t_e2710ec4df4865 73-74,102
+lang/ka/import.php
+  s_1f43f39fbe0537::t_17aeba331ce37d 17
+lang/th/import.php
+  s_1f43f39fbe0537::t_17aeba331ce37d 17
+lang/ur/import.php
+  s_1f43f39fbe0537::t_17aeba331ce37d 17
+lang/he/import.php
+  s_1f43f39fbe0537::t_17aeba331ce37d 17
+lang/uk/import.php
+  s_1f43f39fbe0537::t_17aeba331ce37d 17
+lang/mk/import.php
+  s_1f43f39fbe0537::t_17aeba331ce37d 17
+lang/sr/import.php
+  s_1f43f39fbe0537::t_17aeba331ce37d 17
+tests/Feature/Filament/StudioPlanImageUiTest.php
+  s_1f43f39fbe0537::t_37211537407553 398-418
+lang/sq/import.php
+  s_1f43f39fbe0537::t_17aeba331ce37d 17
+app/Actions/Import/ResolveMediaLinkAction.php
+  s_1f43f39fbe0537::t_3a004f5e70216f 15
+  s_1f43f39fbe0537::t_0c02de67448fd5 67-70
+lang/hr/import.php
+  s_1f43f39fbe0537::t_17aeba331ce37d 17
+lang/id/import.php
+  s_1f43f39fbe0537::t_17aeba331ce37d 17
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "2ba6ed73e6539edf44815472c2d67c098ebba57f",
+  "prompts": {},
+  "sessions": {
+    "s_1f43f39fbe0537": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "526787d0-f443-4ad7-9610-cf9811fec895",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
