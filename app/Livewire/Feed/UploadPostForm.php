@@ -196,6 +196,8 @@ final class UploadPostForm extends Component
         // The post's source when the author named none: never written into the
         // form, so a failed submission leaves the field as the author left it.
         $linkSource = null;
+        // The link the picture or video came from, kept on its file for moderators.
+        $takenFrom = null;
 
         // A link field emptied is no link: the picture is then simply missing.
         if (filled($this->importedImageUrl) && $this->image === null && ! $this->video instanceof UploadedFile) {
@@ -236,6 +238,9 @@ final class UploadPostForm extends Component
                     $linkSource = $resolved->source;
                 }
 
+                // The post it came from, or the file's own link when it was one.
+                $takenFrom = $resolved->source ?? trim((string) $this->importedImageUrl);
+
                 $this->linksToVideo = $videoUrl !== null;
 
                 if ($imageUrl !== null) {
@@ -265,6 +270,7 @@ final class UploadPostForm extends Component
                     authorAnswerOptionIds: $this->selectedAuthorAnswerOptionIds(),
                     video: $this->video instanceof UploadedFile ? $this->video : null,
                     videoUrl: $videoUrl,
+                    takenFrom: $videoUrl !== null || $imageSource === ImageInputSource::UrlImport ? $takenFrom : null,
                 ));
 
                 $author = auth()->user();

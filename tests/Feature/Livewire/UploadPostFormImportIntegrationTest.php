@@ -2,6 +2,7 @@
 
 use App\Actions\Import\StoreImportedImageAction;
 use App\Livewire\Feed\UploadPostForm;
+use App\Models\Post;
 use App\Models\ProjectSettings;
 use App\Models\User;
 use App\Support\Import\ImportHttpTransport;
@@ -73,6 +74,9 @@ it('submit downloads importedImageUrl before validation and creates post', funct
         ->assertDispatched('post-uploaded')
         ->assertDispatched('toast', message: __('ui.upload.success_published'))
         ->assertHasNoErrors();
+
+    // The link it was taken from stays on the file, for moderators to open.
+    expect(Post::query()->where('title', 'Imported Dish')->sole()->imageAsset->takenFrom())->toBe('https://example.com/image.jpg');
 });
 
 it('cleans up the imported temp file even when post creation fails validation, clears the stale image, and re-downloads on a corrected retry', function () {

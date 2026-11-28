@@ -566,7 +566,28 @@ final class ListPosts extends Page
             ])),
             'rating' => self::contentRating($asset),
             'classifiers' => self::classifiers($asset),
+            // Where it came from, for the moderator to open the original:
+            // the link it was taken from, or none for a file uploaded; and
+            // the source the author named, when it says something else.
+            'takenFrom' => self::link($asset->takenFrom()),
+            'source' => $post->source_url !== null && $post->source_url !== $asset->takenFrom() ? self::link($post->source_url) : null,
         ];
+    }
+
+    /**
+     * A link a moderator may open: an http(s) address only, with its host to
+     * name it by.
+     *
+     * @return array{url: string, host: string}|null
+     */
+    private static function link(?string $url): ?array
+    {
+        $scheme = strtolower((string) parse_url((string) $url, PHP_URL_SCHEME));
+        $host = (string) parse_url((string) $url, PHP_URL_HOST);
+
+        return $url !== null && in_array($scheme, ['http', 'https'], true) && $host !== ''
+            ? ['url' => $url, 'host' => preg_replace('/^www\./', '', strtolower($host))]
+            : null;
     }
 
     /** @return array{label: string, tone: string} */

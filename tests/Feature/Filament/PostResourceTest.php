@@ -293,3 +293,32 @@ it('shows each classifier\'s latest answer, however often another answered since
         ->assertSee('cloud: Sex toy 0.50')
         ->assertSee('nudenet (shadow): Breast 0.91');
 });
+
+it('tells a moderator where a post\'s file came from — the link to open, or an upload — and the source its author named', function () {
+    Storage::fake('public');
+    $this->actingAs(User::factory()->moderator()->create());
+    // Only a leading "www." is dropped from the name shown; one further in stays.
+    $linked = Post::factory()->published()->withImage(path: 'posts/linked.jpg')->create(['source_url' => 'https://news.www.example.org/artist']);
+    $linked->imageAsset->forceFill(['metadata' => ['origin' => ['link' => 'https://www.instagram.com/p/abc/']]])->save();
+    $uploaded = Post::factory()->published()->withImage(path: 'posts/uploaded.jpg')->create(['source_url' => 'javascript:alert(1)']);
+    // A video downloaded before the link was recorded still names the address it came from.
+    $downloaded = Post::factory()->published()->withImage(path: 'posts/downloaded.jpg')->create();
+    $downloaded->imageAsset->forceFill(['metadata' => ['import' => ['url' => 'https://cdn.example.com/clip.mp4']]])->save();
+
+    $page = Livewire::withQueryParams(['status' => 'all'])->test(ListPosts::class);
+
+    $page->call('view', $linked->id)
+        ->assertSeeHtml('Taken from a link:')
+        ->assertSeeHtml('href="https://www.instagram.com/p/abc/"')
+        ->assertSeeHtml('>instagram.com</a>')
+        ->assertSeeHtml('Source given:')
+        ->assertSeeHtml('href="https://news.www.example.org/artist"')
+        ->assertSeeHtml('>news.www.example.org</a>');
+
+    $page->call('view', $uploaded->id)
+        ->assertSeeHtml('Uploaded as a file')
+        ->assertDontSeeHtml('Source given:')
+        ->assertDontSeeHtml('javascript:alert(1)');
+
+    $page->call('view', $downloaded->id)->assertSeeHtml('href="https://cdn.example.com/clip.mp4"');
+});

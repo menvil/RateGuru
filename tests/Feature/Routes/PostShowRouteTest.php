@@ -142,7 +142,8 @@ it('renders post metadata', function () {
         // Tags are named by slug, as the sidebar's top tags and the tag filter name them.
         ->assertSee('#pasta')
         ->assertSee('href="'.route('feed', ['tag' => 'pasta']).'"', false)
-        ->assertSee('Source');
+        // Its source is for moderators: never on the public page.
+        ->assertDontSee('https://example.com/original', false);
 });
 
 it('renders the comments section on post page', function () {

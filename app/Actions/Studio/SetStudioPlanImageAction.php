@@ -71,7 +71,7 @@ final class SetStudioPlanImageAction
      * @throws CannotManageStudioPlanException when the administrator may not, or the plan is gone, past its Draft or changed meanwhile
      * @throws ImageIngestException when the file is not an image the site takes
      */
-    public function handle(User $admin, StudioPlan $plan, UploadedFile $file, int $expectedLockVersion, ImageInputSource $source = ImageInputSource::Upload): void
+    public function handle(User $admin, StudioPlan $plan, UploadedFile $file, int $expectedLockVersion, ImageInputSource $source = ImageInputSource::Upload, ?string $takenFrom = null): void
     {
         if (! $admin->can('manage-studio-plans')) {
             throw CannotManageStudioPlanException::becauseUserIsNotAllowed();
@@ -82,12 +82,12 @@ final class SetStudioPlanImageAction
         $stored = $this->imageUploadStorer->store($file, MediaStoreRequest::forPostImage((int) $admin->getKey()), $source);
 
         try {
-            $assetId = DB::transaction(function () use ($admin, $plan, $stored, $expectedLockVersion): int {
+            $assetId = DB::transaction(function () use ($admin, $plan, $stored, $expectedLockVersion, $takenFrom): int {
                 [$lockedAdmin] = $this->lockAdministratorAndAuthor($admin);
                 $locked = $this->currentDraft((int) $plan->getKey(), $expectedLockVersion);
                 $previousAssetId = $locked->image_asset_id;
 
-                $asset = $this->mediaAssetCreator->create($stored, MediaKind::PostImage, $lockedAdmin);
+                $asset = $this->mediaAssetCreator->create($stored, MediaKind::PostImage, $lockedAdmin, $takenFrom);
 
                 $locked->forceFill([
                     'image_asset_id' => $asset->id,

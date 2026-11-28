@@ -116,4 +116,27 @@ class MediaAsset extends Model
     {
         return $this->belongsToMany(GameVersion::class, 'game_version_assets', 'media_asset_id', 'version_id');
     }
+
+    /**
+     * The link this file was taken from — the page or file an author or an
+     * administrator pasted — for moderators to open the original; null for a
+     * file uploaded as it is. A video downloaded before this was recorded
+     * still says the address it was downloaded from.
+     */
+    public function takenFrom(): ?string
+    {
+        $link = $this->metadata['origin']['link'] ?? $this->metadata['import']['url'] ?? null;
+
+        return is_string($link) && $link !== '' ? $link : null;
+    }
+
+    /**
+     * What a new asset's metadata says of where it came from.
+     *
+     * @return array{origin: array{link: string}}|array{}
+     */
+    public static function originMetadata(?string $takenFrom): array
+    {
+        return $takenFrom !== null && $takenFrom !== '' ? ['origin' => ['link' => mb_substr($takenFrom, 0, 2048)]] : [];
+    }
 }
