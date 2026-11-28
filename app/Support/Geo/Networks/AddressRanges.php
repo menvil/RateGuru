@@ -2,6 +2,8 @@
 
 namespace App\Support\Geo\Networks;
 
+use Generator;
+
 /**
  * A set of IP addresses kept as sorted, merged ranges in a compact file: each
  * range is two 16-byte addresses, its first and its last, IPv4 written as an
@@ -25,18 +27,43 @@ final class AddressRanges
      */
     public static function parse(string $text): array
     {
-        $ranges = [];
+        return self::fromLines((function () use ($text): Generator {
+            $offset = 0;
+            $length = strlen($text);
 
-        foreach (preg_split('/\R/', $text) ?: [] as $line) {
-            $cidr = trim(explode(',', $line, 2)[0]);
-            $range = $cidr === '' ? null : self::range($cidr);
-
-            if ($range !== null) {
-                $ranges[] = $range;
+            while ($offset < $length) {
+                $end = strpos($text, "\n", $offset);
+                $end = $end === false ? $length : $end;
+                yield substr($text, $offset, $end - $offset);
+                $offset = $end + 1;
             }
-        }
+        })());
+    }
 
-        return self::merge($ranges);
+    /**
+     * The same, read from a file a line at a time: Apple's list is some
+     * 280,000 lines, which split into one array at once would outgrow a
+     * scheduled run's memory.
+     *
+     * @return list<array{0: string, 1: string}>
+     */
+    public static function parseFile(string $path): array
+    {
+        return self::fromLines((function () use ($path): Generator {
+            $file = @fopen($path, 'rb');
+
+            if ($file === false) {
+                return;
+            }
+
+            try {
+                while (($line = fgets($file, 4096)) !== false) {
+                    yield $line;
+                }
+            } finally {
+                fclose($file);
+            }
+        })());
     }
 
     /**
@@ -82,26 +109,63 @@ final class AddressRanges
     }
 
     /**
-     * @param  list<array{0: string, 1: string}>  $ranges
+     * Each line's range kept as one 32-byte string — first then last address
+     * — so a byte sort orders them by their first address, and some 280,000
+     * of them fit in a few tens of MB; then merged where they touch or
+     * overlap.
+     *
+     * @param  iterable<string>  $lines
      * @return list<array{0: string, 1: string}>
      */
-    public static function merge(array $ranges): array
+    private static function fromLines(iterable $lines): array
     {
-        usort($ranges, fn (array $a, array $b): int => strcmp($a[0], $b[0]) ?: strcmp($a[1], $b[1]));
+        $packed = [];
+        $run = null;
+
+        // A list in address order — Apple's mostly is — joins line after line into runs as it is read, so only the runs are kept.
+        foreach ($lines as $line) {
+            $cidr = trim(explode(',', $line, 2)[0]);
+            $range = $cidr === '' ? null : self::range($cidr);
+
+            if ($range === null) {
+                continue;
+            }
+
+            if ($run !== null && strcmp($range[0], $run[0]) >= 0 && (strcmp($range[0], $run[1]) <= 0 || $range[0] === self::next($run[1]))) {
+                $run[1] = strcmp($range[1], $run[1]) > 0 ? $range[1] : $run[1];
+
+                continue;
+            }
+
+            if ($run !== null) {
+                $packed[] = $run[0].$run[1];
+            }
+
+            $run = $range;
+        }
+
+        if ($run !== null) {
+            $packed[] = $run[0].$run[1];
+        }
+
+        sort($packed, SORT_STRING);
         $merged = [];
+        $top = -1;
 
-        foreach ($ranges as $range) {
-            $top = count($merged) - 1;
+        foreach ($packed as $record) {
+            $first = substr($record, 0, 16);
+            $last = substr($record, 16);
 
-            if ($top >= 0 && (strcmp($range[0], $merged[$top][1]) <= 0 || $range[0] === self::next($merged[$top][1]))) {
-                if (strcmp($range[1], $merged[$top][1]) > 0) {
-                    $merged[$top][1] = $range[1];
+            if ($top >= 0 && (strcmp($first, $merged[$top][1]) <= 0 || $first === self::next($merged[$top][1]))) {
+                if (strcmp($last, $merged[$top][1]) > 0) {
+                    $merged[$top][1] = $last;
                 }
 
                 continue;
             }
 
-            $merged[] = $range;
+            $merged[] = [$first, $last];
+            $top++;
         }
 
         return $merged;

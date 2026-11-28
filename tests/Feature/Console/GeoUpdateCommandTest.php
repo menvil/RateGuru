@@ -399,6 +399,22 @@ it('keeps the network list in service when a fetched one is short, unreadable or
     'too large' => [fn () => fn () => Http::response(str_repeat('AS1 # x'."\n", 400000))],
 ]);
 
+it('records a network list’s next try before it fetches, so a run that dies on the way waits instead of fetching again a minute later', function () {
+    $seen = null;
+    geoServes([
+        ...fakeNpm('1.0.116', geoPackage(file_get_contents(base_path(GEO_FIXTURE)))),
+        'mask-api.icloud.com/egress-ip-ranges.csv' => function () use (&$seen) {
+            $seen = json_decode((string) file_get_contents(test()->geoDirectory.'/networks/relay.json'), true);
+
+            return Http::response('', 503);
+        },
+    ]);
+
+    $this->artisan('geo:update')->assertSuccessful();
+
+    expect($seen)->toMatchArray(['last_attempt_at' => '2026-11-17T10:00:00+00:00', 'next_check_at' => '2026-11-17T10:15:00+00:00']);
+});
+
 it('runs every minute in the background, without overlapping for more than an hour, and reads no environment variable', function () {
     $events = collect(app(Schedule::class)->events())
         ->filter(fn ($event) => str_contains($event->command ?? '', 'geo:update'))

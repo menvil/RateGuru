@@ -53,6 +53,26 @@ it('merges ranges that touch or overlap, in order, and keeps apart those with a 
     ]);
 });
 
+it('reads ranges from a file a line at a time, in or out of address order, as from the same text', function () {
+    $lines = ['172.224.226.36/31,GB', '172.224.226.0/27,GB', '10.0.0.0/8', '172.224.226.32/31,GB', '172.224.226.34/31,GB', '2a02:26f7::/32', '10.0.0.0/16', 'junk'];
+    $path = tempnam(sys_get_temp_dir(), 'relay');
+    file_put_contents($path, implode("\r\n", $lines));
+
+    try {
+        $ranges = AddressRanges::parseFile($path);
+
+        expect($ranges)->toBe(AddressRanges::parse(implode("\n", $lines)))
+            ->and(array_map(fn (array $range): array => array_map('inet_ntop', $range), $ranges))->toBe([
+                ['::ffff:10.0.0.0', '::ffff:10.255.255.255'],
+                ['::ffff:172.224.226.0', '::ffff:172.224.226.37'],
+                ['2a02:26f7::', '2a02:26f7:ffff:ffff:ffff:ffff:ffff:ffff'],
+            ])
+            ->and(AddressRanges::parseFile($path.'.missing'))->toBe([]);
+    } finally {
+        @unlink($path);
+    }
+});
+
 it('finds an address in a file of ranges, and nothing in a file that is missing or cut short', function () {
     $path = tempnam(sys_get_temp_dir(), 'ranges');
     file_put_contents($path, AddressRanges::encode(AddressRanges::parse("172.224.226.0/27\n172.224.230.0/24\n2a02:26f7:b3c0:4000::/64\n104.28.0.0/16")));

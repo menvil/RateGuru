@@ -87,6 +87,9 @@ final readonly class NetworkListUpdater
             }
 
             $state['last_attempt_at'] = $now->toIso8601String();
+            // Written before the fetch: a run that dies on the way — out of memory, killed — waits as a failure does, never fetches again a minute later.
+            $state['next_check_at'] = GeoUpdatePlan::retryAt($now, (int) ($state['failures'] ?? 0) + 1, (array) config('geo.retry_after_minutes'))->toIso8601String();
+            $this->writeState($name, $state);
 
             try {
                 $list = $this->fetch($name, $config);
@@ -134,32 +137,34 @@ final readonly class NetworkListUpdater
      */
     private function fetch(string $name, array $config): array
     {
-        $texts = [];
+        $read = [];
 
-        foreach ((array) ($config['urls'] ?? []) as $index => $url) {
+        foreach (array_values((array) ($config['urls'] ?? [])) as $index => $url) {
             $part = $this->locator->networkPart($name, 'download'.$index);
 
             try {
                 $this->http->download((string) $url, $part, (int) ($config['max_bytes'] ?? 0), $name);
-                $texts[] = (string) @file_get_contents($part);
+                // The relay ranges are read from the file a line at a time; an ASN list is a few tens of KB.
+                $read[] = $name === 'relay' ? AddressRanges::parseFile($part) : HostingAsnList::parse((string) @file_get_contents($part));
+            } catch (GeoUpdateException $exception) {
+                throw $exception;
+            } catch (Throwable) {
+                throw GeoUpdateException::because(GeoUpdateFailure::ListInvalid, $name);
             } finally {
                 @unlink($part);
             }
         }
 
-        try {
-            if ($name === 'relay') {
-                $ranges = AddressRanges::parse(implode("\n", $texts));
-                [$contents, $entries] = [AddressRanges::encode($ranges), count($ranges)];
-            } else {
-                $asns = HostingAsnList::union(array_map(fn (string $text): array => HostingAsnList::parse($text), $texts));
-                [$contents, $entries] = [HostingAsnList::encode($asns), count($asns)];
-            }
-        } catch (Throwable) {
-            throw GeoUpdateException::because(GeoUpdateFailure::ListInvalid, $name);
+        if ($name === 'relay') {
+            $ranges = $read[0] ?? [];
+            [$contents, $entries] = [AddressRanges::encode($ranges), count($ranges)];
+        } else {
+            /** @var list<list<int>> $read */
+            $asns = HostingAsnList::union($read);
+            [$contents, $entries] = [HostingAsnList::encode($asns), count($asns)];
         }
 
-        if ($texts === [] || $entries < (int) ($config['min_entries'] ?? 1)) {
+        if ($read === [] || $entries < (int) ($config['min_entries'] ?? 1)) {
             throw GeoUpdateException::because(GeoUpdateFailure::ListInvalid, $name);
         }
 

@@ -52,7 +52,12 @@ failure in a row. `hosting.list` is one ASN a line (`HostingAsnList`);
 `relay.list` holds the ranges merged and sorted, 32 bytes each — the first
 and last address, IPv4 mapped into IPv6 — so a lookup finds an address with
 a binary search of some twenty 32-byte reads (`AddressRanges`), never loading
-the 12 MB list Apple publishes.
+the 12 MB list Apple publishes. The update reads that list a line at a time
+and joins runs of touching ranges as it reads (some 280,000 lines become under
+7,000 ranges, 220 KB), so it stays a few MB above an ordinary run's memory. A
+run writes the list's next try — the first retry's time — before it fetches,
+so one that dies on the way waits as a failure does instead of fetching again
+the next minute.
 
 `NetworkLookup::lookup($ip)` (`MmdbNetworkLookup`, bound scoped) answers a
 `NetworkInfo`: the ASN and organisation, and its kind (`NetworkKind`) —
