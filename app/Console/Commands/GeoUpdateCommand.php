@@ -11,6 +11,7 @@ use App\Services\Geo\NetworkListUpdater;
 use App\Support\Geo\GeoDatabaseLocator;
 use Carbon\CarbonImmutable;
 use Illuminate\Console\Command;
+use Throwable;
 
 /**
  * Keeps the local IP location database current (docs/architecture/geo.md).
@@ -79,11 +80,18 @@ final class GeoUpdateCommand extends Command
             $this->line("{$chosen->label()}: {$outcome->value}.");
         }
 
-        // The networks' database on its own schedule beside the city one: its failure leaves the city one serving, and is told, not fatal.
-        $networks = $updater->update(GeoEdition::DbipAsnLite, $now, $requestedAt, (bool) $this->option('force'));
+        // The networks' database on its own schedule beside the city one: its failure leaves the city one serving, and is told, not
+        // fatal — even one the updater does not turn into an outcome, such as a state file it cannot write, which would otherwise
+        // stop the run before the network lists.
+        try {
+            $networks = $updater->update(GeoEdition::DbipAsnLite, $now, $requestedAt, (bool) $this->option('force'));
 
-        if ($networks !== GeoUpdateOutcome::Idle) {
-            $this->line(GeoEdition::DbipAsnLite->label().": {$networks->value}.");
+            if ($networks !== GeoUpdateOutcome::Idle) {
+                $this->line(GeoEdition::DbipAsnLite->label().": {$networks->value}.");
+            }
+        } catch (Throwable $exception) {
+            report($exception);
+            $this->error(GeoEdition::DbipAsnLite->label().': failed ('.$exception->getMessage().').');
         }
 
         $lists = $lists->update($now, $requestedAt, (bool) $this->option('force'));

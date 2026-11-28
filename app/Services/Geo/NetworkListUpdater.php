@@ -129,8 +129,9 @@ final readonly class NetworkListUpdater
 
     /**
      * Each of the list's addresses fetched and read: an ASN list joins all
-     * of them, the relay ranges take the one. Short of the entries a real
-     * list holds, nothing is taken.
+     * of them, the relay ranges take the one. When any of them gives nothing,
+     * or all of them together fall short of the entries a real list holds,
+     * nothing is taken.
      *
      * @param  array<string, mixed>  $config
      * @return array{contents: string, entries: int}
@@ -145,7 +146,15 @@ final readonly class NetworkListUpdater
             try {
                 $this->http->download((string) $url, $part, (int) ($config['max_bytes'] ?? 0), $name);
                 // The relay ranges are read from the file a line at a time; an ASN list is a few tens of KB.
-                $read[] = $name === 'relay' ? AddressRanges::parseFile($part) : HostingAsnList::parse((string) @file_get_contents($part));
+                $parsed = $name === 'relay' ? AddressRanges::parseFile($part) : HostingAsnList::parse((string) @file_get_contents($part));
+
+                // Every address gives a list of its own: one that came back empty would drop its networks from the union while
+                // the others still filled it past the entries a real list holds.
+                if ($parsed === []) {
+                    throw GeoUpdateException::because(GeoUpdateFailure::ListInvalid, $name);
+                }
+
+                $read[] = $parsed;
             } catch (GeoUpdateException $exception) {
                 throw $exception;
             } catch (Throwable) {
