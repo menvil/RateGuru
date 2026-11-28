@@ -111,7 +111,7 @@ final class UploadPostForm extends Component
     #[On('upload-modal-opened')]
     public function resetUploadForm(): void
     {
-        $this->reset(['title', 'description', 'sourceUrl', 'image', 'video', 'importedImageUrl', 'tagIds', 'tagSearch', 'submitError', 'categoryId', 'knowsCorrectAnswer', 'authorAnswers']);
+        $this->reset(['title', 'description', 'sourceUrl', 'image', 'video', 'importedImageUrl', 'tagIds', 'tagSearch', 'submitError', 'categoryId', 'knowsCorrectAnswer', 'authorAnswers', 'linkPreview', 'previewedLink', 'previewedResolution']);
         $this->loadTags();
         $this->activeTab = 'upload';
         $this->resetValidation();
@@ -214,6 +214,11 @@ final class UploadPostForm extends Component
             try {
                 // What the link brings — a picture now, or a video once the
                 // post exists — and where it came from, decided by the Action.
+                // Imports switched off since the preview are off for it too.
+                if (! app(ProjectSettingsManager::class)->featureEnabled('allow_url_imports')) {
+                    throw new UrlImportDisabledException;
+                }
+
                 // The link its preview read is taken as it came to: neither
                 // read twice nor counted twice against the import limit.
                 $resolved = trim((string) $this->importedImageUrl) === $this->previewedLink && $this->previewedResolution !== null

@@ -193,6 +193,18 @@ final class ResolveMediaLinkAction
     /** Where it came from, without its query: it may carry a token or tracking, never meant to be public. */
     private static function withoutQuery(string $url): ?string
     {
-        return strtok($url, '?#') ?: null;
+        $bare = strtok($url, '?#') ?: null;
+
+        // A YouTube watch page is the video only with its v; nothing else of
+        // the query is kept.
+        $host = strtolower((string) parse_url($url, PHP_URL_HOST));
+        parse_str((string) parse_url($url, PHP_URL_QUERY), $query);
+
+        if ($bare !== null && ($host === 'youtube.com' || str_ends_with($host, '.youtube.com')) && parse_url($bare, PHP_URL_PATH) === '/watch'
+            && is_string($query['v'] ?? null) && preg_match('/^[A-Za-z0-9_-]{6,20}$/', $query['v']) === 1) {
+            return $bare.'?v='.$query['v'];
+        }
+
+        return $bare;
     }
 }

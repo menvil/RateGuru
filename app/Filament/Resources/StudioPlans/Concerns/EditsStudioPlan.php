@@ -359,7 +359,8 @@ trait EditsStudioPlan
         $direct = app(ImportProviderDetector::class)->detect($url) === 'direct_image';
 
         try {
-            $imageUrl = $direct ? $url : $this->postImageUrl($url);
+            $guessed = false;
+            $imageUrl = $direct ? $url : $this->postImageUrl($url, $guessed);
 
             if ($imageUrl === null) {
                 return;
@@ -375,9 +376,11 @@ trait EditsStudioPlan
                 return;
             } catch (Throwable $exception) {
                 report($exception);
-                $this->addError($field, $direct
-                    ? 'No image could be downloaded from this link. Use a link to a JPEG, PNG or WebP file, or to a public post.'
-                    : 'The post’s image couldn’t be downloaded. Try again, or upload the file.');
+                $this->addError($field, match (true) {
+                    $direct => 'No image could be downloaded from this link. Use a link to a JPEG, PNG or WebP file, or to a public post.',
+                    $guessed => 'No image was found in this post. It may be private, or the site may not share it.',
+                    default => 'The post’s image couldn’t be downloaded. Try again, or upload the file.',
+                });
 
                 return;
             }
@@ -724,10 +727,12 @@ trait EditsStudioPlan
 
     /**
      * The image of a public post: what the site's own import finds for the
-     * link. None — said by the field — when importing is switched off, the
-     * address is not one to fetch, or the post shows no image.
+     * link. Where it finds none, the link itself is tried as a picture's — an
+     * image CDN's address names no file ($guessed then says so, for the
+     * error). None — said by the field — when importing is switched off or
+     * the address is not one to fetch.
      */
-    private function postImageUrl(string $url): ?string
+    private function postImageUrl(string $url, bool &$guessed = false): ?string
     {
         try {
             $preview = app(ImportFromUrlAction::class)->handle($url);
@@ -747,9 +752,9 @@ trait EditsStudioPlan
         }
 
         if (! $preview->isSupported() || $preview->imageUrl === null) {
-            $this->addError('imageUrl', 'No image was found in this post. It may be private, or the site may not share it.');
+            $guessed = true;
 
-            return null;
+            return $url;
         }
 
         return $preview->imageUrl;

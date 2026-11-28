@@ -12,6 +12,7 @@ use App\Jobs\ProcessVideoAssetJob;
 use App\Livewire\Feed\UploadPostForm;
 use App\Models\MediaAsset;
 use App\Models\Post;
+use App\Models\ProjectSettings;
 use App\Models\User;
 use App\Services\Media\Exceptions\MediaToolTimedOutException;
 use App\Services\Media\Exceptions\MediaToolUnavailableException;
@@ -23,6 +24,7 @@ use App\Support\Import\YtDlpIsolation;
 use App\Support\Import\YtDlpProbeException;
 use App\Support\Import\YtDlpSites;
 use App\Support\Media\VideoUploadStorer;
+use App\Support\Settings\ProjectSettingsManager;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Exceptions;
@@ -583,4 +585,42 @@ it('reads nothing for a guest, nor for an account that may not post', function (
         ->assertSet('linkPreview', null);
 
     expect($runner->calls)->toBe([]);
+});
+
+it('keeps a YouTube watch link\'s video in the post\'s source, and nothing else of its query', function () {
+    bindFakeHostResolver(['www.youtube.com' => ['142.250.0.1']]);
+    ytDlpStandIn(ytDlpVideoJson(['extractor_key' => 'Youtube']));
+
+    Livewire::actingAs(User::factory()->create())
+        ->test(UploadPostForm::class)
+        ->set('title', 'From YouTube')
+        ->set('importedImageUrl', 'https://www.youtube.com/watch?v=jNQXAC9IVRw&t=10s&si=tracking')
+        ->call('submit')
+        ->assertSet('submitError', null);
+
+    expect(Post::query()->where('title', 'From YouTube')->sole()->source_url)->toBe('https://www.youtube.com/watch?v=jNQXAC9IVRw');
+});
+
+it('lets the preview go when the upload form opens again, and posts nothing it read once imports are switched off', function () {
+    ytDlpStandIn(ytDlpVideoJson());
+
+    $form = Livewire::actingAs(User::factory()->create())
+        ->test(UploadPostForm::class)
+        ->call('previewLink', 'https://www.redgifs.com/watch/aloop')
+        ->assertSet('previewedLink', 'https://www.redgifs.com/watch/aloop')
+        ->call('resetUploadForm')
+        ->assertSet('linkPreview', null)
+        ->assertSet('previewedLink', '')
+        ->assertSet('previewedResolution', null)
+        ->call('previewLink', 'https://www.redgifs.com/watch/aloop');
+
+    ProjectSettings::factory()->create(['feature_flags' => ['allow_url_imports' => false]]);
+    app(ProjectSettingsManager::class)->flush();
+
+    $form->set('title', 'Too late')
+        ->set('importedImageUrl', 'https://www.redgifs.com/watch/aloop')
+        ->call('submit')
+        ->assertSet('submitError', __('import.errors.feature_disabled'));
+
+    expect(Post::query()->where('title', 'Too late')->exists())->toBeFalse();
 });

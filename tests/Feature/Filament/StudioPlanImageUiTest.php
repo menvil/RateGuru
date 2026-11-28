@@ -612,3 +612,23 @@ it('fetches an address that failed again when it is given again, keeping its err
 
     expect($transport->calls)->toHaveCount(2);
 });
+
+it('imports an image whose link names no file, an image CDN\'s, from the one link field', function () {
+    configureStudioImageAnalysis();
+    bindFakeHostResolver();
+    // The link is no post: the page read finds no picture, so the link itself is taken as one.
+    $transport = new ScriptedImportHttpTransport([
+        new ImportTransportResponse(200, ['content-type' => 'image/jpeg'], jpegMarkerBytes(400, 300)),
+        new ImportTransportResponse(200, ['content-type' => 'image/jpeg'], jpegMarkerBytes(400, 300)),
+    ]);
+    app()->instance(ImportHttpTransport::class, $transport);
+    $plan = StudioPlan::factory()->create();
+
+    Livewire::test(EditStudioPlan::class, ['record' => $plan->id])
+        ->set('imageUrl', 'https://cdn.example.com/image?id=42')
+        ->call('importImage', 'link')
+        ->assertHasNoErrors();
+
+    expect($plan->fresh()->imageAsset)->width->toBe(400)->height->toBe(300)
+        ->and(collect($transport->calls)->map(fn ($target) => $target->url)->last())->toBe('https://cdn.example.com/image?id=42');
+});
