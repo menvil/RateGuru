@@ -49,6 +49,7 @@ return [
         'allow_guest_viewing' => 'Allow guest viewing',
         'guest_actions_open_sign_up' => 'Offer new guests sign-up when they vote',
         'content_studio_verified_adults' => 'Content Studio photos show verified adults',
+        'keep_ip_addresses' => 'Keep members\' IP addresses',
         'label' => 'Label',
         'title' => 'Title',
         'content' => 'Content',
