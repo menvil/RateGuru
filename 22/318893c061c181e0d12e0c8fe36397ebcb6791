@@ -1,0 +1,28 @@
+tests/Feature/Import/YtDlpImportTest.php
+  s_1f43f39fbe0537::t_da02b584bcba65 589-616,618-626
+  s_1f43f39fbe0537::t_339234713a26c0 15,27,617
+app/Actions/Import/ResolveMediaLinkAction.php
+  s_1f43f39fbe0537::t_fd1d359ce81fcc 196-208
+app/Filament/Resources/StudioPlans/Concerns/EditsStudioPlan.php
+  s_1f43f39fbe0537::t_fd1d359ce81fcc 362-363,379-383,730-733,735,755,757
+app/Livewire/Feed/UploadPostForm.php
+  s_1f43f39fbe0537::t_fd1d359ce81fcc 114,217-221
+tests/Feature/Filament/StudioPlanImageUiTest.php
+  s_1f43f39fbe0537::t_339234713a26c0 615-634
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "22318893c061c181e0d12e0c8fe36397ebcb6791",
+  "prompts": {},
+  "sessions": {
+    "s_1f43f39fbe0537": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "526787d0-f443-4ad7-9610-cf9811fec895",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
